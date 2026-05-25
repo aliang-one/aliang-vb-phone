@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .font-mono { font-family: 'JetBrains Mono', 'monospace'; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-primary-container": "#ecefff",
+                      "on-secondary-container": "#5c656f",
+                      "on-error": "#ffffff",
+                      "on-background": "#181c21",
+                      "secondary": "#565f69",
+                      "on-secondary-fixed-variant": "#3f4851",
+                      "tertiary-fixed": "#dbe3ed",
+                      "tertiary": "#4d565d",
+                      "primary-container": "#0969da",
+                      "surface-bright": "#f7f9ff",
+                      "error": "#ba1a1a",
+                      "on-tertiary": "#ffffff",
+                      "on-secondary": "#ffffff",
+                      "surface-container-high": "#e5e8ef",
+                      "inverse-surface": "#2d3136",
+                      "surface-tint": "#005bc0",
+                      "outline-variant": "#c2c6d6",
+                      "secondary-container": "#dae3ef",
+                      "primary-fixed": "#d8e2ff",
+                      "on-tertiary-container": "#e8f1fa",
+                      "surface-container-highest": "#e0e2e9",
+                      "tertiary-container": "#656e76",
+                      "on-secondary-fixed": "#141c25",
+                      "on-surface-variant": "#424753",
+                      "primary-fixed-dim": "#adc6ff",
+                      "on-primary-fixed-variant": "#004493",
+                      "on-primary": "#ffffff",
+                      "surface-dim": "#d7dae1",
+                      "error-container": "#ffdad6",
+                      "background": "#f7f9ff",
+                      "surface": "#f7f9ff",
+                      "surface-container": "#ebeef5",
+                      "primary": "#0051ae",
+                      "on-tertiary-fixed-variant": "#3f484f",
+                      "surface-variant": "#e0e2e9",
+                      "secondary-fixed-dim": "#bec7d2",
+                      "inverse-on-surface": "#eef1f8",
+                      "inverse-primary": "#adc6ff",
+                      "on-tertiary-fixed": "#141d23",
+                      "on-error-container": "#93000a",
+                      "secondary-fixed": "#dae3ef",
+                      "on-surface": "#181c21",
+                      "tertiary-fixed-dim": "#bfc8d1",
+                      "surface-container-low": "#f1f4fa",
+                      "outline": "#727785",
+                      "surface-container-lowest": "#ffffff",
+                      "on-primary-fixed": "#001a41"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "base": "8px",
+                      "container-max": "1280px",
+                      "sm": "8px",
+                      "md": "16px",
+                      "xs": "4px",
+                      "lg": "24px",
+                      "gutter": "16px",
+                      "xl": "32px"
+              },
+              "fontFamily": {
+                      "h3": ["Inter"],
+                      "h1": ["Inter"],
+                      "code-md": ["monospace"],
+                      "h2": ["Inter"],
+                      "label-md": ["Inter"],
+                      "body-sm": ["Inter"],
+                      "body-lg": ["Inter"],
+                      "body-md": ["Inter"]
+              },
+              "fontSize": {
+                      "h3": ["20px", {"lineHeight": "1.25", "letterSpacing": "0", "fontWeight": "600"}],
+                      "h1": ["32px", {"lineHeight": "1.25", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                      "code-md": ["14px", {"lineHeight": "1.45", "fontWeight": "400"}],
+                      "h2": ["24px", {"lineHeight": "1.25", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                      "label-md": ["14px", {"lineHeight": "1.2", "fontWeight": "500"}],
+                      "body-sm": ["12px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                      "body-lg": ["16px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                      "body-md": ["14px", {"lineHeight": "1.5", "fontWeight": "400"}]
+              }
+            },
+          },
+        }
+      </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface min-h-screen flex flex-col">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center w-full px-md py-sm bg-surface dark:bg-on-background border-b border-outline-variant dark:border-on-secondary-fixed-variant fixed top-0 z-50">
+<div class="flex items-center gap-md">
+<img alt="user profile picture" class="w-8 h-8 rounded-full border border-outline-variant" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDZwFv4quJVpkUEtSje_upGdI-6bWKo0YjlINXFKC9ZFJG8HDL4BtcTYsFBg782T9bY4Bi9al2mH55x4mCk7vvH6zZFNC92hevWFV4pbDguvqMq7955RRQE-GODl73SG7oIWKl7-6X-5WV9J7TGSxcEyUMzmt2ui500GiknG4i236mfulKxizw4AHpuWpppD9A_3fmFg63FUYrE4aQ6GX6YbAWlrlc1t1vJvhLqQCXyZuJxX6SMLHiAzKDUkps7baZESN96MpgNPcw"/>
+<h1 class="font-h3 text-h3 text-on-background dark:text-on-primary-container">Command Center</h1>
+</div>
+<div class="flex items-center gap-md">
+<div class="flex gap-xs bg-surface-container px-sm py-xs rounded border border-outline-variant">
+<span class="material-symbols-outlined text-body-sm text-secondary">account_tree</span>
+<span class="font-label-md text-label-md text-on-surface">feature/auth-v2</span>
+</div>
+<span class="material-symbols-outlined text-primary dark:text-primary-fixed-dim">terminal</span>
+</div>
+</header>
+<main class="flex-1 mt-[56px] mb-[64px] flex flex-col max-w-container-max mx-auto w-full p-md gap-md">
+<!-- Code Diff Section -->
+<section class="flex-1 flex flex-col bg-surface-container-lowest border border-outline-variant rounded-lg overflow-hidden">
+<div class="px-md py-sm border-b border-outline-variant bg-surface-container-low flex justify-between items-center">
+<div class="flex items-center gap-sm">
+<span class="material-symbols-outlined text-secondary">description</span>
+<span class="font-label-md text-label-md">src/components/AuthLayer.tsx</span>
+</div>
+<div class="flex items-center gap-xs">
+<span class="px-xs py-0.5 bg-green-100 text-green-700 text-[10px] font-bold rounded border border-green-200">+42</span>
+<span class="px-xs py-0.5 bg-red-100 text-red-700 text-[10px] font-bold rounded border border-red-200">-12</span>
+</div>
+</div>
+<div class="flex-1 overflow-auto font-mono text-code-md bg-white">
+<table class="w-full border-collapse">
+<tbody class="divide-y divide-gray-50">
+<tr class="bg-gray-50 text-secondary">
+<td class="w-12 text-right px-sm select-none border-r border-outline-variant">104</td>
+<td class="w-12 text-right px-sm select-none border-r border-outline-variant">104</td>
+<td class="px-md py-xs whitespace-pre">  const handleLogin = async () =&gt; {</td>
+</tr>
+<tr class="bg-red-50 text-red-700">
+<td class="w-12 text-right px-sm select-none border-r border-red-200">105</td>
+<td class="w-12 text-right px-sm select-none border-r border-red-200"></td>
+<td class="px-md py-xs whitespace-pre"><span class="mr-2">-</span>    if (status === 'idle') {</td>
+</tr>
+<tr class="bg-red-50 text-red-700">
+<td class="w-12 text-right px-sm select-none border-r border-red-200">106</td>
+<td class="w-12 text-right px-sm select-none border-r border-red-200"></td>
+<td class="px-md py-xs whitespace-pre"><span class="mr-2">-</span>      dispatch(startAuth());</td>
+</tr>
+<tr class="bg-green-50 text-green-700">
+<td class="w-12 text-right px-sm select-none border-r border-green-200"></td>
+<td class="w-12 text-right px-sm select-none border-r border-green-200">105</td>
+<td class="px-md py-xs whitespace-pre"><span class="mr-2">+</span>    if (auth.isReady &amp;&amp; !auth.loading) {</td>
+</tr>
+<tr class="bg-green-50 text-green-700">
+<td class="w-12 text-right px-sm select-none border-r border-green-200"></td>
+<td class="w-12 text-right px-sm select-none border-r border-green-200">106</td>
+<td class="px-md py-xs whitespace-pre"><span class="mr-2">+</span>      await triggerSecureSession();</td>
+</tr>
+<tr class="bg-green-50 text-green-700">
+<td class="w-12 text-right px-sm select-none border-r border-green-200"></td>
+<td class="w-12 text-right px-sm select-none border-r border-green-200">107</td>
+<td class="px-md py-xs whitespace-pre"><span class="mr-2">+</span>      logger.info("Session initiated via secure-channel-v2");</td>
+</tr>
+<tr class="bg-gray-50 text-secondary">
+<td class="w-12 text-right px-sm select-none border-r border-outline-variant">107</td>
+<td class="w-12 text-right px-sm select-none border-r border-outline-variant">108</td>
+<td class="px-md py-xs whitespace-pre">    }</td>
+</tr>
+<tr class="bg-gray-50 text-secondary">
+<td class="w-12 text-right px-sm select-none border-r border-outline-variant">108</td>
+<td class="w-12 text-right px-sm select-none border-r border-outline-variant">109</td>
+<td class="px-md py-xs whitespace-pre">  };</td>
+</tr>
+<!-- Fill remaining space -->
+<tr class="h-full">
+<td class="w-12 border-r border-outline-variant"></td>
+<td class="w-12 border-r border-outline-variant"></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- Terminal Log Panel -->
+<aside class="h-48 flex flex-col bg-on-background border border-on-secondary-fixed-variant rounded-lg overflow-hidden">
+<div class="px-md py-xs flex justify-between items-center border-b border-on-secondary-fixed-variant bg-on-secondary-fixed-variant/50">
+<div class="flex items-center gap-sm">
+<span class="material-symbols-outlined text-body-sm text-tertiary-fixed">terminal</span>
+<span class="font-label-md text-label-md text-tertiary-fixed">Live Logs</span>
+</div>
+<div class="flex items-center gap-sm">
+<span class="material-symbols-outlined text-body-sm text-tertiary-fixed cursor-pointer">unfold_more</span>
+<span class="material-symbols-outlined text-body-sm text-tertiary-fixed cursor-pointer">close</span>
+</div>
+</div>
+<div class="flex-1 p-md font-mono text-[13px] text-tertiary-fixed overflow-y-auto bg-[#0d1117]">
+<div class="mb-xs"><span class="text-secondary">[14:22:01]</span> <span class="text-primary-fixed-dim">INFO</span> ANALYZING FILE: src/components/AuthLayer.tsx</div>
+<div class="mb-xs"><span class="text-secondary">[14:22:03]</span> <span class="text-primary-fixed-dim">INFO</span> DETECTED DEPRECATED AUTH HOOK AT LINE 105</div>
+<div class="mb-xs"><span class="text-secondary">[14:22:05]</span> <span class="text-primary-fixed-dim">VIBE</span> INJECTING SECURE SESSION PROVIDER...</div>
+<div class="mb-xs"><span class="text-secondary">[14:22:07]</span> <span class="text-primary-fixed-dim">INFO</span> RUNNING TEST SUITE: authentication.spec.ts</div>
+<div class="mb-xs"><span class="text-secondary">[14:22:10]</span> <span class="text-green-400">PASS</span> AUTHENTICATION_FLOW_SUCCESS</div>
+<div class="mb-xs"><span class="text-secondary">[14:22:12]</span> <span class="text-green-400">PASS</span> SECURE_CHANNEL_HANDSHAKE</div>
+<div class="mb-xs"><span class="text-secondary">[14:22:13]</span> <span class="text-primary-fixed-dim">VIBE</span> WAITING FOR USER CONFIRMATION...</div>
+<div class="animate-pulse inline-block w-2 h-4 bg-primary-fixed-dim align-middle"></div>
+</div>
+</aside>
+<!-- Fixed Action Bar -->
+<div class="fixed bottom-0 left-0 w-full bg-surface border-t border-outline-variant p-md flex items-center justify-between z-50">
+<div class="flex gap-md">
+<button class="flex items-center gap-xs px-md py-sm bg-white border border-outline text-on-surface font-label-md rounded hover:bg-surface-container-low transition-colors duration-200">
+<span class="material-symbols-outlined text-body-md">pause</span>
+                    Pause
+                </button>
+<button class="flex items-center gap-xs px-md py-sm bg-white border border-error text-error font-label-md rounded hover:bg-error-container transition-colors duration-200">
+<span class="material-symbols-outlined text-body-md">history</span>
+                    Rollback
+                </button>
+</div>
+<div class="flex items-center gap-lg">
+<div class="hidden md:flex items-center gap-md">
+<div class="flex -space-x-2">
+<img alt="Team member" class="w-6 h-6 rounded-full border border-white" data-alt="A small circular avatar of a professional developer in a clean studio setting, soft lighting, minimalist aesthetic consistent with technical software interfaces." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDTngoKuqlQWSmrW8JpzVJUEgWyrptLfAsYMdHKNyICm8hXOn9lTrmdMaOzy2qxgSznUY7ran8FtiX935K-_ezD8SQzXZlSyddhpTUhm3N668YG_GgpByO3sL0B3naPlFrue85L0hEWDv45DkMFcNvcoYYhiPGxA9kxcV572XynVSPe4f_N3xx_kNTzb-DXmhfj_4xNCcbLegLjOiYKe-Ir6dyxkdSpoo_i4YdFvYbuBlUxlIBMqRDyfBt6zXyzHBjSFI2zH3_VJ_c"/>
+<img alt="Team member" class="w-6 h-6 rounded-full border border-white" data-alt="A small circular avatar of a person wearing glasses and a dark hoodie, representing a software engineer, in a bright high-contrast modern workspace background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCirSy5KkLGl7ds1Lo_LvY56JpA6_VLEhn6P2pXqswLpufV4wng6ixzXXcVobosLXBzyBJaHP0wyhIDcXk82bzHbkt7t2rOuzLpfa58sdE-Mv3V0-aNF4oNbxS8HmRtHZwkGl8qwRRii3zyoR5r8ygLSTBMm6t4DG4rRRjs6Div4BqSnp2uEdYSQwmaF7v5dPyOWq1X9y0uHdk1G2kSQCOkIEcHCfBnnh_UUQrpVycKbEgdAPkJgmUBzupJZCL3BiBqDzV_FN50nGE"/>
+</div>
+<span class="text-body-sm text-secondary">2 reviewers active</span>
+</div>
+<button class="flex items-center gap-xs px-lg py-sm bg-primary text-white font-label-md rounded hover:bg-primary-container transition-all active:scale-95">
+<span class="material-symbols-outlined text-body-md">check_circle</span>
+                    Confirm Apply
+                </button>
+</div>
+</div>
+</main>
+<!-- BottomNavBar (Mobile Shell Only) -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full z-[60] flex justify-around items-center bg-surface dark:bg-on-background py-xs border-t border-outline-variant">
+<div class="flex flex-col items-center justify-center text-primary dark:text-primary-fixed-dim font-bold transition-transform scale-95 active:scale-90">
+<span class="material-symbols-outlined">folder_open</span>
+<span class="font-label-md text-label-md">Projects</span>
+</div>
+<div class="flex flex-col items-center justify-center text-secondary dark:text-secondary-fixed-dim transition-transform scale-95 active:scale-90">
+<span class="material-symbols-outlined">terminal</span>
+<span class="font-label-md text-label-md">Terminals</span>
+</div>
+<div class="flex flex-col items-center justify-center text-secondary dark:text-secondary-fixed-dim transition-transform scale-95 active:scale-90">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-md text-label-md">Settings</span>
+</div>
+</nav>
+<!-- Background Decoration (Subtle Grid) -->
+<div class="fixed inset-0 pointer-events-none opacity-[0.03] z-[-1]" style="background-image: radial-gradient(#181c21 1px, transparent 1px); background-size: 24px 24px;"></div>
+</body></html>

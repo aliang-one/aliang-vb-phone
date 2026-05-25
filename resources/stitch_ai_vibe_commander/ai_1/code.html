@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;700&amp;family=Space+Grotesk:wght@600&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .glass-panel {
+            background: rgba(11, 14, 17, 0.7);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(0, 255, 65, 0.2);
+        }
+        .matrix-glow {
+            box-shadow: 0 0 15px rgba(0, 255, 65, 0.2);
+        }
+        .matrix-glow-strong {
+            box-shadow: 0 0 25px rgba(0, 255, 65, 0.4);
+        }
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0, 255, 65, 0.2);
+            border-radius: 2px;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "error-container": "#93000a",
+                        "surface": "#0c160a",
+                        "error": "#ffb4ab",
+                        "on-surface-variant": "#b9ccb2",
+                        "on-tertiary-container": "#7a5b3c",
+                        "secondary-container": "#00a572",
+                        "surface-container-low": "#141e12",
+                        "on-primary-container": "#007117",
+                        "outline-variant": "#3b4b37",
+                        "surface-container": "#182216",
+                        "surface-variant": "#2d382a",
+                        "on-error-container": "#ffdad6",
+                        "primary": "#00FF41",
+                        "surface-container-highest": "#2d382a",
+                        "on-tertiary-fixed-variant": "#5d4124",
+                        "on-primary": "#003907",
+                        "on-surface": "#dae6d2",
+                        "secondary-fixed-dim": "#4edea3",
+                        "on-secondary-container": "#00311f",
+                        "on-secondary-fixed": "#002113",
+                        "surface-dim": "#0c160a",
+                        "on-secondary": "#003824",
+                        "on-background": "#dae6d2",
+                        "inverse-on-surface": "#283326",
+                        "inverse-primary": "#006e16",
+                        "tertiary-fixed-dim": "#e7bf99",
+                        "tertiary-fixed": "#ffdcbd",
+                        "surface-container-lowest": "#071106",
+                        "primary-container": "#00FF41",
+                        "surface-tint": "#00FF41",
+                        "on-primary-fixed": "#002203",
+                        "secondary": "#4edea3",
+                        "primary-fixed": "#72ff70",
+                        "on-error": "#690005",
+                        "surface-container-high": "#222d20",
+                        "tertiary": "#fff8f4",
+                        "on-tertiary-fixed": "#2c1701",
+                        "surface-bright": "#313c2e",
+                        "inverse-surface": "#dae6d2",
+                        "background": "#0c160a",
+                        "tertiary-container": "#ffd5ae",
+                        "primary-fixed-dim": "#00FF41",
+                        "outline": "#84967e",
+                        "on-primary-fixed-variant": "#00530e",
+                        "on-secondary-fixed-variant": "#005236",
+                        "on-tertiary": "#442b10",
+                        "secondary-fixed": "#6ffbbe"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "headline-md": ["Space Grotesk"],
+                        "label-caps": ["Inter"],
+                        "display": ["Space Grotesk"],
+                        "data-mono": ["JetBrains Mono"],
+                        "terminal-sm": ["JetBrains Mono"],
+                        "code-sm": ["JetBrains Mono"]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            min-height: max(884px, 100dvh);
+        }
+    </style>
+</head>
+<body class="bg-surface-container-lowest text-on-surface font-body-lg selection:bg-primary-container/30">
+<!-- Top AppBar -->
+<header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 h-12 bg-surface-container-lowest/80 backdrop-blur-xl border-b border-primary/20">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" data-icon="terminal">terminal</span>
+<span class="font-data-mono font-bold text-primary tracking-widest text-sm">COMMAND_CENTER</span>
+</div>
+<div class="flex items-center gap-3">
+<div class="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_#00FF41]"></div>
+<div class="w-8 h-8 rounded-full bg-surface-container-high border border-primary/20 flex items-center justify-center overflow-hidden">
+<img alt="User Profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBu7d3Wt2ctnnZ7p46FwtivFAVszIDmAQCmpc6jL1aBtvy62pm8vTHTEIQLdlNf7OdbP3WswxldU2pdLAtw-bdrdCMTVxuZ4UGXCQF5p8V_6zPma-U84Fv53X7QMzn5cIpU9S2reVG6ECq3dXk9ZFZOJd12SGnU-cpcc_nmq1Omm_9mqqTzYEhfvswMjYgIMBOzPpXsq_31mqIQxVciP7eb9dZBVQRn9jVQktjmN7ytbTg1BK0IuEloEW-m7xF7tj0xvr9Gpr48O04"/>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="pt-12 pb-80 px-4 min-h-screen space-y-6">
+<!-- AI Response Log -->
+<div class="space-y-4 pt-4">
+<!-- AI Message -->
+<div class="flex flex-col gap-2">
+<div class="flex items-center gap-2 text-primary font-data-mono text-[10px] uppercase tracking-widest">
+<span class="material-symbols-outlined text-[14px]" data-icon="smart_toy">smart_toy</span>
+                    ClaudeCode Assistant
+                </div>
+<div class="glass-panel p-3 rounded-lg border-l-2 border-l-primary">
+<p class="text-body-lg leading-relaxed">正在分析当前项目结构... 我建议将 `auth` 逻辑迁移到独立的辅助函数中以提高可测试性。</p>
+</div>
+<!-- AI Reasoning Block - RESTYLED -->
+<div class="bg-black/40 border border-primary/20 rounded-md p-3 space-y-2 matrix-glow">
+<div class="flex items-center justify-between">
+<span class="text-[10px] font-data-mono text-primary/60 uppercase">Thought Process</span>
+<span class="material-symbols-outlined text-[12px] text-primary/60" data-icon="expand_more">expand_more</span>
+</div>
+<div class="text-[12px] font-data-mono text-primary/80 border-l border-primary/30 pl-3 leading-relaxed">
+                        &gt; 检测到重复代码模式于 login.ts &amp; signup.ts<br/>
+                        &gt; 架构建议: 提取 common/crypto.ts<br/>
+                        &gt; 风险评估: 低, 无破坏性变更
+                    </div>
+</div>
+<!-- File System Changes -->
+<div class="bg-black border border-primary/20 rounded p-2 font-data-mono text-[11px]">
+<div class="flex items-center gap-2 text-primary mb-2">
+<span class="material-symbols-outlined text-[14px]" data-icon="terminal">terminal</span>
+<span class="tracking-widest">FILE_SYSTEM_ACTION</span>
+</div>
+<div class="space-y-1">
+<div class="flex items-center gap-2">
+<span class="text-primary font-bold">+</span>
+<span class="text-on-surface/80">src/utils/auth.helper.ts</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-error">−</span>
+<span class="text-on-surface/40">src/components/Login.tsx:142</span>
+</div>
+</div>
+</div>
+</div>
+<!-- User Message -->
+<div class="flex flex-col gap-2 items-end">
+<div class="flex items-center gap-2 text-on-surface/40 font-data-mono text-[10px] uppercase tracking-widest">
+                    You
+                    <span class="material-symbols-outlined text-[14px]" data-icon="person">person</span>
+</div>
+<div class="bg-primary/5 border border-primary/20 p-3 rounded-lg text-on-surface text-right">
+                    请执行迁移并生成 Git commit 信息。
+                </div>
+</div>
+</div>
+</main>
+<!-- Smart Input Area -->
+<div class="fixed bottom-0 left-0 w-full z-50 bg-surface-container-lowest/95 backdrop-blur-2xl border-t border-primary/20 p-4 pb-8">
+<!-- Quick Snippets -->
+<div class="flex gap-2 overflow-x-auto pb-3 no-scrollbar">
+<button class="flex-none px-3 py-1 bg-surface-container rounded border border-primary/10 font-data-mono text-[11px] text-primary hover:bg-primary/10 transition-colors">
+                git commit -m
+            </button>
+<button class="flex-none px-3 py-1 bg-surface-container rounded border border-primary/10 font-data-mono text-[11px] text-primary hover:bg-primary/10 transition-colors">
+                npm run build
+            </button>
+<button class="flex-none px-3 py-1 bg-surface-container rounded border border-primary/10 font-data-mono text-[11px] text-primary hover:bg-primary/10 transition-colors">
+                docker-compose up
+            </button>
+<button class="flex-none px-3 py-1 bg-surface-container rounded border border-primary/10 font-data-mono text-[11px] text-primary hover:bg-primary/10 transition-colors">
+                --fix
+            </button>
+</div>
+<!-- Sentence Explosion Area -->
+<div class="bg-black/40 rounded-xl border border-primary/20 p-3 mb-4 min-h-[80px] matrix-glow">
+<div class="flex flex-wrap gap-2">
+<!-- Exploded chips - RESTYLED as green outlined buttons -->
+<button class="bg-transparent text-primary px-2 py-1 rounded border border-primary/60 text-xs font-data-mono flex items-center gap-1 hover:bg-primary/10">
+                    重构
+                    <span class="material-symbols-outlined text-[12px]" data-icon="close">close</span>
+</button>
+<button class="bg-transparent text-on-surface/80 px-2 py-1 rounded border border-primary/20 text-xs font-data-mono hover:bg-primary/5">所有的</button>
+<button class="bg-transparent text-on-surface/80 px-2 py-1 rounded border border-primary/20 text-xs font-data-mono hover:bg-primary/5">数据库</button>
+<button class="bg-transparent text-primary px-2 py-1 rounded border border-primary/60 text-xs font-data-mono flex items-center gap-1 hover:bg-primary/10">
+                    查询
+                    <span class="material-symbols-outlined text-[12px]" data-icon="close">close</span>
+</button>
+<button class="bg-transparent text-on-surface/80 px-2 py-1 rounded border border-primary/20 text-xs font-data-mono hover:bg-primary/5">逻辑</button>
+<button class="bg-transparent text-on-surface/80 px-2 py-1 rounded border border-primary/20 text-xs font-data-mono hover:bg-primary/5">到</button>
+<button class="bg-transparent text-primary px-2 py-1 rounded border border-primary/60 text-xs font-data-mono flex items-center gap-1 hover:bg-primary/10">
+                    新模块
+                    <span class="material-symbols-outlined text-[12px]" data-icon="close">close</span>
+</button>
+<!-- Cursor placeholder -->
+<div class="w-1.5 h-5 bg-primary animate-pulse rounded-full self-center"></div>
+</div>
+</div>
+<!-- Main Input Interaction -->
+<div class="flex items-center gap-4">
+<!-- Voice Input Trigger - RESTYLED with green glow -->
+<button class="flex-none w-14 h-14 rounded-full bg-primary flex items-center justify-center text-on-primary matrix-glow-strong active:scale-95 transition-all">
+<span class="material-symbols-outlined text-[32px]" data-icon="mic" style="font-variation-settings: 'FILL' 1;">mic</span>
+</button>
+<!-- Command Input Field - RESTYLED with green glow -->
+<div class="flex-grow relative">
+<input class="w-full bg-surface-container-low/50 border-b-2 border-primary/30 focus:border-primary focus:ring-0 text-on-surface placeholder:text-primary/30 font-data-mono h-12 px-4 transition-all bg-transparent matrix-glow" placeholder="输入指令或开始语音..." type="text"/>
+<button class="absolute right-2 top-1/2 -translate-y-1/2 text-primary hover:scale-110 transition-transform">
+<span class="material-symbols-outlined" data-icon="send">send</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Bottom Navigation (Mobile context) -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 pb-safe h-16 bg-surface-container-lowest/90 backdrop-blur-lg border-t border-primary/10 md:hidden invisible">
+<div class="flex flex-col items-center justify-center text-on-surface/40 pt-2 pb-1">
+<span class="material-symbols-outlined" data-icon="folder_open">folder_open</span>
+<span class="font-data-mono text-[10px] tracking-tight">PROJECTS</span>
+</div>
+<div class="flex flex-col items-center justify-center text-primary border-t-2 border-primary pt-2 pb-1 bg-gradient-to-b from-primary/10 to-transparent">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+<span class="font-data-mono text-[10px] tracking-tight">TERMINALS</span>
+</div>
+<div class="flex flex-col items-center justify-center text-on-surface/40 pt-2 pb-1">
+<span class="material-symbols-outlined" data-icon="settings_input_component">settings_input_component</span>
+<span class="font-data-mono text-[10px] tracking-tight">SETTINGS</span>
+</div>
+</nav>
+</body></html>

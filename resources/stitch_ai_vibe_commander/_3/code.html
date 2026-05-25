@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;700&amp;family=Space+Grotesk:wght@600&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "error-container": "#93000a",
+                        "surface": "#0c160a",
+                        "error": "#ffb4ab",
+                        "on-surface-variant": "#b9ccb2",
+                        "on-tertiary-container": "#7a5b3c",
+                        "secondary-container": "#00FF41",
+                        "surface-container-low": "#141e12",
+                        "on-primary-container": "#007117",
+                        "outline-variant": "#3b4b37",
+                        "surface-container": "#182216",
+                        "surface-variant": "#2d382a",
+                        "on-error-container": "#ffdad6",
+                        "primary": "#ebffe2",
+                        "surface-container-highest": "#2d382a",
+                        "on-tertiary-fixed-variant": "#5d4124",
+                        "on-primary": "#003907",
+                        "on-surface": "#dae6d2",
+                        "secondary-fixed-dim": "#00FF41",
+                        "on-secondary-container": "#00311f",
+                        "on-secondary-fixed": "#002113",
+                        "surface-dim": "#0c160a",
+                        "on-secondary": "#003824",
+                        "on-background": "#dae6d2",
+                        "inverse-on-surface": "#283326",
+                        "inverse-primary": "#006e16",
+                        "tertiary-fixed-dim": "#e7bf99",
+                        "tertiary-fixed": "#ffdcbd",
+                        "surface-container-lowest": "#071106",
+                        "primary-container": "#00FF41",
+                        "surface-tint": "#00FF41",
+                        "on-primary-fixed": "#002203",
+                        "secondary": "#00FF41",
+                        "primary-fixed": "#72ff70",
+                        "on-error": "#690005",
+                        "surface-container-high": "#222d20",
+                        "tertiary": "#fff8f4",
+                        "on-tertiary-fixed": "#2c1701",
+                        "surface-bright": "#313c2e",
+                        "inverse-surface": "#dae6d2",
+                        "background": "#0c160a",
+                        "tertiary-container": "#ffd5ae",
+                        "primary-fixed-dim": "#00FF41",
+                        "outline": "#84967e",
+                        "on-primary-fixed-variant": "#00530e",
+                        "on-secondary-fixed-variant": "#005236",
+                        "on-tertiary": "#442b10",
+                        "secondary-fixed": "#00FF41"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0px",
+                        "lg": "0px",
+                        "xl": "0px",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-max": "1440px",
+                        "unit": "4px",
+                        "gutter": "16px",
+                        "section-gap": "48px",
+                        "margin": "24px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "headline-md": ["Space Grotesk"],
+                        "label-caps": ["Inter"],
+                        "display": ["Space Grotesk"],
+                        "data-mono": ["JetBrains Mono"],
+                        "terminal-sm": ["JetBrains Mono"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                        "headline-md": ["24px", {"lineHeight": "1.2", "fontWeight": "600"}],
+                        "label-caps": ["12px", {"lineHeight": "1", "letterSpacing": "0.1em", "fontWeight": "600"}],
+                        "display": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "data-mono": ["14px", {"lineHeight": "1.5", "fontWeight": "450"}],
+                        "terminal-sm": ["12px", {"lineHeight": "1.4", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            font-size: 20px;
+        }
+        body {
+            background-color: #071106;
+            color: #dae6d2;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .glass-card {
+            background: rgba(12, 22, 10, 0.9);
+            border: 1px solid rgba(0, 255, 65, 0.2);
+            box-shadow: inset 0 0 10px rgba(0, 255, 65, 0.05);
+        }
+        .terminal-text {
+            color: #00FF41;
+            text-shadow: 0 0 8px rgba(0, 255, 65, 0.5);
+        }
+        .matrix-border {
+            border-left: 3px solid #00FF41;
+        }
+        .matrix-border-error {
+            border-left: 3px solid #00FF41;
+            border-right: 1px solid #ff4141;
+            border-top: 1px solid #ff4141;
+            border-bottom: 1px solid #ff4141;
+        }
+        input::placeholder {
+            color: rgba(132, 150, 126, 0.5);
+        }
+    </style>
+</head>
+<body class="min-h-screen pb-24 text-[14px]">
+<!-- TopAppBar -->
+<header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 h-12 bg-black/80 backdrop-blur-xl border-b border-[#00FF41]/20">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[#00FF41]">terminal</span>
+<span class="font-mono font-bold text-[#00FF41] tracking-[0.2em] text-xs">NEURAL_LINK_V4</span>
+</div>
+<div class="w-8 h-8 rounded-full border border-[#00FF41]/30 overflow-hidden grayscale contrast-125">
+<img alt="User Profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDl-LfzvvRcom7ImG7n8f-eIFKKg3Vd6SH-k78Gn9aE-JAe2SuUbHx3vNWs44G9B86qfOZrqzOr8oujYRppGITOcUVLkB5LbxkA1BMkhXKsV0gpqDt5ukO-5oodOP7-ZI95QRVnto6EK4O-77QT8On__wK6qJKt9MA9EzHEK6CYa0yZDV9Px595DkbDE6uChk1zfjM0EU9fhJ7RMWQHhksS8SRi4tcUlhkX00FB7XQerMpf3MTYh131FKd6YjP1Kt3XzLl6igZ8KG8"/>
+</div>
+</header>
+<main class="pt-16 px-4 space-y-4">
+<!-- Header Section -->
+<section class="flex items-center justify-between py-2">
+<div>
+<h1 class="text-xl font-bold tracking-tight text-on-surface">终端管理</h1>
+<p class="text-[10px] text-outline uppercase tracking-widest mt-1">活跃代理: 03</p>
+</div>
+<button class="bg-[#00FF41] text-[#071106] px-4 py-1.5 rounded-none font-bold text-[11px] flex items-center gap-2 active:opacity-80 transition-all shadow-[0_0_15px_rgba(0,255,65,0.3)]">
+<span class="material-symbols-outlined !text-[16px]">add</span>
+                NEW_CONNECTION
+            </button>
+</section>
+<!-- Search / Filter -->
+<div class="glass-card p-2 flex items-center gap-2 border-[#00FF41]/40">
+<span class="material-symbols-outlined text-[#00FF41] ml-2">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-on-surface font-mono w-full h-8 text-xs" placeholder="[ SEARCH_NODES_OR_TASKS ]" type="text"/>
+</div>
+<!-- Terminal List -->
+<div class="space-y-4">
+<!-- Agent Card 1: Active -->
+<div class="glass-card p-4 matrix-border relative overflow-hidden">
+<div class="absolute top-0 right-0 p-1 bg-[#00FF41]/10 border-b border-l border-[#00FF41]/20">
+<span class="text-[9px] font-bold text-[#00FF41]">STABLE_LINK</span>
+</div>
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 bg-[#00FF41]/5 flex items-center justify-center border border-[#00FF41]/20">
+<span class="material-symbols-outlined text-[#00FF41]">dns</span>
+</div>
+<div>
+<h3 class="text-sm font-bold text-on-surface tracking-wide">Production-Node-01</h3>
+<p class="text-[10px] text-outline">IP: 192.168.1.42 • PROTOCOL: SSH</p>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-3 gap-3 mb-4">
+<div class="bg-surface-container-low p-2 border border-[#00FF41]/10">
+<p class="text-[9px] text-outline uppercase font-bold">Latency</p>
+<p class="text-xs font-bold text-[#00FF41]">24ms</p>
+</div>
+<div class="bg-surface-container-low p-2 border border-[#00FF41]/10">
+<p class="text-[9px] text-outline uppercase font-bold">Uptime</p>
+<p class="text-xs font-bold">12d 4h</p>
+</div>
+<div class="bg-surface-container-low p-2 border border-[#00FF41]/10">
+<p class="text-[9px] text-outline uppercase font-bold">Load</p>
+<p class="text-xs font-bold">12%</p>
+</div>
+</div>
+<div class="bg-black/60 p-3 mb-4 border border-[#00FF41]/10">
+<p class="text-[9px] text-outline uppercase font-bold mb-1">Active_Process</p>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined !text-[14px] terminal-text">auto_awesome</span>
+<p class="text-[11px] terminal-text font-mono">Analyzing /src/api/auth.ts ...</p>
+</div>
+</div>
+<div class="flex gap-2">
+<button class="flex-1 bg-white/5 border border-white/10 hover:border-[#00FF41]/40 text-on-surface py-1.5 font-bold text-[10px] flex items-center justify-center gap-1 transition-all">
+<span class="material-symbols-outlined !text-[14px]">refresh</span> RECONNECT
+                    </button>
+<button class="flex-1 bg-white/5 border border-white/10 hover:border-[#00FF41]/40 text-on-surface py-1.5 font-bold text-[10px] flex items-center justify-center gap-1 transition-all">
+<span class="material-symbols-outlined !text-[14px]">restart_alt</span> REBOOT
+                    </button>
+<button class="px-3 bg-error-container/10 border border-error/20 hover:bg-error-container/30 text-error py-1.5 transition-all">
+<span class="material-symbols-outlined !text-[16px]">power_settings_new</span>
+</button>
+</div>
+</div>
+<!-- Agent Card 2: Idle -->
+<div class="glass-card p-4 border-l-2 border-outline/30 grayscale hover:grayscale-0 transition-all">
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 bg-white/5 flex items-center justify-center border border-white/10">
+<span class="material-symbols-outlined text-outline">cloud</span>
+</div>
+<div>
+<h3 class="text-sm font-bold text-on-surface">AWS-Dev-Cluster</h3>
+<p class="text-[10px] text-outline">EC2: ec2-user@us-east-1</p>
+</div>
+</div>
+<span class="text-[9px] font-bold text-outline border border-outline/20 px-1.5 py-0.5">STANDBY</span>
+</div>
+<div class="grid grid-cols-3 gap-3 mb-4">
+<div class="bg-surface-container-low p-2 border border-white/5">
+<p class="text-[9px] text-outline uppercase font-bold">Latency</p>
+<p class="text-xs font-bold text-[#00FF41]">156ms</p>
+</div>
+<div class="bg-surface-container-low p-2 border border-white/5">
+<p class="text-[9px] text-outline uppercase font-bold">Uptime</p>
+<p class="text-xs font-bold">0h 42m</p>
+</div>
+<div class="bg-surface-container-low p-2 border border-white/5">
+<p class="text-[9px] text-outline uppercase font-bold">Load</p>
+<p class="text-xs font-bold">0%</p>
+</div>
+</div>
+<div class="flex gap-2">
+<button class="flex-1 bg-white/5 border border-white/10 hover:border-[#00FF41]/40 text-on-surface py-1.5 font-bold text-[10px] flex items-center justify-center gap-1">
+<span class="material-symbols-outlined !text-[14px]">terminal</span> ACTIVATE_NODE
+                    </button>
+<button class="px-3 bg-error-container/10 border border-error/20 text-error py-1.5">
+<span class="material-symbols-outlined !text-[16px]">power_settings_new</span>
+</button>
+</div>
+</div>
+<!-- Agent Card 3: Error -->
+<div class="glass-card p-4 matrix-border-error relative">
+<div class="absolute top-0 right-0 p-1 bg-error-container/20 border-b border-l border-error/30">
+<span class="text-[9px] font-bold text-error">LINK_FAILED</span>
+</div>
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 bg-error-container/10 flex items-center justify-center border border-error/30">
+<span class="material-symbols-outlined text-error">warning</span>
+</div>
+<div>
+<h3 class="text-sm font-bold text-on-surface">Local-Edge-Box</h3>
+<p class="text-[10px] text-outline">HOST: localhost:2222</p>
+</div>
+</div>
+</div>
+<div class="bg-error-container/5 p-3 mb-4 border border-error/20">
+<p class="text-[10px] font-mono text-error">SYSTEM_ERROR: Connection refused (ETIMEDOUT)</p>
+</div>
+<div class="flex gap-2">
+<button class="flex-1 bg-[#00FF41] text-[#071106] py-1.5 font-bold text-[10px] flex items-center justify-center gap-1 active:scale-95 transition-all shadow-[0_0_10px_rgba(0,255,65,0.2)]">
+<span class="material-symbols-outlined !text-[14px]">refresh</span> RETRY_LINK
+                    </button>
+<button class="px-3 bg-white/5 border border-white/10 text-outline py-1.5">
+<span class="material-symbols-outlined !text-[16px]">settings</span>
+</button>
+</div>
+</div>
+</div>
+<!-- System Stats Mini Dashboard -->
+<section class="glass-card p-4 mt-6 border-[#00FF41]/30">
+<h4 class="text-[10px] font-bold text-[#00FF41] uppercase mb-4 tracking-[0.2em]">GLOBAL_RESOURCE_METRICS</h4>
+<div class="space-y-4">
+<div>
+<div class="flex justify-between mb-1.5">
+<span class="text-[10px] font-mono opacity-80 uppercase">CPU_LOAD_TOTAL</span>
+<span class="text-[10px] font-bold text-[#00FF41]">42.08%</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-low rounded-none overflow-hidden border border-[#00FF41]/10">
+<div class="h-full bg-[#00FF41] shadow-[0_0_10px_rgba(0,255,65,0.6)] transition-all duration-500" style="width: 42%"></div>
+</div>
+</div>
+<div>
+<div class="flex justify-between mb-1.5">
+<span class="text-[10px] font-mono opacity-80 uppercase">MEMORY_ALLOCATION</span>
+<span class="text-[10px] font-bold text-[#00FF41]">68.12%</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-low rounded-none overflow-hidden border border-[#00FF41]/10">
+<div class="h-full bg-[#00FF41]/80 shadow-[0_0_10px_rgba(0,255,65,0.4)] transition-all duration-500" style="width: 68%"></div>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 pb-safe h-16 bg-black/90 backdrop-blur-xl border-t border-[#00FF41]/20 font-mono text-[9px] tracking-widest">
+<a class="flex flex-col items-center justify-center text-gray-500 pt-2 pb-1 hover:text-[#00FF41] transition-all" href="#">
+<span class="material-symbols-outlined mb-1">folder_open</span>
+<span>PROJECTS</span>
+</a>
+<a class="flex flex-col items-center justify-center text-[#00FF41] border-t border-[#00FF41] pt-2 pb-1 bg-gradient-to-b from-[#00FF41]/5 to-transparent transition-all" href="#">
+<span class="material-symbols-outlined mb-1">terminal</span>
+<span>NODES</span>
+</a>
+<a class="flex flex-col items-center justify-center text-gray-500 pt-2 pb-1 hover:text-[#00FF41] transition-all" href="#">
+<span class="material-symbols-outlined mb-1">settings_input_component</span>
+<span>CORE_SYS</span>
+</a>
+</nav>
+</body></html>
