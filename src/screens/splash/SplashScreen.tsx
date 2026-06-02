@@ -31,7 +31,7 @@ export const SplashScreen: React.FC<RootStackScreenProps<'Splash'>> = ({
       -1,
       true,
     );
-  }, []);
+  }, [glowOpacity, pulseScale]);
 
   const iconStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pulseScale.value }],

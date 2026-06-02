@@ -4,14 +4,13 @@ import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
-import { ProgressBar } from '../../components/shared/ProgressBar';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { ResourceMetricsCard } from '../../components/cards/ResourceMetricsCard';
 import { mockTerminals } from '../../data/mockData';
 
 export const TerminalDetailScreen: React.FC = () => {
-  const { theme, isDark } = useTheme();
+  const { theme } = useTheme();
   const terminal = mockTerminals[0]; // Show first terminal as demo
 
   const statusMap: Record<string, 'success' | 'error' | 'neutral'> = {

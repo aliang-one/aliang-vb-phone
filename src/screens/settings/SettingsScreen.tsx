@@ -5,23 +5,138 @@ import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
+import { StatusChip } from '../../components/shared/StatusChip';
+import { UsageSummaryCard } from '../../components/vibecoding/UsageSummaryCard';
+import { mockDevices, mockUserPlan, mockVibeCodingRuns } from '../../data/mockData';
 
 export const SettingsScreen: React.FC = () => {
   const { theme, isDark, mode, setMode } = useTheme();
 
   const themeOptions = [
     { key: 'system', label: 'SYSTEM' },
-    { key: 'dark', label: 'CYBER-LOGIC' },
-    { key: 'light', label: 'UTILITY MINIMALIST' },
+    { key: 'dark', label: 'CYBER' },
+    { key: 'light', label: 'LIGHT' },
   ] as const;
+
+  const usageRows = [
+    ['Today spend', '$8.42'],
+    ['This week', '$31.10'],
+    ['Voice整理', '42 turns'],
+    ['Preview links', '2 active'],
+  ];
 
   return (
     <SafeAreaWrapper>
-      <TopAppBar title="Settings" subtitle="CONFIGURATION" />
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.content}>
-        {/* Theme Selection */}
+      <TopAppBar title="Account" subtitle="PLAN / LIMITS / PREFERENCES" />
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+        <View style={styles.profile}>
+          <View style={styles.avatar}>
+            <Text style={[theme.typography.titleMd, { color: theme.colors.primary }]}>
+              AL
+            </Text>
+          </View>
+          <View style={styles.profileText}>
+            <Text style={[theme.typography.titleLg, { color: theme.colors.onSurface }]}>
+              {mockUserPlan.userName}
+            </Text>
+            <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+              Mobile VibeCoding controller
+            </Text>
+          </View>
+          <StatusChip label="PRO" type="info" />
+        </View>
+
+        <UsageSummaryCard plan={mockUserPlan} />
+
+        <Text
+          style={[
+            theme.typography.labelCaps,
+            { color: theme.colors.onSurfaceVariant },
+            styles.sectionTitle,
+          ]}>
+          USAGE DETAIL
+        </Text>
+        <GlassPanel style={styles.panel}>
+          {usageRows.map(([label, value], index) => (
+            <View key={label}>
+              <View style={styles.settingRow}>
+                <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                  {label}
+                </Text>
+                <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+                  {value}
+                </Text>
+              </View>
+              {index < usageRows.length - 1 && <View style={styles.divider} />}
+            </View>
+          ))}
+        </GlassPanel>
+
+        <Text
+          style={[
+            theme.typography.labelCaps,
+            { color: theme.colors.onSurfaceVariant },
+            styles.sectionTitle,
+          ]}>
+          CAPACITY
+        </Text>
+        <View style={styles.capacityGrid}>
+          <GlassPanel style={styles.capacityCard}>
+            <Text style={[theme.typography.headlineMd, { color: theme.colors.secondary }]}>
+              {mockDevices.length}
+            </Text>
+            <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
+              DEVICES
+            </Text>
+          </GlassPanel>
+          <GlassPanel style={styles.capacityCard}>
+            <Text style={[theme.typography.headlineMd, { color: theme.colors.primary }]}>
+              {mockVibeCodingRuns.length}
+            </Text>
+            <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
+              SESSIONS
+            </Text>
+          </GlassPanel>
+        </View>
+
+        <Text
+          style={[
+            theme.typography.labelCaps,
+            { color: theme.colors.onSurfaceVariant },
+            styles.sectionTitle,
+          ]}>
+          INPUT MODE
+        </Text>
+        <GlassPanel style={styles.panel}>
+          <View style={styles.settingRow}>
+            <View>
+              <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                Voice first
+              </Text>
+              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                Voice notes are整理 into a prompt before sending
+              </Text>
+            </View>
+            <Text style={[theme.typography.codeSm, { color: theme.colors.secondary }]}>
+              ON
+            </Text>
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.settingRow}>
+            <View>
+              <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                Require confirmation
+              </Text>
+              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                Confirm every AI-prepared voice instruction
+              </Text>
+            </View>
+            <Text style={[theme.typography.codeSm, { color: theme.colors.secondary }]}>
+              ON
+            </Text>
+          </View>
+        </GlassPanel>
+
         <Text
           style={[
             theme.typography.labelCaps,
@@ -58,134 +173,22 @@ export const SettingsScreen: React.FC = () => {
                 {option.label}
               </Text>
               {mode === option.key && (
-                <Text
-                  style={[
-                    theme.typography.codeSm,
-                    { color: theme.colors.primary },
-                  ]}>
-                  [ACTIVE]
+                <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+                  ACTIVE
                 </Text>
               )}
             </TouchableOpacity>
           ))}
         </GlassPanel>
 
-        {/* Account */}
-        <Text
-          style={[
-            theme.typography.labelCaps,
-            { color: theme.colors.onSurfaceVariant },
-            styles.sectionTitle,
-          ]}>
-          ACCOUNT
-        </Text>
-        <GlassPanel style={styles.settingsPanel}>
-          <View style={styles.settingRow}>
-            <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-              Agent ID
-            </Text>
-            <Text
-              style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-              agent@terminal-01
-            </Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.settingRow}>
-            <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-              Session
-            </Text>
-            <Text
-              style={[theme.typography.codeSm, { color: theme.colors.secondary }]}>
-              ACTIVE
-            </Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.settingRow}>
-            <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-              Region
-            </Text>
-            <Text
-              style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-              us-east-1a
-            </Text>
-          </View>
-        </GlassPanel>
-
-        {/* Notifications */}
-        <Text
-          style={[
-            theme.typography.labelCaps,
-            { color: theme.colors.onSurfaceVariant },
-            styles.sectionTitle,
-          ]}>
-          NOTIFICATIONS
-        </Text>
-        <GlassPanel style={styles.settingsPanel}>
-          <View style={styles.settingRow}>
-            <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-              Critical Alerts
-            </Text>
-            <Text
-              style={[theme.typography.codeSm, { color: theme.colors.secondary }]}>
-              ON
-            </Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.settingRow}>
-            <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-              Build Notifications
-            </Text>
-            <Text
-              style={[theme.typography.codeSm, { color: theme.colors.secondary }]}>
-              ON
-            </Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.settingRow}>
-            <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-              AI Suggestions
-            </Text>
-            <Text
-              style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-              OFF
-            </Text>
-          </View>
-        </GlassPanel>
-
-        {/* About */}
-        <Text
-          style={[
-            theme.typography.labelCaps,
-            { color: theme.colors.onSurfaceVariant },
-            styles.sectionTitle,
-          ]}>
-          ABOUT
-        </Text>
-        <GlassPanel style={styles.settingsPanel}>
-          <View style={styles.settingRow}>
-            <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-              Version
-            </Text>
-            <Text
-              style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-              0.1.0
-            </Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.settingRow}>
-            <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-              Build
-            </Text>
-            <Text
-              style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-              2025.05-alpha
-            </Text>
-          </View>
-        </GlassPanel>
-
-        {/* Logout */}
         <GlowButton
-          title="DISCONNECT"
+          title="MANAGE BILLING"
+          onPress={() => {}}
+          variant="secondary"
+          style={styles.actionButton}
+        />
+        <GlowButton
+          title="SIGN OUT"
           onPress={() => {}}
           variant="outline"
           style={styles.logoutBtn}
@@ -202,10 +205,51 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 16,
     paddingBottom: 40,
+    paddingTop: 12,
+  },
+  profile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 14,
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileText: {
+    flex: 1,
   },
   sectionTitle: {
     marginTop: 20,
     marginBottom: 8,
+  },
+  panel: {
+    padding: 0,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    gap: 16,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    marginHorizontal: 12,
+  },
+  capacityGrid: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  capacityCard: {
+    flex: 1,
+    padding: 14,
+    gap: 8,
   },
   themePanel: {
     padding: 4,
@@ -217,22 +261,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 12,
   },
-  settingsPanel: {
-    padding: 0,
-  },
-  settingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    marginHorizontal: 12,
+  actionButton: {
+    marginTop: 24,
   },
   logoutBtn: {
-    marginTop: 24,
+    marginTop: 10,
   },
 });

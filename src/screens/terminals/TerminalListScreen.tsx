@@ -1,64 +1,77 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
-import { TerminalCard } from '../../components/cards/TerminalCard';
 import { SearchBar } from '../../components/input/SearchBar';
 import { StatusChip } from '../../components/shared/StatusChip';
-import { mockTerminals } from '../../data/mockData';
+import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard';
+import { mockDevices } from '../../data/mockData';
+import { RootStackParamList } from '../../app/navigation/types';
+
+type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 export const TerminalListScreen: React.FC = () => {
   const { theme } = useTheme();
+  const navigation = useNavigation<Navigation>();
   const [search, setSearch] = useState('');
 
-  const filtered = mockTerminals.filter(
-    t =>
-      t.name.toLowerCase().includes(search.toLowerCase()) ||
-      t.host.includes(search),
+  const filtered = mockDevices.filter(
+    device =>
+      device.name.toLowerCase().includes(search.toLowerCase()) ||
+      device.host.toLowerCase().includes(search.toLowerCase()) ||
+      device.location.toLowerCase().includes(search.toLowerCase()),
   );
-
-  const groups = [...new Set(filtered.map(t => t.group))];
 
   return (
     <SafeAreaWrapper>
-      <TopAppBar title="Terminals" subtitle="SSH NODES" />
+      <TopAppBar
+        title="Devices"
+        subtitle="AUTHORIZED COMPUTERS"
+        rightAction={
+          <TouchableOpacity style={styles.addButton}>
+            <Text style={[theme.typography.codeMd, { color: theme.colors.primary }]}>
+              +
+            </Text>
+          </TouchableOpacity>
+        }
+      />
       <View style={styles.searchContainer}>
-        <SearchBar value={search} onChangeText={setSearch} placeholder="Search terminals..." />
+        <SearchBar
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search devices, hosts, locations..."
+        />
       </View>
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.content}>
-        {/* Summary */}
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <View style={styles.summary}>
-          <StatusChip label={`${filtered.length} NODES`} type="info" />
+          <StatusChip label={`${filtered.length} DEVICES`} type="info" />
           <StatusChip
-            label={`${filtered.filter(t => t.status === 'active').length} ACTIVE`}
+            label={`${filtered.filter(device => device.status === 'online').length} ONLINE`}
             type="success"
           />
           <StatusChip
-            label={`${filtered.filter(t => t.status === 'error').length} ERROR`}
-            type="error"
+            label={`${filtered.filter(device => device.status === 'warning').length} WARNING`}
+            type="warning"
           />
         </View>
 
-        {/* Grouped terminals */}
-        {groups.map(group => (
-          <View key={group} style={styles.group}>
-            <Text
-              style={[
-                theme.typography.labelCaps,
-                { color: theme.colors.onSurfaceVariant },
-                styles.groupTitle,
-              ]}>
-              {group.toUpperCase()}
-            </Text>
-            {filtered
-              .filter(t => t.group === group)
-              .map(terminal => (
-                <TerminalCard key={terminal.id} terminal={terminal} />
-              ))}
-          </View>
+        <Text
+          style={[
+            theme.typography.labelCaps,
+            { color: theme.colors.onSurfaceVariant },
+            styles.sectionTitle,
+          ]}>
+          COMPUTE WORKSTATIONS
+        </Text>
+        {filtered.map(device => (
+          <DeviceControlCard
+            key={device.id}
+            device={device}
+            onPress={() => navigation.navigate('DeviceDetail', { deviceId: device.id })}
+          />
         ))}
       </ScrollView>
     </SafeAreaWrapper>
@@ -81,13 +94,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     marginTop: 12,
-    marginBottom: 8,
+    marginBottom: 16,
     flexWrap: 'wrap',
   },
-  group: {
-    marginTop: 12,
-  },
-  groupTitle: {
+  sectionTitle: {
     marginBottom: 8,
+  },
+  addButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

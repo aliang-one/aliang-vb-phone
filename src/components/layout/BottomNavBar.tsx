@@ -1,12 +1,21 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/useTheme';
 
 const tabIcons: Record<string, string> = {
-  Projects: '[ ]',
-  Terminals: '>_',
-  Settings: '[*]',
+  Dashboard: '[ ]',
+  Devices: 'DEV',
+  VibeCoding: '>_',
+  Account: '[*]',
+};
+
+const tabLabels: Record<string, string> = {
+  Dashboard: 'HOME',
+  Devices: 'DEVICES',
+  VibeCoding: 'VIBE',
+  Account: 'ME',
 };
 
 export const BottomNavBar: React.FC<BottomTabBarProps> = ({
@@ -14,6 +23,7 @@ export const BottomNavBar: React.FC<BottomTabBarProps> = ({
   navigation,
 }) => {
   const { theme, isDark } = useTheme();
+  const { bottom } = useSafeAreaInsets();
 
   return (
     <View
@@ -26,11 +36,12 @@ export const BottomNavBar: React.FC<BottomTabBarProps> = ({
           borderTopColor: isDark
             ? 'rgba(255, 255, 255, 0.06)'
             : theme.colors.outlineVariant,
+          paddingBottom: bottom + 8,
         },
       ]}>
       {state.routes.map((route, index) => {
         const isFocused = state.index === index;
-        const label = route.name;
+        const label = tabLabels[route.name] || route.name;
         const icon = tabIcons[route.name] || '[]';
 
         const onPress = () => {

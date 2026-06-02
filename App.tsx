@@ -13,7 +13,8 @@ function AppContent() {
     <>
       <StatusBar
         barStyle={isDark ? 'light-content' : 'dark-content'}
-        backgroundColor={theme.colors.background}
+        translucent
+        backgroundColor="transparent"
       />
       <NavigationContainer
         theme={{

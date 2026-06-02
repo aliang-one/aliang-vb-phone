@@ -47,6 +47,14 @@ export const ErrorCard: React.FC<ErrorCardProps> = ({
         </Text>
         <Text
           style={[
+            theme.typography.labelSm,
+            { color: theme.colors.primary },
+            styles.project,
+          ]}>
+          {project}
+        </Text>
+        <Text
+          style={[
             theme.typography.codeSm,
             { color: theme.colors.onSurfaceVariant },
             styles.message,
@@ -72,6 +80,9 @@ const styles = StyleSheet.create({
   },
   title: {
     marginBottom: 4,
+  },
+  project: {
+    marginBottom: 6,
   },
   message: {
     opacity: 0.8,

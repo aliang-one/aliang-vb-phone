@@ -113,7 +113,112 @@ export interface LogEntry {
   message: string;
 }
 
+export interface UserPlan {
+  userName: string;
+  planName: string;
+  renewsAt: string;
+  balanceLimit: number;
+  balanceUsed: number;
+  timeLimitHours: number;
+  timeUsedHours: number;
+  concurrentLimit: number;
+  concurrentUsed: number;
+}
+
+export type DeviceStatus = 'online' | 'offline' | 'warning';
+
+export interface Device {
+  id: string;
+  name: string;
+  status: DeviceStatus;
+  location: string;
+  os: string;
+  host: string;
+  cpuLoad: number;
+  memLoad: number;
+  battery?: number;
+  authorizedDirectories: string[];
+  activePorts: number[];
+  projectIds: string[];
+  activeSessionIds: string[];
+  lastSeen: string;
+}
+
+export type VibeStatus =
+  | 'idle'
+  | 'running'
+  | 'waiting_user'
+  | 'waiting_approval'
+  | 'testing'
+  | 'preview_ready'
+  | 'failed'
+  | 'completed'
+  | 'paused';
+
+export interface VibeCodingRun {
+  id: string;
+  title: string;
+  deviceId: string;
+  projectId: string;
+  directory: string;
+  status: VibeStatus;
+  objective: string;
+  model: string;
+  budgetLimit: number;
+  budgetUsed: number;
+  timeLimitMinutes: number;
+  elapsedMinutes: number;
+  risk: 'low' | 'medium' | 'high';
+  currentStep: string;
+  branch: string;
+  updatedAt: string;
+  previewId?: string;
+  suggestions: string[];
+  transcript: AgentMessage[];
+  events: AgentEvent[];
+}
+
+export interface AgentMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  mode?: 'voice' | 'text' | 'action';
+  content: string;
+  timestamp: string;
+  pending?: boolean;
+}
+
+export interface AgentEvent {
+  id: string;
+  type: 'command' | 'file' | 'test' | 'preview' | 'approval' | 'status';
+  title: string;
+  detail: string;
+  status: 'done' | 'running' | 'waiting' | 'failed';
+  timestamp: string;
+}
+
+export interface PreviewLink {
+  id: string;
+  sessionId: string;
+  port: number;
+  shortUrl: string;
+  targetUrl: string;
+  expiresIn: string;
+  access: 'private' | 'team' | 'public';
+}
+
 // --- Mock Data ---
+
+export const mockUserPlan: UserPlan = {
+  userName: 'Aliang',
+  planName: 'Builder Pro',
+  renewsAt: '2026-06-25',
+  balanceLimit: 120,
+  balanceUsed: 46.8,
+  timeLimitHours: 80,
+  timeUsedHours: 31.5,
+  concurrentLimit: 4,
+  concurrentUsed: 2,
+};
 
 export const mockProjects: Project[] = [
   {
@@ -408,5 +513,259 @@ export const mockErrors = [
     message: 'CPU load at 99% - java process consuming 95%',
     time: '12 min ago',
     project: 'api-gateway',
+  },
+];
+
+export const mockDevices: Device[] = [
+  {
+    id: 'mac-studio',
+    name: 'Mac Studio - Desk',
+    status: 'online',
+    location: 'Shanghai desk',
+    os: 'macOS 15.5',
+    host: '10.0.0.21',
+    cpuLoad: 42,
+    memLoad: 68,
+    authorizedDirectories: [
+      '~/Work/ai-products',
+      '~/MyProgram/AiProgram',
+      '~/Sites/lab',
+    ],
+    activePorts: [3000, 5173, 8081],
+    projectIds: ['1', '2'],
+    activeSessionIds: ['vc-1', 'vc-2'],
+    lastSeen: 'now',
+  },
+  {
+    id: 'mbp-travel',
+    name: 'MacBook Pro - Travel',
+    status: 'warning',
+    location: 'Remote tunnel',
+    os: 'macOS 15.4',
+    host: 'tailscale:mbp-travel',
+    cpuLoad: 76,
+    memLoad: 72,
+    battery: 34,
+    authorizedDirectories: ['~/Projects/mobile', '~/Projects/client-work'],
+    activePorts: [3001],
+    projectIds: ['3', '4'],
+    activeSessionIds: ['vc-3'],
+    lastSeen: '2 min ago',
+  },
+  {
+    id: 'linux-gpu',
+    name: 'Linux GPU Box',
+    status: 'offline',
+    location: 'Studio rack',
+    os: 'Ubuntu 24.04',
+    host: '10.0.0.88',
+    cpuLoad: 0,
+    memLoad: 0,
+    authorizedDirectories: ['/srv/agents', '/srv/ml'],
+    activePorts: [],
+    projectIds: ['3'],
+    activeSessionIds: [],
+    lastSeen: '3h ago',
+  },
+];
+
+export const mockPreviewLinks: PreviewLink[] = [
+  {
+    id: 'preview-1',
+    sessionId: 'vc-1',
+    port: 5173,
+    shortUrl: 'https://vibe.link/p/ax91',
+    targetUrl: 'mac-studio.local:5173',
+    expiresIn: '54 min',
+    access: 'private',
+  },
+  {
+    id: 'preview-2',
+    sessionId: 'vc-3',
+    port: 3001,
+    shortUrl: 'https://vibe.link/p/k7m2',
+    targetUrl: 'mbp-travel.local:3001',
+    expiresIn: '18 min',
+    access: 'team',
+  },
+];
+
+export const mockVibeCodingRuns: VibeCodingRun[] = [
+  {
+    id: 'vc-1',
+    title: 'Polish mobile control dashboard',
+    deviceId: 'mac-studio',
+    projectId: '2',
+    directory: '~/MyProgram/AiProgram/AliangVibeCodingPhone',
+    status: 'preview_ready',
+    objective:
+      'Make the dashboard feel like a mobile command center for remote coding agents.',
+    model: 'GPT-5 Codex',
+    budgetLimit: 18,
+    budgetUsed: 6.45,
+    timeLimitMinutes: 90,
+    elapsedMinutes: 42,
+    risk: 'medium',
+    currentStep: 'Preview is ready. Waiting for user review on port 5173.',
+    branch: 'feature/mobile-command-ui',
+    updatedAt: '1 min ago',
+    previewId: 'preview-1',
+    suggestions: [
+      'Open preview',
+      'Run tests',
+      'Tighten empty states',
+      'Show diff summary',
+      'Prepare commit',
+    ],
+    transcript: [
+      {
+        id: 'm1',
+        role: 'user',
+        mode: 'voice',
+        content:
+          'I want the phone app to show all coding agents and make the active tasks easier to control.',
+        timestamp: '15:20',
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        mode: 'action',
+        content:
+          '整理后指令：重构控制台首页，突出套餐额度、在线设备、等待用户处理的 VibeCoding，并添加预览入口。',
+        timestamp: '15:21',
+      },
+      {
+        id: 'm3',
+        role: 'assistant',
+        content:
+          'Dashboard and session cards are updated. I generated a preview link and need your review before preparing a commit.',
+        timestamp: '15:36',
+      },
+    ],
+    events: [
+      {
+        id: 'e1',
+        type: 'file',
+        title: 'Updated dashboard layout',
+        detail: 'src/screens/dashboard/DashboardScreen.tsx',
+        status: 'done',
+        timestamp: '15:25',
+      },
+      {
+        id: 'e2',
+        type: 'test',
+        title: 'Type check',
+        detail: 'npx tsc --noEmit passed',
+        status: 'done',
+        timestamp: '15:32',
+      },
+      {
+        id: 'e3',
+        type: 'preview',
+        title: 'Preview link opened',
+        detail: 'Port 5173 converted to short link',
+        status: 'waiting',
+        timestamp: '15:36',
+      },
+    ],
+  },
+  {
+    id: 'vc-2',
+    title: 'Add auth error handling',
+    deviceId: 'mac-studio',
+    projectId: '1',
+    directory: '~/Work/ai-products/api-gateway',
+    status: 'waiting_approval',
+    objective:
+      'Add safer token handling and tests for expired JWT cases.',
+    model: 'Claude Code',
+    budgetLimit: 12,
+    budgetUsed: 4.9,
+    timeLimitMinutes: 60,
+    elapsedMinutes: 26,
+    risk: 'high',
+    currentStep: 'Needs approval before modifying middleware and test files.',
+    branch: 'agent/auth-hardening',
+    updatedAt: '4 min ago',
+    suggestions: [
+      'Approve file edits',
+      'Ask for plan',
+      'Lower risk scope',
+      'Pause session',
+    ],
+    transcript: [
+      {
+        id: 'm4',
+        role: 'user',
+        mode: 'text',
+        content: 'Fix auth middleware errors and add a few focused tests.',
+        timestamp: '14:32',
+      },
+      {
+        id: 'm5',
+        role: 'assistant',
+        content:
+          'I found the middleware and tests. This touches request auth behavior, so I need approval before applying the patch.',
+        timestamp: '14:35',
+      },
+    ],
+    events: [
+      {
+        id: 'e4',
+        type: 'approval',
+        title: 'Approval required',
+        detail: 'Modify src/middleware/auth.ts and tests/auth.test.ts',
+        status: 'waiting',
+        timestamp: '14:35',
+      },
+    ],
+  },
+  {
+    id: 'vc-3',
+    title: 'Refine onboarding flow',
+    deviceId: 'mbp-travel',
+    projectId: '4',
+    directory: '~/Projects/mobile/companion',
+    status: 'running',
+    objective:
+      'Improve the first-run setup flow and connect empty states to mock data.',
+    model: 'GPT-5 Codex',
+    budgetLimit: 10,
+    budgetUsed: 2.15,
+    timeLimitMinutes: 45,
+    elapsedMinutes: 13,
+    risk: 'low',
+    currentStep: 'Editing onboarding screen copy and form states.',
+    branch: 'agent/onboarding-polish',
+    updatedAt: 'now',
+    previewId: 'preview-2',
+    suggestions: ['Watch progress', 'Open preview', 'Send voice note'],
+    transcript: [
+      {
+        id: 'm6',
+        role: 'user',
+        mode: 'voice',
+        content:
+          'Make onboarding less confusing and show what device permissions are needed.',
+        timestamp: '16:08',
+      },
+      {
+        id: 'm7',
+        role: 'assistant',
+        content:
+          'I am updating the setup steps and will expose a preview when the first pass is done.',
+        timestamp: '16:10',
+      },
+    ],
+    events: [
+      {
+        id: 'e5',
+        type: 'status',
+        title: 'Implementation running',
+        detail: 'Editing onboarding copy and permission checklist',
+        status: 'running',
+        timestamp: '16:14',
+      },
+    ],
   },
 ];

@@ -20,7 +20,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
   project,
   onPress,
 }) => {
-  const { theme, isDark } = useTheme();
+  const { theme } = useTheme();
 
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.7}>

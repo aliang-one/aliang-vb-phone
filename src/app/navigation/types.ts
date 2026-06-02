@@ -5,12 +5,19 @@ export type RootStackParamList = {
   Splash: undefined;
   Login: undefined;
   MainTabs: undefined;
+  DeviceDetail: { deviceId: string };
+  DeviceTerminal: { deviceId: string; directory?: string };
+  ProjectDetail: { projectId: string; deviceId?: string };
+  CreateVibeCoding: { deviceId?: string; projectId?: string };
+  VibeCodingSession: { sessionId: string };
+  Preview: { previewId: string };
 };
 
 export type MainTabParamList = {
-  Projects: undefined;
-  Terminals: undefined;
-  Settings: undefined;
+  Dashboard: undefined;
+  Devices: undefined;
+  VibeCoding: undefined;
+  Account: undefined;
 };
 
 export type RootStackScreenProps<T extends keyof RootStackParamList> =
