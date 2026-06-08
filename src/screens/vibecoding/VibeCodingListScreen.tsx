@@ -9,12 +9,10 @@ import { SearchBar } from '../../components/input/SearchBar';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import {
-  mockDevices,
-  mockProjects,
-  mockVibeCodingRuns,
   VibeStatus,
 } from '../../data/mockData';
 import { RootStackParamList } from '../../app/navigation/types';
+import { useControlCenterStore } from '../../store/controlCenterStore';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -29,11 +27,14 @@ const filters: Array<{ label: string; value: 'all' | VibeStatus }> = [
 export const VibeCodingListScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
+  const devices = useControlCenterStore(state => state.devices);
+  const projects = useControlCenterStore(state => state.projects);
+  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | VibeStatus>('all');
 
-  const filtered = mockVibeCodingRuns.filter(session => {
-    const project = mockProjects.find(item => item.id === session.projectId);
+  const filtered = vibeRuns.filter(session => {
+    const project = projects.find(item => item.id === session.projectId);
     const matchesQuery =
       session.title.toLowerCase().includes(query.toLowerCase()) ||
       session.objective.toLowerCase().includes(query.toLowerCase()) ||
@@ -117,8 +118,8 @@ export const VibeCodingListScreen: React.FC = () => {
           <VibeSessionCard
             key={session.id}
             session={session}
-            project={mockProjects.find(project => project.id === session.projectId)}
-            device={mockDevices.find(device => device.id === session.deviceId)}
+            project={projects.find(project => project.id === session.projectId)}
+            device={devices.find(device => device.id === session.deviceId)}
             onPress={() =>
               navigation.navigate('VibeCodingSession', { sessionId: session.id })
             }

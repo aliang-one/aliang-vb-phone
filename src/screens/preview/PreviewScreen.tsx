@@ -9,13 +9,8 @@ import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
-import {
-  mockDevices,
-  mockPreviewLinks,
-  mockProjects,
-  mockVibeCodingRuns,
-} from '../../data/mockData';
 import { RootStackParamList } from '../../app/navigation/types';
+import { useControlCenterStore } from '../../store/controlCenterStore';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type PreviewRoute = RouteProp<RootStackParamList, 'Preview'>;
@@ -24,15 +19,19 @@ export const PreviewScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
   const route = useRoute<PreviewRoute>();
+  const devices = useControlCenterStore(state => state.devices);
+  const projects = useControlCenterStore(state => state.projects);
+  const previewLinks = useControlCenterStore(state => state.previewLinks);
+  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
   const preview =
-    mockPreviewLinks.find(item => item.id === route.params.previewId) ??
-    mockPreviewLinks[0];
-  const session = mockVibeCodingRuns.find(item => item.id === preview.sessionId);
+    previewLinks.find(item => item.id === route.params.previewId) ??
+    previewLinks[0];
+  const session = vibeRuns.find(item => item.id === preview.sessionId);
   const project = session
-    ? mockProjects.find(item => item.id === session.projectId)
+    ? projects.find(item => item.id === session.projectId)
     : undefined;
   const device = session
-    ? mockDevices.find(item => item.id === session.deviceId)
+    ? devices.find(item => item.id === session.deviceId)
     : undefined;
 
   return (

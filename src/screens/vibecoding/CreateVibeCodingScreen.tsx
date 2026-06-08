@@ -16,8 +16,11 @@ import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
-import { mockDevices, mockProjects } from '../../data/mockData';
 import { RootStackParamList } from '../../app/navigation/types';
+import {
+  AgentProvider,
+  useControlCenterStore,
+} from '../../store/controlCenterStore';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type CreateRoute = RouteProp<RootStackParamList, 'CreateVibeCoding'>;
@@ -29,20 +32,29 @@ const permissions = [
   'Expose preview ports as short links',
 ];
 
+const providerLabels: Record<AgentProvider, string> = {
+  claude_code: 'Claude Code',
+  codex: 'Codex',
+};
+
 export const CreateVibeCodingScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
   const route = useRoute<CreateRoute>();
-  const initialDeviceId = route.params?.deviceId ?? mockDevices[0].id;
+  const devices = useControlCenterStore(state => state.devices);
+  const projects = useControlCenterStore(state => state.projects);
+  const startAgentSession = useControlCenterStore(state => state.startAgentSession);
+  const initialDeviceId = route.params?.deviceId ?? devices[0].id;
   const initialProjectId =
     route.params?.projectId ??
-    mockDevices.find(device => device.id === initialDeviceId)?.projectIds[0] ??
-    mockProjects[0].id;
+    devices.find(device => device.id === initialDeviceId)?.projectIds[0] ??
+    projects[0].id;
 
   const [deviceId, setDeviceId] = useState(initialDeviceId);
   const [projectId, setProjectId] = useState(initialProjectId);
-  const device = mockDevices.find(item => item.id === deviceId) ?? mockDevices[0];
-  const project = mockProjects.find(item => item.id === projectId) ?? mockProjects[0];
+  const [provider, setProvider] = useState<AgentProvider>('codex');
+  const device = devices.find(item => item.id === deviceId) ?? devices[0];
+  const project = projects.find(item => item.id === projectId) ?? projects[0];
   const [directory, setDirectory] = useState(device.authorizedDirectories[0]);
   const [objective, setObjective] = useState(
     'Polish the mobile command center UI and make active VibeCoding sessions easier to control.',
@@ -52,8 +64,8 @@ export const CreateVibeCodingScreen: React.FC = () => {
   const [selectedPermissions, setSelectedPermissions] = useState(permissions);
 
   const availableProjects = useMemo(
-    () => mockProjects.filter(item => device.projectIds.includes(item.id)),
-    [device.projectIds],
+    () => projects.filter(item => device.projectIds.includes(item.id)),
+    [device.projectIds, projects],
   );
 
   const togglePermission = (permission: string) => {
@@ -65,7 +77,16 @@ export const CreateVibeCodingScreen: React.FC = () => {
   };
 
   const handleCreate = () => {
-    navigation.navigate('VibeCodingSession', { sessionId: 'vc-3' });
+    const sessionId = startAgentSession({
+      deviceId: device.id,
+      projectId: project.id,
+      directory,
+      provider,
+      objective: objective.trim(),
+      budgetLimit: budget,
+      timeLimitMinutes: minutes,
+    });
+    navigation.replace('VibeCodingSession', { sessionId });
   };
 
   return (
@@ -85,7 +106,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
           1. DEVICE
         </Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rowScroller}>
-          {mockDevices.map(item => {
+          {devices.map(item => {
             const active = item.id === deviceId;
             return (
               <TouchableOpacity
@@ -178,7 +199,53 @@ export const CreateVibeCodingScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
           ]}>
-          4. OBJECTIVE
+          4. AGENT PROVIDER
+        </Text>
+        <View style={styles.providerRow}>
+          {(['codex', 'claude_code'] as AgentProvider[]).map(item => {
+            const active = provider === item;
+            return (
+              <TouchableOpacity
+                key={item}
+                activeOpacity={0.75}
+                onPress={() => setProvider(item)}
+                style={[
+                  styles.providerButton,
+                  {
+                    borderRadius: theme.borderRadius.full,
+                    borderColor: active
+                      ? theme.colors.primary
+                      : theme.colors.outlineVariant,
+                    backgroundColor: active
+                      ? isDark
+                        ? 'rgba(0, 209, 255, 0.12)'
+                        : 'rgba(0, 81, 174, 0.08)'
+                      : 'transparent',
+                  },
+                ]}>
+                <Text
+                  style={[
+                    theme.typography.labelSm,
+                    {
+                      color: active
+                        ? theme.colors.primary
+                        : theme.colors.onSurfaceVariant,
+                    },
+                  ]}>
+                  {providerLabels[item]}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text
+          style={[
+            theme.typography.labelCaps,
+            { color: theme.colors.onSurfaceVariant },
+            styles.sectionTitle,
+          ]}>
+          5. OBJECTIVE
         </Text>
         <TextInput
           value={objective}
@@ -208,7 +275,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
           ]}>
-          5. LIMITS
+          6. LIMITS
         </Text>
         <View style={styles.limitGrid}>
           <LimitStepper
@@ -231,7 +298,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
           ]}>
-          6. PERMISSIONS
+          7. PERMISSIONS
         </Text>
         <GlassPanel style={styles.optionPanel}>
           {permissions.map((permission, index) => {
@@ -260,7 +327,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
             READY TO START
           </Text>
           <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-            {project.name} on {device.name}. Agent will stay inside {directory}.
+            {providerLabels[provider]} will run {project.name} on {device.name} inside {directory}.
           </Text>
         </GlassPanel>
 
@@ -358,6 +425,18 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     borderWidth: 1,
     padding: 12,
+  },
+  providerRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  providerButton: {
+    flex: 1,
+    borderWidth: 1,
+    minHeight: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
   },
   limitGrid: {
     flexDirection: 'row',

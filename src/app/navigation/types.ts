@@ -5,11 +5,17 @@ export type RootStackParamList = {
   Splash: undefined;
   Login: undefined;
   MainTabs: undefined;
+  DeviceBinding: undefined;
   DeviceDetail: { deviceId: string };
-  DeviceTerminal: { deviceId: string; directory?: string };
+  DeviceTerminal: { deviceId: string; directory?: string; terminalId?: string };
+  ProjectScan: { deviceId: string };
   ProjectDetail: { projectId: string; deviceId?: string };
   CreateVibeCoding: { deviceId?: string; projectId?: string };
+  AgentSessions: { deviceId?: string; projectId?: string } | undefined;
   VibeCodingSession: { sessionId: string };
+  EventStream: { deviceId?: string; sessionId?: string } | undefined;
+  ApprovalCenter: undefined;
+  NotificationCenter: undefined;
   Preview: { previewId: string };
 };
 

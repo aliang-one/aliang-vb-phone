@@ -13,6 +13,7 @@ import { GlassPanel } from '../shared/GlassPanel';
 import { ProgressBar } from '../shared/ProgressBar';
 import { StatusChip } from '../shared/StatusChip';
 import { vibeStatusLabel, vibeStatusType } from './status';
+import { useControlCenterStore } from '../../store/controlCenterStore';
 
 interface VibeSessionCardProps {
   session: VibeCodingRun;
@@ -32,7 +33,9 @@ export const VibeSessionCard: React.FC<VibeSessionCardProps> = ({
   const [detailsVisible, setDetailsVisible] = useState(false);
   const [notice, setNotice] = useState('');
   const [hidden, setHidden] = useState(false);
-  const [localStatus, setLocalStatus] = useState(session.status);
+  const pauseAgentSession = useControlCenterStore(state => state.pauseAgentSession);
+  const resumeAgentSession = useControlCenterStore(state => state.resumeAgentSession);
+  const deleteAgentSession = useControlCenterStore(state => state.deleteAgentSession);
   const progress = Math.min(
     100,
     (session.elapsedMinutes / session.timeLimitMinutes) * 100,
@@ -43,7 +46,7 @@ export const VibeSessionCard: React.FC<VibeSessionCardProps> = ({
   }
 
   const handleReport = () => {
-    setNotice(`汇报：${vibeStatusLabel[localStatus]} / ${session.currentStep}`);
+    setNotice(`汇报：${vibeStatusLabel[session.status]} / ${session.currentStep}`);
   };
 
   const handleRefresh = () => {
@@ -51,14 +54,19 @@ export const VibeSessionCard: React.FC<VibeSessionCardProps> = ({
   };
 
   const handlePauseToggle = () => {
-    const nextStatus = localStatus === 'paused' ? 'running' : 'paused';
+    if (session.status === 'paused') {
+      resumeAgentSession(session.id);
+      setNotice('已请求恢复运行。');
+      return;
+    }
 
-    setLocalStatus(nextStatus);
-    setNotice(nextStatus === 'paused' ? '已请求暂停该 VibeCoding。' : '已请求恢复运行。');
+    pauseAgentSession(session.id);
+    setNotice('已请求暂停该 VibeCoding。');
   };
 
   const handleDelete = () => {
     setMenuVisible(false);
+    deleteAgentSession(session.id);
     setHidden(true);
   };
 
@@ -132,9 +140,9 @@ export const VibeSessionCard: React.FC<VibeSessionCardProps> = ({
         activeOpacity={0.75}>
         <GlassPanel
           glowColor={
-            localStatus === 'waiting_approval'
+            session.status === 'waiting_approval'
               ? 'secondary'
-              : localStatus === 'failed'
+              : session.status === 'failed'
               ? 'error'
               : 'none'
           }
@@ -153,8 +161,8 @@ export const VibeSessionCard: React.FC<VibeSessionCardProps> = ({
               </Text>
             </View>
             <StatusChip
-              label={vibeStatusLabel[localStatus]}
-              type={vibeStatusType[localStatus]}
+              label={vibeStatusLabel[session.status]}
+              type={vibeStatusType[session.status]}
             />
           </View>
           <Text
@@ -226,8 +234,8 @@ export const VibeSessionCard: React.FC<VibeSessionCardProps> = ({
                 </Text>
               </View>
               <StatusChip
-                label={vibeStatusLabel[localStatus]}
-                type={vibeStatusType[localStatus]}
+                label={vibeStatusLabel[session.status]}
+                type={vibeStatusType[session.status]}
               />
             </View>
             <View style={styles.summaryPanel}>
@@ -288,7 +296,7 @@ export const VibeSessionCard: React.FC<VibeSessionCardProps> = ({
                 {renderInfoRow('BUDGET', `$${session.budgetUsed.toFixed(2)} / $${session.budgetLimit}`)}
                 {renderInfoRow('TIME', `${session.elapsedMinutes}m / ${session.timeLimitMinutes}m`)}
                 {renderInfoRow('RISK', session.risk.toUpperCase())}
-                {renderMenuAction(localStatus === 'paused' ? '恢复运行' : '暂停运行', handlePauseToggle)}
+                {renderMenuAction(session.status === 'paused' ? '恢复运行' : '暂停运行', handlePauseToggle)}
               </View>
             ) : null}
           </GlassPanel>

@@ -8,17 +8,18 @@ import { TopAppBar } from '../../components/layout/TopAppBar';
 import { SearchBar } from '../../components/input/SearchBar';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard';
-import { mockDevices } from '../../data/mockData';
 import { RootStackParamList } from '../../app/navigation/types';
+import { useControlCenterStore } from '../../store/controlCenterStore';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 export const TerminalListScreen: React.FC = () => {
   const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
+  const devices = useControlCenterStore(state => state.devices);
   const [search, setSearch] = useState('');
 
-  const filtered = mockDevices.filter(
+  const filtered = devices.filter(
     device =>
       device.name.toLowerCase().includes(search.toLowerCase()) ||
       device.host.toLowerCase().includes(search.toLowerCase()) ||
@@ -31,7 +32,10 @@ export const TerminalListScreen: React.FC = () => {
         title="Devices"
         subtitle="AUTHORIZED COMPUTERS"
         rightAction={
-          <TouchableOpacity style={styles.addButton}>
+          <TouchableOpacity
+            activeOpacity={0.75}
+            onPress={() => navigation.navigate('DeviceBinding')}
+            style={styles.addButton}>
             <Text style={[theme.typography.codeMd, { color: theme.colors.primary }]}>
               +
             </Text>

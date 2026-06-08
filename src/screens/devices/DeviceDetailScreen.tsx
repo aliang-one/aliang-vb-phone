@@ -11,12 +11,8 @@ import { GlowButton } from '../../components/shared/GlowButton';
 import { ProgressBar } from '../../components/shared/ProgressBar';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
-import {
-  mockDevices,
-  mockProjects,
-  mockVibeCodingRuns,
-} from '../../data/mockData';
 import { RootStackParamList } from '../../app/navigation/types';
+import { useControlCenterStore } from '../../store/controlCenterStore';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DeviceRoute = RouteProp<RootStackParamList, 'DeviceDetail'>;
@@ -31,7 +27,10 @@ export const DeviceDetailScreen: React.FC = () => {
   const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
   const route = useRoute<DeviceRoute>();
-  const device = mockDevices.find(item => item.id === route.params.deviceId);
+  const devices = useControlCenterStore(state => state.devices);
+  const projectsStore = useControlCenterStore(state => state.projects);
+  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
+  const device = devices.find(item => item.id === route.params.deviceId);
 
   if (!device) {
     return (
@@ -41,10 +40,10 @@ export const DeviceDetailScreen: React.FC = () => {
     );
   }
 
-  const projects = mockProjects.filter(project =>
+  const projects = projectsStore.filter(project =>
     device.projectIds.includes(project.id),
   );
-  const sessions = mockVibeCodingRuns.filter(session =>
+  const sessions = vibeRuns.filter(session =>
     device.activeSessionIds.includes(session.id),
   );
 
@@ -122,6 +121,38 @@ export const DeviceDetailScreen: React.FC = () => {
           variant="secondary"
           style={styles.secondaryAction}
         />
+        <View style={styles.actionGrid}>
+          <GlowButton
+            title="SCAN PROJECTS"
+            onPress={() => navigation.navigate('ProjectScan', { deviceId: device.id })}
+            variant="outline"
+            style={styles.gridAction}
+          />
+          <GlowButton
+            title="AGENT SESSIONS"
+            onPress={() =>
+              navigation.navigate('AgentSessions', { deviceId: device.id })
+            }
+            variant="outline"
+            style={styles.gridAction}
+          />
+        </View>
+        <View style={styles.actionGrid}>
+          <GlowButton
+            title="EVENT STREAM"
+            onPress={() =>
+              navigation.navigate('EventStream', { deviceId: device.id })
+            }
+            variant="outline"
+            style={styles.gridAction}
+          />
+          <GlowButton
+            title="APPROVALS"
+            onPress={() => navigation.navigate('ApprovalCenter')}
+            variant="outline"
+            style={styles.gridAction}
+          />
+        </View>
 
         <Text
           style={[
@@ -227,7 +258,7 @@ export const DeviceDetailScreen: React.FC = () => {
           <VibeSessionCard
             key={session.id}
             session={session}
-            project={mockProjects.find(project => project.id === session.projectId)}
+            project={projectsStore.find(project => project.id === session.projectId)}
             device={device}
             onPress={() =>
               navigation.navigate('VibeCodingSession', { sessionId: session.id })
@@ -272,6 +303,15 @@ const styles = StyleSheet.create({
   },
   secondaryAction: {
     marginTop: 8,
+  },
+  actionGrid: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  gridAction: {
+    flex: 1,
+    paddingHorizontal: 8,
   },
   sectionTitle: {
     marginTop: 20,

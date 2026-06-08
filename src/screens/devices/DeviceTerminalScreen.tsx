@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -15,35 +15,36 @@ import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
-import { mockDevices } from '../../data/mockData';
 import { useTheme } from '../../theme/useTheme';
 import { RootStackParamList } from '../../app/navigation/types';
+import {
+  TerminalLineKind,
+  TerminalSessionStatus,
+  useControlCenterStore,
+} from '../../store/controlCenterStore';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DeviceTerminalRoute = RouteProp<RootStackParamList, 'DeviceTerminal'>;
 
-type TerminalLineKind = 'command' | 'stdout' | 'stderr' | 'system' | 'success';
-type TerminalState = 'idle' | 'running' | 'completed' | 'failed' | 'stopped';
+const quickCommands = [
+  'pwd',
+  'ls -la',
+  'git status',
+  'npm test',
+  'git push origin HEAD',
+];
 
-interface TerminalLine {
-  id: string;
-  kind: TerminalLineKind;
-  content: string;
-  timestamp: string;
-}
-
-const quickCommands = ['pwd', 'ls -la', 'git status', 'npm test', 'npm run lint'];
-
-const terminalStateLabel: Record<TerminalState, string> = {
+const terminalStateLabel: Record<TerminalSessionStatus, string> = {
   idle: 'READY',
   running: 'RUNNING',
   completed: 'DONE',
   failed: 'FAILED',
   stopped: 'STOPPED',
+  waiting_approval: 'APPROVAL',
 };
 
 const terminalStateType: Record<
-  TerminalState,
+  TerminalSessionStatus,
   'success' | 'warning' | 'error' | 'neutral' | 'info'
 > = {
   idle: 'neutral',
@@ -51,106 +52,7 @@ const terminalStateType: Record<
   completed: 'success',
   failed: 'error',
   stopped: 'warning',
-};
-
-const getTimestamp = () =>
-  new Date().toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  });
-
-const createTerminalLine = (
-  kind: TerminalLineKind,
-  content: string,
-): TerminalLine => ({
-  id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  kind,
-  content,
-  timestamp: getTimestamp(),
-});
-
-const buildCommandOutput = (
-  command: string,
-  directory: string,
-  deviceName: string,
-): Array<Omit<TerminalLine, 'id' | 'timestamp'>> => {
-  const normalized = command.trim().toLowerCase();
-
-  if (normalized === 'pwd') {
-    return [{ kind: 'stdout', content: directory }];
-  }
-
-  if (normalized === 'ls' || normalized === 'ls -la') {
-    return [
-      { kind: 'stdout', content: 'drwxr-xr-x  src' },
-      { kind: 'stdout', content: 'drwxr-xr-x  ios' },
-      { kind: 'stdout', content: 'drwxr-xr-x  android' },
-      { kind: 'stdout', content: '-rw-r--r--  package.json' },
-      { kind: 'stdout', content: '-rw-r--r--  README.md' },
-    ];
-  }
-
-  if (normalized.startsWith('git status')) {
-    return [
-      { kind: 'stdout', content: 'On branch codex/mobile-terminal-control' },
-      { kind: 'stdout', content: 'Changes not staged for commit:' },
-      { kind: 'stdout', content: '  modified: src/screens/devices/DeviceDetailScreen.tsx' },
-      { kind: 'stdout', content: '  new file: src/screens/devices/DeviceTerminalScreen.tsx' },
-      { kind: 'success', content: 'Working tree scanned.' },
-    ];
-  }
-
-  if (normalized.includes('npm run lint')) {
-    return [
-      { kind: 'system', content: 'Starting lint task on remote device agent.' },
-      { kind: 'stdout', content: '> AliangVibeCodingPhone@0.0.1 lint' },
-      { kind: 'stdout', content: '> eslint .' },
-      { kind: 'success', content: 'Lint completed with no blocking errors.' },
-    ];
-  }
-
-  if (normalized.includes('npm test')) {
-    return [
-      { kind: 'system', content: 'Starting Jest in single-device terminal session.' },
-      { kind: 'stdout', content: 'PASS __tests__/App.test.tsx' },
-      { kind: 'stdout', content: 'Tests: 1 passed, 1 total' },
-      { kind: 'success', content: 'Exit code 0' },
-    ];
-  }
-
-  if (normalized.includes('npm run build')) {
-    return [
-      { kind: 'system', content: 'Preparing build command.' },
-      { kind: 'stderr', content: 'No build script is configured in package.json.' },
-      { kind: 'stderr', content: 'Exit code 1' },
-    ];
-  }
-
-  if (normalized.startsWith('cd ')) {
-    return [
-      {
-        kind: 'stderr',
-        content:
-          'Directory changes are controlled by the directory selector in this mobile console.',
-      },
-    ];
-  }
-
-  if (normalized.includes('rm -rf') || normalized.includes('sudo rm')) {
-    return [
-      { kind: 'system', content: 'Command blocked by mobile safety policy.' },
-      { kind: 'stderr', content: 'Destructive commands require desktop confirmation.' },
-    ];
-  }
-
-  return [
-    { kind: 'system', content: `Opening remote shell on ${deviceName}.` },
-    { kind: 'stdout', content: `Executing in ${directory}` },
-    { kind: 'stdout', content: command },
-    { kind: 'success', content: 'Command accepted by device agent. Exit code 0' },
-  ];
+  waiting_approval: 'warning',
 };
 
 export const DeviceTerminalScreen: React.FC = () => {
@@ -158,54 +60,36 @@ export const DeviceTerminalScreen: React.FC = () => {
   const navigation = useNavigation<Navigation>();
   const route = useRoute<DeviceTerminalRoute>();
   const outputRef = useRef<ScrollView>(null);
-  const timersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
-  const device = mockDevices.find(item => item.id === route.params.deviceId);
-  const directories = useMemo(
-    () => device?.authorizedDirectories ?? [],
-    [device?.authorizedDirectories],
+  const devices = useControlCenterStore(state => state.devices);
+  const terminalSessions = useControlCenterStore(state => state.terminalSessions);
+  const createTerminalSession = useControlCenterStore(
+    state => state.createTerminalSession,
   );
-  const initialDirectory = route.params.directory ?? directories[0] ?? '~';
-
-  const [directory, setDirectory] = useState(initialDirectory);
+  const executeTerminalCommand = useControlCenterStore(
+    state => state.executeTerminalCommand,
+  );
+  const clearTerminal = useControlCenterStore(state => state.clearTerminal);
+  const stopTerminal = useControlCenterStore(state => state.stopTerminal);
+  const [terminalId, setTerminalId] = useState(route.params.terminalId);
   const [command, setCommand] = useState('');
-  const [terminalState, setTerminalState] = useState<TerminalState>(
-    device?.status === 'offline' ? 'stopped' : 'idle',
-  );
-  const [lines, setLines] = useState<TerminalLine[]>(() => {
-    const initialLines = [
-      createTerminalLine(
-        'system',
-        device
-          ? `Terminal session created on ${device.name}.`
-          : 'Device is unavailable.',
-      ),
-      createTerminalLine('system', `Working directory: ${initialDirectory}`),
-    ];
-
-    if (device?.status === 'offline') {
-      initialLines.push(
-        createTerminalLine(
-          'stderr',
-          'Device is offline. Reconnect before executing commands.',
-        ),
-      );
-    }
-
-    return initialLines;
-  });
-
-  const isRunning = terminalState === 'running';
+  const device = devices.find(item => item.id === route.params.deviceId);
+  const terminal = terminalSessions.find(item => item.id === terminalId);
+  const directory = terminal?.directory ?? route.params.directory ?? '~';
+  const isRunning = terminal?.status === 'running';
   const canExecute =
-    Boolean(command.trim()) && Boolean(device) && device?.status !== 'offline' && !isRunning;
-
-  const clearTimers = () => {
-    timersRef.current.forEach(timer => clearTimeout(timer));
-    timersRef.current = [];
-  };
+    Boolean(command.trim()) &&
+    Boolean(terminal) &&
+    Boolean(device) &&
+    device?.status !== 'offline' &&
+    !isRunning;
 
   useEffect(() => {
-    return clearTimers;
-  }, []);
+    if (!terminalId && device) {
+      setTerminalId(
+        createTerminalSession(device.id, route.params.directory),
+      );
+    }
+  }, [createTerminalSession, device, route.params.directory, terminalId]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -213,7 +97,7 @@ export const DeviceTerminalScreen: React.FC = () => {
     }, 60);
 
     return () => clearTimeout(timer);
-  }, [lines.length]);
+  }, [terminal?.lines.length]);
 
   const getLineColor = (kind: TerminalLineKind) => {
     switch (kind) {
@@ -246,78 +130,29 @@ export const DeviceTerminalScreen: React.FC = () => {
   };
 
   const handleDirectoryChange = (nextDirectory: string) => {
-    if (isRunning || nextDirectory === directory) {
+    if (!device || isRunning) {
       return;
     }
 
-    setDirectory(nextDirectory);
-    setLines(current => [
-      ...current,
-      createTerminalLine('system', `Working directory changed to ${nextDirectory}`),
-    ]);
-  };
-
-  const handleClear = () => {
-    clearTimers();
-    setTerminalState(device?.status === 'offline' ? 'stopped' : 'idle');
-    setLines([
-      createTerminalLine('system', 'Terminal output cleared.'),
-      createTerminalLine('system', `Working directory: ${directory}`),
-    ]);
-  };
-
-  const handleStop = () => {
-    if (!isRunning) {
-      return;
-    }
-
-    clearTimers();
-    setTerminalState('stopped');
-    setLines(current => [
-      ...current,
-      createTerminalLine('system', 'Process interrupted from mobile control.'),
-    ]);
+    setTerminalId(createTerminalSession(device.id, nextDirectory));
+    setCommand('');
   };
 
   const handleExecute = () => {
     const trimmed = command.trim();
 
-    if (!canExecute || !device || !trimmed) {
+    if (!canExecute || !terminal || !trimmed) {
       return;
     }
 
     if (trimmed.toLowerCase() === 'clear') {
+      clearTerminal(terminal.id);
       setCommand('');
-      handleClear();
       return;
     }
 
-    clearTimers();
+    executeTerminalCommand(terminal.id, trimmed);
     setCommand('');
-    setTerminalState('running');
-    setLines(current => [
-      ...current,
-      createTerminalLine('command', `${directory} $ ${trimmed}`),
-    ]);
-
-    const outputLines = buildCommandOutput(trimmed, directory, device.name);
-    const didFail = outputLines.some(line => line.kind === 'stderr');
-
-    outputLines.forEach((line, index) => {
-      const timer = setTimeout(() => {
-        setLines(current => [
-          ...current,
-          createTerminalLine(line.kind, line.content),
-        ]);
-
-        if (index === outputLines.length - 1) {
-          timersRef.current = [];
-          setTerminalState(didFail ? 'failed' : 'completed');
-        }
-      }, 420 * (index + 1));
-
-      timersRef.current.push(timer);
-    });
   };
 
   if (!device) {
@@ -340,8 +175,8 @@ export const DeviceTerminalScreen: React.FC = () => {
         onBack={navigation.goBack}
         rightAction={
           <StatusChip
-            label={terminalStateLabel[terminalState]}
-            type={terminalStateType[terminalState]}
+            label={terminalStateLabel[terminal?.status ?? 'idle']}
+            type={terminalStateType[terminal?.status ?? 'idle']}
           />
         }
       />
@@ -350,7 +185,7 @@ export const DeviceTerminalScreen: React.FC = () => {
           <View style={styles.deviceHeader}>
             <View style={styles.deviceTitle}>
               <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
-                REMOTE TERMINAL
+                PTY TERMINAL
               </Text>
               <Text style={[theme.typography.titleLg, { color: theme.colors.onSurface }]}>
                 {device.host}
@@ -369,13 +204,13 @@ export const DeviceTerminalScreen: React.FC = () => {
           </View>
           <View style={styles.metaRow}>
             <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+              SHELL {terminal?.shell ?? 'zsh'}
+            </Text>
+            <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
               CPU {device.cpuLoad}%
             </Text>
             <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
               MEM {device.memLoad}%
-            </Text>
-            <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-              Ports {device.activePorts.length || 0}
             </Text>
           </View>
         </GlassPanel>
@@ -392,7 +227,7 @@ export const DeviceTerminalScreen: React.FC = () => {
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.directoryList}>
-          {directories.map(item => {
+          {device.authorizedDirectories.map(item => {
             const active = item === directory;
 
             return (
@@ -443,7 +278,7 @@ export const DeviceTerminalScreen: React.FC = () => {
               LIVE OUTPUT
             </Text>
             <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-              {lines.length} LINES
+              {terminal?.lines.length ?? 0} LINES
             </Text>
           </View>
           <ScrollView
@@ -457,24 +292,24 @@ export const DeviceTerminalScreen: React.FC = () => {
               },
             ]}
             contentContainerStyle={styles.outputContent}>
-            {lines.map(line => (
-              <View key={line.id} style={styles.outputLine}>
+            {(terminal?.lines ?? []).map(item => (
+              <View key={item.id} style={styles.outputLine}>
                 <Text
                   style={[
                     theme.typography.codeSm,
                     styles.outputPrefix,
-                    { color: getLineColor(line.kind) },
+                    { color: getLineColor(item.kind) },
                   ]}>
-                  {getLinePrefix(line.kind)}
+                  {getLinePrefix(item.kind)}
                 </Text>
                 <Text
                   selectable
                   style={[
                     theme.typography.codeSm,
                     styles.outputText,
-                    { color: getLineColor(line.kind) },
+                    { color: getLineColor(item.kind) },
                   ]}>
-                  {line.timestamp}  {line.content}
+                  {item.timestamp}  {item.content}
                 </Text>
               </View>
             ))}
@@ -555,18 +390,26 @@ export const DeviceTerminalScreen: React.FC = () => {
             />
             <GlowButton
               title="STOP"
-              onPress={handleStop}
+              onPress={() => terminal && stopTerminal(terminal.id)}
               variant="outline"
-              disabled={!isRunning}
+              disabled={!terminal || terminal.status === 'stopped'}
               style={styles.utilityButton}
             />
             <GlowButton
               title="CLEAR"
-              onPress={handleClear}
+              onPress={() => terminal && clearTerminal(terminal.id)}
               variant="outline"
+              disabled={!terminal}
               style={styles.utilityButton}
             />
           </View>
+          {terminal?.status === 'waiting_approval' ? (
+            <GlowButton
+              title="OPEN APPROVAL CENTER"
+              onPress={() => navigation.navigate('ApprovalCenter')}
+              variant="secondary"
+            />
+          ) : null}
         </GlassPanel>
       </ScrollView>
     </SafeAreaWrapper>
@@ -628,7 +471,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   outputWindow: {
-    height: 310,
+    height: 330,
   },
   outputContent: {
     padding: 12,

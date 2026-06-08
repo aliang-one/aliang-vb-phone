@@ -19,14 +19,8 @@ import { ProgressBar } from '../../components/shared/ProgressBar';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { SuggestionActionBar } from '../../components/vibecoding/SuggestionActionBar';
 import { vibeStatusLabel, vibeStatusType } from '../../components/vibecoding/status';
-import {
-  AgentMessage,
-  mockDevices,
-  mockPreviewLinks,
-  mockProjects,
-  mockVibeCodingRuns,
-} from '../../data/mockData';
 import { RootStackParamList } from '../../app/navigation/types';
+import { useControlCenterStore } from '../../store/controlCenterStore';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type SessionRoute = RouteProp<RootStackParamList, 'VibeCodingSession'>;
@@ -35,19 +29,27 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
   const route = useRoute<SessionRoute>();
+  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
+  const projects = useControlCenterStore(state => state.projects);
+  const devices = useControlCenterStore(state => state.devices);
+  const previewLinks = useControlCenterStore(state => state.previewLinks);
+  const appendAgentMessage = useControlCenterStore(state => state.appendAgentMessage);
+  const pauseAgentSession = useControlCenterStore(state => state.pauseAgentSession);
+  const resumeAgentSession = useControlCenterStore(state => state.resumeAgentSession);
+  const terminateAgentSession = useControlCenterStore(
+    state => state.terminateAgentSession,
+  );
   const session =
-    mockVibeCodingRuns.find(item => item.id === route.params.sessionId) ??
-    mockVibeCodingRuns[0];
-  const project = mockProjects.find(item => item.id === session.projectId);
-  const device = mockDevices.find(item => item.id === session.deviceId);
-  const preview = mockPreviewLinks.find(item => item.id === session.previewId);
+    vibeRuns.find(item => item.id === route.params.sessionId) ??
+    vibeRuns[0];
+  const project = projects.find(item => item.id === session.projectId);
+  const device = devices.find(item => item.id === session.deviceId);
+  const preview = previewLinks.find(item => item.id === session.previewId);
 
-  const [messages, setMessages] = useState<AgentMessage[]>(session.transcript);
   const [mode, setMode] = useState<'voice' | 'text'>('voice');
   const [input, setInput] = useState('');
   const [voiceDraft, setVoiceDraft] = useState('');
   const [preparedPrompt, setPreparedPrompt] = useState('');
-  const [sessionState, setSessionState] = useState(session.status);
 
   const progress = Math.min(
     100,
@@ -55,32 +57,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   );
 
   const appendUserMessage = (content: string, messageMode: 'voice' | 'text') => {
-    setMessages(current => [
-      ...current,
-      {
-        id: `local-${Date.now()}`,
-        role: 'user',
-        mode: messageMode,
-        content,
-        timestamp: new Date().toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false,
-        }),
-      },
-      {
-        id: `local-ai-${Date.now()}`,
-        role: 'assistant',
-        content:
-          'Received. I will keep the scope inside the selected directory and report back with a diff, tests, and preview status.',
-        timestamp: new Date().toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false,
-        }),
-      },
-    ]);
-    setSessionState('running');
+    appendAgentMessage(session.id, content, messageMode);
   };
 
   const handleVoiceCapture = () => {
@@ -120,9 +97,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
         subtitle={device?.name ?? 'VIBECODING SESSION'}
         onBack={navigation.goBack}
         rightAction={
-          <StatusChip
-            label={vibeStatusLabel[sessionState]}
-            type={vibeStatusType[sessionState]}
+            <StatusChip
+            label={vibeStatusLabel[session.status]}
+            type={vibeStatusType[session.status]}
           />
         }
       />
@@ -184,7 +161,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
           ]}>
           CONVERSATION
         </Text>
-        {messages.map(message => (
+        {session.transcript.map(message => (
           <View
             key={message.id}
             style={[
@@ -314,15 +291,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
           <View style={styles.sessionControls}>
             <TouchableOpacity
               onPress={() =>
-                setSessionState(current =>
-                  current === 'paused' ? 'running' : 'paused',
-                )
+                session.status === 'paused'
+                  ? resumeAgentSession(session.id)
+                  : pauseAgentSession(session.id)
               }>
               <Text style={[theme.typography.codeSm, { color: theme.colors.tertiary }]}>
-                {sessionState === 'paused' ? 'RESUME' : 'PAUSE'}
+                {session.status === 'paused' ? 'RESUME' : 'PAUSE'}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setSessionState('completed')}>
+            <TouchableOpacity onPress={() => terminateAgentSession(session.id)}>
               <Text style={[theme.typography.codeSm, { color: theme.colors.error }]}>
                 END
               </Text>

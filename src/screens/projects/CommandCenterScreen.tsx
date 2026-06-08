@@ -11,36 +11,42 @@ import { UsageSummaryCard } from '../../components/vibecoding/UsageSummaryCard';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard';
 import {
-  mockDevices,
-  mockPreviewLinks,
-  mockProjects,
   mockUserPlan,
-  mockVibeCodingRuns,
 } from '../../data/mockData';
 import { RootStackParamList } from '../../app/navigation/types';
+import { useControlCenterStore } from '../../store/controlCenterStore';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 export const CommandCenterScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
+  const devices = useControlCenterStore(state => state.devices);
+  const projects = useControlCenterStore(state => state.projects);
+  const previewLinks = useControlCenterStore(state => state.previewLinks);
+  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
+  const approvals = useControlCenterStore(state => state.approvals);
+  const notifications = useControlCenterStore(state => state.notifications);
+  const events = useControlCenterStore(state => state.events);
 
-  const waitingRuns = mockVibeCodingRuns.filter(session =>
+  const waitingRuns = vibeRuns.filter(session =>
     ['waiting_user', 'waiting_approval', 'preview_ready'].includes(
       session.status,
     ),
   );
-  const onlineDevices = mockDevices.filter(device => device.status === 'online');
-  const activeRuns = mockVibeCodingRuns.filter(session =>
+  const onlineDevices = devices.filter(device => device.status === 'online');
+  const activeRuns = vibeRuns.filter(session =>
     ['running', 'testing', 'preview_ready', 'waiting_approval'].includes(
       session.status,
     ),
   );
+  const pendingApprovals = approvals.filter(item => item.status === 'pending');
+  const unreadNotifications = notifications.filter(item => !item.read);
 
   const getProject = (projectId: string) =>
-    mockProjects.find(project => project.id === projectId);
+    projects.find(project => project.id === projectId);
   const getDevice = (deviceId: string) =>
-    mockDevices.find(device => device.id === deviceId);
+    devices.find(device => device.id === deviceId);
 
   return (
     <SafeAreaWrapper>
@@ -48,11 +54,14 @@ export const CommandCenterScreen: React.FC = () => {
         title="Vibe Command"
         subtitle="MOBILE AGENT CONTROL"
         rightAction={
-          <View style={styles.avatar}>
+          <TouchableOpacity
+            activeOpacity={0.75}
+            onPress={() => navigation.navigate('NotificationCenter')}
+            style={styles.avatar}>
             <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-              AL
+              {unreadNotifications.length || 'AL'}
             </Text>
-          </View>
+          </TouchableOpacity>
         }
       />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
@@ -85,6 +94,33 @@ export const CommandCenterScreen: React.FC = () => {
           </GlassPanel>
         </View>
 
+        <View style={styles.operationGrid}>
+          <OperationTile
+            label="Approvals"
+            value={`${pendingApprovals.length}`}
+            tone="warning"
+            onPress={() => navigation.navigate('ApprovalCenter')}
+          />
+          <OperationTile
+            label="Events"
+            value={`${events.length}`}
+            tone="info"
+            onPress={() => navigation.navigate('EventStream')}
+          />
+          <OperationTile
+            label="Agents"
+            value={`${activeRuns.length}`}
+            tone="primary"
+            onPress={() => navigation.navigate('AgentSessions')}
+          />
+          <OperationTile
+            label="Bind"
+            value="+"
+            tone="success"
+            onPress={() => navigation.navigate('DeviceBinding')}
+          />
+        </View>
+
         <View style={styles.sectionHeader}>
           <Text style={[theme.typography.labelCaps, { color: theme.colors.tertiary }]}>
             NEEDS ATTENTION
@@ -108,8 +144,8 @@ export const CommandCenterScreen: React.FC = () => {
             RECENT PREVIEWS
           </Text>
         </View>
-        {mockPreviewLinks.map(preview => {
-          const session = mockVibeCodingRuns.find(item => item.id === preview.sessionId);
+        {previewLinks.map(preview => {
+          const session = vibeRuns.find(item => item.id === preview.sessionId);
           return (
             <TouchableOpacity
               key={preview.id}
@@ -143,7 +179,7 @@ export const CommandCenterScreen: React.FC = () => {
             DEVICE SNAPSHOT
           </Text>
         </View>
-        {mockDevices.slice(0, 2).map(device => (
+        {devices.slice(0, 2).map(device => (
           <DeviceControlCard
             key={device.id}
             device={device}
@@ -171,6 +207,48 @@ export const CommandCenterScreen: React.FC = () => {
   );
 };
 
+interface OperationTileProps {
+  label: string;
+  value: string;
+  tone: 'primary' | 'success' | 'warning' | 'info';
+  onPress: () => void;
+}
+
+const OperationTile: React.FC<OperationTileProps> = ({
+  label,
+  value,
+  tone,
+  onPress,
+}) => {
+  const { theme, isDark } = useTheme();
+  const color =
+    tone === 'warning'
+      ? theme.colors.tertiary
+      : tone === 'success'
+      ? theme.colors.secondary
+      : theme.colors.primary;
+
+  return (
+    <TouchableOpacity activeOpacity={0.75} onPress={onPress} style={styles.operationTileWrap}>
+      <GlassPanel
+        style={[
+          styles.operationTile,
+          {
+            backgroundColor:
+              tone === 'primary' && isDark
+                ? 'rgba(0, 209, 255, 0.08)'
+                : undefined,
+          },
+        ]}>
+        <Text style={[theme.typography.headlineMd, { color }]}>{value}</Text>
+        <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
+          {label.toUpperCase()}
+        </Text>
+      </GlassPanel>
+    </TouchableOpacity>
+  );
+};
+
 const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
@@ -194,6 +272,20 @@ const styles = StyleSheet.create({
   statCard: {
     flex: 1,
     minHeight: 82,
+    padding: 10,
+    justifyContent: 'space-between',
+  },
+  operationGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  operationTileWrap: {
+    width: '48.8%',
+  },
+  operationTile: {
+    minHeight: 78,
     padding: 10,
     justifyContent: 'space-between',
   },
