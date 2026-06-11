@@ -22,6 +22,7 @@ import {
   AgentProvider,
   useControlCenterStore,
 } from '../../store/controlCenterStore';
+import { IconBadge } from '../../components/visual/IconBadge';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type AgentSessionsRoute = RouteProp<RootStackParamList, 'AgentSessions'>;
@@ -82,7 +83,6 @@ export const AgentSessionsScreen: React.FC = () => {
       directory: device.authorizedDirectories[0] ?? '~',
       provider,
       objective: objective.trim(),
-      budgetLimit: 12,
       timeLimitMinutes: 60,
     });
     navigation.navigate('VibeCodingSession', { sessionId });
@@ -133,8 +133,15 @@ export const AgentSessionsScreen: React.FC = () => {
                           ? 'rgba(0, 209, 255, 0.12)'
                           : 'rgba(0, 81, 174, 0.08)'
                         : 'transparent',
-                    },
-                  ]}>
+                  },
+                ]}>
+                  <IconBadge
+                    name={item === 'codex' ? 'code' : 'agent'}
+                    tone={active ? 'primary' : 'neutral'}
+                    size={30}
+                    iconSize={15}
+                    filled={active}
+                  />
                   <Text
                     style={[
                       theme.typography.labelSm,
@@ -272,9 +279,19 @@ export const AgentSessionsScreen: React.FC = () => {
         {sessions.map(session => {
           const sessionProject = projects.find(item => item.id === session.projectId);
           const sessionDevice = devices.find(item => item.id === session.deviceId);
+          const budgetLabel = session.projectBudget
+            ? `${session.projectBudget.currencySymbol}${session.projectBudget.used.toFixed(1)} / ${session.projectBudget.currencySymbol}${session.projectBudget.limit}`
+            : '';
+
           return (
             <GlassPanel key={session.id} style={styles.sessionCard}>
               <View style={styles.sessionTop}>
+                <IconBadge
+                  name={session.model.includes('Codex') ? 'code' : 'agent'}
+                  tone={session.status === 'paused' ? 'neutral' : 'primary'}
+                  size={40}
+                  iconSize={20}
+                />
                 <View style={styles.titleBlock}>
                   <Text
                     numberOfLines={1}
@@ -301,6 +318,22 @@ export const AgentSessionsScreen: React.FC = () => {
                 style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
                 {session.currentStep}
               </Text>
+              {session.projectBudget ? (
+                <View
+                  style={[
+                    styles.budgetPill,
+                    {
+                      backgroundColor: isDark
+                        ? 'rgba(55, 214, 145, 0.1)'
+                        : 'rgba(0, 120, 84, 0.08)',
+                    },
+                  ]}>
+                  <IconBadge name="quota" tone="secondary" size={24} iconSize={13} />
+                  <Text style={[theme.typography.labelSm, { color: theme.colors.secondary }]}>
+                    Codex budget {budgetLabel}
+                  </Text>
+                </View>
+              ) : null}
               <View style={styles.sessionActions}>
                 <Action
                   label="OPEN"
@@ -390,6 +423,8 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 40,
     borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
@@ -431,11 +466,22 @@ const styles = StyleSheet.create({
   sessionTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     gap: 12,
   },
   titleBlock: {
     flex: 1,
     gap: 3,
+  },
+  budgetPill: {
+    alignSelf: 'flex-start',
+    minHeight: 34,
+    borderRadius: 999,
+    paddingLeft: 5,
+    paddingRight: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   sessionActions: {
     flexDirection: 'row',

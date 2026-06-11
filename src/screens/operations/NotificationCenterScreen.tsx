@@ -12,6 +12,7 @@ import {
   PushNotificationItem,
   useControlCenterStore,
 } from '../../store/controlCenterStore';
+import { IconBadge, IconName } from '../../components/visual/IconBadge';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -30,6 +31,13 @@ const notificationTypeChip: Record<
   completed: 'success',
   error: 'error',
   device_offline: 'neutral',
+};
+
+const notificationIcon: Record<PushNotificationItem['type'], IconName> = {
+  approval: 'approval',
+  completed: 'check',
+  error: 'warning',
+  device_offline: 'device',
 };
 
 export const NotificationCenterScreen: React.FC = () => {
@@ -107,6 +115,20 @@ export const NotificationCenterScreen: React.FC = () => {
                   },
                 ]}>
                 <View style={styles.cardHeader}>
+                  <IconBadge
+                    name={notificationIcon[item.type]}
+                    tone={
+                      item.type === 'error'
+                        ? 'error'
+                        : item.type === 'approval'
+                        ? 'tertiary'
+                        : item.type === 'completed'
+                        ? 'secondary'
+                        : 'neutral'
+                    }
+                    size={42}
+                    iconSize={21}
+                  />
                   <View style={styles.titleBlock}>
                     <Text
                       style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
@@ -173,6 +195,7 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     gap: 12,
   },
   titleBlock: {

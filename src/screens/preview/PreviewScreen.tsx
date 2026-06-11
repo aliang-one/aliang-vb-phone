@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { Linking, View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -137,7 +137,12 @@ export const PreviewScreen: React.FC = () => {
         </GlassPanel>
 
         <View style={styles.actions}>
-          <GlowButton title="COPY LINK" onPress={() => {}} variant="primary" style={styles.action} />
+          <GlowButton
+            title="OPEN PREVIEW"
+            onPress={() => Linking.openURL(preview.targetUrl)}
+            variant="primary"
+            style={styles.action}
+          />
           <GlowButton title="REVOKE" onPress={() => {}} variant="outline" style={styles.action} />
         </View>
       </ScrollView>

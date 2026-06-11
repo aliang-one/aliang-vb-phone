@@ -49,9 +49,14 @@ export const StatusChip: React.FC<StatusChipProps> = ({ label, type, style }) =>
     <View
       style={[
         styles.chip,
-        { backgroundColor: colors.bg, borderRadius: theme.borderRadius.full },
+        {
+          backgroundColor: colors.bg,
+          borderRadius: theme.borderRadius.full,
+          borderColor: colors.text,
+        },
         style,
       ]}>
+      <View style={[styles.dot, { backgroundColor: colors.text }]} />
       <Text
         style={[
           theme.typography.codeSm,
@@ -66,9 +71,18 @@ export const StatusChip: React.FC<StatusChipProps> = ({ label, type, style }) =>
 
 const styles = StyleSheet.create({
   chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     paddingHorizontal: 8,
     paddingVertical: 3,
     alignSelf: 'flex-start',
+    borderWidth: 1,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   label: {
     fontSize: 11,

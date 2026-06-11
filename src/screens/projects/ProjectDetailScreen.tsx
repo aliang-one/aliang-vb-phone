@@ -89,6 +89,32 @@ export const ProjectDetailScreen: React.FC = () => {
         />
         <View style={styles.actionGrid}>
           <GlowButton
+            title="FILES"
+            onPress={() =>
+              navigation.navigate('FileBrowser', {
+                projectId: project.id,
+                deviceId: device?.id,
+              })
+            }
+            variant="outline"
+            style={styles.gridAction}
+          />
+          <GlowButton
+            title="TERMINAL"
+            onPress={() =>
+              device &&
+              navigation.navigate('DeviceTerminal', {
+                deviceId: device.id,
+                directory: device.authorizedDirectories[0],
+              })
+            }
+            disabled={!device}
+            variant="outline"
+            style={styles.gridAction}
+          />
+        </View>
+        <View style={styles.actionGrid}>
+          <GlowButton
             title="AGENT SESSIONS"
             onPress={() =>
               navigation.navigate('AgentSessions', {

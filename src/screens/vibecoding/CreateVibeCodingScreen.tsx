@@ -21,6 +21,7 @@ import {
   AgentProvider,
   useControlCenterStore,
 } from '../../store/controlCenterStore';
+import { IconBadge } from '../../components/visual/IconBadge';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type CreateRoute = RouteProp<RootStackParamList, 'CreateVibeCoding'>;
@@ -59,7 +60,6 @@ export const CreateVibeCodingScreen: React.FC = () => {
   const [objective, setObjective] = useState(
     'Polish the mobile command center UI and make active VibeCoding sessions easier to control.',
   );
-  const [budget, setBudget] = useState(12);
   const [minutes, setMinutes] = useState(60);
   const [selectedPermissions, setSelectedPermissions] = useState(permissions);
 
@@ -83,7 +83,6 @@ export const CreateVibeCodingScreen: React.FC = () => {
       directory,
       provider,
       objective: objective.trim(),
-      budgetLimit: budget,
       timeLimitMinutes: minutes,
     });
     navigation.replace('VibeCodingSession', { sessionId });
@@ -93,7 +92,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
     <SafeAreaWrapper>
       <TopAppBar
         title="Create VibeCoding"
-        subtitle="DEVICE / DIRECTORY / LIMITS"
+        subtitle="DEVICE / DIRECTORY / RUNTIME"
         onBack={navigation.goBack}
       />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
@@ -128,6 +127,13 @@ export const CreateVibeCodingScreen: React.FC = () => {
                       : 'transparent',
                   },
                 ]}>
+                <IconBadge
+                  name="device"
+                  tone={active ? 'primary' : 'neutral'}
+                  size={34}
+                  iconSize={17}
+                  filled={active}
+                />
                 <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
                   {item.name}
                 </Text>
@@ -223,6 +229,13 @@ export const CreateVibeCodingScreen: React.FC = () => {
                       : 'transparent',
                   },
                 ]}>
+                <IconBadge
+                  name={item === 'codex' ? 'code' : 'agent'}
+                  tone={active ? 'primary' : 'neutral'}
+                  size={30}
+                  iconSize={15}
+                  filled={active}
+                />
                 <Text
                   style={[
                     theme.typography.labelSm,
@@ -275,22 +288,14 @@ export const CreateVibeCodingScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
           ]}>
-          6. LIMITS
+          6. RUNTIME
         </Text>
-        <View style={styles.limitGrid}>
-          <LimitStepper
-            label="Budget"
-            value={`$${budget}`}
-            onMinus={() => setBudget(Math.max(4, budget - 2))}
-            onPlus={() => setBudget(budget + 2)}
-          />
-          <LimitStepper
-            label="Runtime"
-            value={`${minutes}m`}
-            onMinus={() => setMinutes(Math.max(15, minutes - 15))}
-            onPlus={() => setMinutes(minutes + 15)}
-          />
-        </View>
+        <LimitStepper
+          label="Runtime"
+          value={`${minutes}m`}
+          onMinus={() => setMinutes(Math.max(15, minutes - 15))}
+          onPlus={() => setMinutes(minutes + 15)}
+        />
 
         <Text
           style={[
@@ -394,7 +399,7 @@ const styles = StyleSheet.create({
   },
   selectCard: {
     width: 190,
-    minHeight: 86,
+    minHeight: 104,
     borderWidth: 1,
     padding: 12,
     justifyContent: 'space-between',
@@ -434,16 +439,13 @@ const styles = StyleSheet.create({
     flex: 1,
     borderWidth: 1,
     minHeight: 42,
+    flexDirection: 'row',
+    gap: 8,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
   },
-  limitGrid: {
-    flexDirection: 'row',
-    gap: 10,
-  },
   limitCard: {
-    flex: 1,
     padding: 12,
     gap: 12,
   },

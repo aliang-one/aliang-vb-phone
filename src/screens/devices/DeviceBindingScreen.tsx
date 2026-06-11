@@ -17,6 +17,8 @@ import { StatusChip } from '../../components/shared/StatusChip';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useTheme } from '../../theme/useTheme';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { IconBadge } from '../../components/visual/IconBadge';
+import { LOCAL_SERVICE_BASE_URL } from '../../config/localService';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -25,7 +27,7 @@ const quickScans = [
     label: 'Desk QR',
     name: 'Mac Studio - Desk',
     os: 'macOS 15.5',
-    host: 'relay:mac-studio-desk',
+    host: LOCAL_SERVICE_BASE_URL,
     location: 'Shanghai desk',
     pairingCode: 'PAIR-DESK-8841',
   },
@@ -33,7 +35,7 @@ const quickScans = [
     label: 'New QR',
     name: 'Mac Mini - Lab',
     os: 'macOS 15.5',
-    host: 'relay:mac-mini-lab',
+    host: LOCAL_SERVICE_BASE_URL,
     location: 'Lab bench',
     pairingCode: 'PAIR-LAB-2190',
   },
@@ -46,7 +48,7 @@ export const DeviceBindingScreen: React.FC = () => {
   const bindDevice = useControlCenterStore(state => state.bindDevice);
   const [name, setName] = useState('Mac Mini - Lab');
   const [os, setOs] = useState('macOS 15.5');
-  const [host, setHost] = useState('relay:mac-mini-lab');
+  const [host, setHost] = useState(LOCAL_SERVICE_BASE_URL);
   const [location, setLocation] = useState('Lab bench');
   const [pairingCode, setPairingCode] = useState('PAIR-LAB-2190');
   const [message, setMessage] = useState('');
@@ -148,9 +150,12 @@ export const DeviceBindingScreen: React.FC = () => {
 
         <GlassPanel style={styles.formPanel}>
           <View style={styles.formHeader}>
-            <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-              Device Identity
-            </Text>
+            <View style={styles.formTitleRow}>
+              <IconBadge name="device" tone={duplicate ? 'error' : 'primary'} size={38} iconSize={19} />
+              <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+                Device Identity
+              </Text>
+            </View>
             <StatusChip label={duplicate ? 'DUPLICATE' : 'READY'} type={duplicate ? 'error' : 'success'} />
           </View>
           <Field label="Device name" value={name} onChangeText={setName} />
@@ -285,6 +290,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 12,
+  },
+  formTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   field: {
     gap: 6,

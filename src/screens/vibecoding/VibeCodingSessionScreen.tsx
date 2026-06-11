@@ -21,9 +21,25 @@ import { SuggestionActionBar } from '../../components/vibecoding/SuggestionActio
 import { vibeStatusLabel, vibeStatusType } from '../../components/vibecoding/status';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { IconBadge, IconName } from '../../components/visual/IconBadge';
+import type { AgentBudgetInfo } from '../../data/mockData';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type SessionRoute = RouteProp<RootStackParamList, 'VibeCodingSession'>;
+
+const eventIcon: Record<string, IconName> = {
+  command: 'terminal',
+  file: 'code',
+  test: 'check',
+  preview: 'preview',
+  approval: 'approval',
+  status: 'event',
+};
+
+const formatBudget = (budget?: AgentBudgetInfo) =>
+  budget
+    ? `${budget.currencySymbol}${budget.used.toFixed(2)} / ${budget.currencySymbol}${budget.limit}`
+    : '';
 
 export const VibeCodingSessionScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
@@ -45,6 +61,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const project = projects.find(item => item.id === session.projectId);
   const device = devices.find(item => item.id === session.deviceId);
   const preview = previewLinks.find(item => item.id === session.previewId);
+  const budgetLabel = formatBudget(session.projectBudget);
 
   const [mode, setMode] = useState<'voice' | 'text'>('voice');
   const [input, setInput] = useState('');
@@ -106,6 +123,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <GlassPanel style={styles.sessionHeader}>
           <View style={styles.headerTop}>
+            <IconBadge
+              name={session.model.includes('Codex') ? 'code' : 'agent'}
+              tone={session.status === 'waiting_approval' ? 'tertiary' : 'primary'}
+              size={48}
+              iconSize={24}
+              filled={session.status === 'running'}
+            />
             <View style={styles.headerTitle}>
               <Text style={[theme.typography.titleLg, { color: theme.colors.onSurface }]}>
                 {session.title}
@@ -123,14 +147,65 @@ export const VibeCodingSessionScreen: React.FC = () => {
           </Text>
           <View style={styles.progressMeta}>
             <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-              ${session.budgetUsed.toFixed(2)} / ${session.budgetLimit}
+              Runtime
             </Text>
             <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
               {session.elapsedMinutes}m / {session.timeLimitMinutes}m
             </Text>
           </View>
           <ProgressBar progress={progress} color={theme.colors.primary} />
+          {session.projectBudget ? (
+            <View
+              style={[
+                styles.budgetStrip,
+                {
+                  backgroundColor: isDark
+                    ? 'rgba(55, 214, 145, 0.1)'
+                    : 'rgba(0, 120, 84, 0.08)',
+                },
+              ]}>
+              <IconBadge name="quota" tone="secondary" size={30} iconSize={15} />
+              <View style={styles.budgetCopy}>
+                <Text style={[theme.typography.labelCaps, { color: theme.colors.secondary }]}>
+                  CODEX BUDGET
+                </Text>
+                <Text
+                  style={[
+                    theme.typography.labelSm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}>
+                  {budgetLabel} · updated {session.projectBudget.updatedAt}
+                </Text>
+              </View>
+            </View>
+          ) : null}
         </GlassPanel>
+
+        <View style={styles.quickActions}>
+          <GlowButton
+            title="FILES"
+            onPress={() =>
+              navigation.navigate('FileBrowser', {
+                projectId: session.projectId,
+                deviceId: session.deviceId,
+                sessionId: session.id,
+              })
+            }
+            variant="outline"
+            style={styles.quickAction}
+          />
+          <GlowButton
+            title="TERMINAL"
+            onPress={() =>
+              navigation.navigate('DeviceTerminal', {
+                deviceId: session.deviceId,
+                directory: session.directory,
+              })
+            }
+            variant="outline"
+            style={styles.quickAction}
+          />
+        </View>
 
         {preview && (
           <TouchableOpacity
@@ -153,49 +228,99 @@ export const VibeCodingSessionScreen: React.FC = () => {
           </TouchableOpacity>
         )}
 
-        <Text
-          style={[
-            theme.typography.labelCaps,
-            { color: theme.colors.onSurfaceVariant },
-            styles.sectionTitle,
-          ]}>
-          CONVERSATION
-        </Text>
-        {session.transcript.map(message => (
+        <View style={styles.conversationSection}>
+          <View style={styles.chatSectionHeader}>
+            <View style={styles.chatHeaderLeft}>
+              <IconBadge name="chat" tone="primary" size={34} iconSize={17} />
+              <View>
+                <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
+                  CONVERSATION
+                </Text>
+                <Text
+                  style={[
+                    theme.typography.labelSm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}>
+                  {session.transcript.length} messages
+                </Text>
+              </View>
+            </View>
+            <StatusChip label={mode.toUpperCase()} type="info" />
+          </View>
+        {session.transcript.map(message => {
+          const isUser = message.role === 'user';
+          const isSystem = message.role === 'system';
+
+          return (
           <View
             key={message.id}
             style={[
-              styles.messageBubble,
-              {
-                alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
-                backgroundColor:
-                  message.role === 'user'
-                    ? isDark
-                      ? 'rgba(0, 209, 255, 0.12)'
-                      : 'rgba(0, 81, 174, 0.08)'
-                    : isDark
-                    ? 'rgba(255,255,255,0.05)'
-                    : theme.colors.surfaceContainerLow,
-                borderColor:
-                  message.role === 'user'
-                    ? theme.colors.primary
-                    : theme.colors.outlineVariant,
-                borderRadius: theme.borderRadius.md,
-              },
+              styles.messageRow,
+              isUser ? styles.messageRowUser : styles.messageRowAgent,
             ]}>
-            <View style={styles.messageMeta}>
-              <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-                {message.role.toUpperCase()}
-              </Text>
-              <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-                {message.timestamp}
-              </Text>
+            {!isUser ? (
+              <IconBadge
+                name={isSystem ? 'event' : 'agent'}
+                tone={isSystem ? 'neutral' : 'primary'}
+                size={32}
+                iconSize={16}
+              />
+            ) : null}
+            <View
+              style={[
+                styles.messageStack,
+                isUser ? styles.messageStackUser : styles.messageStackAgent,
+              ]}>
+              <View
+                style={[
+                  styles.messageMeta,
+                  isUser ? styles.messageMetaUser : styles.messageMetaAgent,
+                ]}>
+                <Text
+                  style={[
+                    theme.typography.labelCaps,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}>
+                  {isUser ? 'YOU' : message.role.toUpperCase()}
+                </Text>
+                <Text
+                  style={[
+                    theme.typography.codeSm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}>
+                  {message.timestamp}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.messageBubble,
+                  {
+                    backgroundColor: isUser
+                      ? isDark
+                        ? 'rgba(0, 209, 255, 0.14)'
+                        : 'rgba(0, 81, 174, 0.08)'
+                      : isDark
+                      ? 'rgba(255,255,255,0.05)'
+                      : theme.colors.surfaceContainerLow,
+                    borderColor: isUser
+                      ? theme.colors.primary
+                      : theme.colors.outlineVariant,
+                    borderTopRightRadius: isUser ? 6 : theme.borderRadius.lg,
+                    borderTopLeftRadius: isUser ? theme.borderRadius.lg : 6,
+                  },
+                ]}>
+                <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                  {message.content}
+                </Text>
+              </View>
             </View>
-            <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-              {message.content}
-            </Text>
+            {isUser ? (
+              <IconBadge name="user" tone="secondary" size={32} iconSize={16} />
+            ) : null}
           </View>
-        ))}
+          );
+        })}
+        </View>
 
         <Text
           style={[
@@ -209,6 +334,18 @@ export const VibeCodingSessionScreen: React.FC = () => {
           {session.events.map((event, index) => (
             <View key={event.id}>
               <View style={styles.eventRow}>
+                <IconBadge
+                  name={eventIcon[event.type] ?? 'event'}
+                  tone={
+                    event.status === 'failed'
+                      ? 'error'
+                      : event.status === 'waiting'
+                      ? 'tertiary'
+                      : 'primary'
+                  }
+                  size={36}
+                  iconSize={18}
+                />
                 <View style={styles.eventText}>
                   <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
                     {event.title}
@@ -238,6 +375,44 @@ export const VibeCodingSessionScreen: React.FC = () => {
           ))}
         </GlassPanel>
       </ScrollView>
+
+      <View
+        pointerEvents="none"
+        style={[
+          styles.conversationRail,
+          {
+            backgroundColor: isDark
+              ? 'rgba(17, 20, 23, 0.7)'
+              : 'rgba(255, 255, 255, 0.78)',
+            borderColor: isDark
+              ? 'rgba(255, 255, 255, 0.08)'
+              : theme.colors.outlineVariant,
+          },
+        ]}>
+        {session.transcript.map((message, index) => {
+          const active = index === session.transcript.length - 1;
+          const color =
+            message.role === 'user'
+              ? theme.colors.secondary
+              : message.role === 'assistant'
+              ? theme.colors.primary
+              : theme.colors.onSurfaceVariant;
+
+          return (
+            <View
+              key={message.id}
+              style={[
+                styles.conversationRailMark,
+                {
+                  height: active ? 18 : 8,
+                  backgroundColor: color,
+                  opacity: active ? 1 : 0.46,
+                },
+              ]}
+            />
+          );
+        })}
+      </View>
 
       <View
         style={[
@@ -436,6 +611,7 @@ const styles = StyleSheet.create({
   },
   headerTop: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
   },
@@ -447,10 +623,31 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  budgetStrip: {
+    minHeight: 46,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  budgetCopy: {
+    flex: 1,
+    gap: 2,
+  },
   previewCard: {
     padding: 12,
     marginTop: 12,
     gap: 8,
+  },
+  quickActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  quickAction: {
+    flex: 1,
   },
   previewTop: {
     flexDirection: 'row',
@@ -461,23 +658,66 @@ const styles = StyleSheet.create({
     marginTop: 20,
     marginBottom: 8,
   },
+  conversationSection: {
+    marginTop: 20,
+    gap: 12,
+  },
+  chatSectionHeader: {
+    minHeight: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  chatHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  messageRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  messageRowUser: {
+    justifyContent: 'flex-end',
+  },
+  messageRowAgent: {
+    justifyContent: 'flex-start',
+  },
+  messageStack: {
+    maxWidth: '78%',
+    gap: 4,
+  },
+  messageStackUser: {
+    alignItems: 'flex-end',
+  },
+  messageStackAgent: {
+    alignItems: 'flex-start',
+  },
   messageBubble: {
-    maxWidth: '88%',
     borderWidth: 1,
     padding: 12,
-    marginBottom: 10,
     gap: 8,
+    borderRadius: 14,
   },
   messageMeta: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     gap: 12,
+  },
+  messageMetaUser: {
+    justifyContent: 'flex-end',
+  },
+  messageMetaAgent: {
+    justifyContent: 'flex-start',
   },
   timelinePanel: {
     padding: 0,
   },
   eventRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
     padding: 12,
@@ -501,6 +741,22 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 18,
     gap: 10,
+  },
+  conversationRail: {
+    position: 'absolute',
+    right: 7,
+    top: 172,
+    maxHeight: 210,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 4,
+    paddingVertical: 6,
+    alignItems: 'center',
+    gap: 5,
+  },
+  conversationRailMark: {
+    width: 4,
+    borderRadius: 999,
   },
   modeRow: {
     flexDirection: 'row',

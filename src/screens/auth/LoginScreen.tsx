@@ -12,21 +12,40 @@ import { GlowButton } from '../../components/shared/GlowButton';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { GridBackground } from '../../components/layout/GridBackground';
 import { RootStackScreenProps } from '../../app/navigation/types';
+import { loginWithAccessKey } from '../../api/auth';
+import { useAuthStore } from '../../../stores/useSettingsStore';
 
-export const LoginScreen: React.FC<RootStackScreenProps<'Login'>> = ({
-  navigation,
-}) => {
+export const LoginScreen: React.FC<RootStackScreenProps<'Login'>> = () => {
   const { theme, isDark } = useTheme();
+  const login = useAuthStore(state => state.login);
   const [agentId, setAgentId] = useState('');
   const [accessKey, setAccessKey] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
+    const trimmedAgentId = agentId.trim();
+    const trimmedAccessKey = accessKey.trim();
+
+    if (!trimmedAgentId || !trimmedAccessKey) {
+      return;
+    }
+
+    setError('');
     setLoading(true);
-    setTimeout(() => {
+
+    try {
+      const result = await loginWithAccessKey(trimmedAgentId, trimmedAccessKey);
+      login(result.agentId, result.accessToken);
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : 'Unable to authenticate with the local service.',
+      );
+    } finally {
       setLoading(false);
-      navigation.navigate('MainTabs');
-    }, 1500);
+    }
   };
 
   return (
@@ -123,13 +142,19 @@ export const LoginScreen: React.FC<RootStackScreenProps<'Login'>> = ({
             title="AUTHENTICATE"
             onPress={handleLogin}
             loading={loading}
-            disabled={!agentId || !accessKey}
+            disabled={!agentId.trim() || !accessKey.trim()}
             variant="primary"
             textStyle={{
               fontFamily: 'JetBrains Mono',
               letterSpacing: 2,
             }}
           />
+
+          {error ? (
+            <Text style={[theme.typography.bodySm, { color: theme.colors.error }]}>
+              {error}
+            </Text>
+          ) : null}
 
           {/* Biometric */}
           <TouchableOpacity style={styles.biometricRow}>

@@ -4,6 +4,8 @@ import { Device } from '../../data/mockData';
 import { useTheme } from '../../theme/useTheme';
 import { GlassPanel } from '../shared/GlassPanel';
 import { StatusChip } from '../shared/StatusChip';
+import { IconBadge } from '../visual/IconBadge';
+import { RingMeter } from '../visual/RingMeter';
 
 interface DeviceControlCardProps {
   device: Device;
@@ -20,7 +22,7 @@ export const DeviceControlCard: React.FC<DeviceControlCardProps> = ({
   device,
   onPress,
 }) => {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
 
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.75}>
@@ -28,6 +30,17 @@ export const DeviceControlCard: React.FC<DeviceControlCardProps> = ({
         glowColor={device.status === 'warning' ? 'secondary' : 'none'}
         style={styles.card}>
         <View style={styles.header}>
+          <IconBadge
+            name="device"
+            tone={
+              device.status === 'offline'
+                ? 'neutral'
+                : device.status === 'warning'
+                ? 'tertiary'
+                : 'primary'
+            }
+            filled={device.status === 'online'}
+          />
           <View style={styles.titleBlock}>
             <Text
               style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}
@@ -46,49 +59,71 @@ export const DeviceControlCard: React.FC<DeviceControlCardProps> = ({
           />
         </View>
         <View style={styles.metaRow}>
-          <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-            {device.os}
-          </Text>
-          <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-            {device.location}
-          </Text>
+          <View style={[styles.metaPill, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : theme.colors.surfaceContainer }]}>
+            <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+              {device.os}
+            </Text>
+          </View>
+          <View style={[styles.metaPill, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : theme.colors.surfaceContainer }]}>
+            <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+              {device.location}
+            </Text>
+          </View>
         </View>
         <View style={styles.metrics}>
-          <View style={styles.metric}>
-            <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-              CPU
-            </Text>
-            <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
-              {device.cpuLoad}%
-            </Text>
-          </View>
-          <View style={styles.metric}>
-            <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-              MEM
-            </Text>
-            <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
-              {device.memLoad}%
-            </Text>
-          </View>
-          <View style={styles.metric}>
-            <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-              PROJECTS
-            </Text>
-            <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
-              {device.projectIds.length}
-            </Text>
-          </View>
-          <View style={styles.metric}>
-            <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-              AGENTS
-            </Text>
-            <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-              {device.activeSessionIds.length}
-            </Text>
+          <RingMeter
+            progress={device.cpuLoad}
+            label="CPU"
+            value={`${device.cpuLoad}%`}
+            color={theme.colors.primary}
+            size={74}
+          />
+          <RingMeter
+            progress={device.memLoad}
+            label="MEM"
+            value={`${device.memLoad}%`}
+            color={theme.colors.secondary}
+            size={74}
+          />
+          <View style={styles.statStack}>
+            <MiniStat icon="project" value={`${device.projectIds.length}`} label="Projects" />
+            <MiniStat icon="agent" value={`${device.activeSessionIds.length}`} label="Agents" />
           </View>
         </View>
       </GlassPanel>
     </TouchableOpacity>
+  );
+};
+
+interface MiniStatProps {
+  icon: 'project' | 'agent';
+  value: string;
+  label: string;
+}
+
+const MiniStat: React.FC<MiniStatProps> = ({ icon, value, label }) => {
+  const { theme, isDark } = useTheme();
+
+  return (
+    <View
+      style={[
+        styles.miniStat,
+        {
+          backgroundColor: isDark
+            ? 'rgba(255,255,255,0.05)'
+            : theme.colors.surfaceContainer,
+        },
+      ]}>
+      <IconBadge name={icon} tone={icon === 'agent' ? 'secondary' : 'primary'} size={30} iconSize={15} />
+      <View>
+        <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+          {value}
+        </Text>
+        <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+          {label}
+        </Text>
+      </View>
+    </View>
   );
 };
 
@@ -110,14 +145,29 @@ const styles = StyleSheet.create({
   },
   metaRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  metaPill: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   metrics: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
   },
-  metric: {
-    gap: 2,
+  statStack: {
+    flex: 1,
+    gap: 8,
+  },
+  miniStat: {
+    minHeight: 42,
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
 });

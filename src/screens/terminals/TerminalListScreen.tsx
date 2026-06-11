@@ -34,7 +34,7 @@ export const TerminalListScreen: React.FC = () => {
         rightAction={
           <TouchableOpacity
             activeOpacity={0.75}
-            onPress={() => navigation.navigate('DeviceBinding')}
+            onPress={() => navigation.navigate('DeviceCameraScanner')}
             style={styles.addButton}>
             <Text style={[theme.typography.codeMd, { color: theme.colors.primary }]}>
               +

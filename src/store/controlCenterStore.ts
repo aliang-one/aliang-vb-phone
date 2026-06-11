@@ -14,6 +14,11 @@ import {
   VibeCodingRun,
   VibeStatus,
 } from '../data/mockData';
+import {
+  LOCAL_SERVICE_BASE_URL,
+  LOCAL_SERVICE_HOST,
+  LOCAL_SERVICE_PORT,
+} from '../config/localService';
 
 export type TerminalLineKind =
   | 'command'
@@ -123,6 +128,19 @@ export interface PushNotificationItem {
   createdAt: string;
 }
 
+export interface ProjectFileEntry {
+  id: string;
+  projectId: string;
+  path: string;
+  name: string;
+  kind: 'file' | 'folder';
+  status: 'clean' | 'modified' | 'added' | 'deleted';
+  language: string;
+  size: string;
+  lastTouched: string;
+  summary: string;
+}
+
 export interface UnifiedEvent {
   id: string;
   type: UnifiedEventType;
@@ -144,7 +162,6 @@ interface StartAgentInput {
   directory: string;
   provider: AgentProvider;
   objective: string;
-  budgetLimit: number;
   timeLimitMinutes: number;
 }
 
@@ -172,6 +189,7 @@ interface ControlCenterState {
   approvals: ApprovalRequest[];
   notifications: PushNotificationItem[];
   events: UnifiedEvent[];
+  projectFiles: ProjectFileEntry[];
   bindDevice: (input: BindDeviceInput) => BindDeviceResult;
   renameDevice: (deviceId: string, name: string) => BindDeviceResult;
   scanDeviceProjects: (deviceId: string) => void;
@@ -376,6 +394,54 @@ const makeScanResults = (
     };
   });
 
+const makeProjectFiles = (projects: Project[]): ProjectFileEntry[] =>
+  projects.flatMap(project => {
+    const common = {
+      projectId: project.id,
+      language: project.language,
+    };
+    const fileSet =
+      project.language === 'TypeScript'
+        ? [
+            ['src/screens/CommandCenterScreen.tsx', 'CommandCenterScreen.tsx', 'modified', 'Home project workspace and mobile scan entry.'],
+            ['src/store/controlCenterStore.ts', 'controlCenterStore.ts', 'modified', 'Frontend state model for devices, sessions, approvals, files.'],
+            ['package.json', 'package.json', 'clean', 'React Native dependencies and scripts.'],
+            ['src/components/visual/IconBadge.tsx', 'IconBadge.tsx', 'added', 'Reusable visual icon badge component.'],
+          ]
+        : project.language === 'Go'
+        ? [
+            ['cmd/server/main.go', 'main.go', 'modified', 'Gateway process entrypoint and startup config.'],
+            ['internal/auth/middleware.go', 'middleware.go', 'modified', 'Auth token validation and request context.'],
+            ['go.mod', 'go.mod', 'clean', 'Go module definition.'],
+            ['README.md', 'README.md', 'clean', 'Project setup and deploy notes.'],
+          ]
+        : project.language === 'Python'
+        ? [
+            ['pipeline/train.py', 'train.py', 'modified', 'Training orchestration and model output.'],
+            ['pipeline/config.py', 'config.py', 'clean', 'Runtime configuration.'],
+            ['requirements.txt', 'requirements.txt', 'clean', 'Python package requirements.'],
+            ['notebooks/eval.ipynb', 'eval.ipynb', 'added', 'Evaluation notebook draft.'],
+          ]
+        : [
+            ['app/src/main/MainActivity.kt', 'MainActivity.kt', 'modified', 'Android entry activity and edge-to-edge setup.'],
+            ['app/build.gradle', 'build.gradle', 'clean', 'Android module build config.'],
+            ['README.md', 'README.md', 'clean', 'Mobile companion app notes.'],
+            ['app/src/main/res/values/colors.xml', 'colors.xml', 'clean', 'Android color resources.'],
+          ];
+
+    return fileSet.map((item, index): ProjectFileEntry => ({
+      id: `file-${project.id}-${index}`,
+      ...common,
+      path: item[0],
+      name: item[1],
+      kind: 'file',
+      status: item[2] as ProjectFileEntry['status'],
+      size: index === 0 ? '18 KB' : index === 1 ? '11 KB' : '3 KB',
+      lastTouched: index === 0 ? 'just now' : project.lastDeploy,
+      summary: item[3],
+    }));
+  });
+
 const initialApprovals: ApprovalRequest[] = [
   {
     id: 'appr-auth-files',
@@ -444,7 +510,7 @@ const initialEvents: UnifiedEvent[] = [
   event(
     'agent.delta',
     'Agent message',
-    'Preview is ready. Waiting for user review on port 5173.',
+    `Preview is ready at ${LOCAL_SERVICE_BASE_URL}.`,
     'info',
     {
       deviceId: 'mac-studio',
@@ -493,7 +559,7 @@ const initialNotifications: PushNotificationItem[] = [
   notification(
     'completed',
     'Preview ready',
-    'Polish mobile control dashboard exposed port 5173.',
+    `Polish mobile control dashboard exposed ${LOCAL_SERVICE_BASE_URL}.`,
     {
       deviceId: 'mac-studio',
       sessionId: 'vc-1',
@@ -513,6 +579,39 @@ const initialNotifications: PushNotificationItem[] = [
 
 const mapProviderToModel = (provider: AgentProvider) =>
   provider === 'claude_code' ? 'Claude Code' : 'GPT-5 Codex';
+
+const applyLocalServiceConfig = (
+  state: Partial<ControlCenterState>,
+): Partial<ControlCenterState> => ({
+  ...state,
+  devices: (state.devices ?? mockDevices).map(device =>
+    device.id === 'mac-studio'
+      ? {
+          ...device,
+          host: LOCAL_SERVICE_HOST,
+          activePorts: [LOCAL_SERVICE_PORT],
+        }
+      : device,
+  ),
+  previewLinks: (state.previewLinks ?? mockPreviewLinks).map(preview =>
+    preview.id === 'preview-1'
+      ? {
+          ...preview,
+          port: LOCAL_SERVICE_PORT,
+          shortUrl: LOCAL_SERVICE_BASE_URL,
+          targetUrl: LOCAL_SERVICE_BASE_URL,
+        }
+      : preview,
+  ),
+  vibeRuns: (state.vibeRuns ?? mockVibeCodingRuns).map(run =>
+    run.id === 'vc-1'
+      ? {
+          ...run,
+          currentStep: `Preview is ready at ${LOCAL_SERVICE_BASE_URL}.`,
+        }
+      : run,
+  ),
+});
 
 const appendAgentTimelineEvent = (
   run: VibeCodingRun,
@@ -535,6 +634,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
       approvals: initialApprovals,
       notifications: initialNotifications,
       events: initialEvents,
+      projectFiles: makeProjectFiles(mockProjects),
 
       bindDevice: input => {
         const name = input.name.trim();
@@ -882,8 +982,17 @@ export const useControlCenterStore = create<ControlCenterState>()(
           status: 'running',
           objective: input.objective,
           model,
-          budgetLimit: input.budgetLimit,
-          budgetUsed: 0.15,
+          ...(input.provider === 'codex'
+            ? {
+                projectBudget: {
+                  source: 'codex' as const,
+                  currencySymbol: '$',
+                  used: 0.15,
+                  limit: 12,
+                  updatedAt: 'now',
+                },
+              }
+            : {}),
           timeLimitMinutes: input.timeLimitMinutes,
           elapsedMinutes: 1,
           risk: input.provider === 'claude_code' ? 'medium' : 'low',
@@ -1237,7 +1346,9 @@ export const useControlCenterStore = create<ControlCenterState>()(
     {
       name: 'aliang-vibecoding-control-center',
       storage: createJSONStorage(() => AsyncStorage),
-      version: 1,
+      version: 2,
+      migrate: persistedState =>
+        applyLocalServiceConfig(persistedState as Partial<ControlCenterState>),
       partialize: state => ({
         devices: state.devices,
         projects: state.projects,
@@ -1248,6 +1359,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
         approvals: state.approvals,
         notifications: state.notifications,
         events: state.events,
+        projectFiles: state.projectFiles,
       }),
     },
   ),

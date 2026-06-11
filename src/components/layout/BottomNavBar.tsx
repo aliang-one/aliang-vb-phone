@@ -3,12 +3,13 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/useTheme';
+import { IconBadge, IconName } from '../visual/IconBadge';
 
-const tabIcons: Record<string, string> = {
-  Dashboard: '[ ]',
-  Devices: 'DEV',
-  VibeCoding: '>_',
-  Account: '[*]',
+const tabIcons: Record<string, IconName> = {
+  Dashboard: 'home',
+  Devices: 'device',
+  VibeCoding: 'agent',
+  Account: 'user',
 };
 
 const tabLabels: Record<string, string> = {
@@ -42,7 +43,7 @@ export const BottomNavBar: React.FC<BottomTabBarProps> = ({
       {state.routes.map((route, index) => {
         const isFocused = state.index === index;
         const label = tabLabels[route.name] || route.name;
-        const icon = tabIcons[route.name] || '[]';
+        const icon = tabIcons[route.name] || 'home';
 
         const onPress = () => {
           const event = navigation.emit({
@@ -62,18 +63,13 @@ export const BottomNavBar: React.FC<BottomTabBarProps> = ({
             onPress={onPress}
             style={[styles.tab, isFocused && styles.tabFocused]}
             activeOpacity={0.7}>
-            <Text
-              style={[
-                theme.typography.codeMd,
-                {
-                  color: isFocused
-                    ? theme.colors.primary
-                    : theme.colors.onSurfaceVariant,
-                },
-                isFocused && isDark && { textShadowColor: theme.colors.primary, textShadowRadius: 8 },
-              ]}>
-              {icon}
-            </Text>
+            <IconBadge
+              name={icon}
+              tone={isFocused ? 'primary' : 'neutral'}
+              size={34}
+              iconSize={17}
+              filled={isFocused}
+            />
             <Text
               style={[
                 theme.typography.labelCaps,

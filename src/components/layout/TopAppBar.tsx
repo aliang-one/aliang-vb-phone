@@ -33,7 +33,21 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
       <View style={styles.content}>
         <View style={styles.left}>
           {onBack && (
-            <TouchableOpacity onPress={onBack} style={styles.backBtn}>
+            <TouchableOpacity
+              onPress={onBack}
+              activeOpacity={0.72}
+              style={[
+                styles.backBtn,
+                {
+                  borderColor: isDark
+                    ? 'rgba(255,255,255,0.12)'
+                    : theme.colors.outlineVariant,
+                  backgroundColor: isDark
+                    ? 'rgba(255,255,255,0.05)'
+                    : theme.colors.surfaceContainerLow,
+                  borderRadius: theme.borderRadius.full,
+                },
+              ]}>
               <Text
                 style={[
                   theme.typography.codeMd,
@@ -86,7 +100,11 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   backBtn: {
-    padding: 4,
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
   },
   subtitle: {
     marginTop: 2,

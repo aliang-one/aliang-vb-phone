@@ -11,6 +11,7 @@ import { StatusChip } from '../../components/shared/StatusChip';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useTheme } from '../../theme/useTheme';
 import { ProjectScanResult, useControlCenterStore } from '../../store/controlCenterStore';
+import { IconBadge } from '../../components/visual/IconBadge';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type ScanRoute = RouteProp<RootStackParamList, 'ProjectScan'>;
@@ -64,7 +65,8 @@ export const ProjectScanScreen: React.FC = () => {
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <GlassPanel style={styles.summaryPanel}>
           <View style={styles.summaryTop}>
-            <View>
+            <IconBadge name="scan" tone="primary" size={48} iconSize={24} filled />
+            <View style={styles.summaryCopy}>
               <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
                 AUTHORIZED ROOTS
               </Text>
@@ -107,6 +109,12 @@ export const ProjectScanScreen: React.FC = () => {
             }>
             <GlassPanel style={styles.projectCard}>
               <View style={styles.cardHeader}>
+                <IconBadge
+                  name={item.isGitRepo ? 'git' : 'project'}
+                  tone={item.status === 'warning' ? 'tertiary' : 'primary'}
+                  size={42}
+                  iconSize={21}
+                />
                 <View style={styles.titleBlock}>
                   <Text
                     numberOfLines={1}
@@ -237,13 +245,15 @@ const styles = StyleSheet.create({
   },
   summaryTop: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     gap: 12,
   },
   scanButton: {
     minWidth: 118,
     paddingHorizontal: 12,
+  },
+  summaryCopy: {
+    flex: 1,
   },
   statRow: {
     flexDirection: 'row',
@@ -266,7 +276,7 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 12,
   },
   titleBlock: {

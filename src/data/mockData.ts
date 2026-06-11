@@ -1,3 +1,9 @@
+import {
+  LOCAL_SERVICE_BASE_URL,
+  LOCAL_SERVICE_HOST,
+  LOCAL_SERVICE_PORT,
+} from '../config/localService';
+
 export interface Project {
   id: string;
   name: string;
@@ -164,8 +170,7 @@ export interface VibeCodingRun {
   status: VibeStatus;
   objective: string;
   model: string;
-  budgetLimit: number;
-  budgetUsed: number;
+  projectBudget?: AgentBudgetInfo;
   timeLimitMinutes: number;
   elapsedMinutes: number;
   risk: 'low' | 'medium' | 'high';
@@ -176,6 +181,14 @@ export interface VibeCodingRun {
   suggestions: string[];
   transcript: AgentMessage[];
   events: AgentEvent[];
+}
+
+export interface AgentBudgetInfo {
+  source: 'codex';
+  currencySymbol: string;
+  used: number;
+  limit: number;
+  updatedAt: string;
 }
 
 export interface AgentMessage {
@@ -523,7 +536,7 @@ export const mockDevices: Device[] = [
     status: 'online',
     location: 'Shanghai desk',
     os: 'macOS 15.5',
-    host: '10.0.0.21',
+    host: LOCAL_SERVICE_HOST,
     cpuLoad: 42,
     memLoad: 68,
     authorizedDirectories: [
@@ -531,7 +544,7 @@ export const mockDevices: Device[] = [
       '~/MyProgram/AiProgram',
       '~/Sites/lab',
     ],
-    activePorts: [3000, 5173, 8081],
+    activePorts: [LOCAL_SERVICE_PORT],
     projectIds: ['1', '2'],
     activeSessionIds: ['vc-1', 'vc-2'],
     lastSeen: 'now',
@@ -573,9 +586,9 @@ export const mockPreviewLinks: PreviewLink[] = [
   {
     id: 'preview-1',
     sessionId: 'vc-1',
-    port: 5173,
-    shortUrl: 'https://vibe.link/p/ax91',
-    targetUrl: 'mac-studio.local:5173',
+    port: LOCAL_SERVICE_PORT,
+    shortUrl: LOCAL_SERVICE_BASE_URL,
+    targetUrl: LOCAL_SERVICE_BASE_URL,
     expiresIn: '54 min',
     access: 'private',
   },
@@ -601,12 +614,17 @@ export const mockVibeCodingRuns: VibeCodingRun[] = [
     objective:
       'Make the dashboard feel like a mobile command center for remote coding agents.',
     model: 'GPT-5 Codex',
-    budgetLimit: 18,
-    budgetUsed: 6.45,
+    projectBudget: {
+      source: 'codex',
+      currencySymbol: '$',
+      used: 6.45,
+      limit: 18,
+      updatedAt: '1 min ago',
+    },
     timeLimitMinutes: 90,
     elapsedMinutes: 42,
     risk: 'medium',
-    currentStep: 'Preview is ready. Waiting for user review on port 5173.',
+    currentStep: `Preview is ready at ${LOCAL_SERVICE_BASE_URL}.`,
     branch: 'feature/mobile-command-ui',
     updatedAt: '1 min ago',
     previewId: 'preview-1',
@@ -663,7 +681,7 @@ export const mockVibeCodingRuns: VibeCodingRun[] = [
         id: 'e3',
         type: 'preview',
         title: 'Preview link opened',
-        detail: 'Port 5173 converted to short link',
+        detail: `Port ${LOCAL_SERVICE_PORT} is reachable on LAN`,
         status: 'waiting',
         timestamp: '15:36',
       },
@@ -679,8 +697,6 @@ export const mockVibeCodingRuns: VibeCodingRun[] = [
     objective:
       'Add safer token handling and tests for expired JWT cases.',
     model: 'Claude Code',
-    budgetLimit: 12,
-    budgetUsed: 4.9,
     timeLimitMinutes: 60,
     elapsedMinutes: 26,
     risk: 'high',
@@ -730,8 +746,13 @@ export const mockVibeCodingRuns: VibeCodingRun[] = [
     objective:
       'Improve the first-run setup flow and connect empty states to mock data.',
     model: 'GPT-5 Codex',
-    budgetLimit: 10,
-    budgetUsed: 2.15,
+    projectBudget: {
+      source: 'codex',
+      currencySymbol: '$',
+      used: 2.15,
+      limit: 10,
+      updatedAt: 'now',
+    },
     timeLimitMinutes: 45,
     elapsedMinutes: 13,
     risk: 'low',

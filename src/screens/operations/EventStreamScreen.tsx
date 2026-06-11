@@ -9,6 +9,7 @@ import { GlassPanel } from '../../components/shared/GlassPanel';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useTheme } from '../../theme/useTheme';
+import { IconBadge, IconName } from '../../components/visual/IconBadge';
 import {
   UnifiedEventStatus,
   UnifiedEventType,
@@ -36,6 +37,22 @@ const eventStatusType: Record<
   waiting: 'warning',
   done: 'success',
   failed: 'error',
+};
+
+const eventIcon: Record<UnifiedEventType, IconName> = {
+  'terminal.output': 'terminal',
+  'agent.delta': 'agent',
+  'command.started': 'play',
+  'command.completed': 'check',
+  'approval.requested': 'approval',
+  'file.changed': 'code',
+  'device.bound': 'device',
+  'device.offline': 'warning',
+  'project.scan.completed': 'scan',
+  'agent.session.started': 'agent',
+  'agent.session.paused': 'pause',
+  'agent.session.resumed': 'play',
+  'agent.session.terminated': 'stop',
 };
 
 export const EventStreamScreen: React.FC = () => {
@@ -107,6 +124,12 @@ export const EventStreamScreen: React.FC = () => {
         {filtered.map(item => (
           <GlassPanel key={item.id} style={styles.eventCard}>
             <View style={styles.eventTop}>
+              <IconBadge
+                name={eventIcon[item.type]}
+                tone={item.status === 'failed' ? 'error' : item.status === 'waiting' ? 'tertiary' : 'primary'}
+                size={40}
+                iconSize={20}
+              />
               <View style={styles.titleBlock}>
                 <Text
                   numberOfLines={1}
@@ -207,6 +230,7 @@ const styles = StyleSheet.create({
   eventTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     gap: 12,
   },
   titleBlock: {

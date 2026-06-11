@@ -8,11 +8,12 @@ import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
-import { ProgressBar } from '../../components/shared/ProgressBar';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { IconBadge } from '../../components/visual/IconBadge';
+import { RingMeter } from '../../components/visual/RingMeter';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DeviceRoute = RouteProp<RootStackParamList, 'DeviceDetail'>;
@@ -57,7 +58,14 @@ export const DeviceDetailScreen: React.FC = () => {
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <GlassPanel style={styles.hero}>
           <View style={styles.heroTop}>
-            <View>
+            <IconBadge
+              name="device"
+              tone={device.status === 'offline' ? 'neutral' : 'primary'}
+              size={50}
+              iconSize={25}
+              filled={device.status === 'online'}
+            />
+            <View style={styles.heroCopy}>
               <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
                 {device.os}
               </Text>
@@ -75,27 +83,30 @@ export const DeviceDetailScreen: React.FC = () => {
               type={statusType[device.status]}
             />
           </View>
-          <View style={styles.metricBlock}>
-            <View style={styles.metricLabel}>
-              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                CPU load
+          <View style={styles.visualMetrics}>
+            <RingMeter
+              progress={device.cpuLoad}
+              label="CPU"
+              value={`${device.cpuLoad}%`}
+              color={theme.colors.primary}
+              size={78}
+            />
+            <RingMeter
+              progress={device.memLoad}
+              label="MEM"
+              value={`${device.memLoad}%`}
+              color={theme.colors.secondary}
+              size={78}
+            />
+            <View style={styles.portPanel}>
+              <IconBadge name="port" tone="tertiary" size={34} iconSize={17} />
+              <Text style={[theme.typography.titleLg, { color: theme.colors.onSurface }]}>
+                {device.activePorts.length}
               </Text>
-              <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
-                {device.cpuLoad}%
+              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                ports
               </Text>
             </View>
-            <ProgressBar progress={device.cpuLoad} color={theme.colors.primary} />
-          </View>
-          <View style={styles.metricBlock}>
-            <View style={styles.metricLabel}>
-              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                Memory
-              </Text>
-              <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
-                {device.memLoad}%
-              </Text>
-            </View>
-            <ProgressBar progress={device.memLoad} color={theme.colors.secondary} />
           </View>
           <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
             Last seen {device.lastSeen}
@@ -285,11 +296,29 @@ const styles = StyleSheet.create({
   },
   heroTop: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
   },
+  heroCopy: {
+    flex: 1,
+  },
   heroTitle: {
     marginTop: 4,
+  },
+  visualMetrics: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  portPanel: {
+    flex: 1,
+    minHeight: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    gap: 3,
   },
   metricBlock: {
     gap: 6,

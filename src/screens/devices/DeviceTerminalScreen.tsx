@@ -22,6 +22,7 @@ import {
   TerminalSessionStatus,
   useControlCenterStore,
 } from '../../store/controlCenterStore';
+import { IconBadge } from '../../components/visual/IconBadge';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DeviceTerminalRoute = RouteProp<RootStackParamList, 'DeviceTerminal'>;
@@ -183,6 +184,13 @@ export const DeviceTerminalScreen: React.FC = () => {
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <GlassPanel style={styles.devicePanel}>
           <View style={styles.deviceHeader}>
+            <IconBadge
+              name="terminal"
+              tone={terminal?.status === 'waiting_approval' ? 'tertiary' : 'primary'}
+              size={46}
+              iconSize={23}
+              filled={terminal?.status === 'idle'}
+            />
             <View style={styles.deviceTitle}>
               <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
                 PTY TERMINAL
@@ -432,6 +440,7 @@ const styles = StyleSheet.create({
   deviceHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     gap: 12,
   },
   deviceTitle: {

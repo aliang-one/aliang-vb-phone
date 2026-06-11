@@ -1,5 +1,14 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useState } from 'react';
+import {
+  Linking,
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+} from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
@@ -7,10 +16,30 @@ import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { UsageSummaryCard } from '../../components/vibecoding/UsageSummaryCard';
-import { mockDevices, mockUserPlan, mockVibeCodingRuns } from '../../data/mockData';
+import { mockUserPlan } from '../../data/mockData';
+import { ActionTile } from '../../components/visual/ActionTile';
+import { IconBadge } from '../../components/visual/IconBadge';
+import { RootStackParamList } from '../../app/navigation/types';
+import { useControlCenterStore } from '../../store/controlCenterStore';
+import {
+  checkLocalService,
+  LOCAL_SERVICE_BASE_URL,
+  LocalServiceHealth,
+} from '../../config/localService';
+import { useAuthStore } from '../../../stores/useSettingsStore';
+
+type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 export const SettingsScreen: React.FC = () => {
   const { theme, isDark, mode, setMode } = useTheme();
+  const navigation = useNavigation<Navigation>();
+  const devices = useControlCenterStore(state => state.devices);
+  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
+  const agentId = useAuthStore(state => state.agentId);
+  const logout = useAuthStore(state => state.logout);
+  const [connectionStatus, setConnectionStatus] =
+    useState<LocalServiceHealth | null>(null);
+  const [checkingConnection, setCheckingConnection] = useState(false);
 
   const themeOptions = [
     { key: 'system', label: 'SYSTEM' },
@@ -25,26 +54,111 @@ export const SettingsScreen: React.FC = () => {
     ['Preview links', '2 active'],
   ];
 
+  const handleCheckConnection = async () => {
+    setCheckingConnection(true);
+    const result = await checkLocalService();
+    setConnectionStatus(result);
+    setCheckingConnection(false);
+  };
+
   return (
     <SafeAreaWrapper>
       <TopAppBar title="Account" subtitle="PLAN / LIMITS / PREFERENCES" />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <View style={styles.profile}>
-          <View style={styles.avatar}>
-            <Text style={[theme.typography.titleMd, { color: theme.colors.primary }]}>
-              AL
-            </Text>
-          </View>
+          <IconBadge name="user" tone="primary" size={46} iconSize={23} />
           <View style={styles.profileText}>
             <Text style={[theme.typography.titleLg, { color: theme.colors.onSurface }]}>
               {mockUserPlan.userName}
             </Text>
             <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-              Mobile VibeCoding controller
+              {agentId || 'Mobile VibeCoding controller'}
             </Text>
           </View>
           <StatusChip label="PRO" type="info" />
         </View>
+
+        <ActionTile
+          icon="scan"
+          label="扫码绑定设备"
+          value="QR"
+          caption="打开相机扫描电脑端 Agent 二维码"
+          tone="success"
+          onPress={() => navigation.navigate('DeviceCameraScanner')}
+          style={styles.scanTile}
+        />
+
+        <Text
+          style={[
+            theme.typography.labelCaps,
+            { color: theme.colors.onSurfaceVariant },
+            styles.sectionTitle,
+          ]}>
+          LOCAL SERVICE
+        </Text>
+        <GlassPanel style={styles.servicePanel}>
+          <View style={styles.serviceHeader}>
+            <View style={styles.serviceCopy}>
+              <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                Desktop service
+              </Text>
+              <Text
+                style={[theme.typography.codeSm, { color: theme.colors.primary }]}
+                numberOfLines={1}>
+                {LOCAL_SERVICE_BASE_URL}
+              </Text>
+            </View>
+            <StatusChip
+              label={
+                checkingConnection
+                  ? 'CHECKING'
+                  : connectionStatus?.ok
+                  ? 'ONLINE'
+                  : connectionStatus
+                  ? 'OFFLINE'
+                  : 'READY'
+              }
+              type={
+                checkingConnection
+                  ? 'info'
+                  : connectionStatus?.ok
+                  ? 'success'
+                  : connectionStatus
+                  ? 'error'
+                  : 'neutral'
+              }
+            />
+          </View>
+          {connectionStatus ? (
+            <Text
+              style={[
+                theme.typography.labelSm,
+                {
+                  color: connectionStatus.ok
+                    ? theme.colors.secondary
+                    : theme.colors.error,
+                },
+                styles.serviceMessage,
+              ]}>
+              {connectionStatus.message} / {connectionStatus.latencyMs}ms
+            </Text>
+          ) : null}
+          <View style={styles.serviceActions}>
+            <GlowButton
+              title="TEST CONNECTION"
+              onPress={handleCheckConnection}
+              loading={checkingConnection}
+              variant="secondary"
+              style={styles.serviceButton}
+            />
+            <GlowButton
+              title="OPEN"
+              onPress={() => Linking.openURL(LOCAL_SERVICE_BASE_URL)}
+              variant="outline"
+              style={styles.serviceButton}
+            />
+          </View>
+        </GlassPanel>
 
         <UsageSummaryCard plan={mockUserPlan} />
 
@@ -83,7 +197,7 @@ export const SettingsScreen: React.FC = () => {
         <View style={styles.capacityGrid}>
           <GlassPanel style={styles.capacityCard}>
             <Text style={[theme.typography.headlineMd, { color: theme.colors.secondary }]}>
-              {mockDevices.length}
+              {devices.length}
             </Text>
             <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
               DEVICES
@@ -91,7 +205,7 @@ export const SettingsScreen: React.FC = () => {
           </GlassPanel>
           <GlassPanel style={styles.capacityCard}>
             <Text style={[theme.typography.headlineMd, { color: theme.colors.primary }]}>
-              {mockVibeCodingRuns.length}
+              {vibeRuns.length}
             </Text>
             <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
               SESSIONS
@@ -189,7 +303,7 @@ export const SettingsScreen: React.FC = () => {
         />
         <GlowButton
           title="SIGN OUT"
-          onPress={() => {}}
+          onPress={logout}
           variant="outline"
           style={styles.logoutBtn}
         />
@@ -213,14 +327,11 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 14,
   },
-  avatar: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   profileText: {
     flex: 1,
+  },
+  scanTile: {
+    marginBottom: 14,
   },
   sectionTitle: {
     marginTop: 20,
@@ -228,6 +339,28 @@ const styles = StyleSheet.create({
   },
   panel: {
     padding: 0,
+  },
+  servicePanel: {
+    padding: 14,
+    gap: 12,
+  },
+  serviceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  serviceCopy: {
+    flex: 1,
+  },
+  serviceMessage: {
+    lineHeight: 18,
+  },
+  serviceActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  serviceButton: {
+    flex: 1,
   },
   settingRow: {
     flexDirection: 'row',

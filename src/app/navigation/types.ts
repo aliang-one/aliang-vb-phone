@@ -6,10 +6,12 @@ export type RootStackParamList = {
   Login: undefined;
   MainTabs: undefined;
   DeviceBinding: undefined;
+  DeviceCameraScanner: undefined;
   DeviceDetail: { deviceId: string };
   DeviceTerminal: { deviceId: string; directory?: string; terminalId?: string };
   ProjectScan: { deviceId: string };
   ProjectDetail: { projectId: string; deviceId?: string };
+  FileBrowser: { projectId: string; deviceId?: string; sessionId?: string };
   CreateVibeCoding: { deviceId?: string; projectId?: string };
   AgentSessions: { deviceId?: string; projectId?: string } | undefined;
   VibeCodingSession: { sessionId: string };

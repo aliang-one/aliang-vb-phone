@@ -10,6 +10,7 @@ import { StatusChip } from '../../components/shared/StatusChip';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useTheme } from '../../theme/useTheme';
 import { ApprovalRequest, useControlCenterStore } from '../../store/controlCenterStore';
+import { IconBadge, IconName } from '../../components/visual/IconBadge';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -26,6 +27,13 @@ const approvalKindLabel: Record<ApprovalRequest['kind'], string> = {
   file_write: 'File write',
   file_delete: 'Delete',
   git_push: 'Git push',
+};
+
+const approvalIcon: Record<ApprovalRequest['kind'], IconName> = {
+  dangerous_command: 'terminal',
+  file_write: 'code',
+  file_delete: 'warning',
+  git_push: 'git',
 };
 
 export const ApprovalCenterScreen: React.FC = () => {
@@ -107,6 +115,12 @@ export const ApprovalCenterScreen: React.FC = () => {
               glowColor={pending ? 'secondary' : 'none'}
               style={styles.approvalCard}>
               <View style={styles.cardHeader}>
+                <IconBadge
+                  name={approvalIcon[item.kind]}
+                  tone={item.risk === 'high' ? 'error' : 'tertiary'}
+                  size={42}
+                  iconSize={21}
+                />
                 <View style={styles.titleBlock}>
                   <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
                     {approvalKindLabel[item.kind].toUpperCase()}
@@ -247,6 +261,7 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     gap: 12,
   },
   titleBlock: {
