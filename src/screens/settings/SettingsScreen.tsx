@@ -36,9 +36,7 @@ export const SettingsScreen: React.FC = () => {
   const vibeRuns = useControlCenterStore(state => state.vibeRuns);
   const user = useSessionStore(state => state.user);
   const operatorName = useSessionStore(state => state.operatorName);
-  const logout = useSessionStore(state => state.logout);
   const disconnectFromServer = useControlCenterStore(state => state.disconnectFromServer);
-  const resetSessionData = useControlCenterStore(state => state.resetSessionData);
   const wsConnected = useControlCenterStore(state => state.wsConnected);
   const serverMode = useControlCenterStore(state => state.serverMode);
   const [connectionStatus, setConnectionStatus] =
@@ -63,11 +61,6 @@ export const SettingsScreen: React.FC = () => {
     const result = await checkPlatformService();
     setConnectionStatus(result);
     setCheckingConnection(false);
-  };
-
-  const handleLogout = () => {
-    resetSessionData();
-    logout();
   };
 
   return (
@@ -320,13 +313,6 @@ export const SettingsScreen: React.FC = () => {
         <GlowButton
           title="断开实时连接"
           onPress={disconnectFromServer}
-          variant="outline"
-          style={styles.logoutBtn}
-        />
-
-        <GlowButton
-          title="退出登录"
-          onPress={handleLogout}
           variant="outline"
           style={styles.logoutBtn}
         />

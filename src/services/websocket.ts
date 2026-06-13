@@ -1,5 +1,4 @@
 import { getPlatformServiceBaseUrl, toWebSocketUrl } from '../config/localService';
-import { getApiAuthToken } from '../api/client';
 
 export type WsMessageHandler = (message: Record<string, unknown>) => void;
 export type WsConnectionState = 'connecting' | 'connected' | 'disconnected';
@@ -60,9 +59,7 @@ export class MobileWebSocket {
     this.onStateChange?.('connecting');
 
     const baseUrl = await getPlatformServiceBaseUrl();
-    const token = getApiAuthToken();
-    const tokenQuery = token ? `?session_token=${encodeURIComponent(token)}` : '';
-    const url = `${toWebSocketUrl(baseUrl)}/ws/mobile${tokenQuery}`;
+    const url = `${toWebSocketUrl(baseUrl)}/ws/mobile`;
     const ws = new WebSocket(url);
 
     ws.onopen = () => {

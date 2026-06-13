@@ -3,7 +3,6 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { RootStackParamList } from './types';
 import { MainTabNavigator } from './MainTabNavigator';
-import { LoginScreen } from '../../screens/auth/LoginScreen';
 import { DeviceBindingScreen } from '../../screens/devices/DeviceBindingScreen';
 import { DeviceCameraScannerScreen } from '../../screens/devices/DeviceCameraScannerScreen';
 import { DeviceDetailScreen } from '../../screens/devices/DeviceDetailScreen';
@@ -27,43 +26,30 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export const RootNavigator = () => {
   const { theme } = useTheme();
   const hasHydrated = useSessionStore(state => state.hasHydrated);
-  const isAuthenticated = useSessionStore(state => state.isAuthenticated);
   const restoreUser = useSessionStore(state => state.restoreUser);
-  const logout = useSessionStore(state => state.logout);
   const serverMode = useControlCenterStore(state => state.serverMode);
   const initializeFromServer = useControlCenterStore(state => state.initializeFromServer);
-  const resetSessionData = useControlCenterStore(state => state.resetSessionData);
   const syncingRef = useRef(false);
 
   useEffect(() => {
-    if (!hasHydrated || !isAuthenticated || serverMode || syncingRef.current) return;
+    if (!hasHydrated || serverMode || syncingRef.current) return;
 
     syncingRef.current = true;
     restoreUser()
       .then(initializeFromServer)
       .catch(error => {
         console.warn('[navigation] Platform auto-connect failed:', error);
-        resetSessionData();
-        logout();
       })
       .finally(() => {
         syncingRef.current = false;
       });
-  }, [hasHydrated, initializeFromServer, isAuthenticated, logout, resetSessionData, restoreUser, serverMode]);
+  }, [hasHydrated, initializeFromServer, restoreUser, serverMode]);
 
   if (!hasHydrated) {
     return (
       <View style={[styles.loading, { backgroundColor: theme.colors.background }]}>
         <ActivityIndicator color={theme.colors.primary} />
       </View>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Login" component={LoginScreen} />
-      </Stack.Navigator>
     );
   }
 

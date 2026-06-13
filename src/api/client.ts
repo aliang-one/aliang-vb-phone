@@ -19,24 +19,11 @@ export class ApiResponseError extends Error {
   }
 }
 
-export interface ApiFetchOptions extends RequestInit {
-  skipAuth?: boolean;
-}
+export type ApiFetchOptions = RequestInit;
 
 // React Native's type definitions expose `Headers` but not the `HeadersInit`
 // alias from the DOM lib, so declare a compatible union locally.
 type HeadersInitLike = Record<string, string> | [string, string][] | Headers;
-
-let apiAuthToken: string | null = null;
-
-export function setApiAuthToken(token?: string | null) {
-  const cleaned = token?.trim();
-  apiAuthToken = cleaned || null;
-}
-
-export function getApiAuthToken() {
-  return apiAuthToken;
-}
 
 export function isUnauthorizedApiError(error: unknown) {
   return error instanceof ApiResponseError && (error.status === 401 || error.status === 403);
@@ -87,15 +74,12 @@ export async function apiFetch<T = unknown>(
   path: string,
   options: ApiFetchOptions = {}
 ): Promise<T> {
-  const { skipAuth, headers: optionHeaders, ...fetchOptions } = options;
+  const { headers: optionHeaders, ...fetchOptions } = options;
   const headers: Record<string, string> = {
     'Accept': 'application/json',
     'Content-Type': 'application/json',
     ...normalizeHeaders(optionHeaders),
   };
-  if (!skipAuth && apiAuthToken && !headers.Authorization && !headers.authorization) {
-    headers.Authorization = `Bearer ${apiAuthToken}`;
-  }
   const requestOptions = {
     ...fetchOptions,
     headers
