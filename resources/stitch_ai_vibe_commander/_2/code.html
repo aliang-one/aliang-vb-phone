@@ -128,7 +128,7 @@
 <header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 h-12 bg-[#0B0E11]/80 backdrop-blur-xl border-b border-white/10">
 <div class="flex items-center gap-2">
 <span class="material-symbols-outlined text-[#00D1FF]" data-icon="terminal">terminal</span>
-<span class="font-mono font-black text-[#00D1FF] tracking-widest text-sm">COMMAND_CENTER</span>
+<span class="font-mono font-black text-[#00D1FF] tracking-widest text-sm">PLATFORM_LOGIN</span>
 </div>
 <div class="h-8 w-8 bg-surface-container-highest border border-white/10 rounded-lg flex items-center justify-center">
 <span class="material-symbols-outlined text-[#00D1FF] text-lg" data-icon="shield">shield</span>
@@ -140,34 +140,34 @@
 <div class="flex flex-col items-start gap-2 border-l-2 border-primary-container pl-6 py-2">
 <div class="flex items-center gap-3">
 <div class="w-2 h-2 bg-primary-container"></div>
-<h1 class="font-display text-headline-md text-primary-container uppercase tracking-tight">SECURE_AUTH_GATEWAY</h1>
+<h1 class="font-display text-headline-md text-primary-container uppercase tracking-tight">PLATFORM_SESSION</h1>
 </div>
-<p class="font-terminal-sm text-on-surface-variant opacity-70">SYSTEM STATUS: READY // ENCRYPTION: ACTIVE</p>
+<p class="font-terminal-sm text-on-surface-variant opacity-70">USER LOGIN // DEVICES / PROJECTS / AGENTS</p>
 </div>
 <!-- Glassmorphism Card -->
 <div class="bg-surface-container/70 backdrop-blur-xl border border-outline-variant p-8 rounded-lg relative overflow-hidden">
 <div class="scanline"></div>
 <form class="flex flex-col gap-6">
-<!-- Agent ID Input -->
+<!-- Platform user email input -->
 <div class="flex flex-col gap-2 group">
-<label class="font-label-caps text-on-surface-variant">AGENT_ID</label>
+<label class="font-label-caps text-on-surface-variant">USER_EMAIL</label>
 <div class="flex items-center bg-surface-container-lowest border border-outline-variant px-4 py-3 glow-border transition-all duration-300">
 <span class="font-data-mono text-primary-container mr-3">&gt;</span>
-<input class="bg-transparent border-none p-0 focus:ring-0 w-full font-data-mono text-on-surface placeholder:text-outline-variant uppercase" placeholder="[ID_STRING]" type="text"/>
+<input class="bg-transparent border-none p-0 focus:ring-0 w-full font-data-mono text-on-surface placeholder:text-outline-variant" placeholder="name@example.com" type="email"/>
 </div>
 </div>
-<!-- Access Key Input -->
+<!-- Platform password input -->
 <div class="flex flex-col gap-2 group">
-<label class="font-label-caps text-on-surface-variant">ACCESS_KEY</label>
+<label class="font-label-caps text-on-surface-variant">PASSWORD</label>
 <div class="flex items-center bg-surface-container-lowest border border-outline-variant px-4 py-3 glow-border transition-all duration-300">
 <span class="font-data-mono text-primary-container mr-3">&gt;</span>
-<input class="bg-transparent border-none p-0 focus:ring-0 w-full font-data-mono text-on-surface placeholder:text-outline-variant" placeholder="[SECRET_KEY]" type="password"/>
+<input class="bg-transparent border-none p-0 focus:ring-0 w-full font-data-mono text-on-surface placeholder:text-outline-variant" placeholder="输入平台密码" type="password"/>
 </div>
 </div>
-<!-- Authenticate Button -->
+<!-- Login Button -->
 <div class="pt-4">
 <button class="w-full bg-primary-container hover:bg-surface-tint text-on-primary-container font-label-caps py-4 rounded-[2px] transition-all duration-300 active:scale-[0.98] relative overflow-hidden group shadow-[0_0_20px_rgba(0,255,65,0.2)]" type="submit">
-<span class="relative z-10">AUTHENTICATE</span>
+<span class="relative z-10">登录平台</span>
 <!-- Scanner Glow Effect -->
 <div class="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-[-100%] transition-transform duration-700 ease-in-out"></div>
 </button>

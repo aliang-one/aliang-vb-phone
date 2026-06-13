@@ -52,6 +52,8 @@ const eventIcon: Record<UnifiedEventType, IconName> = {
   'agent.session.started': 'agent',
   'agent.session.paused': 'pause',
   'agent.session.resumed': 'play',
+  'agent.session.completed': 'check',
+  'agent.session.failed': 'warning',
   'agent.session.terminated': 'stop',
 };
 

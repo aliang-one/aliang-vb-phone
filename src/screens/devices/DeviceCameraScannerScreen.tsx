@@ -116,12 +116,12 @@ export const DeviceCameraScannerScreen: React.FC = () => {
     }
   };
 
-  const handleBind = () => {
+  const handleBind = async () => {
     if (!draft) {
       return;
     }
 
-    const result = bindDevice(draft);
+    const result = await bindDevice(draft);
     if (!result.ok || !result.deviceId) {
       setMessage(result.error ?? 'Unable to bind this device.');
       return;

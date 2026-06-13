@@ -2,7 +2,6 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 
 export type RootStackParamList = {
-  Splash: undefined;
   Login: undefined;
   MainTabs: undefined;
   DeviceBinding: undefined;

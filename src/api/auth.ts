@@ -1,65 +1,46 @@
-import { LOCAL_SERVICE_AUTH_URL } from '../config/localService';
+import { apiFetch } from './client';
 
-interface AuthResponse {
-  agentId?: string;
-  user?: {
-    id?: string;
-    email?: string;
-    name?: string;
-  };
+export interface PlatformUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
 }
 
-export interface LoginResult {
-  agentId: string;
-  accessToken: string;
+export interface LoginInput {
+  email: string;
+  password: string;
 }
 
-const getErrorMessage = async (response: Response) => {
-  try {
-    const payload = await response.json();
-    if (typeof payload?.error === 'string') {
-      return payload.error;
-    }
-    if (typeof payload?.message === 'string') {
-      return payload.message;
-    }
-  } catch {
-    // Ignore non-JSON responses.
-  }
+export interface LoginResponse {
+  access_token?: string;
+  session_token?: string;
+  refresh_token?: string;
+  token_type?: string;
+  expires_in?: number;
+  user?: Partial<PlatformUser>;
+}
 
-  return `Login failed with HTTP ${response.status}`;
-};
-
-export const loginWithAccessKey = async (
-  agentId: string,
-  accessKey: string,
-): Promise<LoginResult> => {
-  const response = await fetch(LOCAL_SERVICE_AUTH_URL, {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${accessKey}`,
-    },
+export const loginWithPassword = (input: LoginInput): Promise<LoginResponse> =>
+  apiFetch<LoginResponse>('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify(input),
+    skipAuth: true,
   });
 
-  if (!response.ok) {
-    throw new Error(await getErrorMessage(response));
-  }
+export const fetchCurrentUser = (): Promise<PlatformUser> =>
+  apiFetch<PlatformUser>('/api/me', { method: 'GET' });
 
-  let payload: AuthResponse = {};
-  try {
-    payload = await response.json();
-  } catch {
-    payload = {};
-  }
+export function normalizePlatformUser(raw: Partial<PlatformUser> | undefined, fallbackEmail: string): PlatformUser {
+  const id = String(raw?.id || raw?.email || fallbackEmail);
+  const email = String(raw?.email || fallbackEmail);
+  const name = String(raw?.name || email);
+  const role = String(raw?.role || 'user');
 
   return {
-    agentId:
-      payload.agentId ??
-      payload.user?.email ??
-      payload.user?.name ??
-      payload.user?.id ??
-      agentId,
-    accessToken: accessKey,
+    id,
+    email,
+    name,
+    role,
   };
-};
+}

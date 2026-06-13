@@ -16,6 +16,7 @@ import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { vibeStatusLabel, vibeStatusType } from '../../components/vibecoding/status';
+import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useTheme } from '../../theme/useTheme';
 import {
@@ -31,6 +32,9 @@ const providerLabels: Record<AgentProvider, string> = {
   claude_code: 'Claude Code',
   codex: 'Codex',
 };
+
+const uniqueStrings = (items: Array<string | undefined>) =>
+  Array.from(new Set(items.filter(Boolean))) as string[];
 
 export const AgentSessionsScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
@@ -49,6 +53,7 @@ export const AgentSessionsScreen: React.FC = () => {
   const initialDeviceId = route.params?.deviceId ?? devices[0]?.id ?? '';
   const initialProjectId =
     route.params?.projectId ??
+    projects.find(item => item.deviceId === initialDeviceId)?.id ??
     devices.find(item => item.id === initialDeviceId)?.projectIds[0] ??
     projects[0]?.id ??
     '';
@@ -61,26 +66,33 @@ export const AgentSessionsScreen: React.FC = () => {
 
   const device = devices.find(item => item.id === deviceId) ?? devices[0];
   const availableProjects = useMemo(
-    () => projects.filter(item => device?.projectIds.includes(item.id)),
-    [device?.projectIds, projects],
+    () =>
+      projects.filter(
+        item => item.deviceId === device?.id || device?.projectIds.includes(item.id),
+      ),
+    [device?.id, device?.projectIds, projects],
   );
   const project =
     projects.find(item => item.id === projectId) ??
     availableProjects[0] ??
-    projects[0];
+    projects.find(item => item.deviceId === device?.id);
+  const directory =
+    project?.path ??
+    uniqueStrings(device?.authorizedDirectories ?? [])[0] ??
+    '~';
   const sessions = vibeRuns.filter(run =>
     route.params?.deviceId ? run.deviceId === route.params.deviceId : true,
   );
 
-  const handleStart = () => {
-    if (!device || !project || !objective.trim()) {
+  const handleStart = async () => {
+    if (!device || !objective.trim()) {
       return;
     }
 
-    const sessionId = startAgentSession({
+    const sessionId = await startAgentSession({
       deviceId: device.id,
-      projectId: project.id,
-      directory: device.authorizedDirectories[0] ?? '~',
+      projectId: project?.id ?? '',
+      directory,
       provider,
       objective: objective.trim(),
       timeLimitMinutes: 60,
@@ -90,22 +102,66 @@ export const AgentSessionsScreen: React.FC = () => {
 
   const handleSelectDevice = (nextDeviceId: string) => {
     const nextDevice = devices.find(item => item.id === nextDeviceId);
+    const nextProject =
+      projects.find(item => item.deviceId === nextDeviceId) ??
+      projects.find(item => nextDevice?.projectIds.includes(item.id));
     setDeviceId(nextDeviceId);
-    setProjectId(nextDevice?.projectIds[0] ?? projectId);
+    setProjectId(nextProject?.id ?? projectId);
   };
 
   return (
     <SafeAreaWrapper>
       <TopAppBar
-        title="Agent Sessions"
-        subtitle="CLAUDE CODE / CODEX"
+        title="Agents"
+        subtitle="REGISTERED DESKTOP AGENTS"
         onBack={navigation.goBack}
       />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+        <Text
+          style={[
+            theme.typography.labelCaps,
+            { color: theme.colors.onSurfaceVariant },
+            styles.sectionTitleFirst,
+          ]}>
+          REGISTERED AGENTS
+        </Text>
+        <View style={styles.summary}>
+          <StatusChip label={`${devices.length} AGENTS`} type="info" />
+          <StatusChip
+            label={`${devices.filter(item => item.status === 'online').length} ONLINE`}
+            type="success"
+          />
+          <StatusChip
+            label={`${devices.filter(item => item.aiControlEnabled).length} AI READY`}
+            type="info"
+          />
+        </View>
+        {devices.length ? (
+          devices.map(item => (
+            <DeviceControlCard
+              key={item.id}
+              device={item}
+              onPress={() => navigation.navigate('DeviceDetail', { deviceId: item.id })}
+            />
+          ))
+        ) : (
+          <GlassPanel style={styles.emptyAgentCard}>
+            <IconBadge name="agent" tone="neutral" size={42} iconSize={21} />
+            <View style={styles.emptyAgentCopy}>
+              <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+                暂无注册 Agent
+              </Text>
+              <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+                打开电脑端 Agent 后，它会自动注册到平台并出现在这里。
+              </Text>
+            </View>
+          </GlassPanel>
+        )}
+
         <GlassPanel style={styles.createPanel}>
           <View style={styles.panelHeader}>
             <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-              Start Agent
+              Start VibeCoding Task
             </Text>
             <StatusChip label={providerLabels[provider].toUpperCase()} type="info" />
           </View>
@@ -159,7 +215,7 @@ export const AgentSessionsScreen: React.FC = () => {
           </View>
 
           <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-            DEVICE
+            TARGET AGENT
           </Text>
           <ScrollView
             horizontal
@@ -202,7 +258,7 @@ export const AgentSessionsScreen: React.FC = () => {
             PROJECT
           </Text>
           <View style={styles.projectGrid}>
-            {availableProjects.map(item => {
+            {availableProjects.length ? availableProjects.map(item => {
               const active = item.id === project?.id;
               return (
                 <TouchableOpacity
@@ -234,12 +290,21 @@ export const AgentSessionsScreen: React.FC = () => {
                       theme.typography.codeSm,
                       { color: theme.colors.onSurfaceVariant },
                     ]}>
-                    {item.branch}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+	                    {item.branch}
+	                  </Text>
+	                </TouchableOpacity>
+	              );
+	            }) : (
+	              <View style={styles.inlineEmptyPanel}>
+	                <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+	                  No project reported
+	                </Text>
+	                <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+	                  The Agent session can still run in {directory}.
+	                </Text>
+	              </View>
+	            )}
+	          </View>
 
           <TextInput
             value={objective}
@@ -262,10 +327,10 @@ export const AgentSessionsScreen: React.FC = () => {
           />
           <GlowButton
             title={`START ${providerLabels[provider].toUpperCase()}`}
-            onPress={handleStart}
-            disabled={!device || !project || !objective.trim()}
-          />
-        </GlassPanel>
+	            onPress={handleStart}
+	            disabled={!device || !objective.trim()}
+	          />
+	        </GlassPanel>
 
         <Text
           style={[
@@ -405,9 +470,30 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 40,
   },
+  sectionTitleFirst: {
+    marginBottom: 8,
+  },
+  summary: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+    flexWrap: 'wrap',
+  },
+  emptyAgentCard: {
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 12,
+  },
+  emptyAgentCopy: {
+    flex: 1,
+    gap: 4,
+  },
   createPanel: {
     padding: 14,
     gap: 12,
+    marginTop: 8,
   },
   panelHeader: {
     flexDirection: 'row',
@@ -446,6 +532,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 10,
     gap: 4,
+  },
+  inlineEmptyPanel: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 8,
+    padding: 12,
+    gap: 5,
   },
   objectiveInput: {
     minHeight: 92,

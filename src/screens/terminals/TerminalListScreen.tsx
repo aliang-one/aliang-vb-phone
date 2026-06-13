@@ -6,8 +6,10 @@ import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { SearchBar } from '../../components/input/SearchBar';
+import { GlassPanel } from '../../components/shared/GlassPanel';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard';
+import { IconBadge } from '../../components/visual/IconBadge';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 
@@ -77,6 +79,19 @@ export const TerminalListScreen: React.FC = () => {
             onPress={() => navigation.navigate('DeviceDetail', { deviceId: device.id })}
           />
         ))}
+        {!filtered.length ? (
+          <GlassPanel style={styles.emptyCard}>
+            <IconBadge name="device" tone="neutral" size={44} iconSize={22} />
+            <View style={styles.emptyCopy}>
+              <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+                还没有注册设备
+              </Text>
+              <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+                在电脑端启动桌面 Agent 完成注册，或用右上角扫码绑定已有设备。
+              </Text>
+            </View>
+          </GlassPanel>
+        ) : null}
       </ScrollView>
     </SafeAreaWrapper>
   );
@@ -109,5 +124,15 @@ const styles = StyleSheet.create({
     height: 32,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  emptyCard: {
+    padding: 14,
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+  },
+  emptyCopy: {
+    flex: 1,
+    gap: 4,
   },
 });

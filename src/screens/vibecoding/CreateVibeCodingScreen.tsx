@@ -38,6 +38,9 @@ const providerLabels: Record<AgentProvider, string> = {
   codex: 'Codex',
 };
 
+const uniqueStrings = (items: Array<string | undefined>) =>
+  Array.from(new Set(items.filter(Boolean))) as string[];
+
 export const CreateVibeCodingScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
@@ -45,18 +48,22 @@ export const CreateVibeCodingScreen: React.FC = () => {
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
   const startAgentSession = useControlCenterStore(state => state.startAgentSession);
-  const initialDeviceId = route.params?.deviceId ?? devices[0].id;
+  const initialDeviceId = route.params?.deviceId ?? devices[0]?.id ?? '';
   const initialProjectId =
     route.params?.projectId ??
+    projects.find(project => project.deviceId === initialDeviceId)?.id ??
     devices.find(device => device.id === initialDeviceId)?.projectIds[0] ??
-    projects[0].id;
+    projects[0]?.id ??
+    '';
 
   const [deviceId, setDeviceId] = useState(initialDeviceId);
   const [projectId, setProjectId] = useState(initialProjectId);
   const [provider, setProvider] = useState<AgentProvider>('codex');
   const device = devices.find(item => item.id === deviceId) ?? devices[0];
   const project = projects.find(item => item.id === projectId) ?? projects[0];
-  const [directory, setDirectory] = useState(device.authorizedDirectories[0]);
+  const [directory, setDirectory] = useState(
+    project?.path ?? device?.authorizedDirectories[0] ?? '~',
+  );
   const [objective, setObjective] = useState(
     'Polish the mobile command center UI and make active VibeCoding sessions easier to control.',
   );
@@ -64,8 +71,11 @@ export const CreateVibeCodingScreen: React.FC = () => {
   const [selectedPermissions, setSelectedPermissions] = useState(permissions);
 
   const availableProjects = useMemo(
-    () => projects.filter(item => device.projectIds.includes(item.id)),
-    [device.projectIds, projects],
+    () =>
+      projects.filter(
+        item => item.deviceId === device?.id || device?.projectIds.includes(item.id),
+      ),
+    [device?.id, device?.projectIds, projects],
   );
 
   const togglePermission = (permission: string) => {
@@ -76,17 +86,48 @@ export const CreateVibeCodingScreen: React.FC = () => {
     );
   };
 
-  const handleCreate = () => {
-    const sessionId = startAgentSession({
+  const handleCreate = async () => {
+    if (!device || !objective.trim()) return;
+
+    const sessionId = await startAgentSession({
       deviceId: device.id,
-      projectId: project.id,
-      directory,
+      projectId: project?.id ?? '',
+      directory: directory || project?.path || device.authorizedDirectories[0] || '~',
       provider,
       objective: objective.trim(),
       timeLimitMinutes: minutes,
     });
     navigation.replace('VibeCodingSession', { sessionId });
   };
+
+  if (!device) {
+    return (
+      <SafeAreaWrapper>
+        <TopAppBar
+          title="Create VibeCoding"
+          subtitle="NO DEVICE"
+          onBack={navigation.goBack}
+        />
+        <View style={styles.emptyContainer}>
+          <GlassPanel style={styles.emptyPanel}>
+            <IconBadge name="device" tone="neutral" size={46} iconSize={23} />
+            <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+              还没有注册设备
+            </Text>
+            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+              先在电脑端启动桌面 Agent，或用扫码绑定已有设备。
+            </Text>
+            <GlowButton
+              title="BIND DEVICE"
+              onPress={() => navigation.navigate('DeviceCameraScanner')}
+              variant="outline"
+              style={styles.emptyAction}
+            />
+          </GlassPanel>
+        </View>
+      </SafeAreaWrapper>
+    );
+  }
 
   return (
     <SafeAreaWrapper>
@@ -109,12 +150,15 @@ export const CreateVibeCodingScreen: React.FC = () => {
             const active = item.id === deviceId;
             return (
               <TouchableOpacity
-                key={item.id}
-                onPress={() => {
-                  setDeviceId(item.id);
-                  setProjectId(item.projectIds[0] ?? projectId);
-                  setDirectory(item.authorizedDirectories[0]);
-                }}
+	                key={item.id}
+	                onPress={() => {
+	                  setDeviceId(item.id);
+	                  const nextProject =
+	                    projects.find(projectItem => projectItem.deviceId === item.id) ??
+	                    projects.find(projectItem => item.projectIds.includes(projectItem.id));
+	                  setProjectId(nextProject?.id ?? projectId);
+	                  setDirectory(nextProject?.path ?? item.authorizedDirectories[0] ?? '~');
+	                }}
                 style={[
                   styles.selectCard,
                   {
@@ -154,8 +198,13 @@ export const CreateVibeCodingScreen: React.FC = () => {
           2. PROJECT
         </Text>
         <GlassPanel style={styles.optionPanel}>
-          {availableProjects.map((item, index) => (
-            <TouchableOpacity key={item.id} onPress={() => setProjectId(item.id)}>
+          {availableProjects.length ? availableProjects.map((item, index) => (
+            <TouchableOpacity
+              key={item.id}
+              onPress={() => {
+                setProjectId(item.id);
+                setDirectory(item.path || directory);
+              }}>
               <View style={styles.optionRow}>
                 <View style={styles.optionText}>
                   <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
@@ -166,13 +215,25 @@ export const CreateVibeCodingScreen: React.FC = () => {
                   </Text>
                 </View>
                 <StatusChip
-                  label={item.id === project.id ? 'SELECTED' : item.status.toUpperCase()}
-                  type={item.id === project.id ? 'info' : 'neutral'}
+                  label={item.id === project?.id ? 'SELECTED' : item.status.toUpperCase()}
+                  type={item.id === project?.id ? 'info' : 'neutral'}
                 />
               </View>
               {index < availableProjects.length - 1 && <View style={styles.divider} />}
             </TouchableOpacity>
-          ))}
+          )) : (
+            <View style={styles.optionRow}>
+              <View style={styles.optionText}>
+                <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+                  No project reported
+                </Text>
+                <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                  Use a device directory or scan this computer for projects.
+                </Text>
+              </View>
+              <StatusChip label="DEVICE" type="neutral" />
+            </View>
+          )}
         </GlassPanel>
 
         <Text
@@ -184,7 +245,10 @@ export const CreateVibeCodingScreen: React.FC = () => {
           3. DIRECTORY
         </Text>
         <GlassPanel style={styles.optionPanel}>
-          {device.authorizedDirectories.map((item, index) => (
+          {uniqueStrings([
+            project?.path,
+            ...((device?.authorizedDirectories ?? []) as string[]),
+          ]).map((item, index, list) => (
             <TouchableOpacity key={item} onPress={() => setDirectory(item)}>
               <View style={styles.optionRow}>
                 <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
@@ -192,7 +256,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
                 </Text>
                 {directory === item && <StatusChip label="SELECTED" type="info" />}
               </View>
-              {index < device.authorizedDirectories.length - 1 && (
+              {index < list.length - 1 && (
                 <View style={styles.divider} />
               )}
             </TouchableOpacity>
@@ -332,14 +396,14 @@ export const CreateVibeCodingScreen: React.FC = () => {
             READY TO START
           </Text>
           <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-            {providerLabels[provider]} will run {project.name} on {device.name} inside {directory}.
+            {providerLabels[provider]} will run {project?.name ?? 'device workspace'} on {device.name} inside {directory || '~'}.
           </Text>
         </GlassPanel>
 
         <GlowButton
           title="START VIBECODING"
           onPress={handleCreate}
-          disabled={!objective.trim() || selectedPermissions.length === 0}
+          disabled={!device || !objective.trim() || selectedPermissions.length === 0}
           style={styles.createButton}
         />
       </ScrollView>
@@ -467,5 +531,18 @@ const styles = StyleSheet.create({
   },
   createButton: {
     marginTop: 12,
+  },
+  emptyContainer: {
+    flex: 1,
+    padding: 16,
+    justifyContent: 'center',
+  },
+  emptyPanel: {
+    padding: 16,
+    gap: 10,
+  },
+  emptyAction: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 16,
   },
 });

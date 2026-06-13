@@ -70,8 +70,8 @@ export const DeviceBindingScreen: React.FC = () => {
     setMessage('');
   };
 
-  const handleBind = () => {
-    const result = bindDevice({
+  const handleBind = async () => {
+    const result = await bindDevice({
       name,
       os,
       host,

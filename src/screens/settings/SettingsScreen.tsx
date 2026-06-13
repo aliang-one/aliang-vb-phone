@@ -16,17 +16,16 @@ import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { UsageSummaryCard } from '../../components/vibecoding/UsageSummaryCard';
-import { mockUserPlan } from '../../data/mockData';
 import { ActionTile } from '../../components/visual/ActionTile';
 import { IconBadge } from '../../components/visual/IconBadge';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import {
-  checkLocalService,
-  LOCAL_SERVICE_BASE_URL,
-  LocalServiceHealth,
+  checkPlatformService,
+  PLATFORM_SERVICE_BASE_URL,
+  PlatformServiceHealth,
 } from '../../config/localService';
-import { useAuthStore } from '../../../stores/useSettingsStore';
+import { useSessionStore } from '../../../stores/useSettingsStore';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -35,10 +34,15 @@ export const SettingsScreen: React.FC = () => {
   const navigation = useNavigation<Navigation>();
   const devices = useControlCenterStore(state => state.devices);
   const vibeRuns = useControlCenterStore(state => state.vibeRuns);
-  const agentId = useAuthStore(state => state.agentId);
-  const logout = useAuthStore(state => state.logout);
+  const user = useSessionStore(state => state.user);
+  const operatorName = useSessionStore(state => state.operatorName);
+  const logout = useSessionStore(state => state.logout);
+  const disconnectFromServer = useControlCenterStore(state => state.disconnectFromServer);
+  const resetSessionData = useControlCenterStore(state => state.resetSessionData);
+  const wsConnected = useControlCenterStore(state => state.wsConnected);
+  const serverMode = useControlCenterStore(state => state.serverMode);
   const [connectionStatus, setConnectionStatus] =
-    useState<LocalServiceHealth | null>(null);
+    useState<PlatformServiceHealth | null>(null);
   const [checkingConnection, setCheckingConnection] = useState(false);
 
   const themeOptions = [
@@ -56,26 +60,34 @@ export const SettingsScreen: React.FC = () => {
 
   const handleCheckConnection = async () => {
     setCheckingConnection(true);
-    const result = await checkLocalService();
+    const result = await checkPlatformService();
     setConnectionStatus(result);
     setCheckingConnection(false);
   };
 
+  const handleLogout = () => {
+    resetSessionData();
+    logout();
+  };
+
   return (
     <SafeAreaWrapper>
-      <TopAppBar title="Account" subtitle="PLAN / LIMITS / PREFERENCES" />
+      <TopAppBar title="Platform" subtitle="SERVICE / CONSOLE / PREFERENCES" />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <View style={styles.profile}>
           <IconBadge name="user" tone="primary" size={46} iconSize={23} />
           <View style={styles.profileText}>
             <Text style={[theme.typography.titleLg, { color: theme.colors.onSurface }]}>
-              {mockUserPlan.userName}
+              {operatorName}
             </Text>
             <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-              {agentId || 'Mobile VibeCoding controller'}
+              {user?.email ?? 'Mobile VibeCoding controller'}
             </Text>
           </View>
-          <StatusChip label="PRO" type="info" />
+          <StatusChip
+            label={wsConnected ? 'REALTIME' : serverMode ? 'API' : 'LOCAL'}
+            type={wsConnected ? 'success' : serverMode ? 'info' : 'neutral'}
+          />
         </View>
 
         <ActionTile
@@ -94,18 +106,18 @@ export const SettingsScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
           ]}>
-          LOCAL SERVICE
+          PLATFORM SERVICE
         </Text>
         <GlassPanel style={styles.servicePanel}>
           <View style={styles.serviceHeader}>
             <View style={styles.serviceCopy}>
               <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                Desktop service
+                Platform API
               </Text>
               <Text
                 style={[theme.typography.codeSm, { color: theme.colors.primary }]}
                 numberOfLines={1}>
-                {LOCAL_SERVICE_BASE_URL}
+                {PLATFORM_SERVICE_BASE_URL}
               </Text>
             </View>
             <StatusChip
@@ -153,14 +165,24 @@ export const SettingsScreen: React.FC = () => {
             />
             <GlowButton
               title="OPEN"
-              onPress={() => Linking.openURL(LOCAL_SERVICE_BASE_URL)}
+              onPress={() => Linking.openURL(PLATFORM_SERVICE_BASE_URL)}
               variant="outline"
               style={styles.serviceButton}
             />
           </View>
         </GlassPanel>
 
-        <UsageSummaryCard plan={mockUserPlan} />
+        <UsageSummaryCard plan={{
+          userName: operatorName,
+          planName: 'Platform Console',
+          renewsAt: '2026-06-25',
+          balanceLimit: 120,
+          balanceUsed: 46.8,
+          timeLimitHours: 80,
+          timeUsedHours: 31.5,
+          concurrentLimit: 4,
+          concurrentUsed: devices.filter(d => d.status === 'online').length,
+        }} />
 
         <Text
           style={[
@@ -296,14 +318,15 @@ export const SettingsScreen: React.FC = () => {
         </GlassPanel>
 
         <GlowButton
-          title="MANAGE BILLING"
-          onPress={() => {}}
-          variant="secondary"
-          style={styles.actionButton}
+          title="断开实时连接"
+          onPress={disconnectFromServer}
+          variant="outline"
+          style={styles.logoutBtn}
         />
+
         <GlowButton
-          title="SIGN OUT"
-          onPress={logout}
+          title="退出登录"
+          onPress={handleLogout}
           variant="outline"
           style={styles.logoutBtn}
         />

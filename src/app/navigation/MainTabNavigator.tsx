@@ -17,7 +17,7 @@ export const MainTabNavigator = () => {
     <Tab.Navigator
       tabBar={renderTabBar}
       screenOptions={{ headerShown: false }}
-      initialRouteName="Dashboard">
+      initialRouteName="Devices">
       <Tab.Screen name="Dashboard" component={CommandCenterScreen} />
       <Tab.Screen name="Devices" component={TerminalListScreen} />
       <Tab.Screen name="VibeCoding" component={VibeCodingListScreen} />

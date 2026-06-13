@@ -8,6 +8,7 @@ import { TopAppBar } from '../../components/layout/TopAppBar';
 import { SearchBar } from '../../components/input/SearchBar';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
+import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard';
 import {
   VibeStatus,
 } from '../../data/mockData';
@@ -35,10 +36,13 @@ export const VibeCodingListScreen: React.FC = () => {
 
   const filtered = vibeRuns.filter(session => {
     const project = projects.find(item => item.id === session.projectId);
+    const device = devices.find(item => item.id === session.deviceId);
     const matchesQuery =
       session.title.toLowerCase().includes(query.toLowerCase()) ||
       session.objective.toLowerCase().includes(query.toLowerCase()) ||
-      project?.name.toLowerCase().includes(query.toLowerCase());
+      Boolean(project?.name.toLowerCase().includes(query.toLowerCase())) ||
+      Boolean(device?.name.toLowerCase().includes(query.toLowerCase())) ||
+      Boolean(device?.host.toLowerCase().includes(query.toLowerCase()));
     const matchesFilter = filter === 'all' || session.status === filter;
     return matchesQuery && matchesFilter;
   });
@@ -46,11 +50,11 @@ export const VibeCodingListScreen: React.FC = () => {
   return (
     <SafeAreaWrapper>
       <TopAppBar
-        title="VibeCoding"
-        subtitle="AGENT SESSIONS"
+        title="Agents"
+        subtitle="REGISTERED DESKTOP AGENTS"
         rightAction={
           <TouchableOpacity
-            onPress={() => navigation.navigate('CreateVibeCoding', {})}
+            onPress={() => navigation.navigate('DeviceCameraScanner')}
             style={styles.addButton}>
             <Text style={[theme.typography.codeMd, { color: theme.colors.primary }]}>
               +
@@ -59,9 +63,63 @@ export const VibeCodingListScreen: React.FC = () => {
         }
       />
       <View style={styles.searchContainer}>
-        <SearchBar value={query} onChangeText={setQuery} placeholder="Search sessions..." />
+        <SearchBar value={query} onChangeText={setQuery} placeholder="Search agents, hosts, sessions..." />
       </View>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+        <View style={styles.summary}>
+          <StatusChip label={`${devices.length} AGENTS`} type="info" />
+          <StatusChip
+            label={`${devices.filter(item => item.status === 'online').length} ONLINE`}
+            type="success"
+          />
+          <StatusChip
+            label={`${devices.filter(item => item.aiControlEnabled).length} AI READY`}
+            type="info"
+          />
+        </View>
+
+        <Text
+          style={[
+            theme.typography.labelCaps,
+            { color: theme.colors.onSurfaceVariant },
+            styles.sectionTitle,
+          ]}>
+          REGISTERED AGENTS
+        </Text>
+        {devices
+          .filter(device => {
+            const normalized = query.toLowerCase();
+            return (
+              !normalized ||
+              device.name.toLowerCase().includes(normalized) ||
+              device.host.toLowerCase().includes(normalized) ||
+              device.location.toLowerCase().includes(normalized)
+            );
+          })
+          .map(device => (
+            <DeviceControlCard
+              key={device.id}
+              device={device}
+              onPress={() => navigation.navigate('DeviceDetail', { deviceId: device.id })}
+            />
+          ))}
+
+        <View style={styles.sectionHeader}>
+          <Text
+            style={[
+              theme.typography.labelCaps,
+              { color: theme.colors.onSurfaceVariant },
+            ]}>
+            VIBECODING SESSIONS
+          </Text>
+          <TouchableOpacity
+            activeOpacity={0.75}
+            onPress={() => navigation.navigate('CreateVibeCoding', {})}>
+            <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+              NEW TASK
+            </Text>
+          </TouchableOpacity>
+        </View>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -147,6 +205,16 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 16,
     paddingBottom: 40,
+  },
+  sectionTitle: {
+    marginBottom: 8,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 16,
+    marginBottom: 2,
   },
   filters: {
     gap: 8,

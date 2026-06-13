@@ -26,6 +26,7 @@ export const ProjectDetailScreen: React.FC = () => {
   const project = projects.find(item => item.id === route.params.projectId);
   const device =
     devices.find(item => item.id === route.params.deviceId) ||
+    devices.find(item => project?.deviceId && item.id === project.deviceId) ||
     devices.find(item => item.projectIds.includes(route.params.projectId));
 
   if (!project) {
@@ -36,8 +37,13 @@ export const ProjectDetailScreen: React.FC = () => {
     );
   }
 
+  const terminalDirectory = project.path || device?.authorizedDirectories[0] || '~';
   const sessions = vibeRuns.filter(
-    session => session.projectId === project.id,
+    session =>
+      session.projectId === project.id ||
+      (Boolean(project.path) &&
+        session.deviceId === device?.id &&
+        session.directory === project.path),
   );
 
   return (
@@ -72,8 +78,11 @@ export const ProjectDetailScreen: React.FC = () => {
           <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurfaceVariant }]}>
             {project.description}
           </Text>
+          <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+            {project.path || 'path not reported'}
+          </Text>
           <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-            Last deploy {project.lastDeploy}
+            Last active {project.lastDeploy ?? 'unknown'}
           </Text>
         </GlassPanel>
 
@@ -102,13 +111,13 @@ export const ProjectDetailScreen: React.FC = () => {
           <GlowButton
             title="TERMINAL"
             onPress={() =>
-              device &&
-              navigation.navigate('DeviceTerminal', {
-                deviceId: device.id,
-                directory: device.authorizedDirectories[0],
-              })
-            }
-            disabled={!device}
+	              device &&
+	              navigation.navigate('DeviceTerminal', {
+	                deviceId: device.id,
+	                directory: terminalDirectory,
+	              })
+	            }
+	            disabled={!device || !device.remoteTerminalEnabled}
             variant="outline"
             style={styles.gridAction}
           />
@@ -145,17 +154,28 @@ export const ProjectDetailScreen: React.FC = () => {
           ]}>
           VIBECODING HISTORY
         </Text>
-        {sessions.map(session => (
-          <VibeSessionCard
-            key={session.id}
-            session={session}
-            project={project}
-            device={devices.find(item => item.id === session.deviceId)}
-            onPress={() =>
-              navigation.navigate('VibeCodingSession', { sessionId: session.id })
-            }
-          />
-        ))}
+        {sessions.length ? (
+          sessions.map(session => (
+            <VibeSessionCard
+              key={session.id}
+              session={session}
+              project={project}
+              device={devices.find(item => item.id === session.deviceId)}
+              onPress={() =>
+                navigation.navigate('VibeCodingSession', { sessionId: session.id })
+              }
+            />
+          ))
+        ) : (
+          <GlassPanel style={styles.emptyPanel}>
+            <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+              No VibeCoding history
+            </Text>
+            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+              Start a session from this project to record conversation and Agent events.
+            </Text>
+          </GlassPanel>
+        )}
       </ScrollView>
     </SafeAreaWrapper>
   );
@@ -197,5 +217,9 @@ const styles = StyleSheet.create({
   sectionTitle: {
     marginTop: 20,
     marginBottom: 8,
+  },
+  emptyPanel: {
+    padding: 14,
+    gap: 6,
   },
 });

@@ -14,9 +14,9 @@ import { ActionTile } from '../../components/visual/ActionTile';
 import { IconBadge } from '../../components/visual/IconBadge';
 import {
   Device,
-  mockUserPlan,
   Project,
   VibeCodingRun,
+  UserPlan,
 } from '../../data/mockData';
 import { RootStackParamList } from '../../app/navigation/types';
 import {
@@ -84,12 +84,20 @@ export const CommandCenterScreen: React.FC = () => {
   const projectFiles = useControlCenterStore(state => state.projectFiles);
   const scanResults = useControlCenterStore(state => state.scanResults);
 
+  // Derive user plan from real data
+  const userPlan: UserPlan = {
+    userName: 'Aliang',
+    planName: 'Builder Pro',
+    renewsAt: '2026-06-25',
+    balanceLimit: 120,
+    balanceUsed: 46.8,
+    timeLimitHours: 80,
+    timeUsedHours: 31.5,
+    concurrentLimit: 4,
+    concurrentUsed: devices.filter(d => d.status === 'online').length,
+  };
+
   const onlineDevices = devices.filter(device => device.status === 'online');
-  const activeRuns = vibeRuns.filter(session =>
-    ['running', 'testing', 'preview_ready', 'waiting_approval'].includes(
-      session.status,
-    ),
-  );
   const activeAgentRuns = vibeRuns
     .filter(
       session =>
@@ -107,6 +115,9 @@ export const CommandCenterScreen: React.FC = () => {
     projects.find(project => project.id === projectId);
   const getDevice = (deviceId: string) =>
     devices.find(device => device.id === deviceId);
+  const getProjectDevice = (project: Project) =>
+    devices.find(device => device.id === project.deviceId)
+      ?? devices.find(device => device.projectIds.includes(project.id));
 
   return (
     <SafeAreaWrapper>
@@ -168,8 +179,8 @@ export const CommandCenterScreen: React.FC = () => {
           <ActionTile
             icon="agent"
             label="Agents"
-            value={`${activeRuns.length}`}
-            caption="全部会话"
+            value={`${devices.length}`}
+            caption="已注册"
             tone="primary"
             compact
             onPress={() => navigation.navigate('AgentSessions')}
@@ -249,7 +260,7 @@ export const CommandCenterScreen: React.FC = () => {
           <StatusChip label={`${projects.length} PROJECTS`} type="info" />
         </View>
         {projects.slice(0, 4).map(project => {
-          const device = devices.find(item => item.projectIds.includes(project.id));
+          const device = getProjectDevice(project);
           const sessions = vibeRuns.filter(item => item.projectId === project.id);
           const files = projectFiles.filter(item => item.projectId === project.id);
           const scan = scanResults.find(
@@ -282,7 +293,7 @@ export const CommandCenterScreen: React.FC = () => {
                 device &&
                 navigation.navigate('DeviceTerminal', {
                   deviceId: device.id,
-                  directory: scan?.path ?? device.authorizedDirectories[0],
+                  directory: scan?.path ?? project.path ?? device.authorizedDirectories[0],
                 })
               }
               onAgent={() =>
@@ -313,7 +324,7 @@ export const CommandCenterScreen: React.FC = () => {
             ACCOUNT SNAPSHOT
           </Text>
         </View>
-        <UsageSummaryCard plan={mockUserPlan} />
+        <UsageSummaryCard plan={userPlan} />
       </ScrollView>
 
       <TouchableOpacity

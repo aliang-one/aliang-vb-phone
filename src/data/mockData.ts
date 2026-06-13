@@ -9,9 +9,15 @@ export interface Project {
   name: string;
   status: 'active' | 'idle' | 'error';
   branch: string;
-  lastDeploy: string;
+  lastDeploy?: string;
   language: string;
   description: string;
+  path: string;
+  deviceId?: string;
+  packageManager?: string;
+  isGitRepo?: boolean;
+  detectedPorts: number[];
+  sourceTools?: string[];
 }
 
 export interface TerminalNode {
@@ -148,6 +154,34 @@ export interface Device {
   projectIds: string[];
   activeSessionIds: string[];
   lastSeen: string;
+  uniqueCode?: string;
+  agentVersion?: string;
+  remoteTerminalEnabled: boolean;
+  aiControlEnabled: boolean;
+  capabilities: string[];
+  /** Tools advertised by the agent, including detected AI coding tools (claude-code/codex). */
+  tools: AgentToolInfo[];
+  /** Workspace roots the agent discovered (e.g. claude-code/codex session dirs). */
+  history: WorkspaceHistoryEntry[];
+  createdAt?: string;
+}
+
+export interface AgentToolInfo {
+  id: string;
+  name?: string;
+  command?: string;
+  path?: string;
+  available?: boolean;
+  description?: string;
+}
+
+export interface WorkspaceHistoryEntry {
+  tool: string;
+  path: string;
+  exists?: boolean;
+  file_count?: number;
+  total_size?: number;
+  updated_at?: string;
 }
 
 export type VibeStatus =
@@ -242,6 +276,8 @@ export const mockProjects: Project[] = [
     lastDeploy: '2h ago',
     language: 'Go',
     description: 'High-performance API gateway with rate limiting',
+    path: '/Users/liang/project/api-gateway',
+    detectedPorts: [],
   },
   {
     id: '2',
@@ -251,6 +287,8 @@ export const mockProjects: Project[] = [
     lastDeploy: '5h ago',
     language: 'TypeScript',
     description: 'React dashboard for monitoring services',
+    path: '/Users/liang/project/web-dashboard',
+    detectedPorts: [],
   },
   {
     id: '3',
@@ -260,6 +298,8 @@ export const mockProjects: Project[] = [
     lastDeploy: '1d ago',
     language: 'Python',
     description: 'ML training pipeline with automated CI/CD',
+    path: '/Users/liang/project/ml-pipeline',
+    detectedPorts: [],
   },
   {
     id: '4',
@@ -269,6 +309,8 @@ export const mockProjects: Project[] = [
     lastDeploy: '3d ago',
     language: 'Kotlin',
     description: 'Android companion app',
+    path: '/Users/liang/project/mobile-app',
+    detectedPorts: [],
   },
 ];
 
@@ -366,21 +408,21 @@ export const mockChatMessages: ChatMessage[] = [
   {
     id: '1',
     role: 'user',
-    content: 'Add error handling to the auth middleware',
+    content: 'Wire device list through the platform transport layer',
     timestamp: '14:32',
   },
   {
     id: '2',
     role: 'assistant',
     content:
-      "I'll add comprehensive error handling to the auth middleware. This includes JWT validation errors, expired token handling, and rate limiting error responses.",
+      "I'll load the platform device snapshot, normalize it for the app model, and keep realtime updates flowing through one transport layer.",
     timestamp: '14:32',
     reasoning:
-      'The user wants error handling in auth middleware. I should look at the existing middleware pattern and add try-catch blocks for JWT verification, handle TokenExpiredError separately, and add proper HTTP status codes for each error type.',
+      'The user wants the login-to-device-list path to use real platform data. I should connect the snapshot API, normalize device fields, and route websocket events into shared state.',
     fileActions: [
-      { type: 'modify', path: 'src/middleware/auth.ts', lines: 24 },
-      { type: 'create', path: 'src/utils/authErrors.ts', lines: 45 },
-      { type: 'modify', path: 'tests/auth.test.ts', lines: 12 },
+      { type: 'modify', path: 'src/store/controlCenterStore.ts', lines: 24 },
+      { type: 'create', path: 'src/services/platformTransport.ts', lines: 45 },
+      { type: 'modify', path: 'src/screens/terminals/TerminalListScreen.tsx', lines: 12 },
     ],
   },
 ];
@@ -426,16 +468,16 @@ export const mockGitHubRepos: GitHubRepo[] = [
 
 export const mockPullRequest: PullRequest = {
   id: '1',
-  title: 'feat: add error handling to auth middleware',
+  title: 'feat: connect platform device snapshot',
   author: 'dev.agent',
-  branch: 'feature/auth-error-handling',
+  branch: 'feature/platform-device-sync',
   base: 'main',
   status: 'open',
   additions: 45,
   deletions: 12,
   files: [
     {
-      filename: 'src/middleware/auth.ts',
+      filename: 'src/services/platformTransport.ts',
       status: 'modified',
       additions: 24,
       deletions: 8,
@@ -444,20 +486,13 @@ export const mockPullRequest: PullRequest = {
           oldStart: 15,
           newStart: 15,
           lines: [
-            { type: 'context', content: 'export async function authMiddleware(req, res, next) {' },
-            { type: 'context', content: '  const token = req.headers.authorization?.split(" ")[1];' },
-            { type: 'remove', content: '  const decoded = jwt.verify(token, SECRET);' },
-            { type: 'remove', content: '  req.user = decoded;' },
-            { type: 'add', content: '  try {' },
-            { type: 'add', content: '    const decoded = jwt.verify(token, SECRET);' },
-            { type: 'add', content: '    req.user = decoded;' },
-            { type: 'add', content: '  } catch (err) {' },
-            { type: 'add', content: '    if (err.name === "TokenExpiredError") {' },
-            { type: 'add', content: '      return res.status(401).json({ error: "TOKEN_EXPIRED" });' },
-            { type: 'add', content: '    }' },
-            { type: 'add', content: '    return res.status(403).json({ error: "INVALID_TOKEN" });' },
-            { type: 'add', content: '  }' },
-            { type: 'context', content: '  next();' },
+            { type: 'context', content: 'export async function loadSnapshot() {' },
+            { type: 'context', content: '  const devices = await fetchDevices();' },
+            { type: 'remove', content: '  return devices;' },
+            { type: 'add', content: '  return {' },
+            { type: 'add', content: '    devices: devices.map(normalizeServerDevice),' },
+            { type: 'add', content: '    loadedAt: new Date().toISOString(),' },
+            { type: 'add', content: '  };' },
             { type: 'context', content: '}' },
           ],
         },
@@ -470,43 +505,28 @@ export const mockVibeCodingSession: VibeCodingSession = {
   id: '1',
   project: 'api-gateway',
   status: 'applying',
-  currentFile: 'src/middleware/auth.ts',
+  currentFile: 'src/services/platformTransport.ts',
   diffLines: [
-    { type: 'context', content: 'import jwt from "jsonwebtoken";' },
-    { type: 'context', content: 'import { Request, Response, NextFunction } from "express";' },
-    { type: 'context', content: '' },
-    { type: 'context', content: 'const SECRET = process.env.JWT_SECRET!;' },
-    { type: 'context', content: '' },
-    { type: 'remove', content: 'export async function authMiddleware(req: Request, res: Response, next: NextFunction) {' },
-    { type: 'remove', content: '  const token = req.headers.authorization?.split(" ")[1];' },
-    { type: 'remove', content: '  if (!token) return res.status(401).json({ error: "No token" });' },
-    { type: 'remove', content: '  const decoded = jwt.verify(token, SECRET);' },
-    { type: 'remove', content: '  req.user = decoded;' },
-    { type: 'remove', content: '  next();' },
-    { type: 'remove', content: '}' },
-    { type: 'add', content: 'export async function authMiddleware(req: Request, res: Response, next: NextFunction) {' },
-    { type: 'add', content: '  try {' },
-    { type: 'add', content: '    const token = req.headers.authorization?.split(" ")[1];' },
-    { type: 'add', content: '    if (!token) {' },
-    { type: 'add', content: '      return res.status(401).json({ error: "MISSING_TOKEN" });' },
-    { type: 'add', content: '    }' },
-    { type: 'add', content: '    const decoded = jwt.verify(token, SECRET, { algorithms: ["HS256"] });' },
-    { type: 'add', content: '    req.user = decoded as JwtPayload;' },
-    { type: 'add', content: '    next();' },
-    { type: 'add', content: '  } catch (err: any) {' },
-    { type: 'add', content: '    if (err.name === "TokenExpiredError") {' },
-    { type: 'add', content: '      return res.status(401).json({ error: "TOKEN_EXPIRED", message: "Token has expired" });' },
-    { type: 'add', content: '    }' },
-    { type: 'add', content: '    return res.status(403).json({ error: "INVALID_TOKEN", message: "Invalid authentication" });' },
-    { type: 'add', content: '  }' },
+    { type: 'context', content: 'export async function loadSnapshot(): Promise<PlatformSnapshot> {' },
+    { type: 'context', content: '  const serverDevices = await fetchDevices();' },
+    { type: 'remove', content: '  return serverDevices as unknown as PlatformSnapshot;' },
+    { type: 'add', content: '  const [projects, aiSessions, approvals] = await Promise.all([' },
+    { type: 'add', content: '    fetchProjects(),' },
+    { type: 'add', content: '    fetchAiSessions(),' },
+    { type: 'add', content: '    fetchApprovals(),' },
+    { type: 'add', content: '  ]);' },
+    { type: 'add', content: '  return {' },
+    { type: 'add', content: '    devices: serverDevices.map(normalizeServerDevice),' },
+    { type: 'add', content: '    projects, aiSessions, approvals,' },
+    { type: 'add', content: '  };' },
     { type: 'add', content: '}' },
   ],
   logs: [
     { timestamp: '14:32:01', level: 'info', message: 'AI session started for api-gateway' },
-    { timestamp: '14:32:02', level: 'info', message: 'Analyzing src/middleware/auth.ts' },
-    { timestamp: '14:32:05', level: 'info', message: 'Generating error handling patterns...' },
+    { timestamp: '14:32:02', level: 'info', message: 'Analyzing src/services/platformTransport.ts' },
+    { timestamp: '14:32:05', level: 'info', message: 'Generating device snapshot adapters...' },
     { timestamp: '14:32:08', level: 'success', message: 'Diff generated: +16 -6 lines' },
-    { timestamp: '14:32:09', level: 'warn', message: 'Applying changes to production branch' },
+    { timestamp: '14:32:09', level: 'warn', message: 'Validating realtime event routing' },
   ],
 };
 
@@ -548,11 +568,23 @@ export const mockDevices: Device[] = [
     projectIds: ['1', '2'],
     activeSessionIds: ['vc-1', 'vc-2'],
     lastSeen: 'now',
+    remoteTerminalEnabled: true,
+    aiControlEnabled: true,
+    capabilities: ['terminal', 'ai', 'file_browser'],
+    tools: [
+      { id: 'local-terminal', name: 'Local Terminal', available: true },
+      { id: 'claude-code', name: 'Claude Code', command: 'claude', available: true, description: 'installed · 2.1.0' },
+      { id: 'codex', name: 'Codex CLI', command: 'codex', available: true, description: 'installed · 0.9.2' },
+    ],
+    history: [
+      { tool: 'claude-code', path: '~/Work/ai-products', exists: true, file_count: 18, updated_at: '2026-06-12T08:30:00Z' },
+      { tool: 'codex', path: '~/.codex/sessions', exists: true, file_count: 42, updated_at: '2026-06-12T07:10:00Z' },
+    ],
   },
   {
     id: 'mbp-travel',
     name: 'MacBook Pro - Travel',
-    status: 'warning',
+    status: 'online',
     location: 'Remote tunnel',
     os: 'macOS 15.4',
     host: 'tailscale:mbp-travel',
@@ -564,6 +596,17 @@ export const mockDevices: Device[] = [
     projectIds: ['3', '4'],
     activeSessionIds: ['vc-3'],
     lastSeen: '2 min ago',
+    remoteTerminalEnabled: true,
+    aiControlEnabled: false,
+    capabilities: ['terminal', 'file_browser'],
+    tools: [
+      { id: 'local-terminal', name: 'Local Terminal', available: true },
+      { id: 'claude-code', name: 'Claude Code', available: false, description: 'not installed' },
+      { id: 'codex', name: 'Codex CLI', command: 'codex', available: true, description: 'installed · 0.9.2' },
+    ],
+    history: [
+      { tool: 'codex', path: '~/.codex/sessions', exists: true, file_count: 9, updated_at: '2026-06-11T22:05:00Z' },
+    ],
   },
   {
     id: 'linux-gpu',
@@ -579,6 +622,11 @@ export const mockDevices: Device[] = [
     projectIds: ['3'],
     activeSessionIds: [],
     lastSeen: '3h ago',
+    remoteTerminalEnabled: true,
+    aiControlEnabled: true,
+    capabilities: ['terminal', 'ai', 'gpu'],
+    tools: [],
+    history: [],
   },
 ];
 
@@ -689,19 +737,19 @@ export const mockVibeCodingRuns: VibeCodingRun[] = [
   },
   {
     id: 'vc-2',
-    title: 'Add auth error handling',
+    title: 'Connect device model sync',
     deviceId: 'mac-studio',
     projectId: '1',
     directory: '~/Work/ai-products/api-gateway',
     status: 'waiting_approval',
     objective:
-      'Add safer token handling and tests for expired JWT cases.',
+      'Normalize platform device data and verify the device list after connection.',
     model: 'Claude Code',
     timeLimitMinutes: 60,
     elapsedMinutes: 26,
     risk: 'high',
-    currentStep: 'Needs approval before modifying middleware and test files.',
-    branch: 'agent/auth-hardening',
+    currentStep: 'Needs approval before updating shared transport files.',
+    branch: 'agent/device-sync',
     updatedAt: '4 min ago',
     suggestions: [
       'Approve file edits',
@@ -714,14 +762,14 @@ export const mockVibeCodingRuns: VibeCodingRun[] = [
         id: 'm4',
         role: 'user',
         mode: 'text',
-        content: 'Fix auth middleware errors and add a few focused tests.',
+        content: 'Wire the device list through the platform transport and add focused checks.',
         timestamp: '14:32',
       },
       {
         id: 'm5',
         role: 'assistant',
         content:
-          'I found the middleware and tests. This touches request auth behavior, so I need approval before applying the patch.',
+          'I found the store and transport layer. This touches shared app state, so I need approval before applying the patch.',
         timestamp: '14:35',
       },
     ],

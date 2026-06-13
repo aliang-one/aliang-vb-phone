@@ -15,6 +15,7 @@ import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
+import { TerminalEmulator } from '../../components/terminal/TerminalEmulator';
 import { useTheme } from '../../theme/useTheme';
 import { RootStackParamList } from '../../app/navigation/types';
 import {
@@ -66,13 +67,21 @@ export const DeviceTerminalScreen: React.FC = () => {
   const createTerminalSession = useControlCenterStore(
     state => state.createTerminalSession,
   );
+  const createPtySession = useControlCenterStore(state => state.createPtySession);
   const executeTerminalCommand = useControlCenterStore(
     state => state.executeTerminalCommand,
   );
   const clearTerminal = useControlCenterStore(state => state.clearTerminal);
   const stopTerminal = useControlCenterStore(state => state.stopTerminal);
+  const closeTerminalSessionAction = useControlCenterStore(
+    state => state.closeTerminalSession,
+  );
+  const serverMode = useControlCenterStore(state => state.serverMode);
   const [terminalId, setTerminalId] = useState(route.params.terminalId);
   const [command, setCommand] = useState('');
+  const [ptyMode, setPtyMode] = useState(false);
+  const [ptySessionId, setPtySessionId] = useState<string | null>(null);
+  const [ptyLoading, setPtyLoading] = useState(false);
   const device = devices.find(item => item.id === route.params.deviceId);
   const terminal = terminalSessions.find(item => item.id === terminalId);
   const directory = terminal?.directory ?? route.params.directory ?? '~';
@@ -156,6 +165,32 @@ export const DeviceTerminalScreen: React.FC = () => {
     setCommand('');
   };
 
+  const handleOpenPty = async () => {
+    if (!device || ptyLoading) return;
+    setPtyLoading(true);
+    try {
+      const sessionId = await createPtySession(device.id, {
+        cwd: directory,
+        cols: 80,
+        rows: 24,
+      });
+      setPtySessionId(sessionId);
+      setPtyMode(true);
+    } catch {
+      // Fall back to command mode on error
+    } finally {
+      setPtyLoading(false);
+    }
+  };
+
+  const handleClosePty = () => {
+    if (ptySessionId) {
+      closeTerminalSessionAction(ptySessionId);
+    }
+    setPtyMode(false);
+    setPtySessionId(null);
+  };
+
   if (!device) {
     return (
       <SafeAreaWrapper>
@@ -168,6 +203,29 @@ export const DeviceTerminalScreen: React.FC = () => {
     );
   }
 
+  // PTY interactive terminal mode
+  if (ptyMode && ptySessionId) {
+    return (
+      <SafeAreaWrapper>
+        <TopAppBar
+          title="Interactive Terminal"
+          subtitle={device.name}
+          onBack={handleClosePty}
+          rightAction={
+            <StatusChip label="PTY" type="info" />
+          }
+        />
+        <View style={styles.ptyContainer}>
+          <TerminalEmulator
+            sessionId={ptySessionId}
+            enabled={device.status === 'online'}
+          />
+        </View>
+      </SafeAreaWrapper>
+    );
+  }
+
+  // Command executor mode (original)
   return (
     <SafeAreaWrapper>
       <TopAppBar
@@ -411,6 +469,16 @@ export const DeviceTerminalScreen: React.FC = () => {
               style={styles.utilityButton}
             />
           </View>
+
+          {serverMode && device.status === 'online' && (
+            <GlowButton
+              title={ptyLoading ? 'OPENING PTY...' : 'OPEN INTERACTIVE TERMINAL'}
+              onPress={handleOpenPty}
+              variant="secondary"
+              disabled={ptyLoading}
+            />
+          )}
+
           {terminal?.status === 'waiting_approval' ? (
             <GlowButton
               title="OPEN APPROVAL CENTER"
@@ -432,6 +500,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 40,
+  },
+  ptyContainer: {
+    flex: 1,
+    backgroundColor: '#0d1117',
   },
   devicePanel: {
     padding: 14,

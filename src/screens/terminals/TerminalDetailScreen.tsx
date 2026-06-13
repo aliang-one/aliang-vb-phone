@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
@@ -7,24 +8,45 @@ import { GlassPanel } from '../../components/shared/GlassPanel';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { ResourceMetricsCard } from '../../components/cards/ResourceMetricsCard';
-import { mockTerminals } from '../../data/mockData';
+import { useControlCenterStore } from '../../store/controlCenterStore';
 
 export const TerminalDetailScreen: React.FC = () => {
   const { theme } = useTheme();
-  const terminal = mockTerminals[0]; // Show first terminal as demo
+  const navigation = useNavigation();
+  const route = useRoute();
+  const { deviceId } = (route.params as { deviceId?: string }) ?? {};
+  const devices = useControlCenterStore(state => state.devices);
+
+  // Find the device to show terminal details for
+  const device = deviceId
+    ? devices.find(d => d.id === deviceId)
+    : devices.find(d => d.status === 'online');
+
+  if (!device) {
+    return (
+      <SafeAreaWrapper>
+        <TopAppBar title="Terminal" subtitle="NO DEVICE" onBack={() => navigation.goBack()} />
+        <View style={styles.emptyContainer}>
+          <Text style={[theme.typography.bodyLg, { color: theme.colors.onSurfaceVariant }]}>
+            No device available for terminal connection
+          </Text>
+        </View>
+      </SafeAreaWrapper>
+    );
+  }
 
   const statusMap: Record<string, 'success' | 'error' | 'neutral'> = {
-    active: 'success',
-    error: 'error',
-    idle: 'neutral',
+    online: 'success',
+    offline: 'error',
+    warning: 'neutral',
   };
 
   return (
     <SafeAreaWrapper>
       <TopAppBar
-        title={terminal.name}
+        title={device.name}
         subtitle="TERMINAL DETAIL"
-        onBack={() => {}}
+        onBack={() => navigation.goBack()}
       />
       <ScrollView
         style={styles.scrollView}
@@ -33,15 +55,15 @@ export const TerminalDetailScreen: React.FC = () => {
         <GlassPanel style={styles.statusHeader}>
           <View style={styles.statusRow}>
             <StatusChip
-              label={terminal.status.toUpperCase()}
-              type={statusMap[terminal.status]}
+              label={device.status.toUpperCase()}
+              type={statusMap[device.status] ?? 'neutral'}
             />
             <Text
               style={[
                 theme.typography.codeSm,
                 { color: theme.colors.onSurfaceVariant },
               ]}>
-              {terminal.host}
+              {device.host ?? device.id}
             </Text>
           </View>
           <Text
@@ -50,7 +72,7 @@ export const TerminalDetailScreen: React.FC = () => {
               { color: theme.colors.onSurfaceVariant },
               styles.group,
             ]}>
-            Group: {terminal.group}
+            OS: {device.os} / Location: {device.location}
           </Text>
         </GlassPanel>
 
@@ -58,96 +80,102 @@ export const TerminalDetailScreen: React.FC = () => {
         <ResourceMetricsCard
           metrics={[
             {
-              label: 'LATENCY',
-              value: `${terminal.latency}ms`,
-              progress: Math.min(terminal.latency, 100),
-              color: terminal.latency > 50 ? theme.colors.tertiary : theme.colors.secondary,
-            },
-            {
-              label: 'UPTIME',
-              value: terminal.uptime,
-            },
-            {
               label: 'CPU LOAD',
-              value: `${terminal.cpuLoad}%`,
-              progress: terminal.cpuLoad,
-              color: terminal.cpuLoad > 80 ? theme.colors.error : theme.colors.primary,
+              value: `${device.cpuLoad}%`,
+              progress: device.cpuLoad,
+              color: device.cpuLoad > 80 ? theme.colors.error : theme.colors.primary,
             },
             {
               label: 'MEMORY',
-              value: `${terminal.memLoad}%`,
-              progress: terminal.memLoad,
-              color: terminal.memLoad > 80 ? theme.colors.tertiary : theme.colors.primary,
+              value: `${device.memLoad}%`,
+              progress: device.memLoad,
+              color: device.memLoad > 80 ? theme.colors.tertiary : theme.colors.primary,
             },
+            ...(device.battery !== undefined ? [{
+              label: 'BATTERY',
+              value: `${device.battery}%`,
+              progress: device.battery,
+              color: device.battery < 20 ? theme.colors.error : theme.colors.secondary,
+            }] : []),
           ]}
         />
 
-        {/* Processes */}
+        {/* Authorized Directories */}
         <Text
           style={[
             theme.typography.labelCaps,
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
           ]}>
-          PROCESSES
+          AUTHORIZED DIRECTORIES
         </Text>
         <GlassPanel style={styles.processList}>
-          {terminal.processes.length === 0 ? (
-            <Text
-              style={[
-                theme.typography.bodySm,
-                { color: theme.colors.onSurfaceVariant },
-              ]}>
-              No active processes
+          {device.authorizedDirectories.length === 0 ? (
+            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+              No directories
             </Text>
           ) : (
-            terminal.processes.map((proc, index) => (
-              <View key={index} style={styles.processRow}>
-                <Text
-                  style={[
-                    theme.typography.codeSm,
-                    { color: theme.colors.onSurfaceVariant },
-                    styles.pid,
-                  ]}>
-                  {proc.pid}
-                </Text>
-                <Text
-                  style={[
-                    theme.typography.codeSm,
-                    { color: theme.colors.onSurface },
-                    styles.procName,
-                  ]}>
-                  {proc.name}
-                </Text>
-                <Text
-                  style={[
-                    theme.typography.codeSm,
-                    {
-                      color:
-                        proc.cpu > 50
-                          ? theme.colors.error
-                          : theme.colors.onSurfaceVariant,
-                    },
-                  ]}>
-                  {proc.cpu}%
-                </Text>
-                <Text
-                  style={[
-                    theme.typography.codeSm,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}>
-                  {proc.memory}MB
-                </Text>
-              </View>
+            device.authorizedDirectories.map((dir, index) => (
+              <TouchableOpacity
+                key={index}
+                onPress={() =>
+                  navigation.navigate('DeviceTerminal', {
+                    deviceId: device.id,
+                    directory: dir,
+                  })
+                }>
+                <View style={styles.processRow}>
+                  <Text
+                    style={[
+                      theme.typography.codeSm,
+                      { color: theme.colors.primary },
+                    ]}>
+                    {dir}
+                  </Text>
+                </View>
+              </TouchableOpacity>
             ))
           )}
         </GlassPanel>
 
+        {/* Active Ports */}
+        {device.activePorts.length > 0 && (
+          <>
+            <Text
+              style={[
+                theme.typography.labelCaps,
+                { color: theme.colors.onSurfaceVariant },
+                styles.sectionTitle,
+              ]}>
+              ACTIVE PORTS
+            </Text>
+            <GlassPanel style={styles.processList}>
+              <View style={styles.portRow}>
+                {device.activePorts.map((port, index) => (
+                  <StatusChip key={index} label={`${port}`} type="info" />
+                ))}
+              </View>
+            </GlassPanel>
+          </>
+        )}
+
         {/* Actions */}
         <View style={styles.actions}>
-          <GlowButton title="CONNECT SSH" onPress={() => {}} variant="primary" />
-          <GlowButton title="RESTART" onPress={() => {}} variant="secondary" />
-          <GlowButton title="VIEW LOGS" onPress={() => {}} variant="outline" />
+          <GlowButton
+            title="OPEN TERMINAL"
+            onPress={() =>
+              navigation.navigate('DeviceTerminal', {
+                deviceId: device.id,
+                directory: device.authorizedDirectories[0] ?? '~',
+              })
+            }
+            variant="primary"
+          />
+          <GlowButton
+            title="VIEW DETAILS"
+            onPress={() => navigation.navigate('DeviceDetail', { deviceId: device.id })}
+            variant="secondary"
+          />
         </View>
       </ScrollView>
     </SafeAreaWrapper>
@@ -155,6 +183,12 @@ export const TerminalDetailScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
   scrollView: {
     flex: 1,
   },
@@ -182,18 +216,14 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   processRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
     paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.04)',
   },
-  pid: {
-    width: 40,
-  },
-  procName: {
-    flex: 1,
+  portRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   actions: {
     marginTop: 20,
