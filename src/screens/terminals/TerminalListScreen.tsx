@@ -12,6 +12,8 @@ import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard
 import { IconBadge } from '../../components/visual/IconBadge';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
+import { useIncrementalList } from '../../hooks/useIncrementalList';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -27,6 +29,11 @@ export const TerminalListScreen: React.FC = () => {
       device.host.toLowerCase().includes(search.toLowerCase()) ||
       device.location.toLowerCase().includes(search.toLowerCase()),
   );
+  const deviceList = useIncrementalList(filtered, {
+    initialCount: 10,
+    step: 12,
+    resetKey: search.trim().toLowerCase(),
+  });
 
   return (
     <SafeAreaWrapper>
@@ -72,13 +79,18 @@ export const TerminalListScreen: React.FC = () => {
           ]}>
           COMPUTE WORKSTATIONS
         </Text>
-        {filtered.map(device => (
+        {deviceList.visibleItems.map(device => (
           <DeviceControlCard
             key={device.id}
             device={device}
             onPress={() => navigation.navigate('DeviceDetail', { deviceId: device.id })}
           />
         ))}
+        <LoadMoreRow
+          visibleCount={deviceList.visibleCount}
+          totalCount={deviceList.totalCount}
+          onPress={deviceList.showMore}
+        />
         {!filtered.length ? (
           <GlassPanel style={styles.emptyCard}>
             <IconBadge name="device" tone="neutral" size={44} iconSize={22} />

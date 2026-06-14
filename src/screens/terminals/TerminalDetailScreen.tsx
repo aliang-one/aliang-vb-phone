@@ -9,6 +9,8 @@ import { StatusChip } from '../../components/shared/StatusChip';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { ResourceMetricsCard } from '../../components/cards/ResourceMetricsCard';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
+import { useIncrementalList } from '../../hooks/useIncrementalList';
 
 export const TerminalDetailScreen: React.FC = () => {
   const { theme } = useTheme();
@@ -21,6 +23,16 @@ export const TerminalDetailScreen: React.FC = () => {
   const device = deviceId
     ? devices.find(d => d.id === deviceId)
     : devices.find(d => d.status === 'online');
+  const directoryList = useIncrementalList(device?.authorizedDirectories ?? [], {
+    initialCount: 10,
+    step: 12,
+    resetKey: device?.id ?? 'missing',
+  });
+  const portList = useIncrementalList(device?.activePorts ?? [], {
+    initialCount: 20,
+    step: 24,
+    resetKey: device?.id ?? 'missing',
+  });
 
   if (!device) {
     return (
@@ -115,7 +127,7 @@ export const TerminalDetailScreen: React.FC = () => {
               No directories
             </Text>
           ) : (
-            device.authorizedDirectories.map((dir, index) => (
+            directoryList.visibleItems.map((dir, index) => (
               <TouchableOpacity
                 key={index}
                 onPress={() =>
@@ -136,6 +148,11 @@ export const TerminalDetailScreen: React.FC = () => {
               </TouchableOpacity>
             ))
           )}
+          <LoadMoreRow
+            visibleCount={directoryList.visibleCount}
+            totalCount={directoryList.totalCount}
+            onPress={directoryList.showMore}
+          />
         </GlassPanel>
 
         {/* Active Ports */}
@@ -151,10 +168,15 @@ export const TerminalDetailScreen: React.FC = () => {
             </Text>
             <GlassPanel style={styles.processList}>
               <View style={styles.portRow}>
-                {device.activePorts.map((port, index) => (
+                {portList.visibleItems.map((port, index) => (
                   <StatusChip key={index} label={`${port}`} type="info" />
                 ))}
               </View>
+              <LoadMoreRow
+                visibleCount={portList.visibleCount}
+                totalCount={portList.totalCount}
+                onPress={portList.showMore}
+              />
             </GlassPanel>
           </>
         )}

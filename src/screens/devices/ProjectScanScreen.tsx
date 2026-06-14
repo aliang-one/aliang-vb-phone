@@ -12,6 +12,8 @@ import { RootStackParamList } from '../../app/navigation/types';
 import { useTheme } from '../../theme/useTheme';
 import { ProjectScanResult, useControlCenterStore } from '../../store/controlCenterStore';
 import { IconBadge } from '../../components/visual/IconBadge';
+import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
+import { useIncrementalList } from '../../hooks/useIncrementalList';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type ScanRoute = RouteProp<RootStackParamList, 'ProjectScan'>;
@@ -34,7 +36,14 @@ export const ProjectScanScreen: React.FC = () => {
   const scanResults = useControlCenterStore(state => state.scanResults);
   const scanDeviceProjects = useControlCenterStore(state => state.scanDeviceProjects);
   const device = devices.find(item => item.id === route.params.deviceId);
-  const results = scanResults.filter(item => item.deviceId === route.params.deviceId);
+  const results = scanResults
+    .filter(item => item.deviceId === route.params.deviceId)
+    .sort((left, right) => right.lastActiveAt.localeCompare(left.lastActiveAt));
+  const resultList = useIncrementalList(results, {
+    initialCount: 12,
+    step: 16,
+    resetKey: route.params.deviceId,
+  });
 
   const portCount = results.reduce(
     (total, item) => total + item.detectedPorts.length,
@@ -97,7 +106,7 @@ export const ProjectScanScreen: React.FC = () => {
           DISCOVERED PROJECTS
         </Text>
 
-        {results.map(item => (
+        {resultList.visibleItems.map(item => (
           <TouchableOpacity
             key={item.id}
             activeOpacity={0.75}
@@ -188,6 +197,11 @@ export const ProjectScanScreen: React.FC = () => {
             </GlassPanel>
           </TouchableOpacity>
         ))}
+        <LoadMoreRow
+          visibleCount={resultList.visibleCount}
+          totalCount={resultList.totalCount}
+          onPress={resultList.showMore}
+        />
       </ScrollView>
     </SafeAreaWrapper>
   );

@@ -23,6 +23,8 @@ import {
   ProjectScanResult,
   useControlCenterStore,
 } from '../../store/controlCenterStore';
+import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
+import { useIncrementalList } from '../../hooks/useIncrementalList';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -104,6 +106,21 @@ export const CommandCenterScreen: React.FC = () => {
         ),
     [vibeRuns],
   );
+  const recentAgentRuns = useMemo(
+    () =>
+      [...vibeRuns].sort((left, right) =>
+        getRelativeMinutes(left.updatedAt) - getRelativeMinutes(right.updatedAt),
+      ),
+    [vibeRuns],
+  );
+  const projectWorkspace = useMemo(
+    () =>
+      [...projects].sort((left, right) =>
+        getRelativeMinutes(left.lastDeploy ?? '') -
+        getRelativeMinutes(right.lastDeploy ?? ''),
+      ),
+    [projects],
+  );
   const pendingApprovals = useMemo(
     () => approvals.filter(item => item.status === 'pending'),
     [approvals],
@@ -153,6 +170,31 @@ export const CommandCenterScreen: React.FC = () => {
   const getProjectDevice = (project: Project) =>
     devices.find(device => device.id === project.deviceId)
       ?? devices.find(device => device.projectIds.includes(project.id));
+  const activeAgentList = useIncrementalList(activeAgentRuns, {
+    initialCount: 4,
+    step: 6,
+    resetKey: activeAgentRuns.length,
+  });
+  const recentAgentList = useIncrementalList(recentAgentRuns, {
+    initialCount: 6,
+    step: 8,
+    resetKey: recentAgentRuns.length,
+  });
+  const projectList = useIncrementalList(projectWorkspace, {
+    initialCount: 4,
+    step: 6,
+    resetKey: projectWorkspace.length,
+  });
+  const previewList = useIncrementalList(previewLinks, {
+    initialCount: 3,
+    step: 6,
+    resetKey: previewLinks.length,
+  });
+  const deviceList = useIncrementalList(devices, {
+    initialCount: 2,
+    step: 4,
+    resetKey: devices.length,
+  });
 
   return (
     <SafeAreaWrapper>
@@ -178,7 +220,8 @@ export const CommandCenterScreen: React.FC = () => {
           <StatusChip label={`${activeAgentRuns.length} VIBECODING`} type="success" />
         </View>
         {activeAgentRuns.length ? (
-          activeAgentRuns.map(session => (
+          <>
+          {activeAgentList.visibleItems.map(session => (
             <VibeSessionCard
               key={session.id}
               session={session}
@@ -189,7 +232,13 @@ export const CommandCenterScreen: React.FC = () => {
                 navigation.navigate('VibeCodingSession', { sessionId: session.id })
               }
             />
-          ))
+          ))}
+          <LoadMoreRow
+            visibleCount={activeAgentList.visibleCount}
+            totalCount={activeAgentList.totalCount}
+            onPress={activeAgentList.showMore}
+          />
+          </>
         ) : (
           <GlassPanel style={styles.emptyAgentCard}>
             <IconBadge name="agent" tone="neutral" size={42} iconSize={21} />
@@ -255,10 +304,33 @@ export const CommandCenterScreen: React.FC = () => {
 
         <View style={styles.sectionHeader}>
           <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
+            VIBECODING SESSIONS
+          </Text>
+          <StatusChip label={`${recentAgentRuns.length} TOTAL`} type="info" />
+        </View>
+        {recentAgentList.visibleItems.map(session => (
+          <VibeSessionCard
+            key={session.id}
+            session={session}
+            project={getProject(session.projectId)}
+            device={getDevice(session.deviceId)}
+            onPress={() =>
+              navigation.navigate('VibeCodingSession', { sessionId: session.id })
+            }
+          />
+        ))}
+        <LoadMoreRow
+          visibleCount={recentAgentList.visibleCount}
+          totalCount={recentAgentList.totalCount}
+          onPress={recentAgentList.showMore}
+        />
+
+        <View style={styles.sectionHeader}>
+          <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
             RECENT PREVIEWS
           </Text>
         </View>
-        {previewLinks.map(preview => {
+        {previewList.visibleItems.map(preview => {
           const session = vibeRuns.find(item => item.id === preview.sessionId);
           return (
             <TouchableOpacity
@@ -287,6 +359,11 @@ export const CommandCenterScreen: React.FC = () => {
             </TouchableOpacity>
           );
         })}
+        <LoadMoreRow
+          visibleCount={previewList.visibleCount}
+          totalCount={previewList.totalCount}
+          onPress={previewList.showMore}
+        />
 
         <View style={styles.sectionHeader}>
           <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
@@ -294,7 +371,7 @@ export const CommandCenterScreen: React.FC = () => {
           </Text>
           <StatusChip label={`${projects.length} PROJECTS`} type="info" />
         </View>
-        {projects.slice(0, 4).map(project => {
+        {projectList.visibleItems.map(project => {
           const device = getProjectDevice(project);
           const sessions = vibeRuns.filter(item => item.projectId === project.id);
           const files = projectFiles.filter(item => item.projectId === project.id);
@@ -340,19 +417,29 @@ export const CommandCenterScreen: React.FC = () => {
             />
           );
         })}
+        <LoadMoreRow
+          visibleCount={projectList.visibleCount}
+          totalCount={projectList.totalCount}
+          onPress={projectList.showMore}
+        />
 
         <View style={styles.sectionHeader}>
           <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
             DEVICE SNAPSHOT
           </Text>
         </View>
-        {devices.slice(0, 2).map(device => (
+        {deviceList.visibleItems.map(device => (
           <DeviceControlCard
             key={device.id}
             device={device}
             onPress={() => navigation.navigate('DeviceDetail', { deviceId: device.id })}
           />
         ))}
+        <LoadMoreRow
+          visibleCount={deviceList.visibleCount}
+          totalCount={deviceList.totalCount}
+          onPress={deviceList.showMore}
+        />
 
         <View style={styles.sectionHeader}>
           <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>

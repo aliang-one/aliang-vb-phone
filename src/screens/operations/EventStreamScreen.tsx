@@ -15,6 +15,8 @@ import {
   UnifiedEventType,
   useControlCenterStore,
 } from '../../store/controlCenterStore';
+import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
+import { useIncrementalList } from '../../hooks/useIncrementalList';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type EventStreamRoute = RouteProp<RootStackParamList, 'EventStream'>;
@@ -74,6 +76,11 @@ export const EventStreamScreen: React.FC = () => {
     const matchesSession =
       !route.params?.sessionId || item.sessionId === route.params.sessionId;
     return matchesType && matchesDevice && matchesSession;
+  }).sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+  const eventList = useIncrementalList(filtered, {
+    initialCount: 24,
+    step: 24,
+    resetKey: `${filter}:${route.params?.deviceId ?? 'all'}:${route.params?.sessionId ?? 'all'}`,
   });
 
   return (
@@ -126,7 +133,7 @@ export const EventStreamScreen: React.FC = () => {
           })}
         </ScrollView>
 
-        {filtered.map(item => (
+        {eventList.visibleItems.map(item => (
           <GlassPanel key={item.id} style={styles.eventCard}>
             <View style={styles.eventTop}>
               <IconBadge
@@ -182,6 +189,11 @@ export const EventStreamScreen: React.FC = () => {
             ) : null}
           </GlassPanel>
         ))}
+        <LoadMoreRow
+          visibleCount={eventList.visibleCount}
+          totalCount={eventList.totalCount}
+          onPress={eventList.showMore}
+        />
       </ScrollView>
     </SafeAreaWrapper>
   );

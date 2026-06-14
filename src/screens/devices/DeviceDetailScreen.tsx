@@ -15,6 +15,8 @@ import { useControlCenterStore } from '../../store/controlCenterStore';
 import { IconBadge } from '../../components/visual/IconBadge';
 import { RingMeter } from '../../components/visual/RingMeter';
 import { Project, VibeStatus } from '../../data/platformModels';
+import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
+import { useIncrementalList } from '../../hooks/useIncrementalList';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DeviceRoute = RouteProp<RootStackParamList, 'DeviceDetail'>;
@@ -72,6 +74,68 @@ export const DeviceDetailScreen: React.FC = () => {
   const vibeRuns = useControlCenterStore(state => state.vibeRuns);
   const device = devices.find(item => item.id === route.params.deviceId);
 
+  const projects = useMemo(
+    () => {
+      if (!device) return [];
+      return projectsStore.filter(
+        project =>
+          project.deviceId === device.id || device.projectIds.includes(project.id),
+      );
+    },
+    [projectsStore, device],
+  );
+  const sessions = useMemo(
+    () => {
+      if (!device) return [];
+      return vibeRuns
+        .filter(session => session.deviceId === device.id)
+        .sort((left, right) => {
+          const leftActive = activeSessionStatuses.includes(left.status) ? 0 : 1;
+          const rightActive = activeSessionStatuses.includes(right.status) ? 0 : 1;
+          if (leftActive !== rightActive) return leftActive - rightActive;
+          return right.updatedAt.localeCompare(left.updatedAt);
+        });
+    },
+    [vibeRuns, device],
+  );
+  const activeSessions = useMemo(
+    () => sessions.filter(session => activeSessionStatuses.includes(session.status)),
+    [sessions],
+  );
+  const terminalDirectory =
+    device?.authorizedDirectories[0] ?? projects[0]?.path ?? '~';
+  const knownProjectPaths = uniqueStrings(projects.map(project => project.path));
+  const toolList = useIncrementalList(device?.tools ?? [], {
+    initialCount: 8,
+    step: 12,
+    resetKey: device?.id ?? 'missing',
+  });
+  const workspaceList = useIncrementalList(device?.history ?? [], {
+    initialCount: 8,
+    step: 12,
+    resetKey: device?.id ?? 'missing',
+  });
+  const directoryList = useIncrementalList(device?.authorizedDirectories ?? [], {
+    initialCount: 8,
+    step: 12,
+    resetKey: device?.id ?? 'missing',
+  });
+  const projectPathList = useIncrementalList(knownProjectPaths, {
+    initialCount: 8,
+    step: 12,
+    resetKey: device?.id ?? 'missing',
+  });
+  const projectList = useIncrementalList(projects, {
+    initialCount: 5,
+    step: 8,
+    resetKey: device?.id ?? 'missing',
+  });
+  const sessionList = useIncrementalList(sessions, {
+    initialCount: 6,
+    step: 10,
+    resetKey: device?.id ?? 'missing',
+  });
+
   if (!device) {
     return (
       <SafeAreaWrapper>
@@ -79,34 +143,6 @@ export const DeviceDetailScreen: React.FC = () => {
       </SafeAreaWrapper>
     );
   }
-
-  const projects = useMemo(
-    () =>
-      projectsStore.filter(
-        project =>
-          project.deviceId === device.id || device.projectIds.includes(project.id),
-      ),
-    [projectsStore, device.id, device.projectIds],
-  );
-  const sessions = useMemo(
-    () =>
-      vibeRuns
-        .filter(session => session.deviceId === device.id)
-        .sort((left, right) => {
-          const leftActive = activeSessionStatuses.includes(left.status) ? 0 : 1;
-          const rightActive = activeSessionStatuses.includes(right.status) ? 0 : 1;
-          if (leftActive !== rightActive) return leftActive - rightActive;
-          return right.updatedAt.localeCompare(left.updatedAt);
-        }),
-    [vibeRuns, device.id],
-  );
-  const activeSessions = useMemo(
-    () => sessions.filter(session => activeSessionStatuses.includes(session.status)),
-    [sessions],
-  );
-  const terminalDirectory =
-    device.authorizedDirectories[0] ?? projects[0]?.path ?? '~';
-  const knownProjectPaths = uniqueStrings(projects.map(project => project.path));
 
   return (
     <SafeAreaWrapper>
@@ -245,7 +281,7 @@ export const DeviceDetailScreen: React.FC = () => {
         <SectionTitle title="INSTALLED TOOLS" />
         {device.tools.length ? (
           <GlassPanel style={styles.listPanel}>
-            {device.tools.map((tool, index) => (
+            {toolList.visibleItems.map((tool, index) => (
               <View key={tool.id}>
                 <View style={styles.toolRow}>
                   <View style={styles.toolMain}>
@@ -268,9 +304,14 @@ export const DeviceDetailScreen: React.FC = () => {
                     type={tool.available === false ? 'error' : 'success'}
                   />
                 </View>
-                {index < device.tools.length - 1 ? <View style={styles.divider} /> : null}
+                {index < toolList.visibleItems.length - 1 ? <View style={styles.divider} /> : null}
               </View>
             ))}
+            <LoadMoreRow
+              visibleCount={toolList.visibleCount}
+              totalCount={toolList.totalCount}
+              onPress={toolList.showMore}
+            />
           </GlassPanel>
         ) : (
           <EmptyPanel
@@ -282,7 +323,7 @@ export const DeviceDetailScreen: React.FC = () => {
         <SectionTitle title="DETECTED WORKSPACES" />
         {device.history.length ? (
           <GlassPanel style={styles.listPanel}>
-            {device.history.map((entry, index) => (
+            {workspaceList.visibleItems.map((entry, index) => (
               <View key={`${entry.tool}:${entry.path}:${index}`}>
                 <View style={styles.workspaceRow}>
                   <View style={styles.workspaceMain}>
@@ -305,9 +346,14 @@ export const DeviceDetailScreen: React.FC = () => {
                     ) : null}
                   </View>
                 </View>
-                {index < device.history.length - 1 ? <View style={styles.divider} /> : null}
+                {index < workspaceList.visibleItems.length - 1 ? <View style={styles.divider} /> : null}
               </View>
             ))}
+            <LoadMoreRow
+              visibleCount={workspaceList.visibleCount}
+              totalCount={workspaceList.totalCount}
+              onPress={workspaceList.showMore}
+            />
           </GlassPanel>
         ) : (
           <EmptyPanel
@@ -321,7 +367,7 @@ export const DeviceDetailScreen: React.FC = () => {
         <SectionTitle title="AUTHORIZED DIRECTORIES" />
         {device.authorizedDirectories.length ? (
           <GlassPanel style={styles.listPanel}>
-            {device.authorizedDirectories.map((directory, index) => (
+            {directoryList.visibleItems.map((directory, index) => (
               <View key={directory}>
                 <View style={styles.directoryRow}>
                   <Text
@@ -353,11 +399,16 @@ export const DeviceDetailScreen: React.FC = () => {
                     </Text>
                   </TouchableOpacity>
                 </View>
-                {index < device.authorizedDirectories.length - 1 && (
+                {index < directoryList.visibleItems.length - 1 && (
                   <View style={styles.divider} />
                 )}
               </View>
             ))}
+            <LoadMoreRow
+              visibleCount={directoryList.visibleCount}
+              totalCount={directoryList.totalCount}
+              onPress={directoryList.showMore}
+            />
           </GlassPanel>
         ) : (
           <EmptyPanel
@@ -377,7 +428,7 @@ export const DeviceDetailScreen: React.FC = () => {
           <>
             <SectionTitle title="KNOWN PROJECT PATHS" />
             <GlassPanel style={styles.listPanel}>
-              {knownProjectPaths.map((path, index) => (
+              {projectPathList.visibleItems.map((path, index) => (
                 <View key={path}>
                   <View style={styles.directoryRow}>
                     <Text
@@ -409,16 +460,22 @@ export const DeviceDetailScreen: React.FC = () => {
                       </Text>
                     </TouchableOpacity>
                   </View>
-                  {index < knownProjectPaths.length - 1 && <View style={styles.divider} />}
+                  {index < projectPathList.visibleItems.length - 1 && <View style={styles.divider} />}
                 </View>
               ))}
+              <LoadMoreRow
+                visibleCount={projectPathList.visibleCount}
+                totalCount={projectPathList.totalCount}
+                onPress={projectPathList.showMore}
+              />
             </GlassPanel>
           </>
         ) : null}
 
         <SectionTitle title="PROJECTS ON DEVICE" />
         {projects.length ? (
-          projects.map(project => (
+          <>
+          {projectList.visibleItems.map(project => (
             <GlassPanel key={project.id} style={styles.projectCard}>
               <View style={styles.projectTop}>
                 <View style={styles.projectTitleBlock}>
@@ -488,7 +545,13 @@ export const DeviceDetailScreen: React.FC = () => {
                 />
               </View>
             </GlassPanel>
-          ))
+          ))}
+          <LoadMoreRow
+            visibleCount={projectList.visibleCount}
+            totalCount={projectList.totalCount}
+            onPress={projectList.showMore}
+          />
+          </>
         ) : (
           <EmptyPanel
             title="No projects reported"
@@ -506,7 +569,8 @@ export const DeviceDetailScreen: React.FC = () => {
           </View>
         </View>
         {sessions.length ? (
-          sessions.map(session => (
+          <>
+          {sessionList.visibleItems.map(session => (
             <VibeSessionCard
               key={session.id}
               session={session}
@@ -516,7 +580,13 @@ export const DeviceDetailScreen: React.FC = () => {
                 navigation.navigate('VibeCodingSession', { sessionId: session.id })
               }
             />
-          ))
+          ))}
+          <LoadMoreRow
+            visibleCount={sessionList.visibleCount}
+            totalCount={sessionList.totalCount}
+            onPress={sessionList.showMore}
+          />
+          </>
         ) : (
           <EmptyPanel
             title="No VibeCoding sessions"

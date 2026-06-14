@@ -22,6 +22,8 @@ import {
   useControlCenterStore,
 } from '../../store/controlCenterStore';
 import { IconBadge } from '../../components/visual/IconBadge';
+import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
+import { useIncrementalList } from '../../hooks/useIncrementalList';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type CreateRoute = RouteProp<RootStackParamList, 'CreateVibeCoding'>;
@@ -77,6 +79,25 @@ export const CreateVibeCodingScreen: React.FC = () => {
       ),
     [device?.id, device?.projectIds, projects],
   );
+  const directoryOptions = uniqueStrings([
+    project?.path,
+    ...((device?.authorizedDirectories ?? []) as string[]),
+  ]);
+  const deviceList = useIncrementalList(devices, {
+    initialCount: 8,
+    step: 10,
+    resetKey: devices.length,
+  });
+  const projectList = useIncrementalList(availableProjects, {
+    initialCount: 6,
+    step: 8,
+    resetKey: device?.id ?? 'none',
+  });
+  const directoryList = useIncrementalList(directoryOptions, {
+    initialCount: 8,
+    step: 12,
+    resetKey: `${device?.id ?? 'none'}:${project?.id ?? 'none'}`,
+  });
 
   const togglePermission = (permission: string) => {
     setSelectedPermissions(current =>
@@ -146,7 +167,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
           1. DEVICE
         </Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rowScroller}>
-          {devices.map(item => {
+          {deviceList.visibleItems.map(item => {
             const active = item.id === deviceId;
             return (
               <TouchableOpacity
@@ -188,6 +209,11 @@ export const CreateVibeCodingScreen: React.FC = () => {
             );
           })}
         </ScrollView>
+        <LoadMoreRow
+          visibleCount={deviceList.visibleCount}
+          totalCount={deviceList.totalCount}
+          onPress={deviceList.showMore}
+        />
 
         <Text
           style={[
@@ -198,7 +224,9 @@ export const CreateVibeCodingScreen: React.FC = () => {
           2. PROJECT
         </Text>
         <GlassPanel style={styles.optionPanel}>
-          {availableProjects.length ? availableProjects.map((item, index) => (
+          {availableProjects.length ? (
+            <>
+          {projectList.visibleItems.map((item, index) => (
             <TouchableOpacity
               key={item.id}
               onPress={() => {
@@ -219,9 +247,16 @@ export const CreateVibeCodingScreen: React.FC = () => {
                   type={item.id === project?.id ? 'info' : 'neutral'}
                 />
               </View>
-              {index < availableProjects.length - 1 && <View style={styles.divider} />}
+              {index < projectList.visibleItems.length - 1 && <View style={styles.divider} />}
             </TouchableOpacity>
-          )) : (
+          ))}
+          <LoadMoreRow
+            visibleCount={projectList.visibleCount}
+            totalCount={projectList.totalCount}
+            onPress={projectList.showMore}
+          />
+          </>
+          ) : (
             <View style={styles.optionRow}>
               <View style={styles.optionText}>
                 <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
@@ -245,10 +280,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
           3. DIRECTORY
         </Text>
         <GlassPanel style={styles.optionPanel}>
-          {uniqueStrings([
-            project?.path,
-            ...((device?.authorizedDirectories ?? []) as string[]),
-          ]).map((item, index, list) => (
+          {directoryList.visibleItems.map((item, index) => (
             <TouchableOpacity key={item} onPress={() => setDirectory(item)}>
               <View style={styles.optionRow}>
                 <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
@@ -256,11 +288,16 @@ export const CreateVibeCodingScreen: React.FC = () => {
                 </Text>
                 {directory === item && <StatusChip label="SELECTED" type="info" />}
               </View>
-              {index < list.length - 1 && (
+              {index < directoryList.visibleItems.length - 1 && (
                 <View style={styles.divider} />
               )}
             </TouchableOpacity>
           ))}
+          <LoadMoreRow
+            visibleCount={directoryList.visibleCount}
+            totalCount={directoryList.totalCount}
+            onPress={directoryList.showMore}
+          />
         </GlassPanel>
 
         <Text

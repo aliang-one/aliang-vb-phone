@@ -11,6 +11,8 @@ import { RootStackParamList } from '../../app/navigation/types';
 import { useTheme } from '../../theme/useTheme';
 import { ApprovalRequest, useControlCenterStore } from '../../store/controlCenterStore';
 import { IconBadge, IconName } from '../../components/visual/IconBadge';
+import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
+import { useIncrementalList } from '../../hooks/useIncrementalList';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -53,7 +55,13 @@ export const ApprovalCenterScreen: React.FC = () => {
       return item.status !== 'pending';
     }
     return true;
+  }).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  const approvalList = useIncrementalList(filtered, {
+    initialCount: 16,
+    step: 16,
+    resetKey: filter,
   });
+  const pendingCount = approvals.filter(item => item.status === 'pending').length;
 
   return (
     <SafeAreaWrapper>
@@ -61,7 +69,12 @@ export const ApprovalCenterScreen: React.FC = () => {
         title="Approvals"
         subtitle="COMMAND / FILE / GIT"
         onBack={navigation.goBack}
-        rightAction={<StatusChip label={`${approvals.filter(item => item.status === 'pending').length} PENDING`} type="warning" />}
+        rightAction={
+          <StatusChip
+            label={`${pendingCount} PENDING`}
+            type={pendingCount ? 'warning' : 'neutral'}
+          />
+        }
       />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <ScrollView
@@ -105,7 +118,21 @@ export const ApprovalCenterScreen: React.FC = () => {
           })}
         </ScrollView>
 
-        {filtered.map(item => {
+        {!filtered.length ? (
+          <GlassPanel style={styles.emptyPanel}>
+            <IconBadge name="approval" tone="neutral" size={42} iconSize={21} />
+            <View style={styles.emptyCopy}>
+              <Text style={[theme.typography.titleMd, { color: theme.colors.onSurfaceVariant }]}>
+                No approvals
+              </Text>
+              <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+                当前筛选下没有需要处理的审批。
+              </Text>
+            </View>
+          </GlassPanel>
+        ) : null}
+
+        {approvalList.visibleItems.map(item => {
           const device = devices.find(deviceItem => deviceItem.id === item.deviceId);
           const project = projects.find(projectItem => projectItem.id === item.projectId);
           const pending = item.status === 'pending';
@@ -208,6 +235,11 @@ export const ApprovalCenterScreen: React.FC = () => {
             </GlassPanel>
           );
         })}
+        <LoadMoreRow
+          visibleCount={approvalList.visibleCount}
+          totalCount={approvalList.totalCount}
+          onPress={approvalList.showMore}
+        />
       </ScrollView>
     </SafeAreaWrapper>
   );
@@ -296,5 +328,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
+  },
+  emptyPanel: {
+    padding: 14,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    opacity: 0.68,
+  },
+  emptyCopy: {
+    flex: 1,
+    gap: 4,
   },
 });

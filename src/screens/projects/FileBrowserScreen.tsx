@@ -15,6 +15,8 @@ import {
   ProjectFileEntry,
   useControlCenterStore,
 } from '../../store/controlCenterStore';
+import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
+import { useIncrementalList } from '../../hooks/useIncrementalList';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type FileRoute = RouteProp<RootStackParamList, 'FileBrowser'>;
@@ -137,9 +139,17 @@ export const FileBrowserScreen: React.FC = () => {
         const matchesDirectory = (item.directoryPath ?? terminalDirectory) === effectivePath;
         const matchesFilter = filter === 'all' || item.status === filter;
         return matchesProject && matchesDirectory && matchesFilter;
+      }).sort((left, right) => {
+        if (left.kind !== right.kind) return left.kind === 'folder' ? -1 : 1;
+        return left.name.localeCompare(right.name);
       }),
     [effectivePath, files, filter, route.params.projectId, terminalDirectory],
   );
+  const fileList = useIncrementalList(projectFiles, {
+    initialCount: 40,
+    step: 60,
+    resetKey: `${route.params.projectId}:${effectivePath}:${filter}`,
+  });
   const selectedFile = files.find(
     item => item.projectId === route.params.projectId && item.path === selectedPath,
   );
@@ -418,7 +428,7 @@ export const FileBrowserScreen: React.FC = () => {
           </GlassPanel>
         ) : null}
 
-        {projectFiles.map(file => (
+        {fileList.visibleItems.map(file => (
           <TouchableOpacity
             key={file.id}
             activeOpacity={0.78}
@@ -473,6 +483,12 @@ export const FileBrowserScreen: React.FC = () => {
             </GlassPanel>
           </TouchableOpacity>
         ))}
+        <LoadMoreRow
+          visibleCount={fileList.visibleCount}
+          totalCount={fileList.totalCount}
+          onPress={fileList.showMore}
+          label="LOAD MORE FILES"
+        />
         {selectedFile?.content !== undefined ? (
           <GlassPanel style={styles.previewPanel}>
             <View style={styles.previewHeader}>

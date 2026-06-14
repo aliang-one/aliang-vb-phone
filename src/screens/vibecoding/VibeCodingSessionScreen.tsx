@@ -19,11 +19,15 @@ import { GlowButton } from '../../components/shared/GlowButton';
 import { ProgressBar } from '../../components/shared/ProgressBar';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { SuggestionActionBar } from '../../components/vibecoding/SuggestionActionBar';
+import { TranscriptMessageList } from '../../components/vibecoding/TranscriptMessageList';
 import { vibeStatusLabel, vibeStatusType } from '../../components/vibecoding/status';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import { IconBadge, IconName } from '../../components/visual/IconBadge';
 import type { AgentBudgetInfo } from '../../data/platformModels';
+import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
+import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { buildDisplayTranscript } from '../../utils/agentTranscript';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type SessionRoute = RouteProp<RootStackParamList, 'VibeCodingSession'>;
@@ -66,6 +70,21 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState('');
   const targetSessionId = session?.id ?? route.params.sessionId;
+  const transcript = buildDisplayTranscript(session?.transcript ?? []);
+  const transcriptList = useIncrementalList(transcript, {
+    initialCount: 12,
+    step: 12,
+    from: 'end',
+    resetKey: targetSessionId,
+  });
+  const agentEventList = useIncrementalList(session?.events ?? [], {
+    initialCount: 12,
+    step: 12,
+    from: 'end',
+    resetKey: targetSessionId,
+  });
+  const visibleTranscript = transcriptList.visibleItems;
+  const visibleAgentEvents = agentEventList.visibleItems;
 
   const hasDetail = Boolean(
     session?.detailLoadedAt || session?.transcript.length || session?.events.length,
@@ -153,8 +172,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const device = devices.find(item => item.id === session.deviceId);
   const preview = previewLinks.find(item => item.id === session.previewId);
   const budgetLabel = formatBudget(session.projectBudget);
-  const transcript = session.transcript;
-  const agentEvents = session.events;
   const progress = Math.min(
     100,
     (session.elapsedMinutes / session.timeLimitMinutes) * 100,
@@ -294,7 +311,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
                     theme.typography.labelSm,
                     { color: theme.colors.onSurfaceVariant },
                   ]}>
-                  {transcript.length ? `${transcript.length} messages` : `${session.transcriptCount ?? 0} messages`}
+                  {transcript.length
+                    ? `${visibleTranscript.length}/${transcript.length} grouped`
+                    : `${session.transcriptCount ?? 0} messages`}
                 </Text>
               </View>
             </View>
@@ -313,79 +332,17 @@ export const VibeCodingSessionScreen: React.FC = () => {
               {detailError}
             </Text>
           </GlassPanel>
-        ) : transcript.length ? transcript.map(message => {
-          const isUser = message.role === 'user';
-          const isSystem = message.role === 'system';
-
-          return (
-          <View
-            key={message.id}
-            style={[
-              styles.messageRow,
-              isUser ? styles.messageRowUser : styles.messageRowAgent,
-            ]}>
-            {!isUser ? (
-              <IconBadge
-                name={isSystem ? 'event' : 'agent'}
-                tone={isSystem ? 'neutral' : 'primary'}
-                size={32}
-                iconSize={16}
-              />
-            ) : null}
-            <View
-              style={[
-                styles.messageStack,
-                isUser ? styles.messageStackUser : styles.messageStackAgent,
-              ]}>
-              <View
-                style={[
-                  styles.messageMeta,
-                  isUser ? styles.messageMetaUser : styles.messageMetaAgent,
-                ]}>
-                <Text
-                  style={[
-                    theme.typography.labelCaps,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}>
-                  {isUser ? 'YOU' : message.role.toUpperCase()}
-                </Text>
-                <Text
-                  style={[
-                    theme.typography.codeSm,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}>
-                  {message.timestamp}
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.messageBubble,
-                  {
-                    backgroundColor: isUser
-                      ? isDark
-                        ? 'rgba(0, 209, 255, 0.14)'
-                        : 'rgba(0, 81, 174, 0.08)'
-                      : isDark
-                      ? 'rgba(255,255,255,0.05)'
-                      : theme.colors.surfaceContainerLow,
-                    borderColor: isUser
-                      ? theme.colors.primary
-                      : theme.colors.outlineVariant,
-                    borderTopRightRadius: isUser ? 6 : theme.borderRadius.lg,
-                    borderTopLeftRadius: isUser ? theme.borderRadius.lg : 6,
-                  },
-                ]}>
-                <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                  {message.content}
-                </Text>
-              </View>
-            </View>
-            {isUser ? (
-              <IconBadge name="user" tone="secondary" size={32} iconSize={16} />
-            ) : null}
-          </View>
-          );
-        }) : (
+        ) : transcript.length ? (
+          <>
+            <LoadMoreRow
+              visibleCount={transcriptList.visibleCount}
+              totalCount={transcriptList.totalCount}
+              onPress={transcriptList.showMore}
+              label="LOAD EARLIER MESSAGES"
+            />
+            <TranscriptMessageList items={visibleTranscript} />
+          </>
+        ) : (
           <GlassPanel style={styles.detailStatePanel}>
             <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
               暂无会话记录
@@ -403,7 +360,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
           AGENT TIMELINE
         </Text>
         <GlassPanel style={styles.timelinePanel}>
-          {agentEvents.length ? agentEvents.map((event, index) => (
+          {visibleAgentEvents.length ? (
+            <>
+            <LoadMoreRow
+              visibleCount={agentEventList.visibleCount}
+              totalCount={agentEventList.totalCount}
+              onPress={agentEventList.showMore}
+              label="LOAD EARLIER EVENTS"
+            />
+            {visibleAgentEvents.map((event, index) => (
             <View key={event.id}>
               <View style={styles.eventRow}>
                 <IconBadge
@@ -442,9 +407,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
                   }
                 />
               </View>
-              {index < agentEvents.length - 1 && <View style={styles.divider} />}
+              {index < visibleAgentEvents.length - 1 && <View style={styles.divider} />}
             </View>
-          )) : (
+            ))}
+            </>
+          ) : (
             <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
               暂无事件记录
             </Text>
@@ -465,8 +432,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
               : theme.colors.outlineVariant,
           },
         ]}>
-        {transcript.map((message, index) => {
-          const active = index === transcript.length - 1;
+        {visibleTranscript.map((message, index) => {
+          const active = index === visibleTranscript.length - 1;
           const color =
             message.role === 'user'
               ? theme.colors.secondary
@@ -759,44 +726,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-  },
-  messageRow: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-  },
-  messageRowUser: {
-    justifyContent: 'flex-end',
-  },
-  messageRowAgent: {
-    justifyContent: 'flex-start',
-  },
-  messageStack: {
-    maxWidth: '78%',
-    gap: 4,
-  },
-  messageStackUser: {
-    alignItems: 'flex-end',
-  },
-  messageStackAgent: {
-    alignItems: 'flex-start',
-  },
-  messageBubble: {
-    borderWidth: 1,
-    padding: 12,
-    gap: 8,
-    borderRadius: 14,
-  },
-  messageMeta: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  messageMetaUser: {
-    justifyContent: 'flex-end',
-  },
-  messageMetaAgent: {
-    justifyContent: 'flex-start',
   },
   timelinePanel: {
     padding: 0,

@@ -12,6 +12,8 @@ import { StatusChip } from '../../components/shared/StatusChip';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
+import { useIncrementalList } from '../../hooks/useIncrementalList';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type ProjectRoute = RouteProp<RootStackParamList, 'ProjectDetail'>;
@@ -28,6 +30,21 @@ export const ProjectDetailScreen: React.FC = () => {
     devices.find(item => item.id === route.params.deviceId) ||
     devices.find(item => project?.deviceId && item.id === project.deviceId) ||
     devices.find(item => item.projectIds.includes(route.params.projectId));
+  const terminalDirectory = project?.path || device?.authorizedDirectories[0] || '~';
+  const sessions = project
+    ? vibeRuns.filter(
+        session =>
+          session.projectId === project.id ||
+          (Boolean(project.path) &&
+            session.deviceId === device?.id &&
+            session.directory === project.path),
+      ).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    : [];
+  const sessionList = useIncrementalList(sessions, {
+    initialCount: 6,
+    step: 10,
+    resetKey: project?.id ?? 'missing',
+  });
 
   if (!project) {
     return (
@@ -36,15 +53,6 @@ export const ProjectDetailScreen: React.FC = () => {
       </SafeAreaWrapper>
     );
   }
-
-  const terminalDirectory = project.path || device?.authorizedDirectories[0] || '~';
-  const sessions = vibeRuns.filter(
-    session =>
-      session.projectId === project.id ||
-      (Boolean(project.path) &&
-        session.deviceId === device?.id &&
-        session.directory === project.path),
-  );
 
   return (
     <SafeAreaWrapper>
@@ -155,7 +163,8 @@ export const ProjectDetailScreen: React.FC = () => {
           VIBECODING HISTORY
         </Text>
         {sessions.length ? (
-          sessions.map(session => (
+          <>
+          {sessionList.visibleItems.map(session => (
             <VibeSessionCard
               key={session.id}
               session={session}
@@ -165,7 +174,13 @@ export const ProjectDetailScreen: React.FC = () => {
                 navigation.navigate('VibeCodingSession', { sessionId: session.id })
               }
             />
-          ))
+          ))}
+          <LoadMoreRow
+            visibleCount={sessionList.visibleCount}
+            totalCount={sessionList.totalCount}
+            onPress={sessionList.showMore}
+          />
+          </>
         ) : (
           <GlassPanel style={styles.emptyPanel}>
             <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>

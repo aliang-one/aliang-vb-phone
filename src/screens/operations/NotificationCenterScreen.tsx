@@ -13,6 +13,8 @@ import {
   useControlCenterStore,
 } from '../../store/controlCenterStore';
 import { IconBadge, IconName } from '../../components/visual/IconBadge';
+import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
+import { useIncrementalList } from '../../hooks/useIncrementalList';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -52,6 +54,14 @@ export const NotificationCenterScreen: React.FC = () => {
     state => state.markAllNotificationsRead,
   );
   const unreadCount = notifications.filter(item => !item.read).length;
+  const notificationList = useIncrementalList(
+    [...notifications].sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+    {
+      initialCount: 12,
+      step: 16,
+      resetKey: notifications.length,
+    },
+  );
 
   const handleOpen = (item: PushNotificationItem) => {
     void markNotificationRead(item.id).catch(error => {
@@ -101,7 +111,7 @@ export const NotificationCenterScreen: React.FC = () => {
           </Text>
         </TouchableOpacity>
 
-        {notifications.map(item => {
+        {notificationList.visibleItems.map(item => {
           const device = devices.find(deviceItem => deviceItem.id === item.deviceId);
           return (
             <TouchableOpacity
@@ -170,6 +180,11 @@ export const NotificationCenterScreen: React.FC = () => {
             </TouchableOpacity>
           );
         })}
+        <LoadMoreRow
+          visibleCount={notificationList.visibleCount}
+          totalCount={notificationList.totalCount}
+          onPress={notificationList.showMore}
+        />
       </ScrollView>
     </SafeAreaWrapper>
   );

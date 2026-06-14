@@ -24,6 +24,8 @@ import {
   useControlCenterStore,
 } from '../../store/controlCenterStore';
 import { IconBadge } from '../../components/visual/IconBadge';
+import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
+import { useIncrementalList } from '../../hooks/useIncrementalList';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DeviceTerminalRoute = RouteProp<RootStackParamList, 'DeviceTerminal'>;
@@ -87,6 +89,17 @@ export const DeviceTerminalScreen: React.FC = () => {
   const terminal = terminalSessions.find(item => item.id === terminalId);
   const directory = terminal?.directory ?? route.params.directory ?? '~';
   const isRunning = terminal?.status === 'running';
+  const directoryList = useIncrementalList(device?.authorizedDirectories ?? [], {
+    initialCount: 10,
+    step: 12,
+    resetKey: device?.id ?? 'missing',
+  });
+  const outputList = useIncrementalList(terminal?.lines ?? [], {
+    initialCount: 180,
+    step: 240,
+    from: 'end',
+    resetKey: terminal?.id ?? 'none',
+  });
   const canExecute =
     Boolean(command.trim()) &&
     Boolean(terminal) &&
@@ -312,7 +325,7 @@ export const DeviceTerminalScreen: React.FC = () => {
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.directoryList}>
-          {device.authorizedDirectories.map(item => {
+          {directoryList.visibleItems.map(item => {
             const active = item === directory;
 
             return (
@@ -352,6 +365,11 @@ export const DeviceTerminalScreen: React.FC = () => {
             );
           })}
         </ScrollView>
+        <LoadMoreRow
+          visibleCount={directoryList.visibleCount}
+          totalCount={directoryList.totalCount}
+          onPress={directoryList.showMore}
+        />
 
         <GlassPanel style={styles.terminalPanel}>
           <View
@@ -363,7 +381,7 @@ export const DeviceTerminalScreen: React.FC = () => {
               LIVE OUTPUT
             </Text>
             <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-              {terminal?.lines.length ?? 0} LINES
+              {outputList.visibleCount}/{outputList.totalCount} LINES
             </Text>
           </View>
           <ScrollView
@@ -377,7 +395,7 @@ export const DeviceTerminalScreen: React.FC = () => {
               },
             ]}
             contentContainerStyle={styles.outputContent}>
-            {(terminal?.lines ?? []).map(item => (
+            {outputList.visibleItems.map(item => (
               <View key={item.id} style={styles.outputLine}>
                 <Text
                   style={[
@@ -399,6 +417,12 @@ export const DeviceTerminalScreen: React.FC = () => {
               </View>
             ))}
           </ScrollView>
+          <LoadMoreRow
+            visibleCount={outputList.visibleCount}
+            totalCount={outputList.totalCount}
+            onPress={outputList.showMore}
+            label="LOAD EARLIER OUTPUT"
+          />
         </GlassPanel>
 
         <GlassPanel style={styles.commandPanel}>

@@ -14,6 +14,8 @@ import {
 } from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
+import { useIncrementalList } from '../../hooks/useIncrementalList';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -34,17 +36,37 @@ export const VibeCodingListScreen: React.FC = () => {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | VibeStatus>('all');
 
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredDevices = devices.filter(device => {
+    return (
+      !normalizedQuery ||
+      device.name.toLowerCase().includes(normalizedQuery) ||
+      device.host.toLowerCase().includes(normalizedQuery) ||
+      device.location.toLowerCase().includes(normalizedQuery)
+    );
+  });
   const filtered = vibeRuns.filter(session => {
     const project = projects.find(item => item.id === session.projectId);
     const device = devices.find(item => item.id === session.deviceId);
     const matchesQuery =
-      session.title.toLowerCase().includes(query.toLowerCase()) ||
-      session.objective.toLowerCase().includes(query.toLowerCase()) ||
-      Boolean(project?.name.toLowerCase().includes(query.toLowerCase())) ||
-      Boolean(device?.name.toLowerCase().includes(query.toLowerCase())) ||
-      Boolean(device?.host.toLowerCase().includes(query.toLowerCase()));
+      !normalizedQuery ||
+      session.title.toLowerCase().includes(normalizedQuery) ||
+      session.objective.toLowerCase().includes(normalizedQuery) ||
+      Boolean(project?.name.toLowerCase().includes(normalizedQuery)) ||
+      Boolean(device?.name.toLowerCase().includes(normalizedQuery)) ||
+      Boolean(device?.host.toLowerCase().includes(normalizedQuery));
     const matchesFilter = filter === 'all' || session.status === filter;
     return matchesQuery && matchesFilter;
+  }).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  const deviceList = useIncrementalList(filteredDevices, {
+    initialCount: 8,
+    step: 10,
+    resetKey: normalizedQuery,
+  });
+  const sessionList = useIncrementalList(filtered, {
+    initialCount: 10,
+    step: 12,
+    resetKey: `${normalizedQuery}:${filter}`,
   });
 
   return (
@@ -86,23 +108,18 @@ export const VibeCodingListScreen: React.FC = () => {
           ]}>
           REGISTERED AGENTS
         </Text>
-        {devices
-          .filter(device => {
-            const normalized = query.toLowerCase();
-            return (
-              !normalized ||
-              device.name.toLowerCase().includes(normalized) ||
-              device.host.toLowerCase().includes(normalized) ||
-              device.location.toLowerCase().includes(normalized)
-            );
-          })
-          .map(device => (
+        {deviceList.visibleItems.map(device => (
             <DeviceControlCard
               key={device.id}
               device={device}
               onPress={() => navigation.navigate('DeviceDetail', { deviceId: device.id })}
             />
           ))}
+        <LoadMoreRow
+          visibleCount={deviceList.visibleCount}
+          totalCount={deviceList.totalCount}
+          onPress={deviceList.showMore}
+        />
 
         <View style={styles.sectionHeader}>
           <Text
@@ -172,7 +189,7 @@ export const VibeCodingListScreen: React.FC = () => {
           />
         </View>
 
-        {filtered.map(session => (
+        {sessionList.visibleItems.map(session => (
           <VibeSessionCard
             key={session.id}
             session={session}
@@ -183,6 +200,11 @@ export const VibeCodingListScreen: React.FC = () => {
             }
           />
         ))}
+        <LoadMoreRow
+          visibleCount={sessionList.visibleCount}
+          totalCount={sessionList.totalCount}
+          onPress={sessionList.showMore}
+        />
       </ScrollView>
     </SafeAreaWrapper>
   );

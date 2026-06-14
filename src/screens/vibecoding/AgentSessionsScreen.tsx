@@ -24,6 +24,8 @@ import {
   useControlCenterStore,
 } from '../../store/controlCenterStore';
 import { IconBadge } from '../../components/visual/IconBadge';
+import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
+import { useIncrementalList } from '../../hooks/useIncrementalList';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type AgentSessionsRoute = RouteProp<RootStackParamList, 'AgentSessions'>;
@@ -80,9 +82,29 @@ export const AgentSessionsScreen: React.FC = () => {
     project?.path ??
     uniqueStrings(device?.authorizedDirectories ?? [])[0] ??
     '~';
-  const sessions = vibeRuns.filter(run =>
-    route.params?.deviceId ? run.deviceId === route.params.deviceId : true,
-  );
+  const sessions = vibeRuns
+    .filter(run =>
+      route.params?.deviceId ? run.deviceId === route.params.deviceId : true,
+    )
+    .filter(run =>
+      route.params?.projectId ? run.projectId === route.params.projectId : true,
+    )
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  const agentList = useIncrementalList(devices, {
+    initialCount: 8,
+    step: 10,
+    resetKey: route.params?.deviceId ?? 'all',
+  });
+  const projectOptionList = useIncrementalList(availableProjects, {
+    initialCount: 6,
+    step: 8,
+    resetKey: device?.id ?? 'none',
+  });
+  const sessionList = useIncrementalList(sessions, {
+    initialCount: 8,
+    step: 10,
+    resetKey: `${route.params?.deviceId ?? 'all'}:${route.params?.projectId ?? 'all'}`,
+  });
 
   const handleStart = async () => {
     if (!device || !objective.trim()) {
@@ -137,13 +159,20 @@ export const AgentSessionsScreen: React.FC = () => {
           />
         </View>
         {devices.length ? (
-          devices.map(item => (
+          <>
+          {agentList.visibleItems.map(item => (
             <DeviceControlCard
               key={item.id}
               device={item}
               onPress={() => navigation.navigate('DeviceDetail', { deviceId: item.id })}
             />
-          ))
+          ))}
+          <LoadMoreRow
+            visibleCount={agentList.visibleCount}
+            totalCount={agentList.totalCount}
+            onPress={agentList.showMore}
+          />
+          </>
         ) : (
           <GlassPanel style={styles.emptyAgentCard}>
             <IconBadge name="agent" tone="neutral" size={42} iconSize={21} />
@@ -221,7 +250,7 @@ export const AgentSessionsScreen: React.FC = () => {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.selectorRow}>
-            {devices.map(item => {
+            {agentList.visibleItems.map(item => {
               const active = item.id === device?.id;
               return (
                 <TouchableOpacity
@@ -253,12 +282,19 @@ export const AgentSessionsScreen: React.FC = () => {
               );
             })}
           </ScrollView>
+          <LoadMoreRow
+            visibleCount={agentList.visibleCount}
+            totalCount={agentList.totalCount}
+            onPress={agentList.showMore}
+          />
 
           <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
             PROJECT
           </Text>
           <View style={styles.projectGrid}>
-            {availableProjects.length ? availableProjects.map(item => {
+            {availableProjects.length ? (
+              <>
+              {projectOptionList.visibleItems.map(item => {
               const active = item.id === project?.id;
               return (
                 <TouchableOpacity
@@ -294,7 +330,14 @@ export const AgentSessionsScreen: React.FC = () => {
 	                  </Text>
 	                </TouchableOpacity>
 	              );
-	            }) : (
+	            })}
+              <LoadMoreRow
+                visibleCount={projectOptionList.visibleCount}
+                totalCount={projectOptionList.totalCount}
+                onPress={projectOptionList.showMore}
+              />
+              </>
+            ) : (
 	              <View style={styles.inlineEmptyPanel}>
 	                <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
 	                  No project reported
@@ -341,7 +384,7 @@ export const AgentSessionsScreen: React.FC = () => {
           ACTIVE AND RECENT SESSIONS
         </Text>
 
-        {sessions.map(session => {
+        {sessionList.visibleItems.map(session => {
           const sessionProject = projects.find(item => item.id === session.projectId);
           const sessionDevice = devices.find(item => item.id === session.deviceId);
           const budgetLabel = session.projectBudget
@@ -425,6 +468,11 @@ export const AgentSessionsScreen: React.FC = () => {
             </GlassPanel>
           );
         })}
+        <LoadMoreRow
+          visibleCount={sessionList.visibleCount}
+          totalCount={sessionList.totalCount}
+          onPress={sessionList.showMore}
+        />
       </ScrollView>
     </SafeAreaWrapper>
   );
