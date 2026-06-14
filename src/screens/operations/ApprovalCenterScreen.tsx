@@ -13,6 +13,7 @@ import { ApprovalRequest, useControlCenterStore } from '../../store/controlCente
 import { IconBadge, IconName } from '../../components/visual/IconBadge';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { newestFirst } from '../../utils/timeSort';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -55,7 +56,7 @@ export const ApprovalCenterScreen: React.FC = () => {
       return item.status !== 'pending';
     }
     return true;
-  }).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }).sort((left, right) => newestFirst(left.createdAt, right.createdAt));
   const approvalList = useIncrementalList(filtered, {
     initialCount: 16,
     step: 16,

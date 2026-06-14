@@ -26,6 +26,7 @@ import {
 import { IconBadge } from '../../components/visual/IconBadge';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { newestFirst } from '../../utils/timeSort';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type AgentSessionsRoute = RouteProp<RootStackParamList, 'AgentSessions'>;
@@ -89,7 +90,7 @@ export const AgentSessionsScreen: React.FC = () => {
     .filter(run =>
       route.params?.projectId ? run.projectId === route.params.projectId : true,
     )
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    .sort((left, right) => newestFirst(left.updatedAt, right.updatedAt));
   const agentList = useIncrementalList(devices, {
     initialCount: 8,
     step: 10,

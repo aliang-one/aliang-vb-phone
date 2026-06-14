@@ -17,6 +17,7 @@ import { RingMeter } from '../../components/visual/RingMeter';
 import { Project, VibeStatus } from '../../data/platformModels';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { newestFirst } from '../../utils/timeSort';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DeviceRoute = RouteProp<RootStackParamList, 'DeviceDetail'>;
@@ -77,10 +78,14 @@ export const DeviceDetailScreen: React.FC = () => {
   const projects = useMemo(
     () => {
       if (!device) return [];
-      return projectsStore.filter(
-        project =>
-          project.deviceId === device.id || device.projectIds.includes(project.id),
-      );
+      return projectsStore
+        .filter(
+          project =>
+            project.deviceId === device.id || device.projectIds.includes(project.id),
+        )
+        .sort((left, right) =>
+          newestFirst(left.lastDeploy, right.lastDeploy),
+        );
     },
     [projectsStore, device],
   );
@@ -93,7 +98,7 @@ export const DeviceDetailScreen: React.FC = () => {
           const leftActive = activeSessionStatuses.includes(left.status) ? 0 : 1;
           const rightActive = activeSessionStatuses.includes(right.status) ? 0 : 1;
           if (leftActive !== rightActive) return leftActive - rightActive;
-          return right.updatedAt.localeCompare(left.updatedAt);
+          return newestFirst(left.updatedAt, right.updatedAt);
         });
     },
     [vibeRuns, device],
@@ -110,11 +115,16 @@ export const DeviceDetailScreen: React.FC = () => {
     step: 12,
     resetKey: device?.id ?? 'missing',
   });
-  const workspaceList = useIncrementalList(device?.history ?? [], {
+  const workspaceList = useIncrementalList(
+    [...(device?.history ?? [])].sort((left, right) =>
+      newestFirst(left.updated_at, right.updated_at),
+    ),
+    {
     initialCount: 8,
     step: 12,
     resetKey: device?.id ?? 'missing',
-  });
+    },
+  );
   const directoryList = useIncrementalList(device?.authorizedDirectories ?? [], {
     initialCount: 8,
     step: 12,

@@ -16,6 +16,7 @@ import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { newestFirst } from '../../utils/timeSort';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -57,7 +58,7 @@ export const VibeCodingListScreen: React.FC = () => {
       Boolean(device?.host.toLowerCase().includes(normalizedQuery));
     const matchesFilter = filter === 'all' || session.status === filter;
     return matchesQuery && matchesFilter;
-  }).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }).sort((left, right) => newestFirst(left.updatedAt, right.updatedAt));
   const deviceList = useIncrementalList(filteredDevices, {
     initialCount: 8,
     step: 10,

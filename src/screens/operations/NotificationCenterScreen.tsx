@@ -15,6 +15,7 @@ import {
 import { IconBadge, IconName } from '../../components/visual/IconBadge';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { newestFirst } from '../../utils/timeSort';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -55,7 +56,9 @@ export const NotificationCenterScreen: React.FC = () => {
   );
   const unreadCount = notifications.filter(item => !item.read).length;
   const notificationList = useIncrementalList(
-    [...notifications].sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+    [...notifications].sort((left, right) =>
+      newestFirst(left.createdAt, right.createdAt),
+    ),
     {
       initialCount: 12,
       step: 16,

@@ -14,6 +14,7 @@ import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { newestFirst } from '../../utils/timeSort';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type ProjectRoute = RouteProp<RootStackParamList, 'ProjectDetail'>;
@@ -38,7 +39,7 @@ export const ProjectDetailScreen: React.FC = () => {
           (Boolean(project.path) &&
             session.deviceId === device?.id &&
             session.directory === project.path),
-      ).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      ).sort((left, right) => newestFirst(left.updatedAt, right.updatedAt))
     : [];
   const sessionList = useIncrementalList(sessions, {
     initialCount: 6,

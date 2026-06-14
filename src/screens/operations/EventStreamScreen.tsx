@@ -17,6 +17,7 @@ import {
 } from '../../store/controlCenterStore';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { newestFirst } from '../../utils/timeSort';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type EventStreamRoute = RouteProp<RootStackParamList, 'EventStream'>;
@@ -76,7 +77,7 @@ export const EventStreamScreen: React.FC = () => {
     const matchesSession =
       !route.params?.sessionId || item.sessionId === route.params.sessionId;
     return matchesType && matchesDevice && matchesSession;
-  }).sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+  }).sort((left, right) => newestFirst(left.timestamp, right.timestamp));
   const eventList = useIncrementalList(filtered, {
     initialCount: 24,
     step: 24,

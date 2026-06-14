@@ -25,6 +25,7 @@ import {
 } from '../../store/controlCenterStore';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { newestFirst } from '../../utils/timeSort';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -109,15 +110,14 @@ export const CommandCenterScreen: React.FC = () => {
   const recentAgentRuns = useMemo(
     () =>
       [...vibeRuns].sort((left, right) =>
-        getRelativeMinutes(left.updatedAt) - getRelativeMinutes(right.updatedAt),
+        newestFirst(left.updatedAt, right.updatedAt),
       ),
     [vibeRuns],
   );
   const projectWorkspace = useMemo(
     () =>
       [...projects].sort((left, right) =>
-        getRelativeMinutes(left.lastDeploy ?? '') -
-        getRelativeMinutes(right.lastDeploy ?? ''),
+        newestFirst(left.lastDeploy, right.lastDeploy),
       ),
     [projects],
   );
