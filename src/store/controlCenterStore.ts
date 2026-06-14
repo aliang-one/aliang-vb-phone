@@ -19,6 +19,9 @@ import {
   type PlatformProjectFileContentSnapshot,
   type PlatformProjectFileListSnapshot,
   type PlatformProjectSnapshot,
+  type PlatformPreviewSnapshot,
+  type PlatformRealtimeEventSnapshot,
+  type PlatformTerminalSessionSnapshot,
   type PlatformTransportEvent,
 } from '../services/platformTransport';
 
@@ -44,12 +47,14 @@ export type AgentProvider = 'claude_code' | 'codex';
 export type UnifiedEventType =
   | 'terminal.output'
   | 'agent.delta'
+  | 'platform.event'
   | 'command.started'
   | 'command.completed'
   | 'approval.requested'
   | 'file.changed'
   | 'device.bound'
   | 'device.offline'
+  | 'project.updated'
   | 'project.scan.completed'
   | 'agent.session.started'
   | 'agent.session.paused'
@@ -210,36 +215,59 @@ interface ControlCenterState {
   events: UnifiedEvent[];
   projectFiles: ProjectFileEntry[];
   // Actions
-  initializeFromServer: () => Promise<void>;
+  initializeFromServer: (token?: string) => Promise<void>;
   disconnectFromServer: () => void;
   resetSessionData: () => void;
   handleTransportEvent: (event: PlatformTransportEvent) => void;
   bindDevice: (input: BindDeviceInput) => Promise<BindDeviceResult>;
-  renameDevice: (deviceId: string, name: string) => BindDeviceResult;
+  renameDevice: (deviceId: string, name: string) => Promise<BindDeviceResult>;
   scanDeviceProjects: (deviceId: string) => Promise<void>;
+  createProject: (input: {
+    deviceId: string;
+    path: string;
+    name?: string;
+    language?: string;
+    description?: string;
+  }) => Promise<string>;
+  updateProject: (projectId: string, input: Partial<{
+    name: string;
+    path: string;
+    branch: string;
+    language: string;
+    description: string;
+    status: 'active' | 'idle' | 'error' | 'fresh';
+  }>) => Promise<void>;
+  deleteProject: (projectId: string) => Promise<void>;
   loadProjectFiles: (projectId: string, path?: string) => Promise<void>;
   loadProjectFileContent: (projectId: string, path: string) => Promise<void>;
-  createTerminalSession: (deviceId: string, directory?: string) => string;
+  createTerminalSession: (deviceId: string, directory?: string) => Promise<string>;
   executeTerminalCommand: (terminalId: string, command: string) => void;
   clearTerminal: (terminalId: string) => void;
-  stopTerminal: (terminalId: string) => void;
+  stopTerminal: (terminalId: string) => Promise<void>;
   startAgentSession: (input: StartAgentInput) => Promise<string>;
-  pauseAgentSession: (sessionId: string) => void;
-  resumeAgentSession: (sessionId: string) => void;
-  terminateAgentSession: (sessionId: string) => void;
-  deleteAgentSession: (sessionId: string) => void;
+  pauseAgentSession: (sessionId: string) => Promise<void>;
+  resumeAgentSession: (sessionId: string) => Promise<void>;
+  terminateAgentSession: (sessionId: string) => Promise<void>;
+  updateAgentSession: (sessionId: string, input: Partial<{
+    title: string;
+    objective: string;
+    status: 'idle' | 'running' | 'paused' | 'error' | 'closed';
+    currentStep: string;
+    risk: 'low' | 'medium' | 'high';
+  }>) => Promise<void>;
+  deleteAgentSession: (sessionId: string) => Promise<void>;
   appendAgentMessage: (
     sessionId: string,
     content: string,
     mode: 'voice' | 'text',
   ) => void;
-  resolveApproval: (approvalId: string, decision: 'approved' | 'denied') => void;
+  resolveApproval: (approvalId: string, decision: 'approved' | 'denied') => Promise<void>;
   markNotificationRead: (notificationId: string) => void;
   markAllNotificationsRead: () => void;
   createPtySession: (deviceId: string, options?: { cwd?: string; cols?: number; rows?: number }) => Promise<string>;
   sendTerminalInput: (sessionId: string, data: string, encoding?: string) => void;
   resizeTerminal: (sessionId: string, cols: number, rows: number) => void;
-  closeTerminalSession: (sessionId: string) => void;
+  closeTerminalSession: (sessionId: string) => Promise<void>;
 }
 
 // --- Helpers ---
@@ -405,6 +433,7 @@ function mapSessionStatus(status: string): VibeStatus {
   switch (status) {
     case 'active': return 'running';
     case 'creating': return 'running';
+    case 'paused': return 'paused';
     case 'error': return 'failed';
     case 'closed': return 'completed';
     default: return 'idle';
@@ -428,6 +457,210 @@ function serverApprovalToClient(sa: PlatformApprovalSnapshot): ApprovalRequest {
     createdAt: sa.created_at,
     resolvedAt: sa.resolved_at,
   };
+}
+
+function mapTerminalStatus(status: PlatformTerminalSessionSnapshot['status']): TerminalSessionStatus {
+  switch (status) {
+    case 'creating':
+      return 'idle';
+    case 'active':
+      return 'running';
+    case 'error':
+      return 'failed';
+    case 'closed':
+      return 'completed';
+    default:
+      return 'idle';
+  }
+}
+
+function serverTerminalSessionToClient(session: PlatformTerminalSessionSnapshot): TerminalSession {
+  return {
+    id: session.session_id,
+    deviceId: session.device_id,
+    directory: session.cwd ?? '~',
+    shell: session.shell ?? 'zsh',
+    status: mapTerminalStatus(session.status),
+    lines: [
+      line(
+        'system',
+        `Terminal session restored from platform state (${session.status}).`,
+      ),
+    ],
+    createdAt: session.created_at,
+    updatedAt: session.last_active_at,
+  };
+}
+
+function serverPreviewToClient(preview: PlatformPreviewSnapshot): PreviewLink {
+  const access = ['private', 'team', 'public'].includes(preview.access)
+    ? preview.access as PreviewLink['access']
+    : 'private';
+  return {
+    id: preview.id,
+    sessionId: preview.sessionId,
+    port: preview.port,
+    shortUrl: preview.shortUrl,
+    targetUrl: preview.targetUrl,
+    expiresIn: preview.expiresIn ?? '',
+    access,
+  };
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value && typeof value === 'object' && !Array.isArray(value));
+
+const payloadString = (payload: Record<string, unknown> | undefined, key: string) => {
+  const value = payload?.[key];
+  return typeof value === 'string' ? value : undefined;
+};
+
+function primitivePayload(payload: unknown): UnifiedEvent['payload'] {
+  if (!isRecord(payload)) return undefined;
+  const entries = Object.entries(payload)
+    .filter(([, value]) =>
+      value === undefined ||
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean',
+    )
+    .slice(0, 8);
+  return entries.length ? Object.fromEntries(entries) as UnifiedEvent['payload'] : undefined;
+}
+
+function realtimeMessageTypeToEventType(
+  messageType: string,
+  payload: Record<string, unknown> | undefined,
+): UnifiedEventType {
+  if (messageType === 'device.updated') {
+    const device = isRecord(payload?.device) ? payload.device : undefined;
+    return payloadString(device, 'status') === 'offline' ? 'device.offline' : 'device.bound';
+  }
+  if (messageType === 'project.updated') return 'project.updated';
+  if (messageType === 'projects.updated') return 'project.scan.completed';
+  if (messageType === 'ai.delta') return 'agent.delta';
+  if (messageType === 'ai.done') return 'agent.session.completed';
+  if (messageType === 'ai.error') return 'agent.session.failed';
+  if (messageType === 'ai.session.created' || messageType === 'ai.session.updated') {
+    return 'agent.session.started';
+  }
+  if (messageType === 'ai.session.deleted') return 'agent.session.terminated';
+  if (messageType === 'ai.sessions.updated') return 'agent.session.started';
+  if (messageType === 'terminal.output') return 'terminal.output';
+  if (messageType.startsWith('terminal.')) return 'command.completed';
+  if (messageType === 'approval.requested') return 'approval.requested';
+  if (messageType === 'preview.ready') return 'agent.delta';
+  return 'platform.event';
+}
+
+function realtimeMessageStatus(messageType: string): UnifiedEventStatus {
+  if (messageType === 'ai.error' || messageType === 'terminal.error') return 'failed';
+  if (messageType === 'approval.requested') return 'waiting';
+  if (messageType === 'ai.delta' || messageType === 'terminal.output') return 'running';
+  return 'done';
+}
+
+function realtimeMessageTitle(
+  messageType: string,
+  payload: Record<string, unknown> | undefined,
+): string {
+  const project = isRecord(payload?.project) ? payload.project : undefined;
+  const device = isRecord(payload?.device) ? payload.device : undefined;
+  const approval = isRecord(payload?.approval) ? payload.approval : undefined;
+  if (messageType === 'project.updated') return payloadString(project, 'name') ?? 'Project updated';
+  if (messageType === 'device.updated') return payloadString(device, 'name') ?? 'Device updated';
+  if (messageType === 'approval.requested') return payloadString(approval, 'title') ?? 'Approval requested';
+  if (messageType === 'ai.done') return 'VibeCoding completed';
+  if (messageType === 'ai.error') return 'VibeCoding failed';
+  if (messageType === 'preview.ready') return 'Preview ready';
+  return messageType;
+}
+
+function realtimeMessageDetail(
+  message: PlatformRealtimeEventSnapshot,
+  payload: Record<string, unknown> | undefined,
+): string {
+  const project = isRecord(payload?.project) ? payload.project : undefined;
+  const device = isRecord(payload?.device) ? payload.device : undefined;
+  const approval = isRecord(payload?.approval) ? payload.approval : undefined;
+  return (
+    payloadString(payload, 'detail') ??
+    payloadString(payload, 'delta') ??
+    payloadString(payload, 'error') ??
+    payloadString(project, 'path') ??
+    payloadString(device, 'host') ??
+    payloadString(approval, 'summary') ??
+    message.direction
+  );
+}
+
+function realtimeEventToUnifiedEvent(message: PlatformRealtimeEventSnapshot): UnifiedEvent {
+  const payload = isRecord(message.payload) ? message.payload : undefined;
+  return {
+    id: message.id,
+    type: realtimeMessageTypeToEventType(message.message_type, payload),
+    title: realtimeMessageTitle(message.message_type, payload),
+    detail: realtimeMessageDetail(message, payload),
+    status: realtimeMessageStatus(message.message_type),
+    deviceId: message.device_id,
+    sessionId: message.session_id,
+    timestamp: message.created_at,
+    payload: primitivePayload(message.payload),
+  };
+}
+
+function notificationsFromServerState(
+  devices: Device[],
+  vibeRuns: VibeCodingRun[],
+  approvals: ApprovalRequest[],
+  readIds: Set<string>,
+): PushNotificationItem[] {
+  const approvalNotifications = approvals
+    .filter(item => item.status === 'pending')
+    .map(item => ({
+      ...notification('approval', item.title, item.summary, {
+        id: `approval:${item.id}`,
+        deviceId: item.deviceId,
+        sessionId: item.sessionId,
+        approvalId: item.id,
+        createdAt: item.createdAt,
+      }),
+      read: readIds.has(`approval:${item.id}`),
+    }));
+
+  const sessionNotifications = vibeRuns
+    .filter(item => item.status === 'completed' || item.status === 'failed')
+    .slice(0, 20)
+    .map(item => ({
+      ...notification(
+        item.status === 'completed' ? 'completed' : 'error',
+        item.status === 'completed' ? 'VibeCoding completed' : 'VibeCoding failed',
+        item.title,
+        {
+          id: `session:${item.id}:${item.status}`,
+          deviceId: item.deviceId,
+          sessionId: item.id,
+          createdAt: item.updatedAt,
+        },
+      ),
+      read: readIds.has(`session:${item.id}:${item.status}`),
+    }));
+
+  const offlineNotifications = devices
+    .filter(item => item.status === 'offline')
+    .slice(0, 12)
+    .map(item => ({
+      ...notification('device_offline', 'Device offline', item.name, {
+        id: `device:${item.id}:offline`,
+        deviceId: item.id,
+        createdAt: item.lastSeen,
+      }),
+      read: readIds.has(`device:${item.id}:offline`),
+    }));
+
+  return [...approvalNotifications, ...sessionNotifications, ...offlineNotifications]
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, 120);
 }
 
 const fileNameFromPath = (pathValue: string) =>
@@ -589,7 +822,10 @@ export const useControlCenterStore = create<ControlCenterState>()(
 
 	      // --- Server initialization ---
 
-	      initializeFromServer: async () => {
+	      initializeFromServer: async (token) => {
+	        const readNotificationIds = new Set(
+	          get().notifications.filter(item => item.read).map(item => item.id),
+	        );
 	        platformTransport.disconnect();
 	        set({ ...emptySessionData(), serverMode: true, wsConnected: false });
 
@@ -607,6 +843,23 @@ export const useControlCenterStore = create<ControlCenterState>()(
 	          const approvals = snapshot.approvals
 	            .filter(approval => knownDeviceIds.has(approval.device_id))
 	            .map(serverApprovalToClient);
+	          const terminalSessions = snapshot.terminalSessions
+	            .filter(session => knownDeviceIds.has(session.device_id))
+	            .map(serverTerminalSessionToClient);
+	          const knownSessionIds = new Set(vibeRuns.map(session => session.id));
+	          const previewLinks = snapshot.previewLinks
+	            .filter(preview => knownSessionIds.has(preview.sessionId))
+	            .map(serverPreviewToClient);
+	          const realtimeEvents = snapshot.realtimeEvents
+	            .map(realtimeEventToUnifiedEvent)
+	            .filter(item => !item.deviceId || knownDeviceIds.has(item.deviceId))
+	            .slice(0, 120);
+	          const notifications = notificationsFromServerState(
+	            devices,
+	            vibeRuns,
+	            approvals,
+	            readNotificationIds,
+	          );
 	          const warningEvents = snapshot.warnings.map(detail =>
 	            event('command.completed', 'Partial platform sync', detail, 'failed'),
 	          );
@@ -615,15 +868,18 @@ export const useControlCenterStore = create<ControlCenterState>()(
             devices,
             projects,
             vibeRuns,
+            terminalSessions,
             approvals,
-            events: warningEvents,
+            previewLinks,
+            notifications,
+            events: [...warningEvents, ...realtimeEvents].slice(0, 120),
           });
 
-          console.log(`[store] Initialized from server: ${devices.length} devices, ${projects.length} projects, ${vibeRuns.length} AI sessions, ${approvals.length} approvals`);
+          console.log(`[store] Initialized from server: ${devices.length} devices, ${projects.length} projects, ${vibeRuns.length} AI sessions, ${terminalSessions.length} terminals, ${approvals.length} approvals`);
 
           platformTransport.connect(transportEvent => {
             get().handleTransportEvent(transportEvent);
-          });
+          }, token);
         } catch (error) {
           console.warn('[store] Failed to initialize from server:', error);
           platformTransport.disconnect();
@@ -851,6 +1107,49 @@ export const useControlCenterStore = create<ControlCenterState>()(
             }));
             return;
 
+          case 'ai.session.updated': {
+            set(state => {
+              const nextRun = serverAiSessionToVibeRun(
+                transportEvent.session,
+                state.devices,
+                state.projects,
+              );
+              const exists = state.vibeRuns.some(run => run.id === nextRun.id);
+              const vibeRuns = exists
+                ? state.vibeRuns.map(run => run.id === nextRun.id ? nextRun : run)
+                : [nextRun, ...state.vibeRuns];
+              return {
+                vibeRuns,
+                devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
+                events: [
+                  event('agent.session.started', 'VibeCoding updated', nextRun.title, 'running', {
+                    deviceId: nextRun.deviceId,
+                    projectId: nextRun.projectId,
+                    sessionId: nextRun.id,
+                  }),
+                  ...state.events,
+                ].slice(0, 120),
+              };
+            });
+            return;
+          }
+
+          case 'ai.session.deleted':
+            set(state => ({
+              vibeRuns: state.vibeRuns.filter(run => run.id !== transportEvent.sessionId),
+              devices: state.devices.map(device => ({
+                ...device,
+                activeSessionIds: device.activeSessionIds.filter(id => id !== transportEvent.sessionId),
+              })),
+              events: [
+                event('agent.session.terminated', 'VibeCoding deleted', transportEvent.sessionId, 'done', {
+                  sessionId: transportEvent.sessionId,
+                }),
+                ...state.events,
+              ].slice(0, 120),
+            }));
+            return;
+
 	          case 'ai.sessions.updated':
 	            if (get().serverMode) {
 	              platformTransport.loadAiSessions().then(serverSessions => {
@@ -975,6 +1274,47 @@ export const useControlCenterStore = create<ControlCenterState>()(
             return;
           }
 
+          case 'project.updated': {
+            const nextProject = serverProjectToClient(transportEvent.project);
+            set(state => {
+              const exists = state.projects.some(project => project.id === nextProject.id);
+              const projects = exists
+                ? state.projects.map(project => project.id === nextProject.id ? nextProject : project)
+                : [nextProject, ...state.projects];
+              return {
+                projects,
+                devices: attachDeviceRelations(state.devices, projects, state.vibeRuns),
+                events: [
+                  event('project.updated', 'Project updated', nextProject.path, 'done', {
+                    deviceId: nextProject.deviceId,
+                    projectId: nextProject.id,
+                  }),
+                  ...state.events,
+                ].slice(0, 120),
+              };
+            });
+            return;
+          }
+
+          case 'project.deleted':
+            set(state => {
+              const projects = state.projects.filter(project => project.id !== transportEvent.projectId);
+              const vibeRuns = state.vibeRuns.filter(run => run.projectId !== transportEvent.projectId);
+              return {
+                projects,
+                vibeRuns,
+                devices: attachDeviceRelations(state.devices, projects, vibeRuns),
+                projectFiles: state.projectFiles.filter(file => file.projectId !== transportEvent.projectId),
+                events: [
+                  event('project.updated', 'Project deleted', transportEvent.projectId, 'done', {
+                    projectId: transportEvent.projectId,
+                  }),
+                  ...state.events,
+                ].slice(0, 120),
+              };
+            });
+            return;
+
 	          case 'projects.updated':
 	            if (get().serverMode) {
 	              platformTransport.loadProjects().then(serverProjects => {
@@ -1040,7 +1380,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
         };
       },
 
-      renameDevice: (deviceId, name) => {
+      renameDevice: async (deviceId, name) => {
         const trimmed = name.trim();
         const duplicate = get().devices.some(
           device =>
@@ -1055,10 +1395,26 @@ export const useControlCenterStore = create<ControlCenterState>()(
           };
         }
 
+        if (!get().serverMode) {
+          return {
+            ok: false,
+            error: 'Platform connection is required before renaming a device.',
+          };
+        }
+
+        const updated = platformDeviceToClient(
+          await platformTransport.updateDeviceSettings(deviceId, { name: trimmed }),
+        );
         set(state => ({
-          devices: state.devices.map(device =>
-            device.id === deviceId ? { ...device, name: trimmed } : device,
+          devices: attachDeviceRelations(
+            state.devices.map(device => device.id === deviceId ? updated : device),
+            state.projects,
+            state.vibeRuns,
           ),
+          events: [
+            event('device.bound', 'Device renamed', updated.name, 'done', { deviceId }),
+            ...state.events,
+          ].slice(0, 120),
         }));
 
         return { ok: true, deviceId };
@@ -1074,6 +1430,76 @@ export const useControlCenterStore = create<ControlCenterState>()(
           }
           return;
         }
+      },
+
+      createProject: async input => {
+        if (!get().serverMode) {
+          throw new Error('Platform connection is required before creating a project.');
+        }
+        const serverProject = await platformTransport.createProject({
+          device_id: input.deviceId,
+          path: input.path,
+          name: input.name,
+          language: input.language,
+          description: input.description,
+          status: 'fresh',
+          source_tools: ['mobile'],
+        });
+        const project = serverProjectToClient(serverProject);
+        set(state => {
+          const projects = [project, ...state.projects.filter(item => item.id !== project.id)];
+          return {
+            projects,
+            devices: attachDeviceRelations(state.devices, projects, state.vibeRuns),
+            events: [
+              event('project.updated', 'Project created', project.path, 'done', {
+                deviceId: project.deviceId,
+                projectId: project.id,
+              }),
+              ...state.events,
+            ].slice(0, 120),
+          };
+        });
+        return project.id;
+      },
+
+      updateProject: async (projectId, input) => {
+        if (!get().serverMode) {
+          throw new Error('Platform connection is required before updating a project.');
+        }
+        const serverProject = await platformTransport.updateProject(projectId, {
+          name: input.name,
+          path: input.path,
+          branch: input.branch,
+          language: input.language,
+          description: input.description,
+          status: input.status,
+        });
+        const project = serverProjectToClient(serverProject);
+        set(state => {
+          const projects = state.projects.map(item => item.id === project.id ? project : item);
+          return {
+            projects,
+            devices: attachDeviceRelations(state.devices, projects, state.vibeRuns),
+          };
+        });
+      },
+
+      deleteProject: async projectId => {
+        if (!get().serverMode) {
+          throw new Error('Platform connection is required before deleting a project.');
+        }
+        await platformTransport.deleteProject(projectId);
+        set(state => {
+          const projects = state.projects.filter(item => item.id !== projectId);
+          const vibeRuns = state.vibeRuns.filter(run => run.projectId !== projectId);
+          return {
+            projects,
+            vibeRuns,
+            projectFiles: state.projectFiles.filter(file => file.projectId !== projectId),
+            devices: attachDeviceRelations(state.devices, projects, vibeRuns),
+          };
+        });
       },
 
       loadProjectFiles: async (projectId, path) => {
@@ -1203,32 +1629,43 @@ export const useControlCenterStore = create<ControlCenterState>()(
         }
       },
 
-      createTerminalSession: (deviceId, directory) => {
+      createTerminalSession: async (deviceId, directory) => {
+        if (!get().serverMode) {
+          throw new Error('Platform connection is required before opening a terminal.');
+        }
         const device = get().devices.find(item => item.id === deviceId);
         const selectedDirectory =
           directory ?? device?.authorizedDirectories[0] ?? '~';
-        const terminalId = createId('term');
+        const serverSession = await platformTransport.createTerminalSession({
+          device_id: deviceId,
+          cwd: selectedDirectory,
+          cols: 80,
+          rows: 24,
+        });
+        const terminal = serverTerminalSessionToClient(serverSession);
 
         set(state => ({
           terminalSessions: [
             {
-              id: terminalId,
-              deviceId,
-              directory: selectedDirectory,
-              shell: device?.os.toLowerCase().includes('windows') ? 'pwsh' : 'zsh',
-              status: device?.status === 'offline' ? 'stopped' : 'idle',
+              ...terminal,
+              shell: terminal.shell || (device?.os.toLowerCase().includes('windows') ? 'pwsh' : 'zsh'),
               lines: [
                 line('system', device ? `Terminal session opened on ${device.name}.` : 'Device is unavailable.'),
                 line('system', `Working directory: ${selectedDirectory}`),
               ],
-              createdAt: nowTime(),
-              updatedAt: nowTime(),
             },
-            ...state.terminalSessions,
+            ...state.terminalSessions.filter(item => item.id !== terminal.id),
           ],
+          events: [
+            event('command.started', 'Terminal session opened', selectedDirectory, 'running', {
+              deviceId,
+              terminalId: terminal.id,
+            }),
+            ...state.events,
+          ].slice(0, 120),
         }));
 
-        return terminalId;
+        return terminal.id;
       },
 
       executeTerminalCommand: (terminalId, command) => {
@@ -1286,22 +1723,30 @@ export const useControlCenterStore = create<ControlCenterState>()(
         }));
       },
 
-      stopTerminal: terminalId => {
-        // Send close via WS or HTTP
-        if (get().serverMode) {
-          platformTransport.send({ type: 'terminal.close', session_id: terminalId });
+      stopTerminal: async terminalId => {
+        if (!get().serverMode) {
+          throw new Error('Platform connection is required before stopping a terminal.');
         }
+        const serverSession = await platformTransport.closeTerminalSession(terminalId);
+        const closed = serverTerminalSessionToClient(serverSession);
+        terminalOutputHandlers.delete(terminalId);
         set(state => ({
           terminalSessions: state.terminalSessions.map(item =>
             item.id === terminalId
               ? {
                   ...item,
-                  status: 'stopped',
-                  updatedAt: nowTime(),
-                  lines: [...item.lines, line('system', 'Process interrupted from mobile control.')],
+                  status: closed.status === 'completed' ? 'stopped' : closed.status,
+                  updatedAt: closed.updatedAt,
+                  lines: [...item.lines, line('system', 'Terminal session closed from mobile control.')],
                 }
               : item
           ),
+          events: [
+            event('command.completed', 'Terminal session closed', terminalId, 'done', {
+              terminalId,
+            }),
+            ...state.events,
+          ].slice(0, 120),
         }));
       },
 
@@ -1310,8 +1755,18 @@ export const useControlCenterStore = create<ControlCenterState>()(
 
         if (get().serverMode) {
           try {
+            let projectId = input.projectId;
+            if (!projectId) {
+              projectId = await get().createProject({
+                deviceId: input.deviceId,
+                path: input.directory,
+                name: fileNameFromPath(input.directory),
+                description: 'Created from mobile VibeCoding.',
+              });
+            }
             const session = await platformTransport.createAiSession({
               device_id: input.deviceId,
+              project_id: projectId || undefined,
               project_path: input.directory,
               mode: 'vibe',
               title: input.objective.slice(0, 44) || 'New VibeCoding session',
@@ -1321,13 +1776,13 @@ export const useControlCenterStore = create<ControlCenterState>()(
             });
 
             const sessionId = session.session_id;
-            const project = get().projects.find(item => item.id === input.projectId);
+            const project = get().projects.find(item => item.id === projectId);
 
             const nextRun: VibeCodingRun = {
               id: sessionId,
               title: session.title ?? input.objective.slice(0, 44),
               deviceId: input.deviceId,
-              projectId: input.projectId,
+              projectId,
               directory: input.directory,
               status: 'running',
               objective: input.objective,
@@ -1370,7 +1825,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
               events: [
                 event('agent.session.started', 'Agent session started', `${model} started in ${input.directory}.`, 'running', {
                   deviceId: input.deviceId,
-                  projectId: input.projectId,
+                  projectId,
                   sessionId,
                 }),
                 ...state.events,
@@ -1387,41 +1842,99 @@ export const useControlCenterStore = create<ControlCenterState>()(
         throw new Error('Platform connection is required to start a VibeCoding session.');
       },
 
-      pauseAgentSession: sessionId => {
-        if (get().serverMode) {
-          platformTransport.send({ type: 'ai.stop', session_id: sessionId });
+      pauseAgentSession: async sessionId => {
+        if (!get().serverMode) {
+          throw new Error('Platform connection is required before pausing a VibeCoding session.');
         }
-        set(state => ({
-          vibeRuns: state.vibeRuns.map(run =>
-            run.id === sessionId ? { ...run, status: 'paused' as VibeStatus, currentStep: 'Paused from mobile control.' } : run
-          ),
-        }));
+        const serverSession = await platformTransport.pauseAiSession(sessionId);
+        set(state => {
+          const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
+          const vibeRuns = state.vibeRuns.map(run => run.id === nextRun.id ? nextRun : run);
+          return {
+            vibeRuns,
+            devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
+            events: [
+              event('agent.session.paused', 'VibeCoding paused', nextRun.title, 'done', {
+                deviceId: nextRun.deviceId,
+                projectId: nextRun.projectId,
+                sessionId: nextRun.id,
+              }),
+              ...state.events,
+            ].slice(0, 120),
+          };
+        });
       },
 
-      resumeAgentSession: sessionId => {
-        set(state => ({
-          vibeRuns: state.vibeRuns.map(run =>
-            run.id === sessionId ? { ...run, status: 'running' as VibeStatus, currentStep: 'Agent resumed and is syncing workspace state.' } : run
-          ),
-        }));
-      },
-
-      terminateAgentSession: sessionId => {
-        if (get().serverMode) {
-          platformTransport.send({ type: 'ai.stop', session_id: sessionId });
+      resumeAgentSession: async sessionId => {
+        if (!get().serverMode) {
+          throw new Error('Platform connection is required before resuming a VibeCoding session.');
         }
-        set(state => ({
-          vibeRuns: state.vibeRuns.map(run =>
-            run.id === sessionId ? { ...run, status: 'completed' as VibeStatus, currentStep: 'Session terminated from mobile control.' } : run
-          ),
-          devices: state.devices.map(device => ({
-            ...device,
-            activeSessionIds: device.activeSessionIds.filter(id => id !== sessionId),
-          })),
-        }));
+        const serverSession = await platformTransport.resumeAiSession(sessionId);
+        set(state => {
+          const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
+          const vibeRuns = state.vibeRuns.map(run => run.id === nextRun.id ? nextRun : run);
+          return {
+            vibeRuns,
+            devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
+            events: [
+              event('agent.session.resumed', 'VibeCoding resumed', nextRun.title, 'running', {
+                deviceId: nextRun.deviceId,
+                projectId: nextRun.projectId,
+                sessionId: nextRun.id,
+              }),
+              ...state.events,
+            ].slice(0, 120),
+          };
+        });
       },
 
-      deleteAgentSession: sessionId => {
+      terminateAgentSession: async sessionId => {
+        if (!get().serverMode) {
+          throw new Error('Platform connection is required before terminating a VibeCoding session.');
+        }
+        const serverSession = await platformTransport.terminateAiSession(sessionId);
+        set(state => {
+          const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
+          const vibeRuns = state.vibeRuns.map(run => run.id === nextRun.id ? nextRun : run);
+          return {
+            vibeRuns,
+            devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
+            events: [
+              event('agent.session.terminated', 'VibeCoding terminated', nextRun.title, 'done', {
+                deviceId: nextRun.deviceId,
+                projectId: nextRun.projectId,
+                sessionId: nextRun.id,
+              }),
+              ...state.events,
+            ].slice(0, 120),
+          };
+        });
+      },
+
+      updateAgentSession: async (sessionId, input) => {
+        if (!get().serverMode) {
+          throw new Error('Platform connection is required before updating a VibeCoding session.');
+        }
+        const serverSession = await platformTransport.updateAiSession(sessionId, {
+          title: input.title,
+          objective: input.objective,
+          status: input.status,
+          current_step: input.currentStep,
+          risk: input.risk,
+        });
+        set(state => {
+          const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
+          return {
+            vibeRuns: state.vibeRuns.map(run => run.id === nextRun.id ? nextRun : run),
+          };
+        });
+      },
+
+      deleteAgentSession: async sessionId => {
+        if (!get().serverMode) {
+          throw new Error('Platform connection is required before deleting a VibeCoding session.');
+        }
+        await platformTransport.deleteAiSession(sessionId);
         set(state => ({
           vibeRuns: state.vibeRuns.filter(item => item.id !== sessionId),
           devices: state.devices.map(device => ({
@@ -1461,26 +1974,31 @@ export const useControlCenterStore = create<ControlCenterState>()(
         }));
       },
 
-      resolveApproval: (approvalId, decision) => {
+      resolveApproval: async (approvalId, decision) => {
         const approval = get().approvals.find(item => item.id === approvalId);
         if (!approval) return;
 
-        if (get().serverMode) {
-          platformTransport.respondApproval(approvalId, decision).catch(() => {});
+        if (!get().serverMode) {
+          throw new Error('Platform connection is required before resolving an approval.');
         }
 
+        const resolved = serverApprovalToClient(
+          await platformTransport.respondApproval(approvalId, decision),
+        );
         const approved = decision === 'approved';
         set(state => ({
           approvals: state.approvals.map(item =>
-            item.id === approvalId ? { ...item, status: decision, resolvedAt: nowTime() } : item
+            item.id === approvalId ? resolved : item
           ),
           notifications: [
             notification(approved ? 'completed' : 'error', approved ? 'Approval granted' : 'Approval denied', approval.title, {
+              id: `approval:${approvalId}:${decision}`,
               deviceId: approval.deviceId,
               approvalId,
+              createdAt: resolved.resolvedAt ?? nowTime(),
             }),
             ...state.notifications,
-          ],
+          ].slice(0, 120),
         }));
       },
 
@@ -1549,22 +2067,24 @@ export const useControlCenterStore = create<ControlCenterState>()(
         });
       },
 
-      closeTerminalSession: (sessionId) => {
-        platformTransport.send({
-          type: 'terminal.close',
-          session_id: sessionId,
-        });
+      closeTerminalSession: async (sessionId) => {
+        if (!get().serverMode) {
+          throw new Error('Platform connection is required before closing a terminal.');
+        }
+        const serverSession = await platformTransport.closeTerminalSession(sessionId);
+        const closed = serverTerminalSessionToClient(serverSession);
         terminalOutputHandlers.delete(sessionId);
         set(state => ({
           terminalSessions: state.terminalSessions.map(item =>
             item.id === sessionId
-              ? { ...item, status: 'stopped' as TerminalSessionStatus, updatedAt: nowTime() }
+              ? {
+                  ...item,
+                  status: closed.status === 'completed' ? 'stopped' as TerminalSessionStatus : closed.status,
+                  updatedAt: closed.updatedAt,
+                }
               : item
           ),
         }));
-        if (get().serverMode) {
-          platformTransport.closeTerminalSession(sessionId).catch(() => {});
-        }
       },
     }),
     {

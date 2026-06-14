@@ -1,13 +1,16 @@
 import {
-  fetchDevices,
   pairDevice as apiPairDevice,
+  updateDeviceSettings as apiUpdateDeviceSettings,
   type ServerDevice,
 } from '../api/devices';
 import {
+  createProject as apiCreateProject,
+  deleteProject as apiDeleteProject,
   fetchProjectFileContent,
   fetchProjectFiles,
   fetchProjects,
   scanDeviceProjects as apiScanProjects,
+  updateProject as apiUpdateProject,
   type ServerProjectFileContent,
   type ServerProjectFileList,
   type ServerProject,
@@ -15,17 +18,26 @@ import {
 import {
   closeTerminalSession as apiCloseTerminalSession,
   createAiSession as apiCreateAiSession,
+  deleteAiSession as apiDeleteAiSession,
   createTerminalSession as apiCreateTerminalSession,
   fetchAiSessions,
+  pauseAiSession as apiPauseAiSession,
+  resumeAiSession as apiResumeAiSession,
   sendAiMessage as apiSendAiMessage,
+  terminateAiSession as apiTerminateAiSession,
+  updateAiSession as apiUpdateAiSession,
   type ServerAiSession,
   type ServerTerminalSession,
 } from '../api/sessions';
 import {
-  fetchApprovals,
   respondApproval as apiRespondApproval,
   type ServerApproval,
 } from '../api/approvals';
+import {
+  fetchMobileSnapshot,
+  type ServerPreviewLink,
+  type ServerRealtimeEvent,
+} from '../api/platformState';
 import {
   connectMobileSocket,
   disconnectMobileSocket,
@@ -68,12 +80,17 @@ export type PlatformProjectFileListSnapshot = ServerProjectFileList;
 export type PlatformProjectFileContentSnapshot = ServerProjectFileContent;
 export type PlatformAiSessionSnapshot = ServerAiSession;
 export type PlatformApprovalSnapshot = ServerApproval;
+export type PlatformTerminalSessionSnapshot = ServerTerminalSession;
+export type PlatformRealtimeEventSnapshot = ServerRealtimeEvent;
 
 export interface PlatformSnapshot {
   devices: PlatformDeviceSnapshot[];
   projects: PlatformProjectSnapshot[];
   aiSessions: PlatformAiSessionSnapshot[];
+  terminalSessions: PlatformTerminalSessionSnapshot[];
   approvals: PlatformApprovalSnapshot[];
+  previewLinks: PlatformPreviewSnapshot[];
+  realtimeEvents: PlatformRealtimeEventSnapshot[];
   loadedAt: string;
   warnings: string[];
 }
@@ -84,7 +101,9 @@ export interface PlatformPreviewSnapshot {
   port: number;
   shortUrl: string;
   targetUrl: string;
+  expiresIn?: string;
   access: string;
+  createdAt?: string;
 }
 
 export type PlatformTransportEvent =
@@ -96,12 +115,16 @@ export type PlatformTransportEvent =
   | { type: 'ai.done'; sessionId: string; detail: string; raw: Record<string, unknown> }
   | { type: 'ai.error'; sessionId: string; error: string; raw: Record<string, unknown> }
   | { type: 'ai.session.created'; sessionId: string; raw: Record<string, unknown> }
+  | { type: 'ai.session.updated'; session: PlatformAiSessionSnapshot; raw: Record<string, unknown> }
+  | { type: 'ai.session.deleted'; sessionId: string; raw: Record<string, unknown> }
   | { type: 'ai.sessions.updated'; deviceId?: string; raw: Record<string, unknown> }
   | { type: 'terminal.output'; sessionId: string; data: string; encoding: string; raw: Record<string, unknown> }
   | { type: 'terminal.created'; sessionId: string; raw: Record<string, unknown> }
   | { type: 'terminal.exit'; sessionId: string; failed: boolean; raw: Record<string, unknown> }
   | { type: 'approval.requested'; approval: PlatformApprovalSnapshot; raw: Record<string, unknown> }
   | { type: 'preview.ready'; preview: PlatformPreviewSnapshot; expiresIn: string; raw: Record<string, unknown> }
+  | { type: 'project.updated'; project: PlatformProjectSnapshot; raw: Record<string, unknown> }
+  | { type: 'project.deleted'; projectId: string; raw: Record<string, unknown> }
   | { type: 'projects.updated'; deviceId?: string; raw: Record<string, unknown> }
   | { type: 'client.presence.updated'; raw: Record<string, unknown> }
   | { type: 'raw'; raw: Record<string, unknown> };
@@ -125,6 +148,12 @@ const isServerDevice = (value: unknown): value is ServerDevice =>
   Boolean(value && typeof value === 'object');
 
 const isServerApproval = (value: unknown): value is ServerApproval =>
+  Boolean(value && typeof value === 'object');
+
+const isServerProject = (value: unknown): value is ServerProject =>
+  Boolean(value && typeof value === 'object');
+
+const isServerAiSession = (value: unknown): value is ServerAiSession =>
   Boolean(value && typeof value === 'object');
 
 export function normalizeServerDevice(device: ServerDevice): PlatformDeviceSnapshot {
@@ -162,21 +191,18 @@ export function normalizeServerDevice(device: ServerDevice): PlatformDeviceSnaps
   };
 }
 
-const safeLoad = async <T>(
-  label: string,
-  loader: () => Promise<T>,
-  fallback: T,
-  warnings: string[],
-): Promise<T> => {
-  try {
-    return await loader();
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : 'unknown error';
-    warnings.push(`${label}: ${detail}`);
-    console.warn(`[platformTransport] ${label} failed:`, error);
-    return fallback;
-  }
-};
+function normalizeServerPreviewLink(link: ServerPreviewLink): PlatformPreviewSnapshot {
+  return {
+    id: link.id || link.preview_id,
+    sessionId: link.session_id,
+    port: link.port,
+    shortUrl: link.short_url,
+    targetUrl: link.target_url,
+    expiresIn: link.expires_in,
+    access: link.access,
+    createdAt: link.created_at,
+  };
+}
 
 class PlatformTransport {
   private handler: TransportEventHandler | null = null;
@@ -186,21 +212,18 @@ class PlatformTransport {
   }
 
   async loadSnapshot(): Promise<PlatformSnapshot> {
-    const warnings: string[] = [];
-    const serverDevices = await fetchDevices();
-    const [projects, aiSessions, approvals] = await Promise.all([
-      safeLoad('projects', fetchProjects, [] as PlatformProjectSnapshot[], warnings),
-      safeLoad('aiSessions', fetchAiSessions, [] as PlatformAiSessionSnapshot[], warnings),
-      safeLoad('approvals', fetchApprovals, [] as PlatformApprovalSnapshot[], warnings),
-    ]);
+    const snapshot = await fetchMobileSnapshot();
 
     return {
-      devices: serverDevices.map(normalizeServerDevice),
-      projects,
-      aiSessions,
-      approvals,
-      loadedAt: new Date().toISOString(),
-      warnings,
+      devices: snapshot.devices.map(normalizeServerDevice),
+      projects: snapshot.projects,
+      aiSessions: snapshot.ai_sessions,
+      terminalSessions: snapshot.terminal_sessions,
+      approvals: snapshot.approvals,
+      previewLinks: snapshot.preview_links.map(normalizeServerPreviewLink),
+      realtimeEvents: snapshot.realtime_events,
+      loadedAt: snapshot.generated_at,
+      warnings: [],
     };
   }
 
@@ -212,12 +235,25 @@ class PlatformTransport {
     return fetchAiSessions();
   }
 
-  connect(handler: TransportEventHandler): void {
+  createProject(input: Parameters<typeof apiCreateProject>[0]): Promise<PlatformProjectSnapshot> {
+    return apiCreateProject(input);
+  }
+
+  updateProject(projectId: string, input: Parameters<typeof apiUpdateProject>[1]): Promise<PlatformProjectSnapshot> {
+    return apiUpdateProject(projectId, input);
+  }
+
+  deleteProject(projectId: string): Promise<{ status: string; project_id: string }> {
+    return apiDeleteProject(projectId);
+  }
+
+  connect(handler: TransportEventHandler, token?: string): void {
     this.handler = handler;
     connectMobileSocket(
       message => this.emit(this.toEvent(message)),
       {
         onStateChange: status => this.emit({ type: 'transport.status', status }),
+        token,
       },
     );
   }
@@ -236,6 +272,14 @@ class PlatformTransport {
     return normalizeServerDevice(result.device);
   }
 
+  async updateDeviceSettings(
+    deviceId: string,
+    input: Parameters<typeof apiUpdateDeviceSettings>[1],
+  ): Promise<PlatformDeviceSnapshot> {
+    const result = await apiUpdateDeviceSettings(deviceId, input);
+    return normalizeServerDevice(result);
+  }
+
   scanDeviceProjects(deviceId: string): Promise<{ status: string; device_id: string }> {
     return apiScanProjects(deviceId);
   }
@@ -250,6 +294,26 @@ class PlatformTransport {
 
   createAiSession(input: Parameters<typeof apiCreateAiSession>[0]): Promise<PlatformAiSessionSnapshot> {
     return apiCreateAiSession(input);
+  }
+
+  updateAiSession(sessionId: string, input: Parameters<typeof apiUpdateAiSession>[1]): Promise<PlatformAiSessionSnapshot> {
+    return apiUpdateAiSession(sessionId, input);
+  }
+
+  pauseAiSession(sessionId: string): Promise<PlatformAiSessionSnapshot> {
+    return apiPauseAiSession(sessionId);
+  }
+
+  resumeAiSession(sessionId: string): Promise<PlatformAiSessionSnapshot> {
+    return apiResumeAiSession(sessionId);
+  }
+
+  terminateAiSession(sessionId: string): Promise<PlatformAiSessionSnapshot> {
+    return apiTerminateAiSession(sessionId);
+  }
+
+  deleteAiSession(sessionId: string): Promise<{ status: string; session_id: string }> {
+    return apiDeleteAiSession(sessionId);
   }
 
   sendAiMessage(sessionId: string, content: string): Promise<{ message_id: string; status: string }> {
@@ -332,6 +396,22 @@ class PlatformTransport {
       };
     }
 
+    if (type === 'ai.session.updated' && isServerAiSession(message.session)) {
+      return {
+        type: 'ai.session.updated',
+        session: message.session,
+        raw: message,
+      };
+    }
+
+    if (type === 'ai.session.deleted') {
+      return {
+        type: 'ai.session.deleted',
+        sessionId: String(message.session_id ?? ''),
+        raw: message,
+      };
+    }
+
     if (type === 'ai.sessions.updated') {
       return {
         type: 'ai.sessions.updated',
@@ -385,9 +465,27 @@ class PlatformTransport {
           port: Number(preview.port ?? 0),
           shortUrl: String(preview.short_url ?? ''),
           targetUrl: String(preview.target_url ?? ''),
+          expiresIn: asString(preview.expires_in),
           access: String(preview.access ?? 'private'),
+          createdAt: asString(preview.created_at),
         },
-        expiresIn: String(message.expires_in ?? ''),
+        expiresIn: String(message.expires_in ?? preview.expires_in ?? ''),
+        raw: message,
+      };
+    }
+
+    if (type === 'project.updated' && isServerProject(message.project)) {
+      return {
+        type: 'project.updated',
+        project: message.project,
+        raw: message,
+      };
+    }
+
+    if (type === 'project.deleted') {
+      return {
+        type: 'project.deleted',
+        projectId: String(message.project_id ?? ''),
         raw: message,
       };
     }

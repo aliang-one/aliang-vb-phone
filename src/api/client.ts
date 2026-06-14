@@ -25,6 +25,12 @@ export type ApiFetchOptions = RequestInit;
 // alias from the DOM lib, so declare a compatible union locally.
 type HeadersInitLike = Record<string, string> | [string, string][] | Headers;
 
+let authTokenProvider: (() => string | null | undefined) | null = null;
+
+export function setApiAuthTokenProvider(provider: (() => string | null | undefined) | null) {
+  authTokenProvider = provider;
+}
+
 export function isUnauthorizedApiError(error: unknown) {
   return error instanceof ApiResponseError && (error.status === 401 || error.status === 403);
 }
@@ -80,6 +86,10 @@ export async function apiFetch<T = unknown>(
     'Content-Type': 'application/json',
     ...normalizeHeaders(optionHeaders),
   };
+  const token = authTokenProvider?.();
+  if (token && !headers.Authorization && !headers.authorization) {
+    headers.Authorization = `Bearer ${token}`;
+  }
   const requestOptions = {
     ...fetchOptions,
     headers

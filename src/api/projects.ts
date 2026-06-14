@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from './client';
+import { apiFetch, apiGet, apiPost, apiPatch } from './client';
 import type { ServerAiSession } from './sessions';
 
 export interface ServerProject {
@@ -70,8 +70,43 @@ const queryString = (params: Record<string, string | number | undefined>) => {
 export const fetchProjects = (): Promise<ServerProject[]> =>
   apiGet<ServerProject[]>('/api/projects');
 
+export const createProject = (input: {
+  device_id: string;
+  name?: string;
+  path: string;
+  branch?: string;
+  language?: string;
+  description?: string;
+  status?: 'active' | 'idle' | 'error' | 'fresh';
+  package_manager?: string;
+  is_git_repo?: boolean;
+  detected_ports?: number[];
+  source_tools?: string[];
+}): Promise<ServerProject> =>
+  apiPost<ServerProject>('/api/projects', input);
+
 export const fetchProject = (projectId: string): Promise<ServerProjectDetail> =>
   apiGet<ServerProjectDetail>(`/api/projects/${projectId}`);
+
+export const updateProject = (
+  projectId: string,
+  input: Partial<{
+    name: string;
+    path: string;
+    branch: string;
+    language: string;
+    description: string;
+    status: 'active' | 'idle' | 'error' | 'fresh';
+    package_manager: string;
+    is_git_repo: boolean;
+    detected_ports: number[];
+    source_tools: string[];
+  }>,
+): Promise<ServerProject> =>
+  apiPatch<ServerProject>(`/api/projects/${projectId}`, input);
+
+export const deleteProject = (projectId: string): Promise<{ status: string; project_id: string }> =>
+  apiFetch<{ status: string; project_id: string }>(`/api/projects/${projectId}`, { method: 'DELETE' });
 
 export const fetchDeviceProjects = (deviceId: string): Promise<ServerProject[]> =>
   apiGet<ServerProject[]>(`/api/devices/${deviceId}/projects`);

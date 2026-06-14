@@ -79,6 +79,7 @@ export const DeviceTerminalScreen: React.FC = () => {
   const serverMode = useControlCenterStore(state => state.serverMode);
   const [terminalId, setTerminalId] = useState(route.params.terminalId);
   const [command, setCommand] = useState('');
+  const [terminalOpening, setTerminalOpening] = useState(false);
   const [ptyMode, setPtyMode] = useState(false);
   const [ptySessionId, setPtySessionId] = useState<string | null>(null);
   const [ptyLoading, setPtyLoading] = useState(false);
@@ -95,10 +96,23 @@ export const DeviceTerminalScreen: React.FC = () => {
 
   useEffect(() => {
     if (!terminalId && device) {
-      setTerminalId(
-        createTerminalSession(device.id, route.params.directory),
-      );
+      let cancelled = false;
+      setTerminalOpening(true);
+      createTerminalSession(device.id, route.params.directory)
+        .then(sessionId => {
+          if (!cancelled) setTerminalId(sessionId);
+        })
+        .catch(() => {
+          if (!cancelled) setTerminalId(undefined);
+        })
+        .finally(() => {
+          if (!cancelled) setTerminalOpening(false);
+        });
+      return () => {
+        cancelled = true;
+      };
     }
+    return undefined;
   }, [createTerminalSession, device, route.params.directory, terminalId]);
 
   useEffect(() => {
@@ -139,13 +153,18 @@ export const DeviceTerminalScreen: React.FC = () => {
     }
   };
 
-  const handleDirectoryChange = (nextDirectory: string) => {
+  const handleDirectoryChange = async (nextDirectory: string) => {
     if (!device || isRunning) {
       return;
     }
 
-    setTerminalId(createTerminalSession(device.id, nextDirectory));
-    setCommand('');
+    setTerminalOpening(true);
+    try {
+      setTerminalId(await createTerminalSession(device.id, nextDirectory));
+      setCommand('');
+    } finally {
+      setTerminalOpening(false);
+    }
   };
 
   const handleExecute = () => {
@@ -185,7 +204,7 @@ export const DeviceTerminalScreen: React.FC = () => {
 
   const handleClosePty = () => {
     if (ptySessionId) {
-      closeTerminalSessionAction(ptySessionId);
+      void closeTerminalSessionAction(ptySessionId).catch(() => {});
     }
     setPtyMode(false);
     setPtySessionId(null);
@@ -406,12 +425,14 @@ export const DeviceTerminalScreen: React.FC = () => {
               value={command}
               onChangeText={setCommand}
               placeholder={
-                device.status === 'offline'
+                terminalOpening
+                  ? 'Opening terminal session...'
+                  : device.status === 'offline'
                   ? 'Device offline'
                   : 'Type a command to execute...'
               }
               placeholderTextColor={theme.colors.onSurfaceVariant}
-              editable={device.status !== 'offline' && !isRunning}
+              editable={device.status !== 'offline' && !isRunning && !terminalOpening}
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="send"
@@ -429,14 +450,14 @@ export const DeviceTerminalScreen: React.FC = () => {
               <TouchableOpacity
                 key={item}
                 activeOpacity={0.75}
-                disabled={isRunning || device.status === 'offline'}
+                disabled={isRunning || device.status === 'offline' || terminalOpening}
                 onPress={() => setCommand(item)}
                 style={[
                   styles.quickCommand,
                   {
                     borderColor: theme.colors.outlineVariant,
                     borderRadius: theme.borderRadius.full,
-                    opacity: isRunning || device.status === 'offline' ? 0.5 : 1,
+                    opacity: isRunning || device.status === 'offline' || terminalOpening ? 0.5 : 1,
                   },
                 ]}>
                 <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
@@ -448,15 +469,17 @@ export const DeviceTerminalScreen: React.FC = () => {
 
           <View style={styles.actionRow}>
             <GlowButton
-              title={isRunning ? 'RUNNING' : 'EXECUTE'}
+              title={terminalOpening ? 'OPENING' : isRunning ? 'RUNNING' : 'EXECUTE'}
               onPress={handleExecute}
               variant="primary"
-              disabled={!canExecute}
+              disabled={!canExecute || terminalOpening}
               style={styles.executeButton}
             />
             <GlowButton
               title="STOP"
-              onPress={() => terminal && stopTerminal(terminal.id)}
+              onPress={() => {
+                if (terminal) void stopTerminal(terminal.id).catch(() => {});
+              }}
               variant="outline"
               disabled={!terminal || terminal.status === 'stopped'}
               style={styles.utilityButton}

@@ -26,6 +26,7 @@ const filters: Array<{ label: string; value: 'all' | UnifiedEventType }> = [
   { label: 'CMD', value: 'command.started' },
   { label: 'APPROVAL', value: 'approval.requested' },
   { label: 'FILE', value: 'file.changed' },
+  { label: 'PLATFORM', value: 'platform.event' },
 ];
 
 const eventStatusType: Record<
@@ -42,12 +43,14 @@ const eventStatusType: Record<
 const eventIcon: Record<UnifiedEventType, IconName> = {
   'terminal.output': 'terminal',
   'agent.delta': 'agent',
+  'platform.event': 'event',
   'command.started': 'play',
   'command.completed': 'check',
   'approval.requested': 'approval',
   'file.changed': 'code',
   'device.bound': 'device',
   'device.offline': 'warning',
+  'project.updated': 'project',
   'project.scan.completed': 'scan',
   'agent.session.started': 'agent',
   'agent.session.paused': 'pause',

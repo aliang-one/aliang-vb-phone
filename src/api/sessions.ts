@@ -1,11 +1,11 @@
-import { apiGet, apiPost } from './client';
+import { apiFetch, apiGet, apiPatch, apiPost } from './client';
 
 export interface ServerAiSession {
   session_id: string;
   kind: 'ai';
   user_id: string;
   device_id: string;
-  status: 'creating' | 'active' | 'closed' | 'error';
+  status: 'creating' | 'active' | 'idle' | 'running' | 'paused' | 'closed' | 'error';
   project_path?: string;
   mode: 'chat' | 'vibe' | 'review' | 'agent';
   title?: string;
@@ -59,6 +59,7 @@ export const fetchAiSession = (sessionId: string): Promise<ServerAiSession> =>
 
 export const createAiSession = (input: {
   device_id: string;
+  project_id?: string;
   project_path?: string;
   mode?: 'chat' | 'vibe' | 'review' | 'agent';
   title?: string;
@@ -75,8 +76,32 @@ export const sendAiMessage = (
 ): Promise<{ message_id: string; status: string }> =>
   apiPost(`/api/ai/sessions/${sessionId}/messages`, { content, attachments });
 
-export const stopAiSession = (sessionId: string): Promise<{ status: string }> =>
+export const stopAiSession = (sessionId: string): Promise<{ status: string; session?: ServerAiSession }> =>
   apiPost(`/api/ai/sessions/${sessionId}/stop`);
+
+export const pauseAiSession = (sessionId: string): Promise<ServerAiSession> =>
+  apiPost<ServerAiSession>(`/api/ai/sessions/${sessionId}/pause`);
+
+export const resumeAiSession = (sessionId: string): Promise<ServerAiSession> =>
+  apiPost<ServerAiSession>(`/api/ai/sessions/${sessionId}/resume`);
+
+export const terminateAiSession = (sessionId: string): Promise<ServerAiSession> =>
+  apiPost<ServerAiSession>(`/api/ai/sessions/${sessionId}/terminate`);
+
+export const updateAiSession = (
+  sessionId: string,
+  input: Partial<{
+    title: string;
+    objective: string;
+    status: 'idle' | 'running' | 'paused' | 'error' | 'closed';
+    current_step: string;
+    risk: 'low' | 'medium' | 'high';
+  }>,
+): Promise<ServerAiSession> =>
+  apiPatch<ServerAiSession>(`/api/ai/sessions/${sessionId}`, input);
+
+export const deleteAiSession = (sessionId: string): Promise<{ status: string; session_id: string }> =>
+  apiFetch<{ status: string; session_id: string }>(`/api/ai/sessions/${sessionId}`, { method: 'DELETE' });
 
 // Terminal Sessions
 

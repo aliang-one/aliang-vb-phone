@@ -3,6 +3,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { RootStackParamList } from './types';
 import { MainTabNavigator } from './MainTabNavigator';
+import { LoginScreen } from '../../screens/auth/LoginScreen';
 import { DeviceBindingScreen } from '../../screens/devices/DeviceBindingScreen';
 import { DeviceCameraScannerScreen } from '../../screens/devices/DeviceCameraScannerScreen';
 import { DeviceDetailScreen } from '../../screens/devices/DeviceDetailScreen';
@@ -26,24 +27,25 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export const RootNavigator = () => {
   const { theme } = useTheme();
   const hasHydrated = useSessionStore(state => state.hasHydrated);
+  const token = useSessionStore(state => state.token);
   const restoreUser = useSessionStore(state => state.restoreUser);
   const serverMode = useControlCenterStore(state => state.serverMode);
   const initializeFromServer = useControlCenterStore(state => state.initializeFromServer);
   const syncingRef = useRef(false);
 
   useEffect(() => {
-    if (!hasHydrated || serverMode || syncingRef.current) return;
+    if (!hasHydrated || !token || serverMode || syncingRef.current) return;
 
     syncingRef.current = true;
     restoreUser()
-      .then(initializeFromServer)
+      .then(() => initializeFromServer(token))
       .catch(error => {
         console.warn('[navigation] Platform auto-connect failed:', error);
       })
       .finally(() => {
         syncingRef.current = false;
       });
-  }, [hasHydrated, initializeFromServer, restoreUser, serverMode]);
+  }, [hasHydrated, initializeFromServer, restoreUser, serverMode, token]);
 
   if (!hasHydrated) {
     return (
@@ -56,22 +58,28 @@ export const RootNavigator = () => {
   return (
     <Stack.Navigator
       screenOptions={{ headerShown: false }}
-      initialRouteName="MainTabs">
-      <Stack.Screen name="MainTabs" component={MainTabNavigator} />
-      <Stack.Screen name="DeviceBinding" component={DeviceBindingScreen} />
-      <Stack.Screen name="DeviceCameraScanner" component={DeviceCameraScannerScreen} />
-      <Stack.Screen name="DeviceDetail" component={DeviceDetailScreen} />
-      <Stack.Screen name="DeviceTerminal" component={DeviceTerminalScreen} />
-      <Stack.Screen name="ProjectScan" component={ProjectScanScreen} />
-      <Stack.Screen name="ProjectDetail" component={ProjectDetailScreen} />
-      <Stack.Screen name="FileBrowser" component={FileBrowserScreen} />
-      <Stack.Screen name="CreateVibeCoding" component={CreateVibeCodingScreen} />
-      <Stack.Screen name="AgentSessions" component={AgentSessionsScreen} />
-      <Stack.Screen name="VibeCodingSession" component={VibeCodingSessionScreen} />
-      <Stack.Screen name="EventStream" component={EventStreamScreen} />
-      <Stack.Screen name="ApprovalCenter" component={ApprovalCenterScreen} />
-      <Stack.Screen name="NotificationCenter" component={NotificationCenterScreen} />
-      <Stack.Screen name="Preview" component={PreviewScreen} />
+      initialRouteName={token ? 'MainTabs' : 'Login'}>
+      {!token ? (
+        <Stack.Screen name="Login" component={LoginScreen} />
+      ) : (
+        <>
+          <Stack.Screen name="MainTabs" component={MainTabNavigator} />
+          <Stack.Screen name="DeviceBinding" component={DeviceBindingScreen} />
+          <Stack.Screen name="DeviceCameraScanner" component={DeviceCameraScannerScreen} />
+          <Stack.Screen name="DeviceDetail" component={DeviceDetailScreen} />
+          <Stack.Screen name="DeviceTerminal" component={DeviceTerminalScreen} />
+          <Stack.Screen name="ProjectScan" component={ProjectScanScreen} />
+          <Stack.Screen name="ProjectDetail" component={ProjectDetailScreen} />
+          <Stack.Screen name="FileBrowser" component={FileBrowserScreen} />
+          <Stack.Screen name="CreateVibeCoding" component={CreateVibeCodingScreen} />
+          <Stack.Screen name="AgentSessions" component={AgentSessionsScreen} />
+          <Stack.Screen name="VibeCodingSession" component={VibeCodingSessionScreen} />
+          <Stack.Screen name="EventStream" component={EventStreamScreen} />
+          <Stack.Screen name="ApprovalCenter" component={ApprovalCenterScreen} />
+          <Stack.Screen name="NotificationCenter" component={NotificationCenterScreen} />
+          <Stack.Screen name="Preview" component={PreviewScreen} />
+        </>
+      )}
     </Stack.Navigator>
   );
 };

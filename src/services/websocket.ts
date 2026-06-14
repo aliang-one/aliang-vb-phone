@@ -5,6 +5,7 @@ export type WsConnectionState = 'connecting' | 'connected' | 'disconnected';
 
 interface MobileWebSocketOptions {
   onStateChange?: (state: WsConnectionState) => void;
+  token?: string;
 }
 
 const RECONNECT_BASE_MS = 1000;
@@ -20,10 +21,12 @@ export class MobileWebSocket {
   private intentionalClose = false;
   private _connected = false;
   private onStateChange?: (state: WsConnectionState) => void;
+  private token?: string;
 
   constructor(handler: WsMessageHandler, options: MobileWebSocketOptions = {}) {
     this.handler = handler;
     this.onStateChange = options.onStateChange;
+    this.token = options.token;
   }
 
   get connected(): boolean {
@@ -59,7 +62,8 @@ export class MobileWebSocket {
     this.onStateChange?.('connecting');
 
     const baseUrl = await getPlatformServiceBaseUrl();
-    const url = `${toWebSocketUrl(baseUrl)}/ws/mobile`;
+    const tokenQuery = this.token ? `?token=${encodeURIComponent(this.token)}` : '';
+    const url = `${toWebSocketUrl(baseUrl)}/ws/mobile${tokenQuery}`;
     const ws = new WebSocket(url);
 
     ws.onopen = () => {

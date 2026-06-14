@@ -35,8 +35,10 @@ export const SettingsScreen: React.FC = () => {
   const devices = useControlCenterStore(state => state.devices);
   const vibeRuns = useControlCenterStore(state => state.vibeRuns);
   const user = useSessionStore(state => state.user);
+  const logout = useSessionStore(state => state.logout);
   const operatorName = useSessionStore(state => state.operatorName);
   const disconnectFromServer = useControlCenterStore(state => state.disconnectFromServer);
+  const resetSessionData = useControlCenterStore(state => state.resetSessionData);
   const wsConnected = useControlCenterStore(state => state.wsConnected);
   const serverMode = useControlCenterStore(state => state.serverMode);
   const [connectionStatus, setConnectionStatus] =
@@ -61,6 +63,12 @@ export const SettingsScreen: React.FC = () => {
     const result = await checkPlatformService();
     setConnectionStatus(result);
     setCheckingConnection(false);
+  };
+
+  const handleLogout = async () => {
+    disconnectFromServer();
+    resetSessionData();
+    await logout();
   };
 
   return (
@@ -311,8 +319,8 @@ export const SettingsScreen: React.FC = () => {
         </GlassPanel>
 
         <GlowButton
-          title="断开实时连接"
-          onPress={disconnectFromServer}
+          title="SIGN OUT"
+          onPress={handleLogout}
           variant="outline"
           style={styles.logoutBtn}
         />
