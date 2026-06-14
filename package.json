@@ -5,7 +5,8 @@
   "scripts": {
     "android": "node scripts/run-android.js",
     "android:raw": "react-native run-android",
-    "ios": "react-native run-ios",
+    "ios": "node scripts/run-ios.js",
+    "ios:raw": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",
     "stop:metro": "node scripts/stop-metro.js",

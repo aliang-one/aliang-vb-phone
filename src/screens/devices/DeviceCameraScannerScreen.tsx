@@ -11,7 +11,6 @@ import {
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCameraPermission } from 'react-native-vision-camera';
-import { CodeScanner } from 'react-native-vision-camera-barcode-scanner';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
@@ -21,6 +20,7 @@ import { IconBadge } from '../../components/visual/IconBadge';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useTheme } from '../../theme/useTheme';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { DeviceCodeScanner } from './DeviceCodeScanner';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -158,13 +158,10 @@ export const DeviceCameraScannerScreen: React.FC = () => {
         <GlassPanel glowColor="primary" style={styles.cameraPanel}>
           {hasPermission ? (
             <View style={styles.cameraFrame}>
-              <CodeScanner
+              <DeviceCodeScanner
                 isActive={isFocused && !paused}
                 style={StyleSheet.absoluteFill}
-                barcodeFormats={['all-formats']}
-                onBarcodeScanned={barcodes =>
-                  handleScannedValue(barcodes[0]?.rawValue ?? barcodes[0]?.displayValue)
-                }
+                onCodeScanned={handleScannedValue}
                 onError={error => setScannerError(error.message)}
               />
               <View pointerEvents="none" style={styles.scanOverlay}>

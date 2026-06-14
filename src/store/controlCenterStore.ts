@@ -1894,7 +1894,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
         }));
       },
 
-      appendAgentMessage: async (sessionId, content, mode) => {
+      appendAgentMessage: async (sessionId, content, _mode) => {
         if (!get().serverMode) {
           throw new Error('Platform connection is required before sending a VibeCoding message.');
         }
