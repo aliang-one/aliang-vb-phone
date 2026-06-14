@@ -8,7 +8,7 @@ import {
   Project,
   VibeCodingRun,
   VibeStatus,
-} from '../data/mockData';
+} from '../data/platformModels';
 import { terminalOutputHandlers } from '../components/terminal/TerminalEmulator';
 import {
   platformTransport,

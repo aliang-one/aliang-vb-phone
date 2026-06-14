@@ -22,7 +22,7 @@ import { vibeStatusLabel, vibeStatusType } from '../../components/vibecoding/sta
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import { IconBadge, IconName } from '../../components/visual/IconBadge';
-import type { AgentBudgetInfo } from '../../data/mockData';
+import type { AgentBudgetInfo } from '../../data/platformModels';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type SessionRoute = RouteProp<RootStackParamList, 'VibeCodingSession'>;

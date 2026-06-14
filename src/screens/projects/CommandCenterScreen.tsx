@@ -16,8 +16,7 @@ import {
   Device,
   Project,
   VibeCodingRun,
-  UserPlan,
-} from '../../data/mockData';
+} from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
 import {
   ProjectFileEntry,
@@ -71,6 +70,9 @@ const getRelativeMinutes = (value: string) => {
   return Number.POSITIVE_INFINITY;
 };
 
+const ratio = (value: number, total: number) =>
+  total > 0 ? Math.min(100, (value / total) * 100) : 0;
+
 export const CommandCenterScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
@@ -83,19 +85,6 @@ export const CommandCenterScreen: React.FC = () => {
   const events = useControlCenterStore(state => state.events);
   const projectFiles = useControlCenterStore(state => state.projectFiles);
   const scanResults = useControlCenterStore(state => state.scanResults);
-
-  // Derive user plan from real data
-  const userPlan: UserPlan = {
-    userName: 'Aliang',
-    planName: 'Builder Pro',
-    renewsAt: '2026-06-25',
-    balanceLimit: 120,
-    balanceUsed: 46.8,
-    timeLimitHours: 80,
-    timeUsedHours: 31.5,
-    concurrentLimit: 4,
-    concurrentUsed: devices.filter(d => d.status === 'online').length,
-  };
 
   const onlineDevices = devices.filter(device => device.status === 'online');
   const activeAgentRuns = vibeRuns
@@ -110,6 +99,39 @@ export const CommandCenterScreen: React.FC = () => {
     );
   const pendingApprovals = approvals.filter(item => item.status === 'pending');
   const unreadNotifications = notifications.filter(item => !item.read);
+  const platformSummary = {
+    title: 'Platform snapshot',
+    headline: `${devices.length} registered devices`,
+    statusLabel: `${onlineDevices.length}/${devices.length || 0} ONLINE`,
+    primaryMetric: {
+      label: 'ONLINE',
+      value: `${onlineDevices.length}/${devices.length || 0}`,
+      progress: ratio(onlineDevices.length, devices.length),
+    },
+    secondaryMetric: {
+      label: 'ACTIVE',
+      value: `${activeAgentRuns.length}`,
+      progress: ratio(activeAgentRuns.length, vibeRuns.length),
+      tone: 'secondary' as const,
+    },
+    sideMetric: {
+      label: 'APPROVALS',
+      value: `${pendingApprovals.length}`,
+    },
+    meters: [
+      {
+        label: 'Projects',
+        value: `${projects.length} synced`,
+        progress: projects.length ? 100 : 0,
+      },
+      {
+        label: 'Notifications',
+        value: `${unreadNotifications.length}/${notifications.length || 0} unread`,
+        progress: ratio(unreadNotifications.length, notifications.length),
+        tone: 'secondary' as const,
+      },
+    ],
+  };
 
   const getProject = (projectId: string) =>
     projects.find(project => project.id === projectId);
@@ -324,7 +346,7 @@ export const CommandCenterScreen: React.FC = () => {
             ACCOUNT SNAPSHOT
           </Text>
         </View>
-        <UsageSummaryCard plan={userPlan} />
+        <UsageSummaryCard summary={platformSummary} />
       </ScrollView>
 
       <TouchableOpacity

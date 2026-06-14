@@ -11,7 +11,7 @@ import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard';
 import {
   VibeStatus,
-} from '../../data/mockData';
+} from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 

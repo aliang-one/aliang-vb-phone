@@ -1,4 +1,4 @@
-import { VibeStatus } from '../../data/mockData';
+import { VibeStatus } from '../../data/platformModels';
 
 export const vibeStatusLabel: Record<VibeStatus, string> = {
   idle: 'IDLE',

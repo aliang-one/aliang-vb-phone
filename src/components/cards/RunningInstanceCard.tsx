@@ -4,7 +4,7 @@ import { useTheme } from '../../theme/useTheme';
 import { GlassPanel } from '../shared/GlassPanel';
 import { ProgressBar } from '../shared/ProgressBar';
 import { StatusChip } from '../shared/StatusChip';
-import { RunningInstance } from '../../data/mockData';
+import { RunningInstance } from '../../data/platformModels';
 
 interface RunningInstanceCardProps {
   instance: RunningInstance;

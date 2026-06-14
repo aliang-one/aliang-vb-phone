@@ -1,6 +1,5 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { UserPlan } from '../../data/mockData';
 import { useTheme } from '../../theme/useTheme';
 import { GlassPanel } from '../shared/GlassPanel';
 import { ProgressBar } from '../shared/ProgressBar';
@@ -8,16 +7,36 @@ import { StatusChip } from '../shared/StatusChip';
 import { IconBadge } from '../visual/IconBadge';
 import { RingMeter } from '../visual/RingMeter';
 
+interface UsageMetric {
+  label: string;
+  value: string;
+  progress: number;
+  tone?: 'primary' | 'secondary';
+}
+
+export interface PlatformUsageSummary {
+  title: string;
+  headline: string;
+  statusLabel: string;
+  primaryMetric: UsageMetric;
+  secondaryMetric: UsageMetric;
+  sideMetric: {
+    label: string;
+    value: string;
+  };
+  meters: UsageMetric[];
+}
+
 interface UsageSummaryCardProps {
-  plan: UserPlan;
+  summary: PlatformUsageSummary;
 }
 
 export const UsageSummaryCard: React.FC<UsageSummaryCardProps> = ({
-  plan,
+  summary,
 }) => {
   const { theme, isDark } = useTheme();
-  const balanceRemaining = plan.balanceLimit - plan.balanceUsed;
-  const timeRemaining = plan.timeLimitHours - plan.timeUsedHours;
+  const metricColor = (metric: UsageMetric) =>
+    metric.tone === 'secondary' ? theme.colors.secondary : theme.colors.primary;
 
   return (
     <GlassPanel glowColor="primary" style={styles.card}>
@@ -26,7 +45,7 @@ export const UsageSummaryCard: React.FC<UsageSummaryCardProps> = ({
         <View style={styles.titleBlock}>
           <Text
             style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
-            {plan.planName.toUpperCase()}
+            {summary.title.toUpperCase()}
           </Text>
           <Text
             style={[
@@ -34,24 +53,24 @@ export const UsageSummaryCard: React.FC<UsageSummaryCardProps> = ({
               { color: theme.colors.onSurface },
               styles.balance,
             ]}>
-            ${balanceRemaining.toFixed(2)} remaining
+            {summary.headline}
           </Text>
         </View>
-        <StatusChip label={`${plan.concurrentUsed}/${plan.concurrentLimit} AGENTS`} type="info" />
+        <StatusChip label={summary.statusLabel} type="info" />
       </View>
       <View style={styles.ringRow}>
         <RingMeter
-          progress={(plan.balanceUsed / plan.balanceLimit) * 100}
-          label="SPEND"
-          value={`$${plan.balanceUsed.toFixed(0)}`}
-          color={theme.colors.primary}
+          progress={summary.primaryMetric.progress}
+          label={summary.primaryMetric.label}
+          value={summary.primaryMetric.value}
+          color={metricColor(summary.primaryMetric)}
           size={84}
         />
         <RingMeter
-          progress={(plan.timeUsedHours / plan.timeLimitHours) * 100}
-          label="TIME"
-          value={`${timeRemaining.toFixed(0)}h`}
-          color={theme.colors.secondary}
+          progress={summary.secondaryMetric.progress}
+          label={summary.secondaryMetric.label}
+          value={summary.secondaryMetric.value}
+          color={metricColor(summary.secondaryMetric)}
           size={84}
         />
         <View
@@ -64,43 +83,30 @@ export const UsageSummaryCard: React.FC<UsageSummaryCardProps> = ({
             },
           ]}>
           <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-            RENEWS
+            {summary.sideMetric.label}
           </Text>
           <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-            {plan.renewsAt.slice(5)}
+            {summary.sideMetric.value}
           </Text>
         </View>
       </View>
-      <View style={styles.meter}>
-        <View style={styles.meterLabel}>
-          <Text
-            style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-            Spend
-          </Text>
-          <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
-            ${plan.balanceUsed.toFixed(2)} / ${plan.balanceLimit}
-          </Text>
+      {summary.meters.map(metric => (
+        <View key={metric.label} style={styles.meter}>
+          <View style={styles.meterLabel}>
+            <Text
+              style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+              {metric.label}
+            </Text>
+            <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
+              {metric.value}
+            </Text>
+          </View>
+          <ProgressBar
+            progress={metric.progress}
+            color={metricColor(metric)}
+          />
         </View>
-        <ProgressBar
-          progress={(plan.balanceUsed / plan.balanceLimit) * 100}
-          color={theme.colors.primary}
-        />
-      </View>
-      <View style={styles.meter}>
-        <View style={styles.meterLabel}>
-          <Text
-            style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-            Runtime
-          </Text>
-          <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
-            {timeRemaining.toFixed(1)}h left
-          </Text>
-        </View>
-        <ProgressBar
-          progress={(plan.timeUsedHours / plan.timeLimitHours) * 100}
-          color={theme.colors.secondary}
-        />
-      </View>
+      ))}
     </GlassPanel>
   );
 };

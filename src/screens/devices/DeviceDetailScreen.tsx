@@ -14,7 +14,7 @@ import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import { IconBadge } from '../../components/visual/IconBadge';
 import { RingMeter } from '../../components/visual/RingMeter';
-import { Project, VibeStatus } from '../../data/mockData';
+import { Project, VibeStatus } from '../../data/platformModels';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DeviceRoute = RouteProp<RootStackParamList, 'DeviceDetail'>;

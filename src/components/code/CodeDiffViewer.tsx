@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
-import { DiffLine } from '../../data/mockData';
+import { DiffLine } from '../../data/platformModels';
 
 interface CodeDiffViewerProps {
   lines: DiffLine[];

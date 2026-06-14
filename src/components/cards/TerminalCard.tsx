@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { GlassPanel } from '../shared/GlassPanel';
 import { StatusChip } from '../shared/StatusChip';
-import { TerminalNode } from '../../data/mockData';
+import { TerminalNode } from '../../data/platformModels';
 
 interface TerminalCardProps {
   terminal: TerminalNode;

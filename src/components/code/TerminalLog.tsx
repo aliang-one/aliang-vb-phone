@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { GlassPanel } from '../shared/GlassPanel';
-import { LogEntry } from '../../data/mockData';
+import { LogEntry } from '../../data/platformModels';
 
 interface TerminalLogProps {
   logs: LogEntry[];

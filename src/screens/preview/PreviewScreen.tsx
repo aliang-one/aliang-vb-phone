@@ -83,13 +83,13 @@ export const PreviewScreen: React.FC = () => {
               ]}>
               {session?.currentStep ?? preview.targetUrl}
             </Text>
-            <View style={styles.mockScreen}>
-              <View style={styles.mockHeader} />
-              <View style={styles.mockRow} />
-              <View style={[styles.mockRow, styles.mockRowShort]} />
-              <View style={styles.mockGrid}>
-                <View style={styles.mockTile} />
-                <View style={styles.mockTile} />
+            <View style={styles.placeholderScreen}>
+              <View style={styles.placeholderHeader} />
+              <View style={styles.placeholderRow} />
+              <View style={[styles.placeholderRow, styles.placeholderRowShort]} />
+              <View style={styles.placeholderGrid}>
+                <View style={styles.placeholderTile} />
+                <View style={styles.placeholderTile} />
               </View>
             </View>
           </View>
@@ -212,7 +212,7 @@ const styles = StyleSheet.create({
   previewCopy: {
     marginTop: 8,
   },
-  mockScreen: {
+  placeholderScreen: {
     marginTop: 20,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
@@ -220,26 +220,26 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 12,
   },
-  mockHeader: {
+  placeholderHeader: {
     width: '58%',
     height: 18,
     borderRadius: 4,
     backgroundColor: 'rgba(0, 209, 255, 0.35)',
   },
-  mockRow: {
+  placeholderRow: {
     width: '100%',
     height: 12,
     borderRadius: 4,
     backgroundColor: 'rgba(255,255,255,0.12)',
   },
-  mockRowShort: {
+  placeholderRowShort: {
     width: '72%',
   },
-  mockGrid: {
+  placeholderGrid: {
     flexDirection: 'row',
     gap: 12,
   },
-  mockTile: {
+  placeholderTile: {
     flex: 1,
     height: 74,
     borderRadius: 8,

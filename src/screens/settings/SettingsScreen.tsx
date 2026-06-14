@@ -29,11 +29,17 @@ import { useSessionStore } from '../../../stores/useSettingsStore';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
+const ratio = (value: number, total: number) =>
+  total > 0 ? Math.min(100, (value / total) * 100) : 0;
+
 export const SettingsScreen: React.FC = () => {
   const { theme, isDark, mode, setMode } = useTheme();
   const navigation = useNavigation<Navigation>();
   const devices = useControlCenterStore(state => state.devices);
   const vibeRuns = useControlCenterStore(state => state.vibeRuns);
+  const projects = useControlCenterStore(state => state.projects);
+  const approvals = useControlCenterStore(state => state.approvals);
+  const notifications = useControlCenterStore(state => state.notifications);
   const user = useSessionStore(state => state.user);
   const logout = useSessionStore(state => state.logout);
   const operatorName = useSessionStore(state => state.operatorName);
@@ -51,12 +57,57 @@ export const SettingsScreen: React.FC = () => {
     { key: 'light', label: 'LIGHT' },
   ] as const;
 
+  const onlineDevices = devices.filter(device => device.status === 'online');
+  const activeSessions = vibeRuns.filter(
+    session =>
+      session.status === 'running' ||
+      session.status === 'waiting_user' ||
+      session.status === 'waiting_approval' ||
+      session.status === 'testing' ||
+      session.status === 'preview_ready' ||
+      session.status === 'paused',
+  );
+  const pendingApprovals = approvals.filter(item => item.status === 'pending');
+  const unreadNotifications = notifications.filter(item => !item.read);
   const usageRows = [
-    ['Today spend', '$8.42'],
-    ['This week', '$31.10'],
-    ['Voice整理', '42 turns'],
-    ['Preview links', '2 active'],
+    ['Registered devices', `${devices.length}`],
+    ['Online devices', `${onlineDevices.length}`],
+    ['Projects', `${projects.length}`],
+    ['VibeCoding sessions', `${activeSessions.length}/${vibeRuns.length || 0} active`],
   ];
+  const platformSummary = {
+    title: 'Platform Console',
+    headline: `${activeSessions.length} active sessions`,
+    statusLabel: `${onlineDevices.length}/${devices.length || 0} ONLINE`,
+    primaryMetric: {
+      label: 'DEVICES',
+      value: `${onlineDevices.length}/${devices.length || 0}`,
+      progress: ratio(onlineDevices.length, devices.length),
+    },
+    secondaryMetric: {
+      label: 'SESSIONS',
+      value: `${activeSessions.length}`,
+      progress: ratio(activeSessions.length, vibeRuns.length),
+      tone: 'secondary' as const,
+    },
+    sideMetric: {
+      label: 'PENDING',
+      value: `${pendingApprovals.length}`,
+    },
+    meters: [
+      {
+        label: 'Projects',
+        value: `${projects.length} synced`,
+        progress: projects.length ? 100 : 0,
+      },
+      {
+        label: 'Notifications',
+        value: `${unreadNotifications.length}/${notifications.length || 0} unread`,
+        progress: ratio(unreadNotifications.length, notifications.length),
+        tone: 'secondary' as const,
+      },
+    ],
+  };
 
   const handleCheckConnection = async () => {
     setCheckingConnection(true);
@@ -173,17 +224,7 @@ export const SettingsScreen: React.FC = () => {
           </View>
         </GlassPanel>
 
-        <UsageSummaryCard plan={{
-          userName: operatorName,
-          planName: 'Platform Console',
-          renewsAt: '2026-06-25',
-          balanceLimit: 120,
-          balanceUsed: 46.8,
-          timeLimitHours: 80,
-          timeUsedHours: 31.5,
-          concurrentLimit: 4,
-          concurrentUsed: devices.filter(d => d.status === 'online').length,
-        }} />
+        <UsageSummaryCard summary={platformSummary} />
 
         <Text
           style={[

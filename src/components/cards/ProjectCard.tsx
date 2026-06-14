@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { GlassPanel } from '../shared/GlassPanel';
 import { StatusChip } from '../shared/StatusChip';
-import { Project } from '../../data/mockData';
+import { Project } from '../../data/platformModels';
 
 interface ProjectCardProps {
   project: Project;

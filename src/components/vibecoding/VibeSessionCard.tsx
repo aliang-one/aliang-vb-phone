@@ -7,7 +7,7 @@ import {
   StyleSheet,
   TouchableOpacity,
 } from 'react-native';
-import { Device, Project, VibeCodingRun } from '../../data/mockData';
+import { Device, Project, VibeCodingRun } from '../../data/platformModels';
 import { useTheme } from '../../theme/useTheme';
 import { GlassPanel } from '../shared/GlassPanel';
 import { ProgressBar } from '../shared/ProgressBar';
