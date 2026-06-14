@@ -73,8 +73,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
     (session.elapsedMinutes / session.timeLimitMinutes) * 100,
   );
 
-  const appendUserMessage = (content: string, messageMode: 'voice' | 'text') => {
-    appendAgentMessage(session.id, content, messageMode);
+  const appendUserMessage = async (content: string, messageMode: 'voice' | 'text') => {
+    await appendAgentMessage(session.id, content, messageMode);
   };
 
   const handleVoiceCapture = () => {
@@ -94,16 +94,23 @@ export const VibeCodingSessionScreen: React.FC = () => {
     if (!preparedPrompt) {
       return;
     }
-    appendUserMessage(preparedPrompt, 'voice');
-    setVoiceDraft('');
-    setPreparedPrompt('');
+    void appendUserMessage(preparedPrompt, 'voice')
+      .then(() => {
+        setVoiceDraft('');
+        setPreparedPrompt('');
+      })
+      .catch(error => {
+        console.warn('[vibecoding] failed to send voice prompt', error);
+      });
   };
 
   const handleSendText = () => {
     if (!input.trim()) {
       return;
     }
-    appendUserMessage(input.trim(), 'text');
+    void appendUserMessage(input.trim(), 'text').catch(error => {
+      console.warn('[vibecoding] failed to send text prompt', error);
+    });
     setInput('');
   };
 

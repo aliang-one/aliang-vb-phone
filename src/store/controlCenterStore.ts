@@ -3,7 +3,6 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import {
   AgentEvent,
-  AgentMessage,
   Device,
   PreviewLink,
   Project,
@@ -261,7 +260,7 @@ interface ControlCenterState {
     sessionId: string,
     content: string,
     mode: 'voice' | 'text',
-  ) => void;
+  ) => Promise<void>;
   resolveApproval: (approvalId: string, decision: 'approved' | 'denied') => Promise<void>;
   markNotificationRead: (notificationId: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
@@ -1895,34 +1894,11 @@ export const useControlCenterStore = create<ControlCenterState>()(
         }));
       },
 
-      appendAgentMessage: (sessionId, content, mode) => {
-        if (get().serverMode) {
-          const sent = platformTransport.send({
-            type: 'ai.message',
-            session_id: sessionId,
-            content,
-            mode,
-          });
-          if (!sent) {
-            platformTransport.sendAiMessage(sessionId, content).catch(() => {});
-          }
+      appendAgentMessage: async (sessionId, content, mode) => {
+        if (!get().serverMode) {
+          throw new Error('Platform connection is required before sending a VibeCoding message.');
         }
-
-        const userMessage: AgentMessage = {
-          id: createId('msg'),
-          role: 'user',
-          mode,
-          content,
-          timestamp: shortTime(),
-        };
-
-        set(state => ({
-          vibeRuns: state.vibeRuns.map(run =>
-            run.id === sessionId
-              ? { ...run, status: 'running' as VibeStatus, transcript: [...run.transcript, userMessage], updatedAt: 'now' }
-              : run
-          ),
-        }));
+        await platformTransport.sendAiMessage(sessionId, content);
       },
 
       resolveApproval: async (approvalId, decision) => {
@@ -1969,34 +1945,27 @@ export const useControlCenterStore = create<ControlCenterState>()(
         if (!get().serverMode) {
           throw new Error('Platform connection is required before opening a terminal.');
         }
-        const serverSession = await platformTransport.createTerminalSession({
-          device_id: deviceId,
-          cwd: options?.cwd,
-          cols: options?.cols ?? 80,
-          rows: options?.rows ?? 24,
-        });
-        const sessionId = serverSession.session_id;
-        // Track locally as well
-        const device = get().devices.find(item => item.id === deviceId);
-        set(state => ({
-          terminalSessions: [
-            {
-              id: sessionId,
-              deviceId,
-              directory: options?.cwd ?? device?.authorizedDirectories[0] ?? '~',
-              shell: device?.os.toLowerCase().includes('windows') ? 'pwsh' : 'zsh',
-              status: 'idle' as TerminalSessionStatus,
-              lines: [
-                line('system', device ? `PTY session opened on ${device.name}.` : 'Device is unavailable.'),
-              ],
-              createdAt: nowTime(),
-              updatedAt: nowTime(),
-            },
-            ...state.terminalSessions,
-          ],
-        }));
-        return sessionId;
-      },
+	        const serverSession = await platformTransport.createTerminalSession({
+	          device_id: deviceId,
+	          cwd: options?.cwd,
+	          cols: options?.cols ?? 80,
+	          rows: options?.rows ?? 24,
+	        });
+	        const device = get().devices.find(item => item.id === deviceId);
+	        const terminal = serverTerminalSessionToClient(serverSession);
+	        set(state => ({
+	          terminalSessions: [
+	            {
+	              ...terminal,
+	              lines: [
+	                line('system', device ? `PTY session opened on ${device.name}.` : 'Device is unavailable.'),
+	              ],
+	            },
+	            ...state.terminalSessions.filter(item => item.id !== terminal.id),
+	          ],
+	        }));
+	        return terminal.id;
+	      },
 
       sendTerminalInput: (sessionId, data, encoding = 'base64') => {
         platformTransport.send({
