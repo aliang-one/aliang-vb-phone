@@ -54,7 +54,9 @@ export const NotificationCenterScreen: React.FC = () => {
   const unreadCount = notifications.filter(item => !item.read).length;
 
   const handleOpen = (item: PushNotificationItem) => {
-    markNotificationRead(item.id);
+    void markNotificationRead(item.id).catch(error => {
+      console.warn('[notifications] failed to mark read', error);
+    });
 
     if (item.approvalId) {
       navigation.navigate('ApprovalCenter');
@@ -82,7 +84,11 @@ export const NotificationCenterScreen: React.FC = () => {
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <TouchableOpacity
           activeOpacity={0.75}
-          onPress={markAllNotificationsRead}
+          onPress={() => {
+            void markAllNotificationsRead().catch(error => {
+              console.warn('[notifications] failed to mark all read', error);
+            });
+          }}
           style={[
             styles.markAllButton,
             {

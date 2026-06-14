@@ -16,6 +16,7 @@ import {
   type PlatformAiSessionSnapshot,
   type PlatformApprovalSnapshot,
   type PlatformDeviceSnapshot,
+  type PlatformNotificationSnapshot,
   type PlatformProjectFileContentSnapshot,
   type PlatformProjectFileListSnapshot,
   type PlatformProjectSnapshot,
@@ -262,8 +263,8 @@ interface ControlCenterState {
     mode: 'voice' | 'text',
   ) => void;
   resolveApproval: (approvalId: string, decision: 'approved' | 'denied') => Promise<void>;
-  markNotificationRead: (notificationId: string) => void;
-  markAllNotificationsRead: () => void;
+  markNotificationRead: (notificationId: string) => Promise<void>;
+  markAllNotificationsRead: () => Promise<void>;
   createPtySession: (deviceId: string, options?: { cwd?: string; cols?: number; rows?: number }) => Promise<string>;
   sendTerminalInput: (sessionId: string, data: string, encoding?: string) => void;
   resizeTerminal: (sessionId: string, cols: number, rows: number) => void;
@@ -310,21 +311,6 @@ const event = (
   detail,
   status,
   timestamp: nowTime(),
-  ...meta,
-});
-
-const notification = (
-  type: PushNotificationItem['type'],
-  title: string,
-  body: string,
-  meta: Partial<PushNotificationItem> = {},
-): PushNotificationItem => ({
-  id: createId('push'),
-  type,
-  title,
-  body,
-  read: false,
-  createdAt: nowTime(),
   ...meta,
 });
 
@@ -609,56 +595,30 @@ function realtimeEventToUnifiedEvent(message: PlatformRealtimeEventSnapshot): Un
   };
 }
 
-function notificationsFromServerState(
-  devices: Device[],
-  vibeRuns: VibeCodingRun[],
-  approvals: ApprovalRequest[],
-  readIds: Set<string>,
+function serverNotificationToClient(
+  notification: PlatformNotificationSnapshot,
+): PushNotificationItem {
+  return {
+    id: notification.notification_id || notification.id,
+    type: notification.type,
+    title: notification.title,
+    body: notification.body,
+    deviceId: notification.device_id,
+    sessionId: notification.session_id,
+    approvalId: notification.approval_id,
+    read: Boolean(notification.read),
+    createdAt: notification.created_at,
+  };
+}
+
+function upsertNotification(
+  list: PushNotificationItem[],
+  item: PushNotificationItem,
 ): PushNotificationItem[] {
-  const approvalNotifications = approvals
-    .filter(item => item.status === 'pending')
-    .map(item => ({
-      ...notification('approval', item.title, item.summary, {
-        id: `approval:${item.id}`,
-        deviceId: item.deviceId,
-        sessionId: item.sessionId,
-        approvalId: item.id,
-        createdAt: item.createdAt,
-      }),
-      read: readIds.has(`approval:${item.id}`),
-    }));
-
-  const sessionNotifications = vibeRuns
-    .filter(item => item.status === 'completed' || item.status === 'failed')
-    .slice(0, 20)
-    .map(item => ({
-      ...notification(
-        item.status === 'completed' ? 'completed' : 'error',
-        item.status === 'completed' ? 'VibeCoding completed' : 'VibeCoding failed',
-        item.title,
-        {
-          id: `session:${item.id}:${item.status}`,
-          deviceId: item.deviceId,
-          sessionId: item.id,
-          createdAt: item.updatedAt,
-        },
-      ),
-      read: readIds.has(`session:${item.id}:${item.status}`),
-    }));
-
-  const offlineNotifications = devices
-    .filter(item => item.status === 'offline')
-    .slice(0, 12)
-    .map(item => ({
-      ...notification('device_offline', 'Device offline', item.name, {
-        id: `device:${item.id}:offline`,
-        deviceId: item.id,
-        createdAt: item.lastSeen,
-      }),
-      read: readIds.has(`device:${item.id}:offline`),
-    }));
-
-  return [...approvalNotifications, ...sessionNotifications, ...offlineNotifications]
+  return [
+    item,
+    ...list.filter(existing => existing.id !== item.id),
+  ]
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     .slice(0, 120);
 }
@@ -822,12 +782,9 @@ export const useControlCenterStore = create<ControlCenterState>()(
 
 	      // --- Server initialization ---
 
-	      initializeFromServer: async (token) => {
-	        const readNotificationIds = new Set(
-	          get().notifications.filter(item => item.read).map(item => item.id),
-	        );
-	        platformTransport.disconnect();
-	        set({ ...emptySessionData(), serverMode: true, wsConnected: false });
+		      initializeFromServer: async (token) => {
+		        platformTransport.disconnect();
+		        set({ ...emptySessionData(), serverMode: true, wsConnected: false });
 
 	        try {
 	          const snapshot = await platformTransport.loadSnapshot();
@@ -854,12 +811,11 @@ export const useControlCenterStore = create<ControlCenterState>()(
 	            .map(realtimeEventToUnifiedEvent)
 	            .filter(item => !item.deviceId || knownDeviceIds.has(item.deviceId))
 	            .slice(0, 120);
-	          const notifications = notificationsFromServerState(
-	            devices,
-	            vibeRuns,
-	            approvals,
-	            readNotificationIds,
-	          );
+		          const notifications = snapshot.notifications
+		            .map(serverNotificationToClient)
+		            .filter(item => !item.deviceId || knownDeviceIds.has(item.deviceId))
+		            .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+		            .slice(0, 120);
 	          const warningEvents = snapshot.warnings.map(detail =>
 	            event('command.completed', 'Partial platform sync', detail, 'failed'),
 	          );
@@ -934,7 +890,6 @@ export const useControlCenterStore = create<ControlCenterState>()(
                 state.vibeRuns,
               );
               const nextEvents: UnifiedEvent[] = [];
-              const nextNotifications: PushNotificationItem[] = [];
 
               if (!previous) {
                 nextEvents.push(
@@ -948,17 +903,11 @@ export const useControlCenterStore = create<ControlCenterState>()(
                     deviceId: nextDevice.id,
                   }),
                 );
-                nextNotifications.push(
-                  notification('device_offline', 'Device disconnected', `${nextDevice.name} is no longer reachable.`, {
-                    deviceId: nextDevice.id,
-                  }),
-                );
               }
 
               return {
                 devices: nextDevices,
                 events: [...nextEvents, ...state.events].slice(0, 120),
-                notifications: [...nextNotifications, ...state.notifications].slice(0, 120),
               };
             });
             return;
@@ -1041,13 +990,6 @@ export const useControlCenterStore = create<ControlCenterState>()(
                   ...device,
                   activeSessionIds: device.activeSessionIds.filter(id => id !== transportEvent.sessionId),
                 })),
-                notifications: [
-                  notification('completed', 'VibeCoding completed', run?.title ?? detail, {
-                    deviceId: run?.deviceId,
-                    sessionId: transportEvent.sessionId,
-                  }),
-                  ...state.notifications,
-                ].slice(0, 120),
                 events: [
                   event('agent.session.completed', 'VibeCoding completed', run?.title ?? detail, 'done', {
                     deviceId: run?.deviceId,
@@ -1078,13 +1020,6 @@ export const useControlCenterStore = create<ControlCenterState>()(
                   ...device,
                   activeSessionIds: device.activeSessionIds.filter(id => id !== transportEvent.sessionId),
                 })),
-                notifications: [
-                  notification('error', 'VibeCoding failed', run?.title ?? transportEvent.error, {
-                    deviceId: run?.deviceId,
-                    sessionId: transportEvent.sessionId,
-                  }),
-                  ...state.notifications,
-                ].slice(0, 120),
                 events: [
                   event('agent.session.failed', 'VibeCoding failed', transportEvent.error, 'failed', {
                     deviceId: run?.deviceId,
@@ -1221,21 +1156,13 @@ export const useControlCenterStore = create<ControlCenterState>()(
           case 'approval.requested': {
             const approval = serverApprovalToClient(transportEvent.approval);
             set(state => ({
-              approvals: [
-                approval,
-                ...state.approvals.filter(item => item.id !== approval.id),
-              ],
-              notifications: [
-                notification('approval', approval.title, approval.summary, {
-                  deviceId: approval.deviceId,
-                  sessionId: approval.sessionId,
-                  approvalId: approval.id,
-                }),
-                ...state.notifications,
-              ].slice(0, 120),
-              events: [
-                event('approval.requested', approval.title, approval.summary, 'waiting', {
-                  deviceId: approval.deviceId,
+	              approvals: [
+	                approval,
+	                ...state.approvals.filter(item => item.id !== approval.id),
+	              ],
+	              events: [
+	                event('approval.requested', approval.title, approval.summary, 'waiting', {
+	                  deviceId: approval.deviceId,
                   projectId: approval.projectId,
                   sessionId: approval.sessionId,
                   terminalId: approval.terminalId,
@@ -1244,10 +1171,34 @@ export const useControlCenterStore = create<ControlCenterState>()(
                 ...state.events,
               ].slice(0, 120),
             }));
-            return;
-          }
+	            return;
+	          }
 
-          case 'preview.ready': {
+	          case 'notification.created': {
+	            const nextNotification = serverNotificationToClient(transportEvent.notification);
+	            set(state => ({
+	              notifications: upsertNotification(state.notifications, nextNotification),
+	            }));
+	            return;
+	          }
+
+	          case 'notification.updated': {
+	            const nextNotification = serverNotificationToClient(transportEvent.notification);
+	            set(state => ({
+	              notifications: upsertNotification(state.notifications, nextNotification),
+	            }));
+	            return;
+	          }
+
+	          case 'notifications.updated':
+	            if (transportEvent.readAll) {
+	              set(state => ({
+	                notifications: state.notifications.map(item => ({ ...item, read: true })),
+	              }));
+	            }
+	            return;
+
+	          case 'preview.ready': {
             const preview: PreviewLink = {
               id: transportEvent.preview.id,
               sessionId: transportEvent.preview.sessionId,
@@ -1982,38 +1933,36 @@ export const useControlCenterStore = create<ControlCenterState>()(
           throw new Error('Platform connection is required before resolving an approval.');
         }
 
-        const resolved = serverApprovalToClient(
-          await platformTransport.respondApproval(approvalId, decision),
-        );
-        const approved = decision === 'approved';
-        set(state => ({
-          approvals: state.approvals.map(item =>
-            item.id === approvalId ? resolved : item
-          ),
-          notifications: [
-            notification(approved ? 'completed' : 'error', approved ? 'Approval granted' : 'Approval denied', approval.title, {
-              id: `approval:${approvalId}:${decision}`,
-              deviceId: approval.deviceId,
-              approvalId,
-              createdAt: resolved.resolvedAt ?? nowTime(),
-            }),
-            ...state.notifications,
-          ].slice(0, 120),
-        }));
-      },
+	        const resolved = serverApprovalToClient(
+	          await platformTransport.respondApproval(approvalId, decision),
+	        );
+	        set(state => ({
+	          approvals: state.approvals.map(item =>
+	            item.id === approvalId ? resolved : item
+	          ),
+	        }));
+	      },
 
-      markNotificationRead: notificationId => {
-        set(state => ({
-          notifications: state.notifications.map(item =>
-            item.id === notificationId ? { ...item, read: true } : item
-          ),
-        }));
-      },
+	      markNotificationRead: async notificationId => {
+	        if (!get().serverMode) {
+	          throw new Error('Platform connection is required before marking notifications read.');
+	        }
+	        const updated = serverNotificationToClient(
+	          await platformTransport.markNotificationRead(notificationId),
+	        );
+	        set(state => ({
+	          notifications: upsertNotification(state.notifications, updated),
+	        }));
+	      },
 
-      markAllNotificationsRead: () => {
-        set(state => ({
-          notifications: state.notifications.map(item => ({ ...item, read: true })),
-        }));
+	      markAllNotificationsRead: async () => {
+	        if (!get().serverMode) {
+	          throw new Error('Platform connection is required before marking notifications read.');
+	        }
+	        await platformTransport.markAllNotificationsRead();
+	        set(state => ({
+	          notifications: state.notifications.map(item => ({ ...item, read: true })),
+	        }));
       },
 
       createPtySession: async (deviceId, options) => {

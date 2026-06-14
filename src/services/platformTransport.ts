@@ -34,6 +34,11 @@ import {
   type ServerApproval,
 } from '../api/approvals';
 import {
+  markAllNotificationsRead as apiMarkAllNotificationsRead,
+  markNotificationRead as apiMarkNotificationRead,
+  type ServerNotification,
+} from '../api/notifications';
+import {
   fetchMobileSnapshot,
   type ServerPreviewLink,
   type ServerRealtimeEvent,
@@ -82,6 +87,7 @@ export type PlatformAiSessionSnapshot = ServerAiSession;
 export type PlatformApprovalSnapshot = ServerApproval;
 export type PlatformTerminalSessionSnapshot = ServerTerminalSession;
 export type PlatformRealtimeEventSnapshot = ServerRealtimeEvent;
+export type PlatformNotificationSnapshot = ServerNotification;
 
 export interface PlatformSnapshot {
   devices: PlatformDeviceSnapshot[];
@@ -89,6 +95,7 @@ export interface PlatformSnapshot {
   aiSessions: PlatformAiSessionSnapshot[];
   terminalSessions: PlatformTerminalSessionSnapshot[];
   approvals: PlatformApprovalSnapshot[];
+  notifications: PlatformNotificationSnapshot[];
   previewLinks: PlatformPreviewSnapshot[];
   realtimeEvents: PlatformRealtimeEventSnapshot[];
   loadedAt: string;
@@ -122,6 +129,9 @@ export type PlatformTransportEvent =
   | { type: 'terminal.created'; sessionId: string; raw: Record<string, unknown> }
   | { type: 'terminal.exit'; sessionId: string; failed: boolean; raw: Record<string, unknown> }
   | { type: 'approval.requested'; approval: PlatformApprovalSnapshot; raw: Record<string, unknown> }
+  | { type: 'notification.created'; notification: PlatformNotificationSnapshot; raw: Record<string, unknown> }
+  | { type: 'notification.updated'; notification: PlatformNotificationSnapshot; raw: Record<string, unknown> }
+  | { type: 'notifications.updated'; readAll: boolean; raw: Record<string, unknown> }
   | { type: 'preview.ready'; preview: PlatformPreviewSnapshot; expiresIn: string; raw: Record<string, unknown> }
   | { type: 'project.updated'; project: PlatformProjectSnapshot; raw: Record<string, unknown> }
   | { type: 'project.deleted'; projectId: string; raw: Record<string, unknown> }
@@ -148,6 +158,9 @@ const isServerDevice = (value: unknown): value is ServerDevice =>
   Boolean(value && typeof value === 'object');
 
 const isServerApproval = (value: unknown): value is ServerApproval =>
+  Boolean(value && typeof value === 'object');
+
+const isServerNotification = (value: unknown): value is ServerNotification =>
   Boolean(value && typeof value === 'object');
 
 const isServerProject = (value: unknown): value is ServerProject =>
@@ -220,6 +233,7 @@ class PlatformTransport {
       aiSessions: snapshot.ai_sessions,
       terminalSessions: snapshot.terminal_sessions,
       approvals: snapshot.approvals,
+      notifications: snapshot.notifications ?? [],
       previewLinks: snapshot.preview_links.map(normalizeServerPreviewLink),
       realtimeEvents: snapshot.realtime_events,
       loadedAt: snapshot.generated_at,
@@ -322,6 +336,14 @@ class PlatformTransport {
 
   respondApproval(approvalId: string, decision: 'approved' | 'denied'): Promise<PlatformApprovalSnapshot> {
     return apiRespondApproval(approvalId, decision);
+  }
+
+  markNotificationRead(notificationId: string): Promise<PlatformNotificationSnapshot> {
+    return apiMarkNotificationRead(notificationId);
+  }
+
+  markAllNotificationsRead(): Promise<{ status: string; count: number }> {
+    return apiMarkAllNotificationsRead();
   }
 
   createTerminalSession(input: Parameters<typeof apiCreateTerminalSession>[0]): Promise<ServerTerminalSession> {
@@ -451,6 +473,30 @@ class PlatformTransport {
       return {
         type: 'approval.requested',
         approval: message.approval,
+        raw: message,
+      };
+    }
+
+    if (type === 'notification.created' && isServerNotification(message.notification)) {
+      return {
+        type: 'notification.created',
+        notification: message.notification,
+        raw: message,
+      };
+    }
+
+    if (type === 'notification.updated' && isServerNotification(message.notification)) {
+      return {
+        type: 'notification.updated',
+        notification: message.notification,
+        raw: message,
+      };
+    }
+
+    if (type === 'notifications.updated') {
+      return {
+        type: 'notifications.updated',
+        readAll: Boolean(message.read_all),
         raw: message,
       };
     }

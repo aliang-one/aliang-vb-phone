@@ -2,6 +2,7 @@ import { apiGet } from './client';
 import type { PlatformUser } from './auth';
 import type { ServerApproval } from './approvals';
 import type { ServerDevice } from './devices';
+import type { ServerNotification } from './notifications';
 import type { ServerProject } from './projects';
 import type { ServerAiSession, ServerTerminalSession } from './sessions';
 
@@ -52,6 +53,7 @@ export interface MobilePlatformSnapshot {
     ai_sessions_total: number;
     terminal_sessions_total: number;
     pending_approvals: number;
+    unread_notifications: number;
     preview_links_total: number;
   };
   stats: unknown;
@@ -60,6 +62,7 @@ export interface MobilePlatformSnapshot {
   ai_sessions: ServerAiSession[];
   terminal_sessions: ServerTerminalSession[];
   approvals: ServerApproval[];
+  notifications: ServerNotification[];
   preview_links: ServerPreviewLink[];
   realtime_events: ServerRealtimeEvent[];
 }
