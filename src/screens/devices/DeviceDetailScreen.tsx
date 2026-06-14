@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -80,19 +80,29 @@ export const DeviceDetailScreen: React.FC = () => {
     );
   }
 
-  const projects = projectsStore.filter(project =>
-    project.deviceId === device.id || device.projectIds.includes(project.id),
+  const projects = useMemo(
+    () =>
+      projectsStore.filter(
+        project =>
+          project.deviceId === device.id || device.projectIds.includes(project.id),
+      ),
+    [projectsStore, device.id, device.projectIds],
   );
-  const sessions = vibeRuns
-    .filter(session => session.deviceId === device.id)
-    .sort((left, right) => {
-      const leftActive = activeSessionStatuses.includes(left.status) ? 0 : 1;
-      const rightActive = activeSessionStatuses.includes(right.status) ? 0 : 1;
-      if (leftActive !== rightActive) return leftActive - rightActive;
-      return right.updatedAt.localeCompare(left.updatedAt);
-    });
-  const activeSessions = sessions.filter(session =>
-    activeSessionStatuses.includes(session.status),
+  const sessions = useMemo(
+    () =>
+      vibeRuns
+        .filter(session => session.deviceId === device.id)
+        .sort((left, right) => {
+          const leftActive = activeSessionStatuses.includes(left.status) ? 0 : 1;
+          const rightActive = activeSessionStatuses.includes(right.status) ? 0 : 1;
+          if (leftActive !== rightActive) return leftActive - rightActive;
+          return right.updatedAt.localeCompare(left.updatedAt);
+        }),
+    [vibeRuns, device.id],
+  );
+  const activeSessions = useMemo(
+    () => sessions.filter(session => activeSessionStatuses.includes(session.status)),
+    [sessions],
   );
   const terminalDirectory =
     device.authorizedDirectories[0] ?? projects[0]?.path ?? '~';

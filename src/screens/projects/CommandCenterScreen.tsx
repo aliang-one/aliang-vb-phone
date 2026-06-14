@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -86,19 +86,32 @@ export const CommandCenterScreen: React.FC = () => {
   const projectFiles = useControlCenterStore(state => state.projectFiles);
   const scanResults = useControlCenterStore(state => state.scanResults);
 
-  const onlineDevices = devices.filter(device => device.status === 'online');
-  const activeAgentRuns = vibeRuns
-    .filter(
-      session =>
-        liveAgentStatuses.includes(session.status) &&
-        getRelativeMinutes(session.updatedAt) <= 24 * 60,
-    )
-    .sort(
-      (left, right) =>
-        getRelativeMinutes(left.updatedAt) - getRelativeMinutes(right.updatedAt),
-    );
-  const pendingApprovals = approvals.filter(item => item.status === 'pending');
-  const unreadNotifications = notifications.filter(item => !item.read);
+  const onlineDevices = useMemo(
+    () => devices.filter(device => device.status === 'online'),
+    [devices],
+  );
+  const activeAgentRuns = useMemo(
+    () =>
+      vibeRuns
+        .filter(
+          session =>
+            liveAgentStatuses.includes(session.status) &&
+            getRelativeMinutes(session.updatedAt) <= 24 * 60,
+        )
+        .sort(
+          (left, right) =>
+            getRelativeMinutes(left.updatedAt) - getRelativeMinutes(right.updatedAt),
+        ),
+    [vibeRuns],
+  );
+  const pendingApprovals = useMemo(
+    () => approvals.filter(item => item.status === 'pending'),
+    [approvals],
+  );
+  const unreadNotifications = useMemo(
+    () => notifications.filter(item => !item.read),
+    [notifications],
+  );
   const platformSummary = {
     title: 'Platform snapshot',
     headline: `${devices.length} registered devices`,
@@ -319,7 +332,7 @@ export const CommandCenterScreen: React.FC = () => {
                 })
               }
               onAgent={() =>
-                navigation.navigate('AgentSessions', {
+                navigation.navigate('CreateVibeCoding', {
                   deviceId: device?.id,
                   projectId: project.id,
                 })
@@ -380,7 +393,7 @@ interface ProjectWorkspaceCardProps {
   onAgent: () => void;
 }
 
-const ProjectWorkspaceCard: React.FC<ProjectWorkspaceCardProps> = ({
+const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(({
   project,
   device,
   sessions,
@@ -400,6 +413,7 @@ const ProjectWorkspaceCard: React.FC<ProjectWorkspaceCardProps> = ({
   const modifiedFiles = files.filter(item =>
     ['modified', 'added', 'deleted'].includes(item.status),
   );
+  const deviceOnline = device?.status === 'online';
 
   return (
     <TouchableOpacity activeOpacity={0.78} onPress={onOpen}>
@@ -428,6 +442,40 @@ const ProjectWorkspaceCard: React.FC<ProjectWorkspaceCardProps> = ({
                 : 'neutral'
             }
           />
+        </View>
+        <View
+          style={[
+            styles.deviceRow,
+            {
+              backgroundColor: isDark
+                ? 'rgba(255,255,255,0.04)'
+                : theme.colors.surfaceContainerLow,
+            },
+          ]}>
+          <IconBadge
+            name="device"
+            tone={deviceOnline ? 'secondary' : 'neutral'}
+            size={26}
+            iconSize={14}
+          />
+          <Text
+            numberOfLines={1}
+            style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant, flex: 1 }]}>
+            {device?.name ?? '未绑定设备'} · {device?.os ?? 'unknown'}
+          </Text>
+          <View
+            style={[
+              styles.deviceStateDot,
+              { backgroundColor: deviceOnline ? theme.colors.secondary : theme.colors.onSurfaceVariant },
+            ]}
+          />
+          <Text
+            style={[
+              theme.typography.labelSm,
+              { color: deviceOnline ? theme.colors.secondary : theme.colors.onSurfaceVariant },
+            ]}>
+            {deviceOnline ? '在线' : '离线'}
+          </Text>
         </View>
         <View style={styles.projectVisualRow}>
           <ProjectMetric icon="code" value={`${files.length}`} label="Files" />
@@ -467,12 +515,18 @@ const ProjectWorkspaceCard: React.FC<ProjectWorkspaceCardProps> = ({
         <View style={styles.projectActions}>
           <ProjectAction label="Files" icon="code" onPress={onFiles} />
           <ProjectAction label="Term" icon="terminal" onPress={onTerminal} disabled={!device} />
-          <ProjectAction label="Agent" icon="agent" onPress={onAgent} />
+          <ProjectAction label="+ 新对话" icon="plus" onPress={onAgent} emphasize />
         </View>
       </GlassPanel>
     </TouchableOpacity>
   );
-};
+}, (prev, next) =>
+  prev.project === next.project &&
+  prev.device === next.device &&
+  prev.sessions === next.sessions &&
+  prev.files === next.files &&
+  prev.scan === next.scan,
+);
 
 interface ProjectMetricProps {
   icon: 'code' | 'agent' | 'git';
@@ -507,10 +561,11 @@ const ProjectMetric: React.FC<ProjectMetricProps> = ({ icon, value, label }) => 
 };
 
 interface ProjectActionProps {
-  icon: 'code' | 'terminal' | 'agent';
+  icon: 'code' | 'terminal' | 'agent' | 'plus';
   label: string;
   onPress: () => void;
   disabled?: boolean;
+  emphasize?: boolean;
 }
 
 const ProjectAction: React.FC<ProjectActionProps> = ({
@@ -518,6 +573,7 @@ const ProjectAction: React.FC<ProjectActionProps> = ({
   label,
   onPress,
   disabled,
+  emphasize = false,
 }) => {
   const { theme } = useTheme();
 
@@ -529,13 +585,24 @@ const ProjectAction: React.FC<ProjectActionProps> = ({
       style={[
         styles.projectAction,
         {
-          borderColor: theme.colors.outlineVariant,
+          borderColor: emphasize ? theme.colors.primary : theme.colors.outlineVariant,
           borderRadius: theme.borderRadius.full,
+          backgroundColor: emphasize ? theme.colors.primary : 'transparent',
           opacity: disabled ? 0.45 : 1,
         },
       ]}>
-      <IconBadge name={icon} tone="primary" size={24} iconSize={13} />
-      <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+      <IconBadge
+        name={icon}
+        tone={emphasize ? 'primary' : 'primary'}
+        size={24}
+        iconSize={13}
+        filled={emphasize}
+      />
+      <Text
+        style={[
+          theme.typography.codeSm,
+          { color: emphasize ? theme.colors.onPrimary : theme.colors.primary },
+        ]}>
         {label}
       </Text>
     </TouchableOpacity>
@@ -587,6 +654,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  deviceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  deviceStateDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   projectCopy: {
     flex: 1,

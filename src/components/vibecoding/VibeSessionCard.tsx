@@ -29,7 +29,7 @@ interface VibeSessionCardProps {
   homeFocus?: boolean;
 }
 
-export const VibeSessionCard: React.FC<VibeSessionCardProps> = ({
+export const VibeSessionCard = React.memo<VibeSessionCardProps>(({
   session,
   project,
   device,
@@ -478,7 +478,12 @@ export const VibeSessionCard: React.FC<VibeSessionCardProps> = ({
       </Modal>
     </>
   );
-};
+}, (prev, next) =>
+  prev.session === next.session &&
+  prev.project === next.project &&
+  prev.device === next.device &&
+  prev.homeFocus === next.homeFocus,
+);
 
 const styles = StyleSheet.create({
   card: {

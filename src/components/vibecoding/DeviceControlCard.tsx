@@ -18,7 +18,7 @@ const statusType = {
   offline: 'neutral',
 } as const;
 
-export const DeviceControlCard: React.FC<DeviceControlCardProps> = ({
+export const DeviceControlCard = React.memo<DeviceControlCardProps>(({
   device,
   onPress,
 }) => {
@@ -93,7 +93,7 @@ export const DeviceControlCard: React.FC<DeviceControlCardProps> = ({
       </GlassPanel>
     </TouchableOpacity>
   );
-};
+}, (prev, next) => prev.device === next.device);
 
 interface MiniStatProps {
   icon: 'project' | 'agent';

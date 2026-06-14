@@ -45,6 +45,60 @@ const parentPathOf = (pathValue: string) => {
   return `${prefix}${parts.slice(0, -1).join('/')}`;
 };
 
+interface FileErrorMessage {
+  title: string;
+  detail: string;
+  offline: boolean;
+}
+
+const humanizeFileError = (error: unknown): FileErrorMessage => {
+  const err = error as { code?: string; message?: string } | null;
+  const code = err?.code;
+  const message = error instanceof Error ? error.message : String(err?.message ?? error ?? '');
+  const matches = (value?: string) => Boolean(value && (code === value || message.includes(value as string)));
+
+  if (matches('device_offline')) {
+    return {
+      title: '桌面 Agent 未连接',
+      detail: '电脑端 Agent 当前不在线。请确认 Agent 正在运行并已连接到同一台服务，然后重试。',
+      offline: true,
+    };
+  }
+  if (matches('agent_request_timeout')) {
+    return {
+      title: 'Agent 响应超时',
+      detail: '桌面 Agent 未能及时返回文件内容，请稍后重试，或确认 Agent 没有被其他任务占用。',
+      offline: true,
+    };
+  }
+  if (matches('project_path_missing')) {
+    return {
+      title: '项目路径缺失',
+      detail: '该项目尚未上报路径。请在设备页执行「扫描项目」，或返回后重新选择项目。',
+      offline: false,
+    };
+  }
+  if (matches('project_path_not_authorized')) {
+    return {
+      title: '路径未授权',
+      detail: '请求的目录不在 Agent 授权范围内，请回到项目根目录，或重新扫描设备。',
+      offline: false,
+    };
+  }
+  if (matches('project_not_found')) {
+    return {
+      title: '项目不存在',
+      detail: '该项目数据已失效，请返回后重新选择项目。',
+      offline: false,
+    };
+  }
+  return {
+    title: '无法读取项目文件',
+    detail: message || '发生未知错误，请稍后重试。',
+    offline: false,
+  };
+};
+
 export const FileBrowserScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
@@ -63,8 +117,8 @@ export const FileBrowserScreen: React.FC = () => {
   const [error, setError] = useState('');
   const project = projects.find(item => item.id === route.params.projectId);
   const device =
+    (project?.deviceId ? devices.find(item => item.id === project.deviceId) : undefined) ??
     devices.find(item => item.id === route.params.deviceId) ??
-    devices.find(item => project?.deviceId && item.id === project.deviceId) ??
     devices.find(item => item.projectIds.includes(route.params.projectId));
   const scanResult = scanResults.find(
     item =>
@@ -74,6 +128,8 @@ export const FileBrowserScreen: React.FC = () => {
   const terminalDirectory =
     scanResult?.path ?? project?.path ?? device?.authorizedDirectories[0] ?? '~';
   const effectivePath = currentPath || terminalDirectory;
+  const deviceOnline = device?.status === 'online';
+  const fileError = useMemo(() => (error ? humanizeFileError(error) : null), [error]);
   const projectFiles = useMemo(
     () =>
       files.filter(item => {
@@ -195,6 +251,31 @@ export const FileBrowserScreen: React.FC = () => {
             </View>
             <StatusChip label={project.branch} type="info" />
           </View>
+          <View
+            style={[
+              styles.deviceStatusRow,
+              {
+                backgroundColor: isDark
+                  ? 'rgba(255,255,255,0.04)'
+                  : theme.colors.surfaceContainerLow,
+              },
+            ]}>
+            <IconBadge
+              name="device"
+              tone={deviceOnline ? 'secondary' : 'neutral'}
+              size={28}
+              iconSize={15}
+            />
+            <Text
+              numberOfLines={1}
+              style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant, flex: 1 }]}>
+              {device ? `${device.name} · ${device.os}` : '未绑定设备'}
+            </Text>
+            <StatusChip
+              label={deviceOnline ? 'AGENT 在线' : device ? 'AGENT 离线' : '无设备'}
+              type={deviceOnline ? 'success' : 'neutral'}
+            />
+          </View>
           <View style={styles.pathRow}>
             <Text
               numberOfLines={1}
@@ -305,14 +386,35 @@ export const FileBrowserScreen: React.FC = () => {
           })}
         </ScrollView>
 
-        {error ? (
+        {fileError ? (
           <GlassPanel style={styles.errorPanel}>
-            <Text style={[theme.typography.titleMd, { color: theme.colors.error }]}>
-              Project content unavailable
+            <Text
+              style={[
+                theme.typography.titleMd,
+                { color: fileError.offline ? theme.colors.tertiary : theme.colors.error },
+              ]}>
+              {fileError.title}
             </Text>
             <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-              {error}
+              {fileError.detail}
             </Text>
+            <View style={styles.errorActions}>
+              <GlowButton
+                title={loading ? '加载中' : '重新加载'}
+                onPress={handleRefresh}
+                disabled={!device || !deviceOnline || loading}
+                variant="primary"
+                style={styles.emptyAction}
+              />
+              {device ? (
+                <GlowButton
+                  title="扫描设备"
+                  onPress={() => navigation.navigate('ProjectScan', { deviceId: device.id })}
+                  variant="outline"
+                  style={styles.emptyAction}
+                />
+              ) : null}
+            </View>
           </GlassPanel>
         ) : null}
 
@@ -402,13 +504,28 @@ export const FileBrowserScreen: React.FC = () => {
         ) : null}
         {!projectFiles.length ? (
           <GlassPanel style={styles.emptyPanel}>
-            <IconBadge name="project" tone="neutral" size={42} iconSize={21} />
+            <IconBadge
+              name="device"
+              tone={deviceOnline ? 'neutral' : 'error'}
+              size={42}
+              iconSize={21}
+            />
             <View style={styles.emptyCopy}>
               <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                {loading ? 'Loading project content' : 'Project content is waiting for Agent sync'}
+                {loading
+                  ? '正在从桌面 Agent 加载文件…'
+                  : !device
+                  ? '该任务尚未绑定设备'
+                  : !deviceOnline
+                  ? '桌面 Agent 当前离线'
+                  : '暂无文件，点击下方刷新从 Agent 获取'}
               </Text>
               <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-                The platform knows this project path. Refresh to ask the desktop Agent for files, open a terminal here, or run a scan so the Agent refreshes project metadata.
+                {!device
+                  ? '请返回设备页，先绑定设备并为该项目选择设备。'
+                  : !deviceOnline
+                  ? '平台已知该项目路径，但电脑端 Agent 未保持连接。请确认 Agent 正在运行并在线后重试，或在此打开终端 / 扫描设备。'
+                  : '平台已知该项目路径。点击刷新可向桌面 Agent 请求文件列表，也可以在此打开终端或运行扫描以刷新项目元数据。'}
               </Text>
               <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
                 {effectivePath}
@@ -494,6 +611,20 @@ const styles = StyleSheet.create({
   heroCopy: {
     flex: 1,
     gap: 3,
+  },
+  deviceStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  errorActions: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginTop: 4,
   },
   actionRow: {
     flexDirection: 'row',

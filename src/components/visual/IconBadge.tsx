@@ -31,7 +31,8 @@ export type IconName =
   | 'play'
   | 'pause'
   | 'stop'
-  | 'quota';
+  | 'quota'
+  | 'plus';
 
 type Tone = 'primary' | 'secondary' | 'tertiary' | 'error' | 'neutral';
 
@@ -256,6 +257,8 @@ const IconShape: React.FC<IconShapeProps> = ({ name, stroke }) => {
           <Polyline points="12,8 12,12 15,14" stroke={stroke} {...common} />
         </>
       );
+    case 'plus':
+      return <Path d="M12 6v12M6 12h12" stroke={stroke} {...common} />;
   }
 };
 
