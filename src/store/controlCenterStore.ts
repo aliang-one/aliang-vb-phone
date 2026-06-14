@@ -2008,20 +2008,13 @@ export const useControlCenterStore = create<ControlCenterState>()(
     {
       name: 'aliang-vibecoding-control-center',
       storage: createJSONStorage(() => AsyncStorage),
-      version: 3,
-      migrate: persistedState => persistedState as Partial<ControlCenterState>,
-      partialize: state => ({
-        devices: state.devices,
-        projects: state.projects,
-        vibeRuns: state.vibeRuns,
-        previewLinks: state.previewLinks,
-        terminalSessions: state.terminalSessions,
-        scanResults: state.scanResults,
-        approvals: state.approvals,
-        notifications: state.notifications,
-        events: state.events,
-        projectFiles: state.projectFiles,
+      version: 4,
+      migrate: () => ({
+        ...emptySessionData(),
+        wsConnected: false,
+        serverMode: false,
       }),
+      partialize: () => ({}),
     },
   ),
 );
