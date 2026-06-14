@@ -66,45 +66,6 @@ export interface FileAction {
   lines: number;
 }
 
-export interface GitHubRepo {
-  id: string;
-  name: string;
-  fullName: string;
-  description: string;
-  language: string;
-  stars: number;
-  forks: number;
-  openPRs: number;
-  lastUpdated: string;
-  visibility: 'public' | 'private';
-}
-
-export interface PullRequest {
-  id: string;
-  title: string;
-  author: string;
-  branch: string;
-  base: string;
-  status: 'open' | 'merged' | 'closed';
-  additions: number;
-  deletions: number;
-  files: DiffFile[];
-}
-
-export interface DiffFile {
-  filename: string;
-  status: 'added' | 'modified' | 'removed';
-  additions: number;
-  deletions: number;
-  hunks: DiffHunk[];
-}
-
-export interface DiffHunk {
-  oldStart: number;
-  newStart: number;
-  lines: DiffLine[];
-}
-
 export interface DiffLine {
   type: 'context' | 'add' | 'remove';
   content: string;
@@ -426,80 +387,6 @@ export const mockChatMessages: ChatMessage[] = [
     ],
   },
 ];
-
-export const mockGitHubRepos: GitHubRepo[] = [
-  {
-    id: '1',
-    name: 'api-gateway',
-    fullName: 'org/api-gateway',
-    description: 'High-performance API gateway',
-    language: 'Go',
-    stars: 234,
-    forks: 45,
-    openPRs: 3,
-    lastUpdated: '2h ago',
-    visibility: 'private',
-  },
-  {
-    id: '2',
-    name: 'web-dashboard',
-    fullName: 'org/web-dashboard',
-    description: 'React monitoring dashboard',
-    language: 'TypeScript',
-    stars: 89,
-    forks: 12,
-    openPRs: 7,
-    lastUpdated: '5h ago',
-    visibility: 'private',
-  },
-  {
-    id: '3',
-    name: 'mobile-app',
-    fullName: 'org/mobile-app',
-    description: 'Cross-platform companion app',
-    language: 'Kotlin',
-    stars: 156,
-    forks: 23,
-    openPRs: 1,
-    lastUpdated: '1d ago',
-    visibility: 'public',
-  },
-];
-
-export const mockPullRequest: PullRequest = {
-  id: '1',
-  title: 'feat: connect platform device snapshot',
-  author: 'dev.agent',
-  branch: 'feature/platform-device-sync',
-  base: 'main',
-  status: 'open',
-  additions: 45,
-  deletions: 12,
-  files: [
-    {
-      filename: 'src/services/platformTransport.ts',
-      status: 'modified',
-      additions: 24,
-      deletions: 8,
-      hunks: [
-        {
-          oldStart: 15,
-          newStart: 15,
-          lines: [
-            { type: 'context', content: 'export async function loadSnapshot() {' },
-            { type: 'context', content: '  const devices = await fetchDevices();' },
-            { type: 'remove', content: '  return devices;' },
-            { type: 'add', content: '  return {' },
-            { type: 'add', content: '    devices: devices.map(normalizeServerDevice),' },
-            { type: 'add', content: '    loadedAt: new Date().toISOString(),' },
-            { type: 'add', content: '  };' },
-            { type: 'context', content: '}' },
-          ],
-        },
-      ],
-    },
-  ],
-};
 
 export const mockVibeCodingSession: VibeCodingSession = {
   id: '1',
