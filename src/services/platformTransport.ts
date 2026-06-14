@@ -20,6 +20,7 @@ import {
   createAiSession as apiCreateAiSession,
   deleteAiSession as apiDeleteAiSession,
   createTerminalSession as apiCreateTerminalSession,
+  fetchAiSession,
   fetchAiSessions,
   pauseAiSession as apiPauseAiSession,
   resumeAiSession as apiResumeAiSession,
@@ -247,6 +248,10 @@ class PlatformTransport {
 
   async loadAiSessions(): Promise<PlatformAiSessionSnapshot[]> {
     return fetchAiSessions();
+  }
+
+  async loadAiSession(sessionId: string): Promise<PlatformAiSessionSnapshot> {
+    return fetchAiSession(sessionId);
   }
 
   createProject(input: Parameters<typeof apiCreateProject>[0]): Promise<PlatformProjectSnapshot> {

@@ -131,6 +131,10 @@ export interface VibeCodingRun {
   branch: string;
   updatedAt: string;
   previewId?: string;
+  transcriptCount?: number;
+  eventCount?: number;
+  lastMessage?: AgentMessage;
+  detailLoadedAt?: string;
   suggestions: string[];
   transcript: AgentMessage[];
   events: AgentEvent[];

@@ -14,14 +14,14 @@ export interface ServerAiSession {
   risk?: 'low' | 'medium' | 'high';
   current_step?: string;
   branch?: string;
-  transcript: Array<{
+  transcript?: Array<{
     id: string;
     role: 'user' | 'assistant' | 'system';
     mode?: 'voice' | 'text' | 'action';
     content: string;
     timestamp: string;
   }>;
-  events: Array<{
+  events?: Array<{
     id: string;
     type: 'command' | 'file' | 'test' | 'preview' | 'approval' | 'status';
     title: string;
@@ -29,6 +29,15 @@ export interface ServerAiSession {
     status: 'done' | 'running' | 'waiting' | 'failed';
     timestamp: string;
   }>;
+  transcript_count?: number;
+  event_count?: number;
+  last_message?: {
+    id: string;
+    role: 'user' | 'assistant' | 'system';
+    mode?: 'voice' | 'text' | 'action';
+    content: string;
+    timestamp: string;
+  };
   created_at: string;
   last_active_at: string;
   closed_at?: string;

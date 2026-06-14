@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -49,31 +50,51 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const projects = useControlCenterStore(state => state.projects);
   const devices = useControlCenterStore(state => state.devices);
   const previewLinks = useControlCenterStore(state => state.previewLinks);
+  const loadAgentSessionDetail = useControlCenterStore(state => state.loadAgentSessionDetail);
   const appendAgentMessage = useControlCenterStore(state => state.appendAgentMessage);
   const pauseAgentSession = useControlCenterStore(state => state.pauseAgentSession);
   const resumeAgentSession = useControlCenterStore(state => state.resumeAgentSession);
   const terminateAgentSession = useControlCenterStore(
     state => state.terminateAgentSession,
   );
-  const session =
-    vibeRuns.find(item => item.id === route.params.sessionId) ??
-    vibeRuns[0];
-  const project = projects.find(item => item.id === session.projectId);
-  const device = devices.find(item => item.id === session.deviceId);
-  const preview = previewLinks.find(item => item.id === session.previewId);
-  const budgetLabel = formatBudget(session.projectBudget);
+  const session = vibeRuns.find(item => item.id === route.params.sessionId);
 
   const [mode, setMode] = useState<'voice' | 'text'>('voice');
   const [input, setInput] = useState('');
   const [voiceDraft, setVoiceDraft] = useState('');
   const [preparedPrompt, setPreparedPrompt] = useState('');
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [detailError, setDetailError] = useState('');
+  const targetSessionId = session?.id ?? route.params.sessionId;
 
-  const progress = Math.min(
-    100,
-    (session.elapsedMinutes / session.timeLimitMinutes) * 100,
+  const hasDetail = Boolean(
+    session?.detailLoadedAt || session?.transcript.length || session?.events.length,
   );
 
+  useEffect(() => {
+    if (!targetSessionId || hasDetail || loadingDetail || detailError) return;
+
+    let cancelled = false;
+    setLoadingDetail(true);
+    setDetailError('');
+
+    void loadAgentSessionDetail(targetSessionId)
+      .catch(error => {
+        if (!cancelled) {
+          setDetailError(error instanceof Error ? error.message : 'Failed to load session detail.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDetail(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [detailError, hasDetail, loadAgentSessionDetail, loadingDetail, targetSessionId]);
+
   const appendUserMessage = async (content: string, messageMode: 'voice' | 'text') => {
+    if (!session) return;
     await appendAgentMessage(session.id, content, messageMode);
   };
 
@@ -113,6 +134,31 @@ export const VibeCodingSessionScreen: React.FC = () => {
     });
     setInput('');
   };
+
+  if (!session) {
+    return (
+      <SafeAreaWrapper>
+        <TopAppBar title="VibeCoding" subtitle="LOADING" onBack={navigation.goBack} />
+        <View style={styles.loadingState}>
+          {loadingDetail && <ActivityIndicator color={theme.colors.primary} />}
+          <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+            {detailError || '正在加载会话...'}
+          </Text>
+        </View>
+      </SafeAreaWrapper>
+    );
+  }
+
+  const project = projects.find(item => item.id === session.projectId);
+  const device = devices.find(item => item.id === session.deviceId);
+  const preview = previewLinks.find(item => item.id === session.previewId);
+  const budgetLabel = formatBudget(session.projectBudget);
+  const transcript = session.transcript;
+  const agentEvents = session.events;
+  const progress = Math.min(
+    100,
+    (session.elapsedMinutes / session.timeLimitMinutes) * 100,
+  );
 
   return (
     <SafeAreaWrapper>
@@ -248,13 +294,26 @@ export const VibeCodingSessionScreen: React.FC = () => {
                     theme.typography.labelSm,
                     { color: theme.colors.onSurfaceVariant },
                   ]}>
-                  {session.transcript.length} messages
+                  {transcript.length ? `${transcript.length} messages` : `${session.transcriptCount ?? 0} messages`}
                 </Text>
               </View>
             </View>
             <StatusChip label={mode.toUpperCase()} type="info" />
           </View>
-        {session.transcript.map(message => {
+        {loadingDetail ? (
+          <GlassPanel style={styles.detailStatePanel}>
+            <ActivityIndicator color={theme.colors.primary} />
+            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+              正在拉取完整会话内容...
+            </Text>
+          </GlassPanel>
+        ) : detailError ? (
+          <GlassPanel style={styles.detailStatePanel}>
+            <Text style={[theme.typography.bodySm, { color: theme.colors.error }]}>
+              {detailError}
+            </Text>
+          </GlassPanel>
+        ) : transcript.length ? transcript.map(message => {
           const isUser = message.role === 'user';
           const isSystem = message.role === 'system';
 
@@ -326,7 +385,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
             ) : null}
           </View>
           );
-        })}
+        }) : (
+          <GlassPanel style={styles.detailStatePanel}>
+            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+              暂无会话记录
+            </Text>
+          </GlassPanel>
+        )}
         </View>
 
         <Text
@@ -338,7 +403,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
           AGENT TIMELINE
         </Text>
         <GlassPanel style={styles.timelinePanel}>
-          {session.events.map((event, index) => (
+          {agentEvents.length ? agentEvents.map((event, index) => (
             <View key={event.id}>
               <View style={styles.eventRow}>
                 <IconBadge
@@ -377,9 +442,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
                   }
                 />
               </View>
-              {index < session.events.length - 1 && <View style={styles.divider} />}
+              {index < agentEvents.length - 1 && <View style={styles.divider} />}
             </View>
-          ))}
+          )) : (
+            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+              暂无事件记录
+            </Text>
+          )}
         </GlassPanel>
       </ScrollView>
 
@@ -396,8 +465,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
               : theme.colors.outlineVariant,
           },
         ]}>
-        {session.transcript.map((message, index) => {
-          const active = index === session.transcript.length - 1;
+        {transcript.map((message, index) => {
+          const active = index === transcript.length - 1;
           const color =
             message.role === 'user'
               ? theme.colors.secondary
@@ -612,6 +681,12 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 268,
   },
+  loadingState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
   sessionHeader: {
     padding: 14,
     gap: 10,
@@ -668,6 +743,10 @@ const styles = StyleSheet.create({
   conversationSection: {
     marginTop: 20,
     gap: 12,
+  },
+  detailStatePanel: {
+    padding: 14,
+    gap: 10,
   },
   chatSectionHeader: {
     minHeight: 46,

@@ -1,6 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
 import {
   AgentEvent,
   Device,
@@ -245,6 +243,7 @@ interface ControlCenterState {
   clearTerminal: (terminalId: string) => void;
   stopTerminal: (terminalId: string) => Promise<void>;
   startAgentSession: (input: StartAgentInput) => Promise<string>;
+  loadAgentSessionDetail: (sessionId: string) => Promise<void>;
   pauseAgentSession: (sessionId: string) => Promise<void>;
   resumeAgentSession: (sessionId: string) => Promise<void>;
   terminateAgentSession: (sessionId: string) => Promise<void>;
@@ -379,6 +378,30 @@ function serverAiSessionToVibeRun(session: PlatformAiSessionSnapshot, _devices: 
     ?? projects.find(p => p.path === session.project_path)
     ?? projects.find(p => p.id === session.project_path);
   const model = session.model ?? session.mode;
+  const transcript = (session.transcript ?? []).map(t => ({
+    id: t.id,
+    role: t.role,
+    mode: t.mode as 'voice' | 'text' | 'action' | undefined,
+    content: t.content,
+    timestamp: t.timestamp,
+  }));
+  const events = (session.events ?? []).map(e => ({
+    id: e.id,
+    type: e.type as AgentEvent['type'],
+    title: e.title,
+    detail: e.detail,
+    status: e.status as AgentEvent['status'],
+    timestamp: e.timestamp,
+  }));
+  const lastMessage = session.last_message
+    ? {
+        id: session.last_message.id,
+        role: session.last_message.role,
+        mode: session.last_message.mode as 'voice' | 'text' | 'action' | undefined,
+        content: session.last_message.content,
+        timestamp: session.last_message.timestamp,
+      }
+    : transcript[transcript.length - 1];
 
   return {
     id: session.session_id,
@@ -395,22 +418,68 @@ function serverAiSessionToVibeRun(session: PlatformAiSessionSnapshot, _devices: 
     currentStep: session.current_step ?? '',
     branch: session.branch ?? `agent/${session.session_id}`,
     updatedAt: session.last_active_at ?? nowTime(),
+    transcriptCount: session.transcript_count ?? transcript.length,
+    eventCount: session.event_count ?? events.length,
+    lastMessage,
+    detailLoadedAt: session.transcript || session.events ? nowTime() : undefined,
     suggestions: ['Ask for plan', 'Open terminal', 'Pause session'],
-    transcript: (session.transcript ?? []).map(t => ({
-      id: t.id,
-      role: t.role,
-      mode: t.mode as 'voice' | 'text' | 'action' | undefined,
-      content: t.content,
-      timestamp: t.timestamp,
-    })),
-    events: (session.events ?? []).map(e => ({
-      id: e.id,
-      type: e.type as AgentEvent['type'],
-      title: e.title,
-      detail: e.detail,
-      status: e.status as AgentEvent['status'],
-      timestamp: e.timestamp,
-    })),
+    transcript,
+    events,
+  };
+}
+
+const hasLoadedSessionDetail = (run: VibeCodingRun) =>
+  Boolean(run.detailLoadedAt);
+
+function mergeAgentMessages(
+  existing: VibeCodingRun['transcript'],
+  incoming: VibeCodingRun['transcript'],
+): VibeCodingRun['transcript'] {
+  if (!incoming.length) return existing;
+  const existingById = new Map(existing.map(item => [item.id, item]));
+  const merged = incoming.map(item => {
+    const current = existingById.get(item.id);
+    return current && current.content.length > item.content.length ? current : item;
+  });
+  const incomingIds = new Set(merged.map(item => item.id));
+  return [
+    ...merged,
+    ...existing.filter(item => !incomingIds.has(item.id)),
+  ];
+}
+
+function mergeAgentEvents(
+  existing: VibeCodingRun['events'],
+  incoming: VibeCodingRun['events'],
+): VibeCodingRun['events'] {
+  if (!incoming.length) return existing;
+  const incomingIds = new Set(incoming.map(item => item.id));
+  return [
+    ...incoming,
+    ...existing.filter(item => !incomingIds.has(item.id)),
+  ];
+}
+
+function mergeVibeRunSnapshot(
+  existing: VibeCodingRun | undefined,
+  incoming: VibeCodingRun,
+): VibeCodingRun {
+  if (!existing) return incoming;
+  const incomingHasDetail = hasLoadedSessionDetail(incoming);
+  return {
+    ...existing,
+    ...incoming,
+    transcript: incomingHasDetail
+      ? mergeAgentMessages(existing.transcript, incoming.transcript)
+      : existing.transcript,
+    events: incomingHasDetail
+      ? mergeAgentEvents(existing.events, incoming.events)
+      : existing.events,
+    detailLoadedAt: incoming.detailLoadedAt ?? existing.detailLoadedAt,
+    lastMessage:
+      incoming.lastMessage ??
+      existing.lastMessage ??
+      existing.transcript[existing.transcript.length - 1],
   };
 }
 
@@ -761,7 +830,6 @@ const emptySessionData = () => ({
 // --- Store ---
 
 export const useControlCenterStore = create<ControlCenterState>()(
-  persist(
     (set, get) => ({
       // Connection state
       wsConnected: false,
@@ -792,10 +860,15 @@ export const useControlCenterStore = create<ControlCenterState>()(
 	          const projects = snapshot.projects
 	            .filter(project => knownDeviceIds.has(project.device_id))
 	            .map(serverProjectToClient);
-	          const vibeRuns = snapshot.aiSessions
-	            .filter(session => knownDeviceIds.has(session.device_id))
-	            .map(s => serverAiSessionToVibeRun(s, baseDevices, projects));
-	          const devices = attachDeviceRelations(baseDevices, projects, vibeRuns);
+		          const vibeRuns = snapshot.aiSessions
+		            .filter(session => knownDeviceIds.has(session.device_id))
+		            .map(s => serverAiSessionToVibeRun(s, baseDevices, projects));
+		          const previousRuns = get().vibeRuns;
+		          const previousRunsById = new Map(previousRuns.map(run => [run.id, run]));
+		          const mergedVibeRuns = vibeRuns.map(run =>
+		            mergeVibeRunSnapshot(previousRunsById.get(run.id), run),
+		          );
+		          const devices = attachDeviceRelations(baseDevices, projects, mergedVibeRuns);
 	          const approvals = snapshot.approvals
 	            .filter(approval => knownDeviceIds.has(approval.device_id))
 	            .map(serverApprovalToClient);
@@ -822,7 +895,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
           set({
             devices,
             projects,
-            vibeRuns,
+	            vibeRuns: mergedVibeRuns,
             terminalSessions,
             approvals,
             previewLinks,
@@ -1041,19 +1114,21 @@ export const useControlCenterStore = create<ControlCenterState>()(
             }));
             return;
 
-          case 'ai.session.updated': {
-            set(state => {
-              const nextRun = serverAiSessionToVibeRun(
-                transportEvent.session,
-                state.devices,
-                state.projects,
-              );
-              const exists = state.vibeRuns.some(run => run.id === nextRun.id);
-              const vibeRuns = exists
-                ? state.vibeRuns.map(run => run.id === nextRun.id ? nextRun : run)
-                : [nextRun, ...state.vibeRuns];
-              return {
-                vibeRuns,
+	          case 'ai.session.updated': {
+	            set(state => {
+	              const nextRun = serverAiSessionToVibeRun(
+	                transportEvent.session,
+	                state.devices,
+	                state.projects,
+	              );
+	              const exists = state.vibeRuns.some(run => run.id === nextRun.id);
+	              const vibeRuns = exists
+	                ? state.vibeRuns.map(run =>
+	                    run.id === nextRun.id ? mergeVibeRunSnapshot(run, nextRun) : run,
+	                  )
+	                : [nextRun, ...state.vibeRuns];
+	              return {
+	                vibeRuns,
                 devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
                 events: [
                   event('agent.session.started', 'VibeCoding updated', nextRun.title, 'running', {
@@ -1089,11 +1164,15 @@ export const useControlCenterStore = create<ControlCenterState>()(
 	              platformTransport.loadAiSessions().then(serverSessions => {
 	                const state = get();
 	                const knownDeviceIds = new Set(state.devices.map(device => device.id));
-	                const vibeRuns = serverSessions
+	                const nextRuns = serverSessions
 	                  .filter(session => knownDeviceIds.has(session.device_id))
 	                  .map(session =>
 	                    serverAiSessionToVibeRun(session, state.devices, state.projects),
 	                  );
+	                const previousRunsById = new Map(state.vibeRuns.map(run => [run.id, run]));
+	                const vibeRuns = nextRuns.map(run =>
+	                  mergeVibeRunSnapshot(previousRunsById.get(run.id), run),
+	                );
 	                set({
 	                  vibeRuns,
 	                  devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
@@ -1700,7 +1779,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
         }));
       },
 
-      startAgentSession: async (input) => {
+	      startAgentSession: async (input) => {
         const model = input.provider === 'claude_code' ? 'Claude Code' : 'GPT-5 Codex';
 
         if (get().serverMode) {
@@ -1789,17 +1868,39 @@ export const useControlCenterStore = create<ControlCenterState>()(
           }
         }
 
-        throw new Error('Platform connection is required to start a VibeCoding session.');
-      },
+	        throw new Error('Platform connection is required to start a VibeCoding session.');
+	      },
 
-      pauseAgentSession: async sessionId => {
+	      loadAgentSessionDetail: async sessionId => {
+	        if (!get().serverMode) {
+	          throw new Error('Platform connection is required before loading a VibeCoding session.');
+	        }
+	        const serverSession = await platformTransport.loadAiSession(sessionId);
+	        set(state => {
+	          const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
+	          const exists = state.vibeRuns.some(run => run.id === nextRun.id);
+	          const vibeRuns = exists
+	            ? state.vibeRuns.map(run =>
+	                run.id === nextRun.id ? mergeVibeRunSnapshot(run, nextRun) : run,
+	              )
+	            : [nextRun, ...state.vibeRuns];
+	          return {
+	            vibeRuns,
+	            devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
+	          };
+	        });
+	      },
+
+	      pauseAgentSession: async sessionId => {
         if (!get().serverMode) {
           throw new Error('Platform connection is required before pausing a VibeCoding session.');
         }
-        const serverSession = await platformTransport.pauseAiSession(sessionId);
-        set(state => {
-          const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
-          const vibeRuns = state.vibeRuns.map(run => run.id === nextRun.id ? nextRun : run);
+	        const serverSession = await platformTransport.pauseAiSession(sessionId);
+	        set(state => {
+	          const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
+	          const vibeRuns = state.vibeRuns.map(run =>
+	            run.id === nextRun.id ? mergeVibeRunSnapshot(run, nextRun) : run,
+	          );
           return {
             vibeRuns,
             devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
@@ -1819,10 +1920,12 @@ export const useControlCenterStore = create<ControlCenterState>()(
         if (!get().serverMode) {
           throw new Error('Platform connection is required before resuming a VibeCoding session.');
         }
-        const serverSession = await platformTransport.resumeAiSession(sessionId);
-        set(state => {
-          const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
-          const vibeRuns = state.vibeRuns.map(run => run.id === nextRun.id ? nextRun : run);
+	        const serverSession = await platformTransport.resumeAiSession(sessionId);
+	        set(state => {
+	          const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
+	          const vibeRuns = state.vibeRuns.map(run =>
+	            run.id === nextRun.id ? mergeVibeRunSnapshot(run, nextRun) : run,
+	          );
           return {
             vibeRuns,
             devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
@@ -1842,10 +1945,12 @@ export const useControlCenterStore = create<ControlCenterState>()(
         if (!get().serverMode) {
           throw new Error('Platform connection is required before terminating a VibeCoding session.');
         }
-        const serverSession = await platformTransport.terminateAiSession(sessionId);
-        set(state => {
-          const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
-          const vibeRuns = state.vibeRuns.map(run => run.id === nextRun.id ? nextRun : run);
+	        const serverSession = await platformTransport.terminateAiSession(sessionId);
+	        set(state => {
+	          const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
+	          const vibeRuns = state.vibeRuns.map(run =>
+	            run.id === nextRun.id ? mergeVibeRunSnapshot(run, nextRun) : run,
+	          );
           return {
             vibeRuns,
             devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
@@ -1872,12 +1977,14 @@ export const useControlCenterStore = create<ControlCenterState>()(
           current_step: input.currentStep,
           risk: input.risk,
         });
-        set(state => {
-          const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
-          return {
-            vibeRuns: state.vibeRuns.map(run => run.id === nextRun.id ? nextRun : run),
-          };
-        });
+	        set(state => {
+	          const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
+	          return {
+	            vibeRuns: state.vibeRuns.map(run =>
+	              run.id === nextRun.id ? mergeVibeRunSnapshot(run, nextRun) : run,
+	            ),
+	          };
+	        });
       },
 
       deleteAgentSession: async sessionId => {
@@ -2005,16 +2112,4 @@ export const useControlCenterStore = create<ControlCenterState>()(
         }));
       },
     }),
-    {
-      name: 'aliang-vibecoding-control-center',
-      storage: createJSONStorage(() => AsyncStorage),
-      version: 4,
-      migrate: () => ({
-        ...emptySessionData(),
-        wsConnected: false,
-        serverMode: false,
-      }),
-      partialize: () => ({}),
-    },
-  ),
 );
