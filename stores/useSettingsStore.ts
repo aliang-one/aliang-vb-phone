@@ -7,6 +7,10 @@ import {
   logout as apiLogout,
   type PlatformUser,
 } from '../src/api/auth';
+import {
+  fetchAccountPortalData,
+  type AccountPortalData,
+} from '../src/api/account';
 import { setApiAuthTokenProvider } from '../src/api/client';
 
 interface SessionState {
@@ -14,9 +18,11 @@ interface SessionState {
   user: PlatformUser | null;
   token: string | null;
   operatorName: string;
+  accountData: AccountPortalData | null;
   restoreUser: () => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  refreshAccountData: () => Promise<void>;
   setOperatorName: (operatorName: string) => void;
 }
 
@@ -27,6 +33,7 @@ export const useSessionStore = create<SessionState>()(
       user: null,
       token: null,
       operatorName: 'Aliang',
+      accountData: null,
       restoreUser: async () => {
         if (!get().token) {
           throw new Error('登录后才能连接平台服务。');
@@ -36,14 +43,24 @@ export const useSessionStore = create<SessionState>()(
           user,
           operatorName: user.name || user.email,
         });
+        try {
+          await get().refreshAccountData();
+        } catch {
+          // Account usage should not block restoring the local workspace.
+        }
       },
-      login: async (username, password) => {
-        const session = await apiLogin(username, password);
+      login: async (email, password) => {
+        const session = await apiLogin(email, password);
         set({
           user: session.user,
           token: session.token,
           operatorName: session.user.name || session.user.email,
         });
+        try {
+          await get().refreshAccountData();
+        } catch {
+          // The app can still enter the workspace if account metrics are delayed.
+        }
       },
       logout: async () => {
         try {
@@ -55,7 +72,15 @@ export const useSessionStore = create<SessionState>()(
           user: null,
           token: null,
           operatorName: 'Aliang',
+          accountData: null,
         });
+      },
+      refreshAccountData: async () => {
+        if (!get().token) {
+          throw new Error('登录后才能获取套餐和用量数据。');
+        }
+        const accountData = await fetchAccountPortalData();
+        set({ accountData });
       },
       setOperatorName: operatorName =>
         set({ operatorName: operatorName.trim() || 'Aliang' }),
@@ -72,6 +97,7 @@ export const useSessionStore = create<SessionState>()(
         user: state.user,
         token: state.token,
         operatorName: state.operatorName,
+        accountData: state.accountData,
       }),
       onRehydrateStorage: () => state => {
         useSessionStore.setState({

@@ -58,6 +58,24 @@ describe('agentTranscript', () => {
     ]);
   });
 
+  it('folds fenced code blocks while keeping surrounding assistant text visible', () => {
+    const segments = parseTranscriptSegments(
+      message(
+        '5',
+        'assistant',
+        'Here is the patch:\n```ts\nconst answer = 42;\nexport default answer;\n```\nDone.',
+      ),
+    );
+
+    expect(segments).toHaveLength(3);
+    expect(segments[0]).toMatchObject({ kind: 'text', content: 'Here is the patch:' });
+    expect(segments[1]).toMatchObject({
+      kind: 'folded',
+      label: 'Code (ts) · 2 lines',
+    });
+    expect(segments[2]).toMatchObject({ kind: 'text', content: 'Done.' });
+  });
+
   it('keeps consecutive user prompts together for repeated input bursts', () => {
     const display = buildDisplayTranscript([
       message('1', 'user', 'First line'),

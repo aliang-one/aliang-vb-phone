@@ -53,6 +53,10 @@ const specialTags: Record<
   stdout: { label: 'Stdout', tone: 'info' },
   stderr: { label: 'Stderr', tone: 'warning' },
   'bash-output': { label: 'Terminal output', tone: 'info' },
+  code: { label: 'Code', tone: 'info' },
+  'code-block': { label: 'Code', tone: 'info' },
+  patch: { label: 'Patch', tone: 'info' },
+  diff: { label: 'Diff', tone: 'info' },
   tool: { label: 'Tool event', tone: 'neutral' },
   'tool-use': { label: 'Tool call', tone: 'info' },
   tool_use: { label: 'Tool call', tone: 'info' },
@@ -95,6 +99,42 @@ const textSegment = (messageId: string, index: number, content: string): Transcr
   };
 };
 
+const splitTextAndCodeSegments = (
+  messageId: string,
+  startIndex: number,
+  content: string,
+): { segments: TranscriptSegment[]; nextIndex: number } => {
+  const segments: TranscriptSegment[] = [];
+  const codeRegex = /```([^\n`]*)\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let segmentIndex = startIndex;
+  let match: RegExpExecArray | null;
+
+  while ((match = codeRegex.exec(content))) {
+    const before = textSegment(messageId, segmentIndex, content.slice(lastIndex, match.index));
+    if (before) segments.push(before);
+    segmentIndex += 1;
+
+    const language = match[1]?.trim();
+    const code = cleanText(match[2] ?? '');
+    if (code) {
+      segments.push({
+        id: `${messageId}:folded:${segmentIndex}:code`,
+        kind: 'folded',
+        label: `${language ? `Code (${language})` : 'Code'} · ${summarizeContent(code)}`,
+        content: code,
+        tone: 'info',
+      });
+    }
+    segmentIndex += 1;
+    lastIndex = match.index + match[0].length;
+  }
+
+  const after = textSegment(messageId, segmentIndex, content.slice(lastIndex));
+  if (after) segments.push(after);
+  return { segments, nextIndex: segmentIndex + 1 };
+};
+
 const foldedSegment = (
   messageId: string,
   index: number,
@@ -127,9 +167,9 @@ export const parseTranscriptSegments = (message: AgentMessage): TranscriptSegmen
 
     if (!info) continue;
 
-    const before = textSegment(message.id, segmentIndex, content.slice(lastIndex, match.index));
-    if (before) segments.push(before);
-    segmentIndex += 1;
+    const before = splitTextAndCodeSegments(message.id, segmentIndex, content.slice(lastIndex, match.index));
+    segments.push(...before.segments);
+    segmentIndex = before.nextIndex;
 
     const folded = foldedSegment(message.id, segmentIndex, tag, body);
     if (folded) segments.push(folded);
@@ -141,9 +181,9 @@ export const parseTranscriptSegments = (message: AgentMessage): TranscriptSegmen
   const unclosedTagMatch = trailing.match(/^([\s\S]*?)<([a-zA-Z][\w:-]*)(?:\s[^>]*)?>([\s\S]*)$/);
 
   if (unclosedTagMatch && tagInfo(unclosedTagMatch[2])) {
-    const before = textSegment(message.id, segmentIndex, unclosedTagMatch[1]);
-    if (before) segments.push(before);
-    segmentIndex += 1;
+    const before = splitTextAndCodeSegments(message.id, segmentIndex, unclosedTagMatch[1]);
+    segments.push(...before.segments);
+    segmentIndex = before.nextIndex;
     const folded = foldedSegment(
       message.id,
       segmentIndex,
@@ -152,8 +192,8 @@ export const parseTranscriptSegments = (message: AgentMessage): TranscriptSegmen
     );
     if (folded) segments.push(folded);
   } else {
-    const after = textSegment(message.id, segmentIndex, trailing);
-    if (after) segments.push(after);
+    const after = splitTextAndCodeSegments(message.id, segmentIndex, trailing);
+    segments.push(...after.segments);
   }
 
   return segments;

@@ -26,11 +26,30 @@ import {
   PlatformServiceHealth,
 } from '../../config/localService';
 import { useSessionStore } from '../../../stores/useSettingsStore';
+import { ALIANG_ACCOUNT_BASE_URL } from '../../config/accountService';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 const ratio = (value: number, total: number) =>
   total > 0 ? Math.min(100, (value / total) * 100) : 0;
+
+const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+  Boolean(value && typeof value === 'object' && !Array.isArray(value))
+    ? value as Record<string, unknown>
+    : undefined;
+
+const unwrapData = (value: unknown): Record<string, unknown> => {
+  const root = asRecord(value) ?? {};
+  return asRecord(root.data) ?? root;
+};
+
+const firstString = (...values: unknown[]) => {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return undefined;
+};
 
 export const SettingsScreen: React.FC = () => {
   const { theme, isDark, mode, setMode } = useTheme();
@@ -43,6 +62,8 @@ export const SettingsScreen: React.FC = () => {
   const user = useSessionStore(state => state.user);
   const logout = useSessionStore(state => state.logout);
   const operatorName = useSessionStore(state => state.operatorName);
+  const accountData = useSessionStore(state => state.accountData);
+  const refreshAccountData = useSessionStore(state => state.refreshAccountData);
   const disconnectFromServer = useControlCenterStore(state => state.disconnectFromServer);
   const resetSessionData = useControlCenterStore(state => state.resetSessionData);
   const wsConnected = useControlCenterStore(state => state.wsConnected);
@@ -50,6 +71,7 @@ export const SettingsScreen: React.FC = () => {
   const [connectionStatus, setConnectionStatus] =
     useState<PlatformServiceHealth | null>(null);
   const [checkingConnection, setCheckingConnection] = useState(false);
+  const [refreshingAccount, setRefreshingAccount] = useState(false);
 
   const themeOptions = [
     { key: 'system', label: 'SYSTEM' },
@@ -69,7 +91,40 @@ export const SettingsScreen: React.FC = () => {
   );
   const pendingApprovals = approvals.filter(item => item.status === 'pending');
   const unreadNotifications = notifications.filter(item => !item.read);
+  const subscription = unwrapData(accountData?.subscriptionSummary);
+  const activeSubscription = unwrapData(accountData?.activeSubscription);
+  const usage = unwrapData(accountData?.usage);
+  const packageName = firstString(
+    subscription.plan_name,
+    subscription.package_name,
+    subscription.name,
+    activeSubscription.plan_name,
+    activeSubscription.package_name,
+    activeSubscription.name,
+    activeSubscription.plan,
+  ) ?? 'Not loaded';
+  const packageStatus = firstString(
+    subscription.status,
+    activeSubscription.status,
+    subscription.subscription_status,
+  ) ?? (accountData ? 'Active' : 'Unknown');
+  const usageTotal = firstString(
+    usage.total_requests,
+    usage.requests_total,
+    usage.total,
+    usage.usage_count,
+  ) ?? '-';
+  const usageToday = firstString(
+    usage.today_requests,
+    usage.requests_today,
+    usage.today,
+    usage.daily_requests,
+  ) ?? '-';
   const usageRows = [
+    ['Package', packageName],
+    ['Package status', packageStatus],
+    ['Usage today', usageToday],
+    ['Usage total', usageTotal],
     ['Registered devices', `${devices.length}`],
     ['Online devices', `${onlineDevices.length}`],
     ['Projects', `${projects.length}`],
@@ -114,6 +169,15 @@ export const SettingsScreen: React.FC = () => {
     const result = await checkPlatformService();
     setConnectionStatus(result);
     setCheckingConnection(false);
+  };
+
+  const handleRefreshAccount = async () => {
+    setRefreshingAccount(true);
+    try {
+      await refreshAccountData();
+    } finally {
+      setRefreshingAccount(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -166,12 +230,17 @@ export const SettingsScreen: React.FC = () => {
               <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
                 Platform API
               </Text>
-              <Text
-                style={[theme.typography.codeSm, { color: theme.colors.primary }]}
-                numberOfLines={1}>
-                {PLATFORM_SERVICE_BASE_URL}
-              </Text>
-            </View>
+	              <Text
+	                style={[theme.typography.codeSm, { color: theme.colors.primary }]}
+	                numberOfLines={1}>
+	                {PLATFORM_SERVICE_BASE_URL}
+	              </Text>
+	              <Text
+	                style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}
+	                numberOfLines={1}>
+	                {ALIANG_ACCOUNT_BASE_URL}
+	              </Text>
+	            </View>
             <StatusChip
               label={
                 checkingConnection
@@ -224,9 +293,19 @@ export const SettingsScreen: React.FC = () => {
           </View>
         </GlassPanel>
 
-        <UsageSummaryCard summary={platformSummary} />
+	        <UsageSummaryCard summary={platformSummary} />
 
-        <Text
+	        <View style={styles.serviceActions}>
+	          <GlowButton
+	            title="REFRESH ACCOUNT"
+	            onPress={handleRefreshAccount}
+	            loading={refreshingAccount}
+	            variant="secondary"
+	            style={styles.serviceButton}
+	          />
+	        </View>
+
+	        <Text
           style={[
             theme.typography.labelCaps,
             { color: theme.colors.onSurfaceVariant },

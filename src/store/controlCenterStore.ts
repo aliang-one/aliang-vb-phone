@@ -214,6 +214,7 @@ interface ControlCenterState {
   projectFiles: ProjectFileEntry[];
   // Actions
   initializeFromServer: (token?: string) => Promise<void>;
+  refreshFromServer: () => Promise<void>;
   disconnectFromServer: () => void;
   resetSessionData: () => void;
   handleTransportEvent: (event: PlatformTransportEvent) => void;
@@ -373,11 +374,18 @@ function serverProjectToClient(sp: PlatformProjectSnapshot): Project {
   };
 }
 
+function aiSessionModelLabel(session: PlatformAiSessionSnapshot) {
+  const provider = (session.provider ?? session.tool ?? '').toLowerCase();
+  if (provider === 'codex') return session.model ?? 'GPT-5 Codex';
+  if (provider === 'claude' || provider === 'claudecode') return session.model ?? 'Claude Code';
+  return session.model ?? session.mode;
+}
+
 function serverAiSessionToVibeRun(session: PlatformAiSessionSnapshot, _devices: Device[], projects: Project[]): VibeCodingRun {
   const project = projects.find(p => p.path === session.project_path && p.deviceId === session.device_id)
     ?? projects.find(p => p.path === session.project_path)
     ?? projects.find(p => p.id === session.project_path);
-  const model = session.model ?? session.mode;
+  const model = aiSessionModelLabel(session);
   const transcript = (session.transcript ?? []).map(t => ({
     id: t.id,
     role: t.role,
@@ -485,8 +493,10 @@ function mergeVibeRunSnapshot(
 
 function mapSessionStatus(status: string): VibeStatus {
   switch (status) {
+    case 'running': return 'running';
     case 'active': return 'running';
     case 'creating': return 'running';
+    case 'idle': return 'idle';
     case 'paused': return 'paused';
     case 'error': return 'failed';
     case 'closed': return 'completed';
@@ -814,6 +824,58 @@ const attachDeviceRelations = (
   vibeRuns: VibeCodingRun[],
 ): Device[] => attachActiveSessionIds(attachProjectIds(devices, projects), vibeRuns);
 
+function stateFromSnapshot(
+  snapshot: Awaited<ReturnType<typeof platformTransport.loadSnapshot>>,
+  previousRuns: VibeCodingRun[],
+) {
+  const baseDevices = snapshot.devices.map(platformDeviceToClient);
+  const knownDeviceIds = new Set(baseDevices.map(device => device.id));
+  const projects = snapshot.projects
+    .filter(project => knownDeviceIds.has(project.device_id))
+    .map(serverProjectToClient);
+  const vibeRuns = snapshot.aiSessions
+    .filter(session => knownDeviceIds.has(session.device_id))
+    .map(session => serverAiSessionToVibeRun(session, baseDevices, projects));
+  const previousRunsById = new Map(previousRuns.map(run => [run.id, run]));
+  const mergedVibeRuns = vibeRuns.map(run =>
+    mergeVibeRunSnapshot(previousRunsById.get(run.id), run),
+  );
+  const devices = attachDeviceRelations(baseDevices, projects, mergedVibeRuns);
+  const approvals = snapshot.approvals
+    .filter(approval => knownDeviceIds.has(approval.device_id))
+    .map(serverApprovalToClient);
+  const terminalSessions = snapshot.terminalSessions
+    .filter(session => knownDeviceIds.has(session.device_id))
+    .map(serverTerminalSessionToClient);
+  const knownSessionIds = new Set(vibeRuns.map(session => session.id));
+  const previewLinks = snapshot.previewLinks
+    .filter(preview => knownSessionIds.has(preview.sessionId))
+    .map(serverPreviewToClient);
+  const realtimeEvents = snapshot.realtimeEvents
+    .map(realtimeEventToUnifiedEvent)
+    .filter(item => !item.deviceId || knownDeviceIds.has(item.deviceId))
+    .slice(0, 120);
+  const notifications = snapshot.notifications
+    .map(serverNotificationToClient)
+    .filter(item => !item.deviceId || knownDeviceIds.has(item.deviceId))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, 120);
+  const warningEvents = snapshot.warnings.map(detail =>
+    event('command.completed', 'Partial platform sync', detail, 'failed'),
+  );
+
+  return {
+    devices,
+    projects,
+    vibeRuns: mergedVibeRuns,
+    terminalSessions,
+    approvals,
+    previewLinks,
+    notifications,
+    events: [...warningEvents, ...realtimeEvents].slice(0, 120),
+  };
+}
+
 const emptySessionData = () => ({
   devices: [],
   projects: [],
@@ -855,55 +917,13 @@ export const useControlCenterStore = create<ControlCenterState>()(
 
 	        try {
 	          const snapshot = await platformTransport.loadSnapshot();
-	          const baseDevices = snapshot.devices.map(platformDeviceToClient);
-	          const knownDeviceIds = new Set(baseDevices.map(device => device.id));
-	          const projects = snapshot.projects
-	            .filter(project => knownDeviceIds.has(project.device_id))
-	            .map(serverProjectToClient);
-		          const vibeRuns = snapshot.aiSessions
-		            .filter(session => knownDeviceIds.has(session.device_id))
-		            .map(s => serverAiSessionToVibeRun(s, baseDevices, projects));
-		          const previousRuns = get().vibeRuns;
-		          const previousRunsById = new Map(previousRuns.map(run => [run.id, run]));
-		          const mergedVibeRuns = vibeRuns.map(run =>
-		            mergeVibeRunSnapshot(previousRunsById.get(run.id), run),
-		          );
-		          const devices = attachDeviceRelations(baseDevices, projects, mergedVibeRuns);
-	          const approvals = snapshot.approvals
-	            .filter(approval => knownDeviceIds.has(approval.device_id))
-	            .map(serverApprovalToClient);
-	          const terminalSessions = snapshot.terminalSessions
-	            .filter(session => knownDeviceIds.has(session.device_id))
-	            .map(serverTerminalSessionToClient);
-	          const knownSessionIds = new Set(vibeRuns.map(session => session.id));
-	          const previewLinks = snapshot.previewLinks
-	            .filter(preview => knownSessionIds.has(preview.sessionId))
-	            .map(serverPreviewToClient);
-	          const realtimeEvents = snapshot.realtimeEvents
-	            .map(realtimeEventToUnifiedEvent)
-	            .filter(item => !item.deviceId || knownDeviceIds.has(item.deviceId))
-	            .slice(0, 120);
-		          const notifications = snapshot.notifications
-		            .map(serverNotificationToClient)
-		            .filter(item => !item.deviceId || knownDeviceIds.has(item.deviceId))
-		            .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-		            .slice(0, 120);
-	          const warningEvents = snapshot.warnings.map(detail =>
-	            event('command.completed', 'Partial platform sync', detail, 'failed'),
-	          );
+	          const nextState = stateFromSnapshot(snapshot, get().vibeRuns);
 
           set({
-            devices,
-            projects,
-	            vibeRuns: mergedVibeRuns,
-            terminalSessions,
-            approvals,
-            previewLinks,
-            notifications,
-            events: [...warningEvents, ...realtimeEvents].slice(0, 120),
+            ...nextState,
           });
 
-          console.log(`[store] Initialized from server: ${devices.length} devices, ${projects.length} projects, ${vibeRuns.length} AI sessions, ${terminalSessions.length} terminals, ${approvals.length} approvals`);
+          console.log(`[store] Initialized from server: ${nextState.devices.length} devices, ${nextState.projects.length} projects, ${nextState.vibeRuns.length} AI sessions, ${nextState.terminalSessions.length} terminals, ${nextState.approvals.length} approvals`);
 
           platformTransport.connect(transportEvent => {
             get().handleTransportEvent(transportEvent);
@@ -915,7 +935,17 @@ export const useControlCenterStore = create<ControlCenterState>()(
           throw error instanceof Error
             ? error
             : new Error('Unable to connect to the local platform.');
+	        }
+	      },
+
+      refreshFromServer: async () => {
+        if (!get().serverMode) {
+          throw new Error('Platform connection is required before refreshing workspace data.');
         }
+        const snapshot = await platformTransport.loadSnapshot();
+        set(state => ({
+          ...stateFromSnapshot(snapshot, state.vibeRuns),
+        }));
       },
 
       disconnectFromServer: () => {
@@ -1001,31 +1031,36 @@ export const useControlCenterStore = create<ControlCenterState>()(
             set(state => ({
               vibeRuns: state.vibeRuns.map(run =>
                 run.id === transportEvent.sessionId
-                  ? {
-                      ...run,
-                      status: 'running' as VibeStatus,
-                      currentStep: transportEvent.currentStep || transportEvent.delta.slice(0, 100) || run.currentStep,
-                      updatedAt: 'now',
-                      transcript: (() => {
-                        const lastMsg = run.transcript[run.transcript.length - 1];
-                        const msgId = transportEvent.messageId ?? '';
-                        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.id === msgId) {
-                          return [
-                            ...run.transcript.slice(0, -1),
-                            { ...lastMsg, content: lastMsg.content + transportEvent.delta },
-                          ];
-                        }
-                        return [
-                          ...run.transcript,
-                          {
-                            id: msgId || createId('msg'),
-                            role: 'assistant' as const,
-                            content: transportEvent.delta,
-                            timestamp: shortTime(),
-                          },
-                        ];
-                      })(),
-                    }
+                  ? (() => {
+                      const lastMsg = run.transcript[run.transcript.length - 1];
+                      const msgId = transportEvent.messageId ?? '';
+                      const timestamp = shortTime();
+                      const transcript =
+                        lastMsg && lastMsg.role === 'assistant' && lastMsg.id === msgId
+                          ? [
+                              ...run.transcript.slice(0, -1),
+                              { ...lastMsg, content: lastMsg.content + transportEvent.delta },
+                            ]
+                          : [
+                              ...run.transcript,
+                              {
+                                id: msgId || createId('msg'),
+                                role: 'assistant' as const,
+                                content: transportEvent.delta,
+                                timestamp,
+                              },
+                            ];
+                      const lastMessage = transcript[transcript.length - 1];
+                      return {
+                        ...run,
+                        status: 'running' as VibeStatus,
+                        currentStep: transportEvent.currentStep || transportEvent.delta.slice(0, 100) || run.currentStep,
+                        updatedAt: 'now',
+                        transcript,
+                        transcriptCount: Math.max(run.transcriptCount ?? 0, transcript.length),
+                        lastMessage,
+                      };
+                    })()
                   : run
               ),
             }));
@@ -1161,23 +1196,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
 
 	          case 'ai.sessions.updated':
 	            if (get().serverMode) {
-	              platformTransport.loadAiSessions().then(serverSessions => {
-	                const state = get();
-	                const knownDeviceIds = new Set(state.devices.map(device => device.id));
-	                const nextRuns = serverSessions
-	                  .filter(session => knownDeviceIds.has(session.device_id))
-	                  .map(session =>
-	                    serverAiSessionToVibeRun(session, state.devices, state.projects),
-	                  );
-	                const previousRunsById = new Map(state.vibeRuns.map(run => [run.id, run]));
-	                const vibeRuns = nextRuns.map(run =>
-	                  mergeVibeRunSnapshot(previousRunsById.get(run.id), run),
-	                );
-	                set({
-	                  vibeRuns,
-	                  devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
-                });
-              }).catch(() => {});
+	              get().refreshFromServer().catch(() => {});
             }
             return;
 
@@ -1256,6 +1275,30 @@ export const useControlCenterStore = create<ControlCenterState>()(
 	            const nextNotification = serverNotificationToClient(transportEvent.notification);
 	            set(state => ({
 	              notifications: upsertNotification(state.notifications, nextNotification),
+	              events: [
+	                event(
+	                  nextNotification.type === 'completed'
+	                    ? 'agent.session.completed'
+	                    : nextNotification.type === 'error'
+	                    ? 'agent.session.failed'
+	                    : nextNotification.type === 'approval'
+	                    ? 'approval.requested'
+	                    : 'platform.event',
+	                  nextNotification.title,
+	                  nextNotification.body,
+	                  nextNotification.type === 'error'
+	                    ? 'failed'
+	                    : nextNotification.type === 'approval'
+	                    ? 'waiting'
+	                    : 'done',
+	                  {
+	                    deviceId: nextNotification.deviceId,
+	                    sessionId: nextNotification.sessionId,
+	                    approvalId: nextNotification.approvalId,
+	                  },
+	                ),
+	                ...state.events,
+	              ].slice(0, 120),
 	            }));
 	            return;
 	          }
@@ -1346,18 +1389,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
 
 	          case 'projects.updated':
 	            if (get().serverMode) {
-	              platformTransport.loadProjects().then(serverProjects => {
-	                set(state => {
-	                  const knownDeviceIds = new Set(state.devices.map(device => device.id));
-	                  const projects = serverProjects
-	                    .filter(project => knownDeviceIds.has(project.device_id))
-	                    .map(serverProjectToClient);
-	                  return {
-	                    projects,
-	                    devices: attachDeviceRelations(state.devices, projects, state.vibeRuns),
-                  };
-                });
-              }).catch(() => {});
+	              get().refreshFromServer().catch(() => {});
             }
             return;
 
@@ -1779,8 +1811,9 @@ export const useControlCenterStore = create<ControlCenterState>()(
         }));
       },
 
-	      startAgentSession: async (input) => {
+      startAgentSession: async (input) => {
         const model = input.provider === 'claude_code' ? 'Claude Code' : 'GPT-5 Codex';
+        const provider = input.provider === 'claude_code' ? 'claudecode' : 'codex';
 
         if (get().serverMode) {
           try {
@@ -1801,6 +1834,8 @@ export const useControlCenterStore = create<ControlCenterState>()(
               title: input.objective.slice(0, 44) || 'New VibeCoding session',
               objective: input.objective,
               model,
+              provider,
+              tool: provider,
               risk: input.provider === 'claude_code' ? 'medium' : 'low',
             });
 
@@ -2001,11 +2036,11 @@ export const useControlCenterStore = create<ControlCenterState>()(
         }));
       },
 
-      appendAgentMessage: async (sessionId, content, _mode) => {
+      appendAgentMessage: async (sessionId, content, mode) => {
         if (!get().serverMode) {
           throw new Error('Platform connection is required before sending a VibeCoding message.');
         }
-        await platformTransport.sendAiMessage(sessionId, content);
+        await platformTransport.sendAiMessage(sessionId, content, mode);
       },
 
       resolveApproval: async (approvalId, decision) => {

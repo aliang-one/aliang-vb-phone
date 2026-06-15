@@ -16,25 +16,22 @@ import { StatusChip } from '../../components/shared/StatusChip';
 import { IconBadge } from '../../components/visual/IconBadge';
 import { useTheme } from '../../theme/useTheme';
 import { useSessionStore } from '../../../stores/useSettingsStore';
-import { useControlCenterStore } from '../../store/controlCenterStore';
+import { ALIANG_ACCOUNT_BASE_URL } from '../../config/accountService';
 
 export const LoginScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const login = useSessionStore(state => state.login);
-  const token = useSessionStore(state => state.token);
-  const initializeFromServer = useControlCenterStore(state => state.initializeFromServer);
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123456');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubmit = async () => {
-    if (!username.trim() || !password) return;
+    if (!email.trim() || !password) return;
     setLoading(true);
     setError('');
     try {
-      await login(username.trim(), password);
-      await initializeFromServer(useSessionStore.getState().token ?? token ?? undefined);
+      await login(email.trim(), password);
     } catch (nextError) {
       setError(
         nextError instanceof Error
@@ -64,15 +61,16 @@ export const LoginScreen: React.FC = () => {
                 Mobile user space
               </Text>
             </View>
-            <StatusChip label="LOGIN" type="info" />
+            <StatusChip label="ALIANG.ONE" type="info" />
           </View>
 
           <GlassPanel style={styles.panel}>
             <Field
-              label="Username"
-              value={username}
-              onChangeText={setUsername}
+              label="Email"
+              value={email}
+              onChangeText={setEmail}
               autoCapitalize="none"
+              keyboardType="email-address"
               theme={theme}
               isDark={isDark}
             />
@@ -93,7 +91,7 @@ export const LoginScreen: React.FC = () => {
               title="SIGN IN"
               onPress={handleSubmit}
               loading={loading}
-              disabled={!username.trim() || !password || loading}
+              disabled={!email.trim() || !password || loading}
               style={styles.submitButton}
             />
             {loading ? (
@@ -106,15 +104,10 @@ export const LoginScreen: React.FC = () => {
             ) : null}
           </GlassPanel>
 
-          <GlassPanel style={styles.defaultPanel}>
-            <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-              LOCAL DEFAULT
-            </Text>
-            <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-              admin / admin123456
-            </Text>
-          </GlassPanel>
-        </ScrollView>
+	          <Text style={[theme.typography.codeSm, styles.endpointText, { color: theme.colors.onSurfaceVariant }]}>
+	            {ALIANG_ACCOUNT_BASE_URL}
+	          </Text>
+	        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaWrapper>
   );
@@ -208,8 +201,7 @@ const styles = StyleSheet.create({
   errorText: {
     lineHeight: 18,
   },
-  defaultPanel: {
-    padding: 12,
-    gap: 6,
-  },
-});
+	  endpointText: {
+	    textAlign: 'center',
+	  },
+	});

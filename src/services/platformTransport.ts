@@ -335,8 +335,12 @@ class PlatformTransport {
     return apiDeleteAiSession(sessionId);
   }
 
-  sendAiMessage(sessionId: string, content: string): Promise<{ message_id: string; status: string }> {
-    return apiSendAiMessage(sessionId, content);
+  sendAiMessage(
+    sessionId: string,
+    content: string,
+    mode: 'voice' | 'text' = 'text',
+  ): Promise<{ message_id: string; status: string }> {
+    return apiSendAiMessage(sessionId, content, [], mode);
   }
 
   respondApproval(approvalId: string, decision: 'approved' | 'denied'): Promise<PlatformApprovalSnapshot> {

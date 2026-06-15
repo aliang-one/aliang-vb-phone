@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../theme/useTheme';
@@ -21,19 +21,59 @@ export const TerminalListScreen: React.FC = () => {
   const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
   const devices = useControlCenterStore(state => state.devices);
+  const refreshFromServer = useControlCenterStore(state => state.refreshFromServer);
   const [search, setSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
 
-  const filtered = devices.filter(
-    device =>
-      device.name.toLowerCase().includes(search.toLowerCase()) ||
-      device.host.toLowerCase().includes(search.toLowerCase()) ||
-      device.location.toLowerCase().includes(search.toLowerCase()),
-  );
+  const normalizedSearch = search.trim().toLowerCase();
+  const filtered = devices.filter(device => {
+    if (!normalizedSearch) return true;
+    const searchable = [
+      device.id,
+      device.name,
+      device.host,
+      device.location,
+      device.os,
+      device.status,
+      device.uniqueCode,
+      device.agentVersion,
+      ...device.capabilities,
+      ...device.authorizedDirectories,
+      ...device.activePorts.map(String),
+      ...device.projectIds,
+      ...device.activeSessionIds,
+      ...device.tools.flatMap(tool => [
+        tool.id,
+        tool.name,
+        tool.command,
+        tool.path,
+        tool.description,
+        tool.available === undefined ? undefined : tool.available ? 'available' : 'unavailable',
+      ]),
+      ...device.history.flatMap(entry => [
+        entry.tool,
+        entry.path,
+        entry.exists === undefined ? undefined : entry.exists ? 'exists' : 'missing',
+        entry.updated_at,
+      ]),
+    ];
+    return searchable
+      .filter((value): value is string => typeof value === 'string')
+      .some(value => value.toLowerCase().includes(normalizedSearch));
+  });
   const deviceList = useIncrementalList(filtered, {
     initialCount: 10,
     step: 12,
-    resetKey: search.trim().toLowerCase(),
+    resetKey: normalizedSearch,
   });
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refreshFromServer();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <SafeAreaWrapper>
@@ -58,7 +98,17 @@ export const TerminalListScreen: React.FC = () => {
           placeholder="Search devices, hosts, locations..."
         />
       </View>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+          />
+        }>
         <View style={styles.summary}>
           <StatusChip label={`${filtered.length} DEVICES`} type="info" />
           <StatusChip

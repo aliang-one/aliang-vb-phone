@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../theme/useTheme';
@@ -88,6 +88,10 @@ export const CommandCenterScreen: React.FC = () => {
   const events = useControlCenterStore(state => state.events);
   const projectFiles = useControlCenterStore(state => state.projectFiles);
   const scanResults = useControlCenterStore(state => state.scanResults);
+  const wsConnected = useControlCenterStore(state => state.wsConnected);
+  const serverMode = useControlCenterStore(state => state.serverMode);
+  const refreshFromServer = useControlCenterStore(state => state.refreshFromServer);
+  const [refreshing, setRefreshing] = useState(false);
 
   const onlineDevices = useMemo(
     () => devices.filter(device => device.status === 'online'),
@@ -129,6 +133,17 @@ export const CommandCenterScreen: React.FC = () => {
     () => notifications.filter(item => !item.read),
     [notifications],
   );
+  const topApproval = pendingApprovals[0];
+  const topNotification = unreadNotifications[0];
+  const topRealtimeKind = topApproval ? 'approval' : topNotification ? 'notification' : undefined;
+  const topRealtimeTitle = topApproval?.title ?? topNotification?.title;
+  const topRealtimeDetail = topApproval?.summary ?? topNotification?.body;
+  const serverStatusLabel = wsConnected ? 'Realtime' : serverMode ? 'API' : 'Offline';
+  const serverStatusColor = wsConnected
+    ? theme.colors.secondary
+    : serverMode
+    ? theme.colors.primary
+    : theme.colors.error;
   const platformSummary = {
     title: 'Platform snapshot',
     headline: `${devices.length} registered devices`,
@@ -170,6 +185,14 @@ export const CommandCenterScreen: React.FC = () => {
   const getProjectDevice = (project: Project) =>
     devices.find(device => device.id === project.deviceId)
       ?? devices.find(device => device.projectIds.includes(project.id));
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refreshFromServer();
+    } finally {
+      setRefreshing(false);
+    }
+  };
   const activeAgentList = useIncrementalList(activeAgentRuns, {
     initialCount: 4,
     step: 6,
@@ -201,19 +224,78 @@ export const CommandCenterScreen: React.FC = () => {
       <TopAppBar
         title="Vibe Command"
         subtitle="MOBILE AGENT CONTROL"
-        rightAction={
-          <TouchableOpacity
-            activeOpacity={0.75}
-            onPress={() => navigation.navigate('NotificationCenter')}
-            style={styles.avatar}>
-            <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-              {unreadNotifications.length || 'AL'}
-            </Text>
-          </TouchableOpacity>
-        }
-      />
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
-        <View style={styles.sectionHeader}>
+	        rightAction={
+	          <View style={styles.topActions}>
+	            <View
+	              style={[
+	                styles.serverDot,
+	                { backgroundColor: serverStatusColor },
+	              ]}
+	              accessibilityLabel={`Server ${serverStatusLabel}`}
+	            />
+	            <TouchableOpacity
+	              activeOpacity={0.75}
+	              onPress={() => navigation.navigate('NotificationCenter')}
+	              style={styles.avatar}>
+	              <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+	                {unreadNotifications.length || 'AL'}
+	              </Text>
+	            </TouchableOpacity>
+	          </View>
+	        }
+	      />
+	      <ScrollView
+	        style={styles.scrollView}
+	        contentContainerStyle={styles.content}
+	        refreshControl={
+	          <RefreshControl
+	            refreshing={refreshing}
+	            onRefresh={handleRefresh}
+	            tintColor={theme.colors.primary}
+	            colors={[theme.colors.primary]}
+	          />
+	        }>
+	        {topRealtimeKind && topRealtimeTitle ? (
+	          <TouchableOpacity
+	            activeOpacity={0.78}
+	            onPress={() =>
+	              navigation.navigate(
+	                topRealtimeKind === 'approval' ? 'ApprovalCenter' : 'NotificationCenter',
+	              )
+	            }>
+	            <GlassPanel style={styles.realtimeCard}>
+	              <View style={styles.realtimeIconWrap}>
+	                <IconBadge
+	                  name={topRealtimeKind === 'approval' ? 'approval' : 'event'}
+	                  tone={topRealtimeKind === 'approval' ? 'tertiary' : 'secondary'}
+	                  size={34}
+	                  iconSize={17}
+	                />
+	              </View>
+	              <View style={styles.realtimeCopy}>
+	                <Text
+	                  style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
+	                  {topRealtimeKind === 'approval' ? 'WAITING APPROVAL' : 'NEW UPDATE'}
+	                </Text>
+	                <Text
+	                  numberOfLines={1}
+	                  style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+	                  {topRealtimeTitle}
+	                </Text>
+	                <Text
+	                  numberOfLines={2}
+	                  style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+	                  {topRealtimeDetail}
+	                </Text>
+	              </View>
+	              <StatusChip
+	                label={topRealtimeKind === 'approval' ? 'OPEN' : 'VIEW'}
+	                type={topRealtimeKind === 'approval' ? 'warning' : 'info'}
+	              />
+	            </GlassPanel>
+	          </TouchableOpacity>
+	        ) : null}
+	        <View style={styles.sectionHeader}>
           <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
             24H ACTIVE AGENTS
           </Text>
@@ -705,12 +787,37 @@ const styles = StyleSheet.create({
     paddingBottom: 92,
     paddingTop: 12,
   },
-  avatar: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+	  avatar: {
+	    width: 32,
+	    height: 32,
+	    alignItems: 'center',
+	    justifyContent: 'center',
+	  },
+	  topActions: {
+	    flexDirection: 'row',
+	    alignItems: 'center',
+	    gap: 12,
+	  },
+	  serverDot: {
+	    width: 10,
+	    height: 10,
+	    borderRadius: 5,
+	  },
+	  realtimeCard: {
+	    padding: 12,
+	    marginBottom: 12,
+	    flexDirection: 'row',
+	    alignItems: 'center',
+	    gap: 10,
+	  },
+	  realtimeIconWrap: {
+	    width: 38,
+	    alignItems: 'center',
+	  },
+	  realtimeCopy: {
+	    flex: 1,
+	    gap: 2,
+	  },
   emptyAgentCard: {
     minHeight: 92,
     padding: 14,

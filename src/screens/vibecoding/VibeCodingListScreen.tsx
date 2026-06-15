@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../theme/useTheme';
@@ -34,30 +34,81 @@ export const VibeCodingListScreen: React.FC = () => {
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
   const vibeRuns = useControlCenterStore(state => state.vibeRuns);
+  const refreshFromServer = useControlCenterStore(state => state.refreshFromServer);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | VibeStatus>('all');
+  const [refreshing, setRefreshing] = useState(false);
 
   const normalizedQuery = query.trim().toLowerCase();
+  const matchesQuery = (values: Array<string | undefined>) =>
+    !normalizedQuery ||
+    values
+      .filter((value): value is string => Boolean(value))
+      .some(value => value.toLowerCase().includes(normalizedQuery));
   const filteredDevices = devices.filter(device => {
-    return (
-      !normalizedQuery ||
-      device.name.toLowerCase().includes(normalizedQuery) ||
-      device.host.toLowerCase().includes(normalizedQuery) ||
-      device.location.toLowerCase().includes(normalizedQuery)
-    );
+    return matchesQuery([
+      device.id,
+      device.name,
+      device.host,
+      device.location,
+      device.os,
+      device.status,
+      device.uniqueCode,
+      device.agentVersion,
+      ...device.capabilities,
+      ...device.authorizedDirectories,
+      ...device.activePorts.map(String),
+      ...device.tools.flatMap(tool => [
+        tool.id,
+        tool.name,
+        tool.command,
+        tool.path,
+        tool.description,
+      ]),
+      ...device.history.flatMap(entry => [entry.tool, entry.path, entry.updated_at]),
+    ]);
   });
   const filtered = vibeRuns.filter(session => {
     const project = projects.find(item => item.id === session.projectId);
     const device = devices.find(item => item.id === session.deviceId);
-    const matchesQuery =
-      !normalizedQuery ||
-      session.title.toLowerCase().includes(normalizedQuery) ||
-      session.objective.toLowerCase().includes(normalizedQuery) ||
-      Boolean(project?.name.toLowerCase().includes(normalizedQuery)) ||
-      Boolean(device?.name.toLowerCase().includes(normalizedQuery)) ||
-      Boolean(device?.host.toLowerCase().includes(normalizedQuery));
+    const sessionMatchesQuery = matchesQuery([
+      session.id,
+      session.title,
+      session.objective,
+      session.model,
+      session.status,
+      session.directory,
+      session.branch,
+      session.currentStep,
+      session.risk,
+      session.previewId,
+      session.lastMessage?.content,
+      project?.id,
+      project?.name,
+      project?.path,
+      project?.branch,
+      project?.language,
+      project?.description,
+      project?.packageManager,
+      ...(project?.detectedPorts ?? []).map(String),
+      ...(project?.sourceTools ?? []),
+      device?.id,
+      device?.name,
+      device?.host,
+      device?.location,
+      device?.os,
+      device?.agentVersion,
+      ...(device?.authorizedDirectories ?? []),
+      ...(device?.tools ?? []).flatMap(tool => [
+        tool.id,
+        tool.name,
+        tool.command,
+        tool.path,
+        tool.description,
+      ]),
+    ]);
     const matchesFilter = filter === 'all' || session.status === filter;
-    return matchesQuery && matchesFilter;
+    return sessionMatchesQuery && matchesFilter;
   }).sort((left, right) => newestFirst(left.updatedAt, right.updatedAt));
   const deviceList = useIncrementalList(filteredDevices, {
     initialCount: 8,
@@ -69,6 +120,14 @@ export const VibeCodingListScreen: React.FC = () => {
     step: 12,
     resetKey: `${normalizedQuery}:${filter}`,
   });
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refreshFromServer();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <SafeAreaWrapper>
@@ -88,7 +147,17 @@ export const VibeCodingListScreen: React.FC = () => {
       <View style={styles.searchContainer}>
         <SearchBar value={query} onChangeText={setQuery} placeholder="Search agents, hosts, sessions..." />
       </View>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+          />
+        }>
         <View style={styles.summary}>
           <StatusChip label={`${devices.length} AGENTS`} type="info" />
           <StatusChip

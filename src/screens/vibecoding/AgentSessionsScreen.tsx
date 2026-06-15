@@ -395,8 +395,8 @@ export const AgentSessionsScreen: React.FC = () => {
           return (
             <GlassPanel key={session.id} style={styles.sessionCard}>
               <View style={styles.sessionTop}>
-                <IconBadge
-                  name={session.model.includes('Codex') ? 'code' : 'agent'}
+                  <IconBadge
+                    name={session.model.toLowerCase().includes('codex') ? 'code' : 'agent'}
                   tone={session.status === 'paused' ? 'neutral' : 'primary'}
                   size={40}
                   iconSize={20}

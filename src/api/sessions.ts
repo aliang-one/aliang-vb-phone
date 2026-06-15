@@ -11,6 +11,8 @@ export interface ServerAiSession {
   title?: string;
   objective?: string;
   model?: string;
+  provider?: 'auto' | 'codex' | 'claude' | 'claudecode';
+  tool?: 'auto' | 'codex' | 'claude' | 'claudecode';
   risk?: 'low' | 'medium' | 'high';
   current_step?: string;
   branch?: string;
@@ -74,6 +76,8 @@ export const createAiSession = (input: {
   title?: string;
   objective?: string;
   model?: string;
+  provider?: 'auto' | 'codex' | 'claude' | 'claudecode';
+  tool?: 'auto' | 'codex' | 'claude' | 'claudecode';
   risk?: 'low' | 'medium' | 'high';
 }): Promise<ServerAiSession> =>
   apiPost<ServerAiSession>('/api/ai/sessions', input);
@@ -81,9 +85,10 @@ export const createAiSession = (input: {
 export const sendAiMessage = (
   sessionId: string,
   content: string,
-  attachments: unknown[] = []
+  attachments: unknown[] = [],
+  mode: 'voice' | 'text' = 'text',
 ): Promise<{ message_id: string; status: string }> =>
-  apiPost(`/api/ai/sessions/${sessionId}/messages`, { content, attachments });
+  apiPost(`/api/ai/sessions/${sessionId}/messages`, { content, attachments, mode });
 
 export const stopAiSession = (sessionId: string): Promise<{ status: string; session?: ServerAiSession }> =>
   apiPost(`/api/ai/sessions/${sessionId}/stop`);

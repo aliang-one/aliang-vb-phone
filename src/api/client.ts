@@ -31,6 +31,10 @@ export function setApiAuthTokenProvider(provider: (() => string | null | undefin
   authTokenProvider = provider;
 }
 
+export function getApiAuthToken() {
+  return authTokenProvider?.() ?? null;
+}
+
 export function isUnauthorizedApiError(error: unknown) {
   return error instanceof ApiResponseError && (error.status === 401 || error.status === 403);
 }

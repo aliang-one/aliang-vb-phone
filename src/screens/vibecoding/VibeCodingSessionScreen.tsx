@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -71,13 +71,16 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const [detailError, setDetailError] = useState('');
   const targetSessionId = session?.id ?? route.params.sessionId;
   const transcript = buildDisplayTranscript(session?.transcript ?? []);
+  const visibleSessionEvents = (session?.events ?? []).filter(
+    event => event.title !== 'Imported local vibe session',
+  );
   const transcriptList = useIncrementalList(transcript, {
     initialCount: 12,
     step: 12,
     from: 'end',
     resetKey: targetSessionId,
   });
-  const agentEventList = useIncrementalList(session?.events ?? [], {
+  const agentEventList = useIncrementalList(visibleSessionEvents, {
     initialCount: 12,
     step: 12,
     from: 'end',
@@ -85,6 +88,23 @@ export const VibeCodingSessionScreen: React.FC = () => {
   });
   const visibleTranscript = transcriptList.visibleItems;
   const visibleAgentEvents = agentEventList.visibleItems;
+  const visibleTranscriptIds = useMemo(
+    () => new Set(visibleTranscript.map(message => message.id)),
+    [visibleTranscript],
+  );
+  const conversationRailItems = useMemo(() => {
+    if (!transcript.length) return [];
+    const maxMarks = 16;
+    const step = Math.max(1, Math.ceil(transcript.length / maxMarks));
+    const activeId = visibleTranscript[visibleTranscript.length - 1]?.id;
+    return transcript
+      .filter((message, index) => index % step === 0 || index === transcript.length - 1)
+      .map(message => ({
+        message,
+        active: message.id === activeId,
+        visible: visibleTranscriptIds.has(message.id),
+      }));
+  }, [transcript, visibleTranscript, visibleTranscriptIds]);
 
   const hasDetail = Boolean(
     session?.detailLoadedAt || session?.transcript.length || session?.events.length,
@@ -172,6 +192,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const device = devices.find(item => item.id === session.deviceId);
   const preview = previewLinks.find(item => item.id === session.previewId);
   const budgetLabel = formatBudget(session.projectBudget);
+  const isCodexSession = session.model.toLowerCase().includes('codex');
   const progress = Math.min(
     100,
     (session.elapsedMinutes / session.timeLimitMinutes) * 100,
@@ -194,7 +215,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
         <GlassPanel style={styles.sessionHeader}>
           <View style={styles.headerTop}>
             <IconBadge
-              name={session.model.includes('Codex') ? 'code' : 'agent'}
+              name={isCodexSession ? 'code' : 'agent'}
               tone={session.status === 'waiting_approval' ? 'tertiary' : 'primary'}
               size={48}
               iconSize={24}
@@ -432,8 +453,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               : theme.colors.outlineVariant,
           },
         ]}>
-        {visibleTranscript.map((message, index) => {
-          const active = index === visibleTranscript.length - 1;
+        {conversationRailItems.map(({ message, active, visible }) => {
           const color =
             message.role === 'user'
               ? theme.colors.secondary
@@ -449,7 +469,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 {
                   height: active ? 18 : 8,
                   backgroundColor: color,
-                  opacity: active ? 1 : 0.46,
+                  opacity: active ? 1 : visible ? 0.66 : 0.28,
                 },
               ]}
             />
