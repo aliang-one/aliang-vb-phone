@@ -39,6 +39,7 @@ type SessionRoute = RouteProp<RootStackParamList, 'VibeCodingSession'>;
 // frame. Throttle the scroll→state bridge so the rail only recomputes a few
 // times per second (leading edge) plus one trailing update when scrolling stops.
 const SCROLL_THROTTLE_MS = 80;
+const DETAIL_LOAD_TIMEOUT_MS = 10000;
 
 const eventIcon: Record<string, IconName> = {
   command: 'terminal',
@@ -82,6 +83,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const scrollYRef = useRef(0);
   const lastScrollSetRef = useRef(0);
   const trailingScrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendLockRef = useRef<string | null>(null);
+  const [sendingMessage, setSendingMessage] = useState(false);
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const y = event.nativeEvent.contentOffset.y;
@@ -179,21 +182,32 @@ export const VibeCodingSessionScreen: React.FC = () => {
     if (!targetSessionId || hasDetail || loadingDetail || detailError) return;
 
     let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     setLoadingDetail(true);
     setDetailError('');
 
-    void loadAgentSessionDetail(targetSessionId)
+    const detailLoad = loadAgentSessionDetail(targetSessionId);
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(
+        () => reject(new Error('完整会话内容拉取超时，实时消息会继续显示。')),
+        DETAIL_LOAD_TIMEOUT_MS,
+      );
+    });
+
+    void Promise.race([detailLoad, timeout])
       .catch(error => {
         if (!cancelled) {
           setDetailError(error instanceof Error ? error.message : 'Failed to load session detail.');
         }
       })
       .finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
         if (!cancelled) setLoadingDetail(false);
       });
 
     return () => {
       cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, [detailError, hasDetail, loadAgentSessionDetail, loadingDetail, targetSessionId]);
 
@@ -219,8 +233,20 @@ export const VibeCodingSessionScreen: React.FC = () => {
   };
 
   const appendUserMessage = async (content: string, messageMode: 'voice' | 'text') => {
-    if (!session) return;
-    await appendAgentMessage(session.id, content, messageMode);
+    const normalizedContent = content.trim();
+    if (!session || !normalizedContent || sendLockRef.current) return false;
+    const sendKey = `${session.id}:${messageMode}:${normalizedContent}`;
+    sendLockRef.current = sendKey;
+    setSendingMessage(true);
+    try {
+      await appendAgentMessage(session.id, normalizedContent, messageMode);
+      return true;
+    } finally {
+      if (sendLockRef.current === sendKey) {
+        sendLockRef.current = null;
+      }
+      setSendingMessage(false);
+    }
   };
 
   const handleVoiceCapture = () => {
@@ -237,13 +263,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
   };
 
   const handleConfirmVoice = () => {
-    if (!preparedPrompt) {
+    if (!preparedPrompt || sendingMessage) {
       return;
     }
     void appendUserMessage(preparedPrompt, 'voice')
-      .then(() => {
-        setVoiceDraft('');
-        setPreparedPrompt('');
+      .then(sent => {
+        if (sent) {
+          setVoiceDraft('');
+          setPreparedPrompt('');
+        }
       })
       .catch(error => {
         console.warn('[vibecoding] failed to send voice prompt', error);
@@ -251,13 +279,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
   };
 
   const handleSendText = () => {
-    if (!input.trim()) {
+    const nextInput = input.trim();
+    if (!nextInput || sendingMessage) {
       return;
     }
-    void appendUserMessage(input.trim(), 'text').catch(error => {
-      console.warn('[vibecoding] failed to send text prompt', error);
-    });
     setInput('');
+    void appendUserMessage(nextInput, 'text').catch(error => {
+      console.warn('[vibecoding] failed to send text prompt', error);
+      setInput(current => current || nextInput);
+    });
   };
 
   if (!session) {
@@ -433,7 +463,32 @@ export const VibeCodingSessionScreen: React.FC = () => {
             </View>
             <StatusChip label={mode.toUpperCase()} type="info" />
           </View>
-        {loadingDetail ? (
+        {transcript.length ? (
+          <>
+            {loadingDetail || detailError ? (
+              <GlassPanel style={styles.detailInlinePanel}>
+                {loadingDetail ? <ActivityIndicator color={theme.colors.primary} size="small" /> : null}
+                <Text
+                  style={[
+                    theme.typography.bodySm,
+                    { color: detailError ? theme.colors.tertiary : theme.colors.onSurfaceVariant },
+                  ]}>
+                  {detailError || '正在同步更早的会话内容...'}
+                </Text>
+              </GlassPanel>
+            ) : null}
+            <LoadMoreRow
+              visibleCount={transcriptList.visibleCount}
+              totalCount={transcriptList.totalCount}
+              onPress={transcriptList.showMore}
+              label="LOAD EARLIER MESSAGES"
+            />
+            <TranscriptMessageList
+              items={visibleTranscript}
+              onMessageLayout={handleTranscriptMessageLayout}
+            />
+          </>
+        ) : loadingDetail ? (
           <GlassPanel style={styles.detailStatePanel}>
             <ActivityIndicator color={theme.colors.primary} />
             <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
@@ -446,19 +501,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
               {detailError}
             </Text>
           </GlassPanel>
-        ) : transcript.length ? (
-          <>
-            <LoadMoreRow
-              visibleCount={transcriptList.visibleCount}
-              totalCount={transcriptList.totalCount}
-              onPress={transcriptList.showMore}
-              label="LOAD EARLIER MESSAGES"
-            />
-            <TranscriptMessageList
-              items={visibleTranscript}
-              onMessageLayout={handleTranscriptMessageLayout}
-            />
-          </>
         ) : (
           <GlassPanel style={styles.detailStatePanel}>
             <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
@@ -758,6 +800,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
                       title="CONFIRM SEND"
                       onPress={handleConfirmVoice}
                       variant="primary"
+                      loading={sendingMessage}
+                      disabled={sendingMessage}
                       style={styles.voiceButton}
                     />
                   )}
@@ -795,10 +839,29 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 },
               ]}
             />
-            <TouchableOpacity onPress={handleSendText} style={styles.sendButton}>
-              <Text style={[theme.typography.codeMd, { color: theme.colors.primary }]}>
-                {'>'}
-              </Text>
+            <TouchableOpacity
+              activeOpacity={0.76}
+              disabled={!input.trim() || sendingMessage}
+              onPress={handleSendText}
+              style={[
+                styles.sendButton,
+                {
+                  borderRadius: theme.borderRadius.md,
+                  backgroundColor:
+                    input.trim() && !sendingMessage
+                      ? theme.colors.primary
+                      : isDark
+                      ? 'rgba(255,255,255,0.08)'
+                      : theme.colors.surfaceContainerHigh,
+                },
+              ]}>
+              {sendingMessage ? (
+                <ActivityIndicator color={theme.colors.onPrimary} size="small" />
+              ) : (
+                <Text style={[theme.typography.labelMd, { color: theme.colors.onPrimary }]}>
+                  SEND
+                </Text>
+              )}
             </TouchableOpacity>
           </View>
         )}
@@ -878,6 +941,14 @@ const styles = StyleSheet.create({
   detailStatePanel: {
     padding: 14,
     gap: 10,
+  },
+  detailInlinePanel: {
+    minHeight: 40,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   chatSectionHeader: {
     minHeight: 46,
@@ -1047,8 +1118,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   sendButton: {
-    width: 42,
-    height: 42,
+    minWidth: 64,
+    height: 52,
+    paddingHorizontal: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -26,6 +26,11 @@ type AiSessionSlice = Pick<
   | 'deleteAgentSession' | 'appendAgentMessage'
 >;
 
+const pendingMessageSends = new Set<string>();
+
+const messageSendKey = (sessionId: string, content: string, mode: 'voice' | 'text') =>
+  `${sessionId}:${mode}:${content}`;
+
 export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSessionSlice> = (set, get) => ({
   vibeRuns: [],
   previewLinks: [],
@@ -256,7 +261,14 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
   },
 
   appendAgentMessage: async (sessionId, content, mode) => {
+    const normalizedContent = content.trim();
+    if (!normalizedContent) return;
+    const sendKey = messageSendKey(sessionId, normalizedContent, mode);
+    if (pendingMessageSends.has(sendKey)) return;
+    pendingMessageSends.add(sendKey);
+
     if (!get().serverMode) {
+      pendingMessageSends.delete(sendKey);
       throw new Error('Platform connection is required before sending a VibeCoding message.');
     }
     // OPTIMISTIC UPDATE — render the user's message and flip the session to
@@ -269,7 +281,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       id: optimisticId,
       role: 'user' as const,
       mode,
-      content,
+      content: normalizedContent,
       timestamp: new Date().toISOString(),
     };
     set(state => {
@@ -301,7 +313,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       };
     });
     try {
-      const response = await platformTransport.sendAiMessage(sessionId, content, mode);
+      const response = await platformTransport.sendAiMessage(sessionId, normalizedContent, mode);
       // The server persists the user message under its own id. Rename the
       // optimistic bubble to that id so the next server state sync (which
       // carries the server's user message) merges into it instead of
@@ -338,7 +350,8 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         }),
       }));
       throw error;
+    } finally {
+      pendingMessageSends.delete(sendKey);
     }
   },
 });
-

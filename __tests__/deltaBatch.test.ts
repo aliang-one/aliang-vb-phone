@@ -72,6 +72,30 @@ describe('applyDeltasToRuns', () => {
     expect(next[0].transcript[1].id).toBe('msg-B');
   });
 
+  it('keeps assistant deltas separate when they reuse the user message id', () => {
+    const base = run('s1', [
+      { id: 'msg-user', role: 'user', content: 'Please help', timestamp: '09:59' },
+    ]);
+
+    const next = applyDeltasToRuns(
+      [base],
+      [
+        delta('s1', 'Assistant ', 'msg-user'),
+        delta('s1', 'reply', 'msg-user'),
+      ],
+      makeId,
+      nowLabel,
+    );
+
+    expect(next[0].transcript).toHaveLength(2);
+    expect(next[0].transcript[0].id).toBe('msg-user');
+    expect(next[0].transcript[1]).toMatchObject({
+      id: 'msg-user:assistant',
+      role: 'assistant',
+      content: 'Assistant reply',
+    });
+  });
+
   it('applies a mixed batch in arrival order across message boundaries', () => {
     const base = run('s1', [
       { id: 'msg-A', role: 'assistant', content: 'A', timestamp: '09:59' },

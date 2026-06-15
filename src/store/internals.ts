@@ -339,6 +339,30 @@ export function mergeVibeRunSnapshot(
   };
 }
 
+const messageFingerprint = (message: VibeCodingRun['lastMessage']) =>
+  message
+    ? `${message.id}:${message.role}:${message.timestamp}:${message.content}`
+    : '';
+
+export function hasMeaningfulVibeRunUpdate(
+  existing: VibeCodingRun | undefined,
+  incoming: VibeCodingRun,
+): boolean {
+  if (!existing) return true;
+  if ((incoming.lastActivityMs ?? 0) > (existing.lastActivityMs ?? 0)) return true;
+  return (
+    existing.status !== incoming.status ||
+    existing.title !== incoming.title ||
+    existing.objective !== incoming.objective ||
+    existing.currentStep !== incoming.currentStep ||
+    existing.model !== incoming.model ||
+    existing.branch !== incoming.branch ||
+    existing.transcriptCount !== incoming.transcriptCount ||
+    existing.eventCount !== incoming.eventCount ||
+    messageFingerprint(existing.lastMessage) !== messageFingerprint(incoming.lastMessage)
+  );
+}
+
 export function mapSessionStatus(status: string): VibeStatus {
   switch (status) {
     case 'running': return 'running';
@@ -453,11 +477,12 @@ export function realtimeMessageTypeToEventType(
   if (messageType === 'ai.delta') return 'agent.delta';
   if (messageType === 'ai.done') return 'agent.session.completed';
   if (messageType === 'ai.error') return 'agent.session.failed';
-  if (messageType === 'ai.session.created' || messageType === 'ai.session.updated') {
+  if (messageType === 'ai.session.created') {
     return 'agent.session.started';
   }
+  if (messageType === 'ai.session.updated') return 'agent.session.updated';
   if (messageType === 'ai.session.deleted') return 'agent.session.terminated';
-  if (messageType === 'ai.sessions.updated') return 'agent.session.started';
+  if (messageType === 'ai.sessions.updated') return 'agent.session.updated';
   if (messageType === 'terminal.output') return 'terminal.output';
   if (messageType.startsWith('terminal.')) return 'command.completed';
   if (messageType === 'approval.requested') return 'approval.requested';
@@ -478,10 +503,14 @@ export function realtimeMessageTitle(
 ): string {
   const project = isRecord(payload?.project) ? payload.project : undefined;
   const device = isRecord(payload?.device) ? payload.device : undefined;
+  const session = isRecord(payload?.session) ? payload.session : undefined;
   const approval = isRecord(payload?.approval) ? payload.approval : undefined;
   if (messageType === 'project.updated') return payloadString(project, 'name') ?? 'Project updated';
   if (messageType === 'device.updated') return payloadString(device, 'name') ?? 'Device updated';
   if (messageType === 'approval.requested') return payloadString(approval, 'title') ?? 'Approval requested';
+  if (messageType === 'ai.session.created') return payloadString(session, 'title') ?? 'VibeCoding started';
+  if (messageType === 'ai.session.updated') return payloadString(session, 'title') ?? 'VibeCoding updated';
+  if (messageType === 'ai.sessions.updated') return 'VibeCoding sessions synced';
   if (messageType === 'ai.done') return 'VibeCoding completed';
   if (messageType === 'ai.error') return 'VibeCoding failed';
   if (messageType === 'preview.ready') return 'Preview ready';
@@ -494,16 +523,37 @@ export function realtimeMessageDetail(
 ): string {
   const project = isRecord(payload?.project) ? payload.project : undefined;
   const device = isRecord(payload?.device) ? payload.device : undefined;
+  const session = isRecord(payload?.session) ? payload.session : undefined;
   const approval = isRecord(payload?.approval) ? payload.approval : undefined;
   return (
     payloadString(payload, 'detail') ??
     payloadString(payload, 'delta') ??
     payloadString(payload, 'error') ??
+    payloadString(session, 'current_step') ??
+    payloadString(session, 'objective') ??
     payloadString(project, 'path') ??
     payloadString(device, 'host') ??
     payloadString(approval, 'summary') ??
     message.direction
   );
+}
+
+function realtimeMessageTimestamp(
+  message: PlatformRealtimeEventSnapshot,
+  payload: Record<string, unknown> | undefined,
+): string {
+  const session = isRecord(payload?.session) ? payload.session : undefined;
+  if (message.message_type === 'ai.session.created') {
+    return payloadString(session, 'created_at') ?? message.created_at;
+  }
+  if (message.message_type === 'ai.session.updated') {
+    return (
+      payloadString(session, 'last_active_at') ??
+      payloadString(session, 'updated_at') ??
+      message.created_at
+    );
+  }
+  return message.created_at;
 }
 
 export function realtimeEventToUnifiedEvent(message: PlatformRealtimeEventSnapshot): UnifiedEvent {
@@ -516,9 +566,29 @@ export function realtimeEventToUnifiedEvent(message: PlatformRealtimeEventSnapsh
     status: realtimeMessageStatus(message.message_type),
     deviceId: message.device_id,
     sessionId: message.session_id,
-    timestamp: message.created_at,
+    timestamp: realtimeMessageTimestamp(message, payload),
     payload: primitivePayload(message.payload),
   };
+}
+
+export function dedupeUnifiedEvents(events: UnifiedEvent[]): UnifiedEvent[] {
+  const seen = new Set<string>();
+  return events.filter(item => {
+    const key = [
+      item.type,
+      item.deviceId ?? '',
+      item.sessionId ?? '',
+      item.terminalId ?? '',
+      item.approvalId ?? '',
+      item.timestamp,
+      item.status,
+      item.title,
+      item.detail,
+    ].join('|');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export function serverNotificationToClient(
@@ -699,9 +769,9 @@ export function stateFromSnapshot(
   const previewLinks = snapshot.previewLinks
     .filter(preview => knownSessionIds.has(preview.sessionId))
     .map(serverPreviewToClient);
-  const realtimeEvents = snapshot.realtimeEvents
+  const realtimeEvents = dedupeUnifiedEvents(snapshot.realtimeEvents
     .map(realtimeEventToUnifiedEvent)
-    .filter(item => !item.deviceId || knownDeviceIds.has(item.deviceId))
+    .filter(item => !item.deviceId || knownDeviceIds.has(item.deviceId)))
     .slice(0, 120);
   const notifications = snapshot.notifications
     .map(serverNotificationToClient)

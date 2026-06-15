@@ -22,6 +22,7 @@ import {
   createId,
   event,
   formatActivityLabel,
+  hasMeaningfulVibeRunUpdate,
   line,
   MAX_RUN_EVENTS,
   MAX_TERMINAL_LINES,
@@ -271,31 +272,41 @@ export const useControlCenterStore = create<ControlCenterState>()(
           }
 
 	          case 'ai.session.updated': {
-	            set(state => {
-	              const nextRun = serverAiSessionToVibeRun(
-	                transportEvent.session,
-	                state.devices,
-	                state.projects,
-	              );
-	              const exists = state.vibeRuns.some(run => run.id === nextRun.id);
-	              const vibeRuns = exists
-	                ? state.vibeRuns.map(run =>
-	                    run.id === nextRun.id ? mergeVibeRunSnapshot(run, nextRun) : run,
-	                  )
-	                : [nextRun, ...state.vibeRuns];
-	              return {
-	                vibeRuns,
-                devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
-                events: [
-                  event('agent.session.started', 'VibeCoding updated', nextRun.title, 'running', {
-                    deviceId: nextRun.deviceId,
-                    projectId: nextRun.projectId,
-                    sessionId: nextRun.id,
-                  }),
-                  ...state.events,
-                ].slice(0, 120),
-              };
-            });
+		            set(state => {
+		              const nextRun = serverAiSessionToVibeRun(
+		                transportEvent.session,
+		                state.devices,
+		                state.projects,
+		              );
+		              const previousRun = state.vibeRuns.find(run => run.id === nextRun.id);
+		              const shouldRecordEvent = hasMeaningfulVibeRunUpdate(previousRun, nextRun);
+		              const exists = Boolean(previousRun);
+		              const vibeRuns = exists
+		                ? state.vibeRuns.map(run =>
+		                    run.id === nextRun.id ? mergeVibeRunSnapshot(run, nextRun) : run,
+		                  )
+		                : [nextRun, ...state.vibeRuns];
+		              return {
+		                vibeRuns,
+	                devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
+	                events: shouldRecordEvent
+	                  ? [
+	                      event(
+	                        exists ? 'agent.session.updated' : 'agent.session.started',
+	                        exists ? 'VibeCoding updated' : 'VibeCoding started',
+	                        nextRun.title,
+	                        'running',
+	                        {
+	                          deviceId: nextRun.deviceId,
+	                          projectId: nextRun.projectId,
+	                          sessionId: nextRun.id,
+	                        },
+	                      ),
+	                      ...state.events,
+	                    ].slice(0, 120)
+	                  : state.events,
+	              };
+	            });
             return;
           }
 

@@ -39,21 +39,44 @@ export function isUnauthorizedApiError(error: unknown) {
   return error instanceof ApiResponseError && (error.status === 401 || error.status === 403);
 }
 
-const timeout = (ms: number) =>
-  new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error(`Timed out after ${ms}ms`)), ms);
-  });
-
 async function requestJson<T>(
   baseUrl: string,
   path: string,
   options: RequestInit,
 ): Promise<T> {
   const url = `${baseUrl}${path}`;
-  const response = await Promise.race([
-    fetch(url, options),
-    timeout(REQUEST_TIMEOUT_MS),
-  ]);
+  const controller = new AbortController();
+  const inputSignal = options.signal;
+  let didTimeout = false;
+  const timeoutId = setTimeout(() => {
+    didTimeout = true;
+    controller.abort();
+  }, REQUEST_TIMEOUT_MS);
+  const abortFromCaller = () => controller.abort();
+
+  if (inputSignal) {
+    if (inputSignal.aborted) {
+      controller.abort();
+    } else {
+      inputSignal.addEventListener('abort', abortFromCaller, { once: true });
+    }
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (didTimeout) {
+      throw new Error(`Timed out after ${REQUEST_TIMEOUT_MS}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+    inputSignal?.removeEventListener('abort', abortFromCaller);
+  }
 
   if (!response.ok) {
     let errorMessage = `Request failed with HTTP ${response.status}`;

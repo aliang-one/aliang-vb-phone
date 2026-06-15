@@ -67,5 +67,5 @@ export interface MobilePlatformSnapshot {
   realtime_events: ServerRealtimeEvent[];
 }
 
-export const fetchMobileSnapshot = (eventLimit = 80): Promise<MobilePlatformSnapshot> =>
+export const fetchMobileSnapshot = (eventLimit = 40): Promise<MobilePlatformSnapshot> =>
   apiGet<MobilePlatformSnapshot>(`/api/mobile/snapshot?event_limit=${eventLimit}`);

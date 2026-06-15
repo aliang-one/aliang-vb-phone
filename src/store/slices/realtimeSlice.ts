@@ -4,12 +4,29 @@ import { cancelDeltaBatch, cancelRefreshDebounce } from '../streaming';
 import type { ControlCenterState } from '../types';
 import { emptySessionData, stateFromSnapshot } from '../internals';
 
+const SNAPSHOT_SYNC_TIMEOUT_MS = 12000;
+
 type RealtimeSlice = Pick<
   ControlCenterState,
   | 'wsConnected' | 'serverMode' | 'lastSyncedAt' | 'stale'
   | 'initializeFromServer' | 'refreshFromServer' | 'disconnectFromServer'
   | 'resetSessionData' | 'markStale'
 >;
+
+let refreshInFlight: Promise<void> | null = null;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
+
+const loadSnapshotWithTimeout = () =>
+  withTimeout(platformTransport.loadSnapshot(), SNAPSHOT_SYNC_TIMEOUT_MS, 'Platform snapshot refresh');
 
 // Connection lifecycle slice. Owns connection/freshness state + the
 // server-sync lifecycle. The cross-domain transport dispatcher
@@ -28,7 +45,7 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
     set({ ...emptySessionData(), serverMode: true, wsConnected: false });
 
     try {
-      const snapshot = await platformTransport.loadSnapshot();
+      const snapshot = await loadSnapshotWithTimeout();
       const nextState = stateFromSnapshot(snapshot, get().vibeRuns);
 
       set({
@@ -56,14 +73,30 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
 
   refreshFromServer: async () => {
     if (!get().serverMode) {
-      throw new Error('Platform connection is required before refreshing workspace data.');
+      set({ stale: true });
+      return;
     }
-    const snapshot = await platformTransport.loadSnapshot();
-    set(state => ({
-      ...stateFromSnapshot(snapshot, state.vibeRuns),
-      lastSyncedAt: Date.now(),
-      stale: false,
-    }));
+    if (refreshInFlight) {
+      return refreshInFlight;
+    }
+
+    refreshInFlight = (async () => {
+      try {
+        const snapshot = await loadSnapshotWithTimeout();
+        set(state => ({
+          ...stateFromSnapshot(snapshot, state.vibeRuns),
+          lastSyncedAt: Date.now(),
+          stale: false,
+        }));
+      } catch (error) {
+        console.warn('[store] Failed to refresh from server:', error);
+        set({ stale: true });
+      } finally {
+        refreshInFlight = null;
+      }
+    })();
+
+    return refreshInFlight;
   },
 
   disconnectFromServer: () => {
@@ -86,4 +119,3 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
 
   markStale: () => set({ stale: true }),
 });
-

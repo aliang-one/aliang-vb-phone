@@ -56,6 +56,7 @@ const eventIcon: Record<UnifiedEventType, IconName> = {
   'project.updated': 'project',
   'project.scan.completed': 'scan',
   'agent.session.started': 'agent',
+  'agent.session.updated': 'agent',
   'agent.session.paused': 'pause',
   'agent.session.resumed': 'play',
   'agent.session.completed': 'check',

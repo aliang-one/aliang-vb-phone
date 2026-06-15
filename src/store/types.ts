@@ -38,6 +38,7 @@ export type UnifiedEventType =
   | 'project.updated'
   | 'project.scan.completed'
   | 'agent.session.started'
+  | 'agent.session.updated'
   | 'agent.session.paused'
   | 'agent.session.resumed'
   | 'agent.session.completed'

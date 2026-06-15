@@ -53,6 +53,27 @@ export function applyDeltasToRuns(
   });
 }
 
+function resolveAssistantMessageId(
+  transcript: VibeCodingRun['transcript'],
+  rawMessageId: string,
+  makeId: () => string,
+) {
+  const trailing = transcript[transcript.length - 1];
+  if (!rawMessageId) {
+    return trailing?.role === 'assistant' ? trailing.id : makeId();
+  }
+
+  const assistantWithId = transcript.find(
+    message => message.role === 'assistant' && message.id === rawMessageId,
+  );
+  if (assistantWithId) return rawMessageId;
+
+  const collidesWithNonAssistant = transcript.some(
+    message => message.role !== 'assistant' && message.id === rawMessageId,
+  );
+  return collidesWithNonAssistant ? `${rawMessageId}:assistant` : rawMessageId;
+}
+
 function applyDeltasToRun(
   run: VibeCodingRun,
   sessionDeltas: DeltaUpdate[],
@@ -71,7 +92,11 @@ function applyDeltasToRun(
 
     const lastIndex = transcript.length - 1;
     const trailing = transcript[lastIndex];
-    const messageId = delta.messageId ?? '';
+    const messageId = resolveAssistantMessageId(
+      transcript,
+      delta.messageId ?? '',
+      makeId,
+    );
 
     if (trailing && trailing.role === 'assistant' && trailing.id === messageId) {
       transcript[lastIndex] = {
