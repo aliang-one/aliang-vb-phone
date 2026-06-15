@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
+  type NativeSyntheticEvent,
+  type NativeScrollEvent,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -31,6 +33,12 @@ import { buildDisplayTranscript } from '../../utils/agentTranscript';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type SessionRoute = RouteProp<RootStackParamList, 'VibeCodingSession'>;
+
+// During streaming the store updates on a ~60ms cadence; driving scroll-driven
+// state at 60fps on top of that re-runs the conversation-rail computation every
+// frame. Throttle the scroll→state bridge so the rail only recomputes a few
+// times per second (leading edge) plus one trailing update when scrolling stops.
+const SCROLL_THROTTLE_MS = 80;
 
 const eventIcon: Record<string, IconName> = {
   command: 'terminal',
@@ -69,10 +77,44 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const [preparedPrompt, setPreparedPrompt] = useState('');
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState('');
+  const [scrollY, setScrollY] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const scrollYRef = useRef(0);
+  const lastScrollSetRef = useRef(0);
+  const trailingScrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = event.nativeEvent.contentOffset.y;
+    scrollYRef.current = y;
+    const now = Date.now();
+    if (now - lastScrollSetRef.current >= SCROLL_THROTTLE_MS) {
+      lastScrollSetRef.current = now;
+      if (trailingScrollTimer.current) {
+        clearTimeout(trailingScrollTimer.current);
+        trailingScrollTimer.current = null;
+      }
+      setScrollY(y);
+    } else if (!trailingScrollTimer.current) {
+      trailingScrollTimer.current = setTimeout(() => {
+        trailingScrollTimer.current = null;
+        lastScrollSetRef.current = Date.now();
+        setScrollY(scrollYRef.current);
+      }, SCROLL_THROTTLE_MS);
+    }
+  };
+  const [conversationTop, setConversationTop] = useState(0);
+  const [messageLayouts, setMessageLayouts] = useState<Record<string, { top: number; height: number }>>({});
+  const [timelineExpanded, setTimelineExpanded] = useState(false);
   const targetSessionId = session?.id ?? route.params.sessionId;
-  const transcript = buildDisplayTranscript(session?.transcript ?? []);
-  const visibleSessionEvents = (session?.events ?? []).filter(
-    event => event.title !== 'Imported local vibe session',
+  const transcript = useMemo(
+    () => buildDisplayTranscript(session?.transcript ?? []),
+    [session?.transcript],
+  );
+  const visibleSessionEvents = useMemo(
+    () => (session?.events ?? []).filter(
+      event => event.title !== 'Imported local vibe session',
+    ),
+    [session?.events],
   );
   const transcriptList = useIncrementalList(transcript, {
     initialCount: 12,
@@ -88,23 +130,46 @@ export const VibeCodingSessionScreen: React.FC = () => {
   });
   const visibleTranscript = transcriptList.visibleItems;
   const visibleAgentEvents = agentEventList.visibleItems;
+  const latestAgentEvent = visibleSessionEvents[visibleSessionEvents.length - 1];
   const visibleTranscriptIds = useMemo(
     () => new Set(visibleTranscript.map(message => message.id)),
     [visibleTranscript],
   );
+  const activeRailMessageId = useMemo(() => {
+    if (!visibleTranscript.length) return undefined;
+    const fallbackId = visibleTranscript[visibleTranscript.length - 1]?.id;
+    if (!viewportHeight) return fallbackId;
+
+    const focusY = scrollY + Math.min(Math.max(viewportHeight * 0.46, 160), 380);
+    let activeId = fallbackId;
+    let activeDistance = Number.POSITIVE_INFINITY;
+
+    for (const message of visibleTranscript) {
+      const layout = messageLayouts[message.id];
+      if (!layout) continue;
+      // Absolute position in the scroll content = container offset + message offset.
+      const center = conversationTop + layout.top + layout.height / 2;
+      const distance = Math.abs(center - focusY);
+      if (distance < activeDistance) {
+        activeDistance = distance;
+        activeId = message.id;
+      }
+    }
+
+    return activeId;
+  }, [messageLayouts, scrollY, viewportHeight, visibleTranscript, conversationTop]);
   const conversationRailItems = useMemo(() => {
     if (!transcript.length) return [];
     const maxMarks = 16;
     const step = Math.max(1, Math.ceil(transcript.length / maxMarks));
-    const activeId = visibleTranscript[visibleTranscript.length - 1]?.id;
     return transcript
-      .filter((message, index) => index % step === 0 || index === transcript.length - 1)
+      .filter((message, index) => index % step === 0 || index === transcript.length - 1 || message.id === activeRailMessageId)
       .map(message => ({
         message,
-        active: message.id === activeId,
+        active: message.id === activeRailMessageId,
         visible: visibleTranscriptIds.has(message.id),
       }));
-  }, [transcript, visibleTranscript, visibleTranscriptIds]);
+  }, [activeRailMessageId, transcript, visibleTranscriptIds]);
 
   const hasDetail = Boolean(
     session?.detailLoadedAt || session?.transcript.length || session?.events.length,
@@ -131,6 +196,27 @@ export const VibeCodingSessionScreen: React.FC = () => {
       cancelled = true;
     };
   }, [detailError, hasDetail, loadAgentSessionDetail, loadingDetail, targetSessionId]);
+
+  useEffect(() => {
+    setMessageLayouts({});
+  }, [targetSessionId, visibleTranscript.length]);
+
+  useEffect(() => {
+    setTimelineExpanded(false);
+  }, [targetSessionId]);
+
+  const handleTranscriptMessageLayout = (messageId: string, y: number, height: number) => {
+    // Store the message's offset relative to the conversation container only.
+    // `conversationTop` (the container's own offset within the scroll content) is
+    // applied at calculation time so stale closure captures can't desync the rail.
+    setMessageLayouts(current => {
+      const existing = current[messageId];
+      if (existing && Math.abs(existing.top - y) < 1 && Math.abs(existing.height - height) < 1) {
+        return current;
+      }
+      return { ...current, [messageId]: { top: y, height } };
+    });
+  };
 
   const appendUserMessage = async (content: string, messageMode: 'voice' | 'text') => {
     if (!session) return;
@@ -211,7 +297,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
           />
         }
       />
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+        scrollEventThrottle={16}
+        onLayout={event => setViewportHeight(event.nativeEvent.layout.height)}
+        onScroll={handleScroll}>
         <GlassPanel style={styles.sessionHeader}>
           <View style={styles.headerTop}>
             <IconBadge
@@ -319,7 +410,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
           </TouchableOpacity>
         )}
 
-        <View style={styles.conversationSection}>
+        <View
+          style={styles.conversationSection}
+          onLayout={event => setConversationTop(event.nativeEvent.layout.y)}>
           <View style={styles.chatSectionHeader}>
             <View style={styles.chatHeaderLeft}>
               <IconBadge name="chat" tone="primary" size={34} iconSize={17} />
@@ -361,7 +454,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
               onPress={transcriptList.showMore}
               label="LOAD EARLIER MESSAGES"
             />
-            <TranscriptMessageList items={visibleTranscript} />
+            <TranscriptMessageList
+              items={visibleTranscript}
+              onMessageLayout={handleTranscriptMessageLayout}
+            />
           </>
         ) : (
           <GlassPanel style={styles.detailStatePanel}>
@@ -370,74 +466,126 @@ export const VibeCodingSessionScreen: React.FC = () => {
             </Text>
           </GlassPanel>
         )}
-        </View>
-
-        <Text
-          style={[
-            theme.typography.labelCaps,
-            { color: theme.colors.onSurfaceVariant },
-            styles.sectionTitle,
-          ]}>
-          AGENT TIMELINE
-        </Text>
-        <GlassPanel style={styles.timelinePanel}>
-          {visibleAgentEvents.length ? (
-            <>
-            <LoadMoreRow
-              visibleCount={agentEventList.visibleCount}
-              totalCount={agentEventList.totalCount}
-              onPress={agentEventList.showMore}
-              label="LOAD EARLIER EVENTS"
-            />
-            {visibleAgentEvents.map((event, index) => (
-            <View key={event.id}>
-              <View style={styles.eventRow}>
-                <IconBadge
-                  name={eventIcon[event.type] ?? 'event'}
-                  tone={
-                    event.status === 'failed'
-                      ? 'error'
-                      : event.status === 'waiting'
-                      ? 'tertiary'
-                      : 'primary'
-                  }
-                  size={36}
-                  iconSize={18}
-                />
-                <View style={styles.eventText}>
-                  <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                    {event.title}
+        {latestAgentEvent ? (
+          <View style={styles.timelineDock}>
+            {timelineExpanded ? (
+              <GlassPanel style={styles.timelinePopover}>
+                <View style={styles.timelinePopoverHeader}>
+                  <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
+                    AGENT TIMELINE
                   </Text>
-                  <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-                    {event.detail}
-                  </Text>
-                  <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-                    {event.timestamp}
-                  </Text>
+                  <TouchableOpacity onPress={() => setTimelineExpanded(false)}>
+                    <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+                      CLOSE
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-                <StatusChip
-                  label={event.status.toUpperCase()}
-                  type={
-                    event.status === 'done'
-                      ? 'success'
-                      : event.status === 'failed'
-                      ? 'error'
-                      : event.status === 'running'
-                      ? 'info'
-                      : 'warning'
-                  }
+                <LoadMoreRow
+                  visibleCount={agentEventList.visibleCount}
+                  totalCount={agentEventList.totalCount}
+                  onPress={agentEventList.showMore}
+                  label="LOAD EARLIER EVENTS"
                 />
+                {visibleAgentEvents.map((event, index) => (
+                  <View key={event.id}>
+                    <View style={styles.eventRow}>
+                      <IconBadge
+                        name={eventIcon[event.type] ?? 'event'}
+                        tone={
+                          event.status === 'failed'
+                            ? 'error'
+                            : event.status === 'waiting'
+                            ? 'tertiary'
+                            : 'primary'
+                        }
+                        size={30}
+                        iconSize={15}
+                      />
+                      <View style={styles.eventText}>
+                        <Text style={[theme.typography.labelSm, { color: theme.colors.onSurface }]}>
+                          {event.title}
+                        </Text>
+                        <Text
+                          style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}
+                          numberOfLines={2}>
+                          {event.detail}
+                        </Text>
+                        <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+                          {event.timestamp}
+                        </Text>
+                      </View>
+                      <StatusChip
+                        label={event.status.toUpperCase()}
+                        type={
+                          event.status === 'done'
+                            ? 'success'
+                            : event.status === 'failed'
+                            ? 'error'
+                            : event.status === 'running'
+                            ? 'info'
+                            : 'warning'
+                        }
+                      />
+                    </View>
+                    {index < visibleAgentEvents.length - 1 && <View style={styles.divider} />}
+                  </View>
+                ))}
+              </GlassPanel>
+            ) : null}
+            <TouchableOpacity
+              activeOpacity={0.82}
+              onPress={() => setTimelineExpanded(current => !current)}
+              style={[
+                styles.timelineBadge,
+                {
+                  backgroundColor: isDark
+                    ? 'rgba(17, 20, 23, 0.9)'
+                    : 'rgba(255, 255, 255, 0.95)',
+                  borderColor: isDark
+                    ? 'rgba(255, 255, 255, 0.1)'
+                    : theme.colors.outlineVariant,
+                },
+              ]}>
+              <IconBadge
+                name={eventIcon[latestAgentEvent.type] ?? 'event'}
+                tone={
+                  latestAgentEvent.status === 'failed'
+                    ? 'error'
+                    : latestAgentEvent.status === 'waiting'
+                    ? 'tertiary'
+                    : 'primary'
+                }
+                size={28}
+                iconSize={14}
+              />
+              <View style={styles.timelineBadgeText}>
+                <Text
+                  style={[theme.typography.labelSm, { color: theme.colors.onSurface }]}
+                  numberOfLines={1}>
+                  {latestAgentEvent.title}
+                </Text>
+                <Text
+                  style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}
+                  numberOfLines={1}>
+                  {visibleSessionEvents.length} events · {latestAgentEvent.timestamp}
+                </Text>
               </View>
-              {index < visibleAgentEvents.length - 1 && <View style={styles.divider} />}
-            </View>
-            ))}
-            </>
-          ) : (
-            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-              暂无事件记录
-            </Text>
-          )}
-        </GlassPanel>
+              <StatusChip
+                label={latestAgentEvent.status.toUpperCase()}
+                type={
+                  latestAgentEvent.status === 'done'
+                    ? 'success'
+                    : latestAgentEvent.status === 'failed'
+                    ? 'error'
+                    : latestAgentEvent.status === 'running'
+                    ? 'info'
+                    : 'warning'
+                }
+              />
+            </TouchableOpacity>
+          </View>
+        ) : null}
+        </View>
       </ScrollView>
 
       <View
@@ -723,10 +871,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  sectionTitle: {
-    marginTop: 20,
-    marginBottom: 8,
-  },
   conversationSection: {
     marginTop: 20,
     gap: 12,
@@ -747,8 +891,43 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  timelinePanel: {
+  timelineDock: {
+    alignSelf: 'flex-end',
+    alignItems: 'flex-end',
+    width: '100%',
+    gap: 8,
+  },
+  timelinePopover: {
+    width: '100%',
     padding: 0,
+  },
+  timelinePopoverHeader: {
+    minHeight: 42,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  timelineBadge: {
+    width: '92%',
+    maxWidth: 360,
+    minHeight: 48,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingLeft: 8,
+    paddingRight: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  timelineBadgeText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
   },
   eventRow: {
     flexDirection: 'row',

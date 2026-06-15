@@ -10,6 +10,7 @@ import type {
 
 interface TranscriptMessageListProps {
   items: DisplayTranscriptMessage[];
+  onMessageLayout?: (messageId: string, y: number, height: number) => void;
 }
 
 const roleLabel: Record<DisplayTranscriptMessage['role'], string> = {
@@ -29,6 +30,7 @@ const foldedToneColor = (
 
 export const TranscriptMessageList: React.FC<TranscriptMessageListProps> = ({
   items,
+  onMessageLayout,
 }) => {
   const { theme, isDark } = useTheme();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -103,6 +105,10 @@ export const TranscriptMessageList: React.FC<TranscriptMessageListProps> = ({
         return (
           <View
             key={message.id}
+            onLayout={event => {
+              const { y, height } = event.nativeEvent.layout;
+              onMessageLayout?.(message.id, y, height);
+            }}
             style={[
               styles.messageRow,
               isUser ? styles.messageRowUser : styles.messageRowAgent,

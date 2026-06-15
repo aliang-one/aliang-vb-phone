@@ -1,5 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { NavigationProp, useNavigation } from '@react-navigation/native';
+import type { RootStackParamList } from '../../app/navigation/types';
 import { useTheme } from '../../theme/useTheme';
 
 interface TopAppBarProps {
@@ -16,6 +18,15 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
   rightAction,
 }) => {
   const { theme, isDark } = useTheme();
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+
+  const handleBack = () => {
+    if (navigation.canGoBack()) {
+      onBack?.();
+      return;
+    }
+    navigation.navigate('MainTabs');
+  };
 
   return (
     <View
@@ -34,7 +45,7 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
         <View style={styles.left}>
           {onBack && (
             <TouchableOpacity
-              onPress={onBack}
+              onPress={handleBack}
               activeOpacity={0.72}
               style={[
                 styles.backBtn,

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Linking,
   View,
   Text,
@@ -73,96 +74,132 @@ export const SettingsScreen: React.FC = () => {
   const [checkingConnection, setCheckingConnection] = useState(false);
   const [refreshingAccount, setRefreshingAccount] = useState(false);
 
+  // The Account tab is lazy-mounted by React Navigation, so its first visit
+  // instantiates the whole subtree (SVG RingMeters, IconBadges, several panels)
+  // in one synchronous JS-thread commit that races the navigation transition —
+  // that is the "first tap into Me is very laggy" feeling. Defer the heavy
+  // sections until the transition finishes; later taps are instant because the
+  // tab stays mounted.
+  const [sectionsReady, setSectionsReady] = useState(false);
+  useEffect(() => {
+    // Defer the heavy sections two animation frames so the tab-switch cross-fade
+    // gets to paint its cheap shell first; the SVG/panel tree then mounts on
+    // frame 3 instead of blocking the transition's first frames. (Bottom-tab
+    // switches don't hold an InteractionManager handle, so rAF is the right
+    // signal here — and InteractionManager is deprecated in RN 0.85 anyway.)
+    let cancelled = false;
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        if (!cancelled) {
+          setSectionsReady(true);
+        }
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
+  }, []);
+
   const themeOptions = [
     { key: 'system', label: 'SYSTEM' },
     { key: 'dark', label: 'CYBER' },
     { key: 'light', label: 'LIGHT' },
   ] as const;
 
-  const onlineDevices = devices.filter(device => device.status === 'online');
-  const activeSessions = vibeRuns.filter(
-    session =>
-      session.status === 'running' ||
-      session.status === 'waiting_user' ||
-      session.status === 'waiting_approval' ||
-      session.status === 'testing' ||
-      session.status === 'preview_ready' ||
-      session.status === 'paused',
-  );
-  const pendingApprovals = approvals.filter(item => item.status === 'pending');
-  const unreadNotifications = notifications.filter(item => !item.read);
-  const subscription = unwrapData(accountData?.subscriptionSummary);
-  const activeSubscription = unwrapData(accountData?.activeSubscription);
-  const usage = unwrapData(accountData?.usage);
-  const packageName = firstString(
-    subscription.plan_name,
-    subscription.package_name,
-    subscription.name,
-    activeSubscription.plan_name,
-    activeSubscription.package_name,
-    activeSubscription.name,
-    activeSubscription.plan,
-  ) ?? 'Not loaded';
-  const packageStatus = firstString(
-    subscription.status,
-    activeSubscription.status,
-    subscription.subscription_status,
-  ) ?? (accountData ? 'Active' : 'Unknown');
-  const usageTotal = firstString(
-    usage.total_requests,
-    usage.requests_total,
-    usage.total,
-    usage.usage_count,
-  ) ?? '-';
-  const usageToday = firstString(
-    usage.today_requests,
-    usage.requests_today,
-    usage.today,
-    usage.daily_requests,
-  ) ?? '-';
-  const usageRows = [
-    ['Package', packageName],
-    ['Package status', packageStatus],
-    ['Usage today', usageToday],
-    ['Usage total', usageTotal],
-    ['Registered devices', `${devices.length}`],
-    ['Online devices', `${onlineDevices.length}`],
-    ['Projects', `${projects.length}`],
-    ['VibeCoding sessions', `${activeSessions.length}/${vibeRuns.length || 0} active`],
-  ];
-  const platformSummary = {
-    title: 'Platform Console',
-    headline: `${activeSessions.length} active sessions`,
-    statusLabel: `${onlineDevices.length}/${devices.length || 0} ONLINE`,
-    primaryMetric: {
-      label: 'DEVICES',
-      value: `${onlineDevices.length}/${devices.length || 0}`,
-      progress: ratio(onlineDevices.length, devices.length),
-    },
-    secondaryMetric: {
-      label: 'SESSIONS',
-      value: `${activeSessions.length}`,
-      progress: ratio(activeSessions.length, vibeRuns.length),
-      tone: 'secondary' as const,
-    },
-    sideMetric: {
-      label: 'PENDING',
-      value: `${pendingApprovals.length}`,
-    },
-    meters: [
-      {
-        label: 'Projects',
-        value: `${projects.length} synced`,
-        progress: projects.length ? 100 : 0,
+  const { usageRows, platformSummary } = useMemo(() => {
+    const onlineDevices = devices.filter(device => device.status === 'online');
+    const activeSessions = vibeRuns.filter(
+      session =>
+        session.status === 'running' ||
+        session.status === 'waiting_user' ||
+        session.status === 'waiting_approval' ||
+        session.status === 'testing' ||
+        session.status === 'preview_ready' ||
+        session.status === 'paused',
+    );
+    const pendingApprovals = approvals.filter(item => item.status === 'pending');
+    const unreadNotifications = notifications.filter(item => !item.read);
+    const subscription = unwrapData(accountData?.subscriptionSummary);
+    const activeSubscription = unwrapData(accountData?.activeSubscription);
+    const usage = unwrapData(accountData?.usage);
+    const packageName = firstString(
+      subscription.plan_name,
+      subscription.package_name,
+      subscription.name,
+      activeSubscription.plan_name,
+      activeSubscription.package_name,
+      activeSubscription.name,
+      activeSubscription.plan,
+    ) ?? 'Not loaded';
+    const packageStatus = firstString(
+      subscription.status,
+      activeSubscription.status,
+      subscription.subscription_status,
+    ) ?? (accountData ? 'Active' : 'Unknown');
+    const usageTotal = firstString(
+      usage.total_requests,
+      usage.requests_total,
+      usage.total,
+      usage.usage_count,
+    ) ?? '-';
+    const usageToday = firstString(
+      usage.today_requests,
+      usage.requests_today,
+      usage.today,
+      usage.daily_requests,
+    ) ?? '-';
+    const usageRows = [
+      ['Package', packageName],
+      ['Package status', packageStatus],
+      ['Usage today', usageToday],
+      ['Usage total', usageTotal],
+      ['Registered devices', `${devices.length}`],
+      ['Online devices', `${onlineDevices.length}`],
+      ['Projects', `${projects.length}`],
+      ['VibeCoding sessions', `${activeSessions.length}/${vibeRuns.length || 0} active`],
+    ];
+    const platformSummary = {
+      title: 'Platform Console',
+      headline: `${activeSessions.length} active sessions`,
+      statusLabel: `${onlineDevices.length}/${devices.length || 0} ONLINE`,
+      primaryMetric: {
+        label: 'DEVICES',
+        value: `${onlineDevices.length}/${devices.length || 0}`,
+        progress: ratio(onlineDevices.length, devices.length),
       },
-      {
-        label: 'Notifications',
-        value: `${unreadNotifications.length}/${notifications.length || 0} unread`,
-        progress: ratio(unreadNotifications.length, notifications.length),
+      secondaryMetric: {
+        label: 'SESSIONS',
+        value: `${activeSessions.length}`,
+        progress: ratio(activeSessions.length, vibeRuns.length),
         tone: 'secondary' as const,
       },
-    ],
-  };
+      sideMetric: {
+        label: 'PENDING',
+        value: `${pendingApprovals.length}`,
+      },
+      meters: [
+        {
+          label: 'Projects',
+          value: `${projects.length} synced`,
+          progress: projects.length ? 100 : 0,
+        },
+        {
+          label: 'Notifications',
+          value: `${unreadNotifications.length}/${notifications.length || 0} unread`,
+          progress: ratio(unreadNotifications.length, notifications.length),
+          tone: 'secondary' as const,
+        },
+      ],
+    };
+
+    return {
+      usageRows,
+      platformSummary,
+    };
+  }, [devices, vibeRuns, projects, approvals, notifications, accountData]);
 
   const handleCheckConnection = async () => {
     setCheckingConnection(true);
@@ -216,234 +253,245 @@ export const SettingsScreen: React.FC = () => {
           style={styles.scanTile}
         />
 
-        <Text
-          style={[
-            theme.typography.labelCaps,
-            { color: theme.colors.onSurfaceVariant },
-            styles.sectionTitle,
-          ]}>
-          PLATFORM SERVICE
-        </Text>
-        <GlassPanel style={styles.servicePanel}>
-          <View style={styles.serviceHeader}>
-            <View style={styles.serviceCopy}>
-              <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                Platform API
-              </Text>
-	              <Text
-	                style={[theme.typography.codeSm, { color: theme.colors.primary }]}
-	                numberOfLines={1}>
-	                {PLATFORM_SERVICE_BASE_URL}
-	              </Text>
-	              <Text
-	                style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}
-	                numberOfLines={1}>
-	                {ALIANG_ACCOUNT_BASE_URL}
-	              </Text>
-	            </View>
-            <StatusChip
-              label={
-                checkingConnection
-                  ? 'CHECKING'
-                  : connectionStatus?.ok
-                  ? 'ONLINE'
-                  : connectionStatus
-                  ? 'OFFLINE'
-                  : 'READY'
-              }
-              type={
-                checkingConnection
-                  ? 'info'
-                  : connectionStatus?.ok
-                  ? 'success'
-                  : connectionStatus
-                  ? 'error'
-                  : 'neutral'
-              }
-            />
-          </View>
-          {connectionStatus ? (
+        {sectionsReady ? (
+          <>
             <Text
               style={[
-                theme.typography.labelSm,
-                {
-                  color: connectionStatus.ok
-                    ? theme.colors.secondary
-                    : theme.colors.error,
-                },
-                styles.serviceMessage,
+                theme.typography.labelCaps,
+                { color: theme.colors.onSurfaceVariant },
+                styles.sectionTitle,
               ]}>
-              {connectionStatus.message} / {connectionStatus.latencyMs}ms
+              PLATFORM SERVICE
             </Text>
-          ) : null}
-          <View style={styles.serviceActions}>
-            <GlowButton
-              title="TEST CONNECTION"
-              onPress={handleCheckConnection}
-              loading={checkingConnection}
-              variant="secondary"
-              style={styles.serviceButton}
-            />
-            <GlowButton
-              title="OPEN"
-              onPress={() => Linking.openURL(PLATFORM_SERVICE_BASE_URL)}
-              variant="outline"
-              style={styles.serviceButton}
-            />
-          </View>
-        </GlassPanel>
-
-	        <UsageSummaryCard summary={platformSummary} />
-
-	        <View style={styles.serviceActions}>
-	          <GlowButton
-	            title="REFRESH ACCOUNT"
-	            onPress={handleRefreshAccount}
-	            loading={refreshingAccount}
-	            variant="secondary"
-	            style={styles.serviceButton}
-	          />
-	        </View>
-
-	        <Text
-          style={[
-            theme.typography.labelCaps,
-            { color: theme.colors.onSurfaceVariant },
-            styles.sectionTitle,
-          ]}>
-          USAGE DETAIL
-        </Text>
-        <GlassPanel style={styles.panel}>
-          {usageRows.map(([label, value], index) => (
-            <View key={label}>
-              <View style={styles.settingRow}>
-                <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                  {label}
+            <GlassPanel style={styles.servicePanel}>
+              <View style={styles.serviceHeader}>
+                <View style={styles.serviceCopy}>
+                  <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                    Platform API
+                  </Text>
+                  <Text
+                    style={[theme.typography.codeSm, { color: theme.colors.primary }]}
+                    numberOfLines={1}>
+                    {PLATFORM_SERVICE_BASE_URL}
+                  </Text>
+                  <Text
+                    style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}
+                    numberOfLines={1}>
+                    {ALIANG_ACCOUNT_BASE_URL}
+                  </Text>
+                </View>
+                <StatusChip
+                  label={
+                    checkingConnection
+                      ? 'CHECKING'
+                      : connectionStatus?.ok
+                      ? 'ONLINE'
+                      : connectionStatus
+                      ? 'OFFLINE'
+                      : 'READY'
+                  }
+                  type={
+                    checkingConnection
+                      ? 'info'
+                      : connectionStatus?.ok
+                      ? 'success'
+                      : connectionStatus
+                      ? 'error'
+                      : 'neutral'
+                  }
+                />
+              </View>
+              {connectionStatus ? (
+                <Text
+                  style={[
+                    theme.typography.labelSm,
+                    {
+                      color: connectionStatus.ok
+                        ? theme.colors.secondary
+                        : theme.colors.error,
+                    },
+                    styles.serviceMessage,
+                  ]}>
+                  {connectionStatus.message} / {connectionStatus.latencyMs}ms
                 </Text>
-                <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-                  {value}
+              ) : null}
+              <View style={styles.serviceActions}>
+                <GlowButton
+                  title="TEST CONNECTION"
+                  onPress={handleCheckConnection}
+                  loading={checkingConnection}
+                  variant="secondary"
+                  style={styles.serviceButton}
+                />
+                <GlowButton
+                  title="OPEN"
+                  onPress={() => Linking.openURL(PLATFORM_SERVICE_BASE_URL)}
+                  variant="outline"
+                  style={styles.serviceButton}
+                />
+              </View>
+            </GlassPanel>
+
+            <UsageSummaryCard summary={platformSummary} />
+
+            <View style={styles.serviceActions}>
+              <GlowButton
+                title="REFRESH ACCOUNT"
+                onPress={handleRefreshAccount}
+                loading={refreshingAccount}
+                variant="secondary"
+                style={styles.serviceButton}
+              />
+            </View>
+
+            <Text
+              style={[
+                theme.typography.labelCaps,
+                { color: theme.colors.onSurfaceVariant },
+                styles.sectionTitle,
+              ]}>
+              USAGE DETAIL
+            </Text>
+            <GlassPanel style={styles.panel}>
+              {usageRows.map(([label, value], index) => (
+                <View key={label}>
+                  <View style={styles.settingRow}>
+                    <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                      {label}
+                    </Text>
+                    <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+                      {value}
+                    </Text>
+                  </View>
+                  {index < usageRows.length - 1 && <View style={styles.divider} />}
+                </View>
+              ))}
+            </GlassPanel>
+
+            <Text
+              style={[
+                theme.typography.labelCaps,
+                { color: theme.colors.onSurfaceVariant },
+                styles.sectionTitle,
+              ]}>
+              CAPACITY
+            </Text>
+            <View style={styles.capacityGrid}>
+              <GlassPanel style={styles.capacityCard}>
+                <Text style={[theme.typography.headlineMd, { color: theme.colors.secondary }]}>
+                  {devices.length}
+                </Text>
+                <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
+                  DEVICES
+                </Text>
+              </GlassPanel>
+              <GlassPanel style={styles.capacityCard}>
+                <Text style={[theme.typography.headlineMd, { color: theme.colors.primary }]}>
+                  {vibeRuns.length}
+                </Text>
+                <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
+                  SESSIONS
+                </Text>
+              </GlassPanel>
+            </View>
+
+            <Text
+              style={[
+                theme.typography.labelCaps,
+                { color: theme.colors.onSurfaceVariant },
+                styles.sectionTitle,
+              ]}>
+              INPUT MODE
+            </Text>
+            <GlassPanel style={styles.panel}>
+              <View style={styles.settingRow}>
+                <View>
+                  <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                    Voice first
+                  </Text>
+                  <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                    Voice notes are整理 into a prompt before sending
+                  </Text>
+                </View>
+                <Text style={[theme.typography.codeSm, { color: theme.colors.secondary }]}>
+                  ON
                 </Text>
               </View>
-              {index < usageRows.length - 1 && <View style={styles.divider} />}
-            </View>
-          ))}
-        </GlassPanel>
-
-        <Text
-          style={[
-            theme.typography.labelCaps,
-            { color: theme.colors.onSurfaceVariant },
-            styles.sectionTitle,
-          ]}>
-          CAPACITY
-        </Text>
-        <View style={styles.capacityGrid}>
-          <GlassPanel style={styles.capacityCard}>
-            <Text style={[theme.typography.headlineMd, { color: theme.colors.secondary }]}>
-              {devices.length}
-            </Text>
-            <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-              DEVICES
-            </Text>
-          </GlassPanel>
-          <GlassPanel style={styles.capacityCard}>
-            <Text style={[theme.typography.headlineMd, { color: theme.colors.primary }]}>
-              {vibeRuns.length}
-            </Text>
-            <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-              SESSIONS
-            </Text>
-          </GlassPanel>
-        </View>
-
-        <Text
-          style={[
-            theme.typography.labelCaps,
-            { color: theme.colors.onSurfaceVariant },
-            styles.sectionTitle,
-          ]}>
-          INPUT MODE
-        </Text>
-        <GlassPanel style={styles.panel}>
-          <View style={styles.settingRow}>
-            <View>
-              <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                Voice first
-              </Text>
-              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                Voice notes are整理 into a prompt before sending
-              </Text>
-            </View>
-            <Text style={[theme.typography.codeSm, { color: theme.colors.secondary }]}>
-              ON
-            </Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.settingRow}>
-            <View>
-              <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                Require confirmation
-              </Text>
-              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                Confirm every AI-prepared voice instruction
-              </Text>
-            </View>
-            <Text style={[theme.typography.codeSm, { color: theme.colors.secondary }]}>
-              ON
-            </Text>
-          </View>
-        </GlassPanel>
-
-        <Text
-          style={[
-            theme.typography.labelCaps,
-            { color: theme.colors.onSurfaceVariant },
-            styles.sectionTitle,
-          ]}>
-          THEME
-        </Text>
-        <GlassPanel style={styles.themePanel}>
-          {themeOptions.map(option => (
-            <TouchableOpacity
-              key={option.key}
-              onPress={() => setMode(option.key)}
-              style={[
-                styles.themeOption,
-                mode === option.key && {
-                  backgroundColor: isDark
-                    ? 'rgba(0, 209, 255, 0.1)'
-                    : 'rgba(0, 81, 174, 0.08)',
-                  borderLeftWidth: 3,
-                  borderLeftColor: theme.colors.primary,
-                },
-              ]}>
-              <Text
-                style={[
-                  theme.typography.bodyMd,
-                  {
-                    color:
-                      mode === option.key
-                        ? theme.colors.primary
-                        : theme.colors.onSurface,
-                  },
-                ]}>
-                {option.label}
-              </Text>
-              {mode === option.key && (
-                <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-                  ACTIVE
+              <View style={styles.divider} />
+              <View style={styles.settingRow}>
+                <View>
+                  <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                    Require confirmation
+                  </Text>
+                  <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                    Confirm every AI-prepared voice instruction
+                  </Text>
+                </View>
+                <Text style={[theme.typography.codeSm, { color: theme.colors.secondary }]}>
+                  ON
                 </Text>
-              )}
-            </TouchableOpacity>
-          ))}
-        </GlassPanel>
+              </View>
+            </GlassPanel>
 
-        <GlowButton
-          title="SIGN OUT"
-          onPress={handleLogout}
-          variant="outline"
-          style={styles.logoutBtn}
-        />
+            <Text
+              style={[
+                theme.typography.labelCaps,
+                { color: theme.colors.onSurfaceVariant },
+                styles.sectionTitle,
+              ]}>
+              THEME
+            </Text>
+            <GlassPanel style={styles.themePanel}>
+              {themeOptions.map(option => (
+                <TouchableOpacity
+                  key={option.key}
+                  onPress={() => setMode(option.key)}
+                  style={[
+                    styles.themeOption,
+                    mode === option.key && {
+                      backgroundColor: isDark
+                        ? 'rgba(0, 209, 255, 0.1)'
+                        : 'rgba(0, 81, 174, 0.08)',
+                      borderLeftWidth: 3,
+                      borderLeftColor: theme.colors.primary,
+                    },
+                  ]}>
+                  <Text
+                    style={[
+                      theme.typography.bodyMd,
+                      {
+                        color:
+                          mode === option.key
+                            ? theme.colors.primary
+                            : theme.colors.onSurface,
+                      },
+                    ]}>
+                    {option.label}
+                  </Text>
+                  {mode === option.key && (
+                    <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+                      ACTIVE
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </GlassPanel>
+
+            <GlowButton
+              title="SIGN OUT"
+              onPress={handleLogout}
+              variant="outline"
+              style={styles.logoutBtn}
+            />
+          </>
+        ) : (
+          <View style={styles.deferredPlaceholder}>
+            <ActivityIndicator color={theme.colors.primary} />
+            <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+              正在加载控制台…
+            </Text>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaWrapper>
   );
@@ -469,6 +517,12 @@ const styles = StyleSheet.create({
   },
   scanTile: {
     marginBottom: 14,
+  },
+  deferredPlaceholder: {
+    paddingVertical: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
   },
   sectionTitle: {
     marginTop: 20,

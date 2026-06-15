@@ -1,0 +1,740 @@
+import type {
+  AgentEvent,
+  Device,
+  PreviewLink,
+  Project,
+  VibeCodingRun,
+  VibeStatus,
+} from '../data/platformModels';
+import {
+  platformTransport,
+  type PlatformAiSessionSnapshot,
+  type PlatformApprovalSnapshot,
+  type PlatformDeviceSnapshot,
+  type PlatformNotificationSnapshot,
+  type PlatformPreviewSnapshot,
+  type PlatformProjectFileContentSnapshot,
+  type PlatformProjectFileListSnapshot,
+  type PlatformProjectSnapshot,
+  type PlatformRealtimeEventSnapshot,
+  type PlatformTerminalSessionSnapshot,
+} from '../services/platformTransport';
+import type {
+  ApprovalKind,
+  ApprovalRequest,
+  ProjectFileEntry,
+  PushNotificationItem,
+  TerminalLine,
+  TerminalLineKind,
+  TerminalSession,
+  TerminalSessionStatus,
+  UnifiedEvent,
+  UnifiedEventStatus,
+  UnifiedEventType,
+} from './types';
+
+// --- Helpers ---
+
+export const nowTime = () =>
+  new Date().toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+
+// Monotonic clock for activity recency. `Date.now()` is fine here — this runs in
+// the React Native app, not the deterministic workflow sandbox.
+export const activityNowMs = () => Date.now();
+
+// Render a stable, human-friendly label for a session's last-activity timestamp.
+// Used for the `updatedAt` display string; sorting uses `lastActivityMs` instead.
+export const formatActivityLabel = (ms: number): string => {
+  if (!Number.isFinite(ms) || ms <= 0) return '未知';
+  const diffSec = Math.max(0, (Date.now() - ms) / 1000);
+  if (diffSec < 45) return '刚刚';
+  if (diffSec < 90) return '1 分钟前';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} 分钟前`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour} 小时前`;
+  const diffDay = Math.floor(diffHour / 24);
+  if (diffDay < 7) return `${diffDay} 天前`;
+  const date = new Date(ms);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
+export const shortTime = () =>
+  new Date().toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
+export const createId = (prefix: string) =>
+  `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+// --- Bounded-memory guards (continuous-operation safety) ---
+// The store is the single resident copy of realtime data. Long-running
+// sessions/terminals stream unbounded output (a `tail -f` or a multi-hour AI
+// run can produce hundreds of thousands of lines/messages) and would otherwise
+// grow the JS heap until the app janks or OOMs. These caps keep the resident
+// working set bounded; older data still lives on the server and is reloaded on
+// demand (loadAgentSessionDetail / loadEarlierAiMessages). tail() keeps the
+// NEWEST entries (ring-buffer semantics) since that's what the UI shows.
+export const MAX_TERMINAL_LINES = 2000; // per terminal session, ring buffer
+export const MAX_RUN_EVENTS = 200; // per AI session lifecycle events
+export const MAX_SESSION_DETAIL = 8; // LRU: full transcripts held for at most this many sessions
+export const tail = <T>(list: T[], limit: number): T[] =>
+  list.length <= limit ? list : list.slice(list.length - limit);
+
+// Sessions whose transcript must stay resident — evicting a live one would
+// drop the buffer the streaming reducer appends to.
+export const ACTIVE_RUN_STATUS = new Set<VibeStatus>([
+  'running',
+  'waiting_user',
+  'waiting_approval',
+  'testing',
+  'preview_ready',
+  'paused',
+]);
+
+/**
+ * Bound resident transcript memory. At most MAX_SESSION_DETAIL sessions keep
+ * their full transcript/events loaded; the oldest inactive detailed sessions
+ * have their transcript/events cleared (metadata + lastMessage retained for the
+ * list). Re-opening an evicted session calls loadAgentSessionDetail again.
+ * Active (streaming/resumable) sessions are never evicted.
+ */
+export function evictStaleSessionDetail(runs: VibeCodingRun[]): VibeCodingRun[] {
+  const detailed = runs.filter(run => run.detailLoadedAt);
+  if (detailed.length <= MAX_SESSION_DETAIL) return runs;
+  const overflow = detailed.length - MAX_SESSION_DETAIL;
+  const toEvict = new Set(
+    detailed
+      .filter(run => !ACTIVE_RUN_STATUS.has(run.status))
+      .sort((a, b) => (a.lastActivityMs ?? 0) - (b.lastActivityMs ?? 0))
+      .slice(0, overflow)
+      .map(run => run.id),
+  );
+  if (!toEvict.size) return runs;
+  return runs.map(run =>
+    toEvict.has(run.id)
+      ? { ...run, transcript: [], events: [], detailLoadedAt: undefined }
+      : run,
+  );
+}
+
+export const line = (kind: TerminalLineKind, content: string): TerminalLine => ({
+  id: createId('line'),
+  kind,
+  content,
+  timestamp: nowTime(),
+});
+
+export const event = (
+  type: UnifiedEventType,
+  title: string,
+  detail: string,
+  status: UnifiedEventStatus,
+  meta: Partial<UnifiedEvent> = {},
+): UnifiedEvent => ({
+  id: createId('evt'),
+  type,
+  title,
+  detail,
+  status,
+  timestamp: nowTime(),
+  ...meta,
+});
+
+// --- Server → Client adapters ---
+
+export function platformDeviceToClient(sd: PlatformDeviceSnapshot): Device {
+  return {
+    id: sd.deviceId,
+    name: sd.name,
+    status: sd.status === 'online' ? 'online' : sd.status === 'offline' ? 'offline' : 'offline',
+    location: sd.location ?? 'Remote device',
+    os: sd.platform,
+    host: sd.host ?? sd.uniqueCode ?? sd.deviceId,
+    cpuLoad: sd.cpuLoad ?? 0,
+    memLoad: sd.memLoad ?? 0,
+    battery: sd.battery,
+    authorizedDirectories: sd.authorizedDirectories,
+    activePorts: sd.activePorts,
+    projectIds: sd.projectIds,
+    activeSessionIds: [],
+    lastSeen: sd.lastSeenAt ?? 'unknown',
+    uniqueCode: sd.uniqueCode,
+    agentVersion: sd.agentVersion,
+    remoteTerminalEnabled: sd.remoteTerminalEnabled,
+    aiControlEnabled: sd.aiControlEnabled,
+    capabilities: sd.capabilities,
+    tools: sd.tools.map(tool => ({
+      id: tool.id,
+      name: tool.name,
+      command: tool.command,
+      path: tool.path,
+      available: tool.available,
+      description: tool.description,
+    })),
+    history: sd.history.map(entry => ({
+      tool: entry.tool,
+      path: entry.path,
+      exists: entry.exists,
+      file_count: entry.file_count,
+      total_size: entry.total_size,
+      updated_at: entry.updated_at,
+    })),
+    createdAt: sd.createdAt,
+  };
+}
+
+export function serverProjectToClient(sp: PlatformProjectSnapshot): Project {
+  return {
+    id: sp.project_id || sp.id,
+    name: sp.name,
+    status: sp.status === 'error' ? 'error' : sp.status === 'fresh' ? 'active' : sp.status,
+    branch: sp.branch ?? 'main',
+    lastDeploy: sp.last_active_at ?? sp.updated_at,
+    language: sp.language ?? 'Unknown',
+    description: sp.description ?? '',
+    path: sp.path ?? '',
+    deviceId: sp.device_id,
+    packageManager: sp.package_manager,
+    isGitRepo: sp.is_git_repo,
+    detectedPorts: sp.detected_ports ?? [],
+    sourceTools: sp.source_tools ?? [],
+  };
+}
+
+export function aiSessionModelLabel(session: PlatformAiSessionSnapshot) {
+  const provider = (session.provider ?? session.tool ?? '').toLowerCase();
+  if (provider === 'codex') return session.model ?? 'GPT-5 Codex';
+  if (provider === 'claude' || provider === 'claudecode') return session.model ?? 'Claude Code';
+  return session.model ?? session.mode;
+}
+
+export function serverAiSessionToVibeRun(session: PlatformAiSessionSnapshot, _devices: Device[], projects: Project[]): VibeCodingRun {
+  const project = projects.find(p => p.path === session.project_path && p.deviceId === session.device_id)
+    ?? projects.find(p => p.path === session.project_path)
+    ?? projects.find(p => p.id === session.project_path);
+  const model = aiSessionModelLabel(session);
+  const transcript = (session.transcript ?? []).map(t => ({
+    id: t.id,
+    role: t.role,
+    mode: t.mode as 'voice' | 'text' | 'action' | undefined,
+    content: t.content,
+    timestamp: t.timestamp,
+  }));
+  const events = (session.events ?? []).map(e => ({
+    id: e.id,
+    type: e.type as AgentEvent['type'],
+    title: e.title,
+    detail: e.detail,
+    status: e.status as AgentEvent['status'],
+    timestamp: e.timestamp,
+  }));
+  const lastMessage = session.last_message
+    ? {
+        id: session.last_message.id,
+        role: session.last_message.role,
+        mode: session.last_message.mode as 'voice' | 'text' | 'action' | undefined,
+        content: session.last_message.content,
+        timestamp: session.last_message.timestamp,
+      }
+    : transcript[transcript.length - 1];
+
+  return {
+    id: session.session_id,
+    title: session.title ?? session.objective?.slice(0, 44) ?? `AI ${session.mode} session`,
+    deviceId: session.device_id,
+    projectId: project?.id ?? '',
+    directory: session.project_path ?? '',
+    status: mapSessionStatus(session.status),
+    objective: session.objective ?? '',
+    model,
+    timeLimitMinutes: 60,
+    elapsedMinutes: 0,
+    risk: session.risk ?? 'medium',
+    currentStep: session.current_step ?? '',
+    branch: session.branch ?? `agent/${session.session_id}`,
+    lastActivityMs: Date.parse(session.last_active_at ?? '') || activityNowMs(),
+    updatedAt: formatActivityLabel(Date.parse(session.last_active_at ?? '') || activityNowMs()),
+    transcriptCount: session.transcript_count ?? transcript.length,
+    eventCount: session.event_count ?? events.length,
+    lastMessage,
+    detailLoadedAt: session.transcript || session.events ? nowTime() : undefined,
+    suggestions: ['Ask for plan', 'Open terminal', 'Pause session'],
+    transcript,
+    events,
+  };
+}
+
+export const hasLoadedSessionDetail = (run: VibeCodingRun) =>
+  Boolean(run.detailLoadedAt);
+
+export function mergeAgentMessages(
+  existing: VibeCodingRun['transcript'],
+  incoming: VibeCodingRun['transcript'],
+): VibeCodingRun['transcript'] {
+  if (!incoming.length) return existing;
+  const existingById = new Map(existing.map(item => [item.id, item]));
+  const merged = incoming.map(item => {
+    const current = existingById.get(item.id);
+    return current && current.content.length > item.content.length ? current : item;
+  });
+  const incomingIds = new Set(merged.map(item => item.id));
+  return [
+    ...merged,
+    ...existing.filter(item => !incomingIds.has(item.id)),
+  ];
+}
+
+export function mergeAgentEvents(
+  existing: VibeCodingRun['events'],
+  incoming: VibeCodingRun['events'],
+): VibeCodingRun['events'] {
+  if (!incoming.length) return existing;
+  const incomingIds = new Set(incoming.map(item => item.id));
+  return tail(
+    [
+      ...incoming,
+      ...existing.filter(item => !incomingIds.has(item.id)),
+    ],
+    MAX_RUN_EVENTS,
+  );
+}
+
+export function mergeVibeRunSnapshot(
+  existing: VibeCodingRun | undefined,
+  incoming: VibeCodingRun,
+): VibeCodingRun {
+  if (!existing) return incoming;
+  const incomingHasDetail = hasLoadedSessionDetail(incoming);
+  // Never let a (possibly slightly stale) server snapshot demote a session that
+  // is actively streaming locally — keep the most recent activity timestamp.
+  const lastActivityMs = Math.max(
+    existing.lastActivityMs ?? 0,
+    incoming.lastActivityMs ?? 0,
+  );
+  return {
+    ...existing,
+    ...incoming,
+    lastActivityMs,
+    updatedAt: formatActivityLabel(lastActivityMs),
+    transcript: incomingHasDetail
+      ? mergeAgentMessages(existing.transcript, incoming.transcript)
+      : existing.transcript,
+    events: incomingHasDetail
+      ? mergeAgentEvents(existing.events, incoming.events)
+      : existing.events,
+    detailLoadedAt: incoming.detailLoadedAt ?? existing.detailLoadedAt,
+    lastMessage:
+      incoming.lastMessage ??
+      existing.lastMessage ??
+      existing.transcript[existing.transcript.length - 1],
+  };
+}
+
+export function mapSessionStatus(status: string): VibeStatus {
+  switch (status) {
+    case 'running': return 'running';
+    case 'active': return 'running';
+    case 'creating': return 'running';
+    case 'idle': return 'idle';
+    case 'paused': return 'paused';
+    case 'error': return 'failed';
+    case 'closed': return 'completed';
+    default: return 'idle';
+  }
+}
+
+export function serverApprovalToClient(sa: PlatformApprovalSnapshot): ApprovalRequest {
+  return {
+    id: sa.id,
+    kind: (sa.kind as ApprovalKind) ?? 'dangerous_command',
+    title: sa.title,
+    summary: sa.summary,
+    deviceId: sa.device_id,
+    projectId: sa.project_id,
+    sessionId: sa.session_id,
+    terminalId: sa.terminal_id,
+    command: sa.command,
+    files: sa.files,
+    risk: sa.risk,
+    status: sa.status as ApprovalRequest['status'],
+    createdAt: sa.created_at,
+    resolvedAt: sa.resolved_at,
+  };
+}
+
+export function mapTerminalStatus(status: PlatformTerminalSessionSnapshot['status']): TerminalSessionStatus {
+  switch (status) {
+    case 'creating':
+      return 'idle';
+    case 'active':
+      return 'running';
+    case 'error':
+      return 'failed';
+    case 'closed':
+      return 'completed';
+    default:
+      return 'idle';
+  }
+}
+
+export function serverTerminalSessionToClient(session: PlatformTerminalSessionSnapshot): TerminalSession {
+  return {
+    id: session.session_id,
+    deviceId: session.device_id,
+    directory: session.cwd ?? '~',
+    shell: session.shell ?? 'zsh',
+    status: mapTerminalStatus(session.status),
+    lines: [
+      line(
+        'system',
+        `Terminal session restored from platform state (${session.status}).`,
+      ),
+    ],
+    createdAt: session.created_at,
+    updatedAt: session.last_active_at,
+  };
+}
+
+export function serverPreviewToClient(preview: PlatformPreviewSnapshot): PreviewLink {
+  const access = ['private', 'team', 'public'].includes(preview.access)
+    ? preview.access as PreviewLink['access']
+    : 'private';
+  return {
+    id: preview.id,
+    sessionId: preview.sessionId,
+    port: preview.port,
+    shortUrl: preview.shortUrl,
+    targetUrl: preview.targetUrl,
+    expiresIn: preview.expiresIn ?? '',
+    access,
+  };
+}
+
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value && typeof value === 'object' && !Array.isArray(value));
+
+export const payloadString = (payload: Record<string, unknown> | undefined, key: string) => {
+  const value = payload?.[key];
+  return typeof value === 'string' ? value : undefined;
+};
+
+export function primitivePayload(payload: unknown): UnifiedEvent['payload'] {
+  if (!isRecord(payload)) return undefined;
+  const entries = Object.entries(payload)
+    .filter(([, value]) =>
+      value === undefined ||
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean',
+    )
+    .slice(0, 8);
+  return entries.length ? Object.fromEntries(entries) as UnifiedEvent['payload'] : undefined;
+}
+
+export function realtimeMessageTypeToEventType(
+  messageType: string,
+  payload: Record<string, unknown> | undefined,
+): UnifiedEventType {
+  if (messageType === 'device.updated') {
+    const device = isRecord(payload?.device) ? payload.device : undefined;
+    return payloadString(device, 'status') === 'offline' ? 'device.offline' : 'device.bound';
+  }
+  if (messageType === 'project.updated') return 'project.updated';
+  if (messageType === 'projects.updated') return 'project.scan.completed';
+  if (messageType === 'ai.delta') return 'agent.delta';
+  if (messageType === 'ai.done') return 'agent.session.completed';
+  if (messageType === 'ai.error') return 'agent.session.failed';
+  if (messageType === 'ai.session.created' || messageType === 'ai.session.updated') {
+    return 'agent.session.started';
+  }
+  if (messageType === 'ai.session.deleted') return 'agent.session.terminated';
+  if (messageType === 'ai.sessions.updated') return 'agent.session.started';
+  if (messageType === 'terminal.output') return 'terminal.output';
+  if (messageType.startsWith('terminal.')) return 'command.completed';
+  if (messageType === 'approval.requested') return 'approval.requested';
+  if (messageType === 'preview.ready') return 'agent.delta';
+  return 'platform.event';
+}
+
+export function realtimeMessageStatus(messageType: string): UnifiedEventStatus {
+  if (messageType === 'ai.error' || messageType === 'terminal.error') return 'failed';
+  if (messageType === 'approval.requested') return 'waiting';
+  if (messageType === 'ai.delta' || messageType === 'terminal.output') return 'running';
+  return 'done';
+}
+
+export function realtimeMessageTitle(
+  messageType: string,
+  payload: Record<string, unknown> | undefined,
+): string {
+  const project = isRecord(payload?.project) ? payload.project : undefined;
+  const device = isRecord(payload?.device) ? payload.device : undefined;
+  const approval = isRecord(payload?.approval) ? payload.approval : undefined;
+  if (messageType === 'project.updated') return payloadString(project, 'name') ?? 'Project updated';
+  if (messageType === 'device.updated') return payloadString(device, 'name') ?? 'Device updated';
+  if (messageType === 'approval.requested') return payloadString(approval, 'title') ?? 'Approval requested';
+  if (messageType === 'ai.done') return 'VibeCoding completed';
+  if (messageType === 'ai.error') return 'VibeCoding failed';
+  if (messageType === 'preview.ready') return 'Preview ready';
+  return messageType;
+}
+
+export function realtimeMessageDetail(
+  message: PlatformRealtimeEventSnapshot,
+  payload: Record<string, unknown> | undefined,
+): string {
+  const project = isRecord(payload?.project) ? payload.project : undefined;
+  const device = isRecord(payload?.device) ? payload.device : undefined;
+  const approval = isRecord(payload?.approval) ? payload.approval : undefined;
+  return (
+    payloadString(payload, 'detail') ??
+    payloadString(payload, 'delta') ??
+    payloadString(payload, 'error') ??
+    payloadString(project, 'path') ??
+    payloadString(device, 'host') ??
+    payloadString(approval, 'summary') ??
+    message.direction
+  );
+}
+
+export function realtimeEventToUnifiedEvent(message: PlatformRealtimeEventSnapshot): UnifiedEvent {
+  const payload = isRecord(message.payload) ? message.payload : undefined;
+  return {
+    id: message.id,
+    type: realtimeMessageTypeToEventType(message.message_type, payload),
+    title: realtimeMessageTitle(message.message_type, payload),
+    detail: realtimeMessageDetail(message, payload),
+    status: realtimeMessageStatus(message.message_type),
+    deviceId: message.device_id,
+    sessionId: message.session_id,
+    timestamp: message.created_at,
+    payload: primitivePayload(message.payload),
+  };
+}
+
+export function serverNotificationToClient(
+  notification: PlatformNotificationSnapshot,
+): PushNotificationItem {
+  return {
+    id: notification.notification_id || notification.id,
+    type: notification.type,
+    title: notification.title,
+    body: notification.body,
+    deviceId: notification.device_id,
+    sessionId: notification.session_id,
+    approvalId: notification.approval_id,
+    read: Boolean(notification.read),
+    createdAt: notification.created_at,
+  };
+}
+
+export function upsertNotification(
+  list: PushNotificationItem[],
+  item: PushNotificationItem,
+): PushNotificationItem[] {
+  return [
+    item,
+    ...list.filter(existing => existing.id !== item.id),
+  ]
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, 120);
+}
+
+export const fileNameFromPath = (pathValue: string) =>
+  pathValue.split(/[\\/]/).filter(Boolean).pop() ?? pathValue;
+
+export const parentPathOf = (pathValue: string) => {
+  const normalized = pathValue.replace(/\\/g, '/');
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.length <= 1) return normalized;
+  const prefix = normalized.startsWith('/') ? '/' : '';
+  return `${prefix}${parts.slice(0, -1).join('/')}`;
+};
+
+export const formatBytes = (bytes?: number) => {
+  if (bytes === undefined || !Number.isFinite(bytes)) return '-';
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(kb >= 10 ? 0 : 1)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
+};
+
+export function serverProjectFileToClient(
+  projectId: string,
+  directoryPath: string,
+  file: PlatformProjectFileListSnapshot['entries'][number],
+): ProjectFileEntry {
+  const isFolder = file.kind === 'directory';
+  return {
+    id: `${projectId}:${file.path}`,
+    projectId,
+    deviceId: file.device_id,
+    directoryPath,
+    path: file.path,
+    name: file.name || fileNameFromPath(file.path),
+    kind: isFolder ? 'folder' : 'file',
+    status: 'clean',
+    language: file.language ?? (isFolder ? 'Folder' : 'File'),
+    size: isFolder ? '-' : formatBytes(file.size_bytes),
+    sizeBytes: file.size_bytes,
+    lastTouched: file.modified_at ?? 'unknown',
+    modifiedAt: file.modified_at,
+    summary: file.summary ?? (isFolder ? 'Directory' : 'Synced from desktop Agent.'),
+  };
+}
+
+export function serverProjectContentToFileEntry(
+  projectId: string,
+  content: PlatformProjectFileContentSnapshot,
+): ProjectFileEntry {
+  return {
+    id: `${projectId}:${content.path}`,
+    projectId,
+    deviceId: content.device_id,
+    directoryPath: parentPathOf(content.path),
+    path: content.path,
+    name: fileNameFromPath(content.path),
+    kind: 'file',
+    status: 'clean',
+    language: content.mime_type ?? 'File',
+    size: formatBytes(content.size_bytes),
+    sizeBytes: content.size_bytes,
+    lastTouched: content.modified_at ?? 'unknown',
+    modifiedAt: content.modified_at,
+    summary: content.truncated ? 'Loaded preview from desktop Agent. Content was truncated.' : 'Loaded from desktop Agent.',
+    content: content.content,
+    encoding: content.encoding,
+    loadedAt: nowTime(),
+    truncated: content.truncated,
+  };
+}
+
+export const activeVibeStatuses: VibeStatus[] = [
+  'running',
+  'waiting_user',
+  'waiting_approval',
+  'testing',
+  'preview_ready',
+  'paused',
+];
+
+export const mergeIds = (...groups: string[][]): string[] =>
+  Array.from(new Set(groups.flat().filter(Boolean)));
+
+export const projectBelongsToDevice = (project: Project, device: Device): boolean =>
+  project.deviceId === device.id || device.projectIds.includes(project.id);
+
+export const attachProjectIds = (
+  devices: Device[],
+  projects: Project[],
+): Device[] =>
+  devices.map(device => ({
+    ...device,
+    projectIds: mergeIds(
+      device.projectIds,
+      projects
+        .filter(project => projectBelongsToDevice(project, device))
+        .map(project => project.id),
+    ),
+  }));
+
+export const attachActiveSessionIds = (
+  devices: Device[],
+  vibeRuns: VibeCodingRun[],
+): Device[] => {
+  const sessionsByDevice = new Map<string, string[]>();
+
+  for (const run of vibeRuns) {
+    if (!activeVibeStatuses.includes(run.status)) continue;
+    const existing = sessionsByDevice.get(run.deviceId) ?? [];
+    sessionsByDevice.set(run.deviceId, [run.id, ...existing]);
+  }
+
+  return devices.map(device => ({
+    ...device,
+    activeSessionIds: sessionsByDevice.get(device.id) ?? [],
+  }));
+};
+
+export const attachDeviceRelations = (
+  devices: Device[],
+  projects: Project[],
+  vibeRuns: VibeCodingRun[],
+): Device[] => attachActiveSessionIds(attachProjectIds(devices, projects), vibeRuns);
+
+export function stateFromSnapshot(
+  snapshot: Awaited<ReturnType<typeof platformTransport.loadSnapshot>>,
+  previousRuns: VibeCodingRun[],
+) {
+  const baseDevices = snapshot.devices.map(platformDeviceToClient);
+  const knownDeviceIds = new Set(baseDevices.map(device => device.id));
+  const projects = snapshot.projects
+    .filter(project => knownDeviceIds.has(project.device_id))
+    .map(serverProjectToClient);
+  const vibeRuns = snapshot.aiSessions
+    .filter(session => knownDeviceIds.has(session.device_id))
+    .map(session => serverAiSessionToVibeRun(session, baseDevices, projects));
+  const previousRunsById = new Map(previousRuns.map(run => [run.id, run]));
+  const mergedVibeRuns = vibeRuns.map(run =>
+    mergeVibeRunSnapshot(previousRunsById.get(run.id), run),
+  );
+  const devices = attachDeviceRelations(baseDevices, projects, mergedVibeRuns);
+  const approvals = snapshot.approvals
+    .filter(approval => knownDeviceIds.has(approval.device_id))
+    .map(serverApprovalToClient);
+  const terminalSessions = snapshot.terminalSessions
+    .filter(session => knownDeviceIds.has(session.device_id))
+    .map(serverTerminalSessionToClient);
+  const knownSessionIds = new Set(vibeRuns.map(session => session.id));
+  const previewLinks = snapshot.previewLinks
+    .filter(preview => knownSessionIds.has(preview.sessionId))
+    .map(serverPreviewToClient);
+  const realtimeEvents = snapshot.realtimeEvents
+    .map(realtimeEventToUnifiedEvent)
+    .filter(item => !item.deviceId || knownDeviceIds.has(item.deviceId))
+    .slice(0, 120);
+  const notifications = snapshot.notifications
+    .map(serverNotificationToClient)
+    .filter(item => !item.deviceId || knownDeviceIds.has(item.deviceId))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, 120);
+  const warningEvents = snapshot.warnings.map(detail =>
+    event('command.completed', 'Partial platform sync', detail, 'failed'),
+  );
+
+  return {
+    devices,
+    projects,
+    vibeRuns: mergedVibeRuns,
+    terminalSessions,
+    approvals,
+    previewLinks,
+    notifications,
+    events: [...warningEvents, ...realtimeEvents].slice(0, 120),
+  };
+}
+
+export const emptySessionData = () => ({
+  devices: [],
+  projects: [],
+  vibeRuns: [],
+  previewLinks: [],
+  terminalSessions: [],
+  scanResults: [],
+  approvals: [],
+  notifications: [],
+  events: [],
+  projectFiles: [],
+  lastSyncedAt: null,
+  stale: false,
+});

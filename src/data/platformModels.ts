@@ -129,7 +129,15 @@ export interface VibeCodingRun {
   risk: 'low' | 'medium' | 'high';
   currentStep: string;
   branch: string;
+  /** Display-friendly relative label for last activity, e.g. "刚刚" / "5 分钟前". */
   updatedAt: string;
+  /**
+   * Authoritative epoch-millis timestamp of the last activity on this session.
+   * Drives sorting/recency so list ordering is deterministic regardless of how
+   * `updatedAt` (the display string) is formatted. Updated on every AI delta,
+   * message, lifecycle change, and server snapshot.
+   */
+  lastActivityMs: number;
   previewId?: string;
   transcriptCount?: number;
   eventCount?: number;
