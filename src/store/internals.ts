@@ -62,7 +62,9 @@ export const formatActivityLabel = (ms: number): string => {
   if (diffDay < 7) return `${diffDay} 天前`;
   const date = new Date(ms);
   const pad = (value: number) => String(value).padStart(2, '0');
-  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}`;
 };
 
 export const shortTime = () =>
@@ -107,7 +109,9 @@ export const ACTIVE_RUN_STATUS = new Set<VibeStatus>([
  * list). Re-opening an evicted session calls loadAgentSessionDetail again.
  * Active (streaming/resumable) sessions are never evicted.
  */
-export function evictStaleSessionDetail(runs: VibeCodingRun[]): VibeCodingRun[] {
+export function evictStaleSessionDetail(
+  runs: VibeCodingRun[],
+): VibeCodingRun[] {
   const detailed = runs.filter(run => run.detailLoadedAt);
   if (detailed.length <= MAX_SESSION_DETAIL) return runs;
   const overflow = detailed.length - MAX_SESSION_DETAIL;
@@ -126,7 +130,10 @@ export function evictStaleSessionDetail(runs: VibeCodingRun[]): VibeCodingRun[] 
   );
 }
 
-export const line = (kind: TerminalLineKind, content: string): TerminalLine => ({
+export const line = (
+  kind: TerminalLineKind,
+  content: string,
+): TerminalLine => ({
   id: createId('line'),
   kind,
   content,
@@ -155,7 +162,12 @@ export function platformDeviceToClient(sd: PlatformDeviceSnapshot): Device {
   return {
     id: sd.deviceId,
     name: sd.name,
-    status: sd.status === 'online' ? 'online' : sd.status === 'offline' ? 'offline' : 'offline',
+    status:
+      sd.status === 'online'
+        ? 'online'
+        : sd.status === 'offline'
+        ? 'offline'
+        : 'offline',
     location: sd.location ?? 'Remote device',
     os: sd.platform,
     host: sd.host ?? sd.uniqueCode ?? sd.deviceId,
@@ -196,7 +208,12 @@ export function serverProjectToClient(sp: PlatformProjectSnapshot): Project {
   return {
     id: sp.project_id || sp.id,
     name: sp.name,
-    status: sp.status === 'error' ? 'error' : sp.status === 'fresh' ? 'active' : sp.status,
+    status:
+      sp.status === 'error'
+        ? 'error'
+        : sp.status === 'fresh'
+        ? 'active'
+        : sp.status,
     branch: sp.branch ?? 'main',
     lastDeploy: sp.last_active_at ?? sp.updated_at,
     language: sp.language ?? 'Unknown',
@@ -213,14 +230,22 @@ export function serverProjectToClient(sp: PlatformProjectSnapshot): Project {
 export function aiSessionModelLabel(session: PlatformAiSessionSnapshot) {
   const provider = (session.provider ?? session.tool ?? '').toLowerCase();
   if (provider === 'codex') return session.model ?? 'GPT-5 Codex';
-  if (provider === 'claude' || provider === 'claudecode') return session.model ?? 'Claude Code';
+  if (provider === 'claude' || provider === 'claudecode')
+    return session.model ?? 'Claude Code';
   return session.model ?? session.mode;
 }
 
-export function serverAiSessionToVibeRun(session: PlatformAiSessionSnapshot, _devices: Device[], projects: Project[]): VibeCodingRun {
-  const project = projects.find(p => p.path === session.project_path && p.deviceId === session.device_id)
-    ?? projects.find(p => p.path === session.project_path)
-    ?? projects.find(p => p.id === session.project_path);
+export function serverAiSessionToVibeRun(
+  session: PlatformAiSessionSnapshot,
+  _devices: Device[],
+  projects: Project[],
+): VibeCodingRun {
+  const project =
+    projects.find(
+      p => p.path === session.project_path && p.deviceId === session.device_id,
+    ) ??
+    projects.find(p => p.path === session.project_path) ??
+    projects.find(p => p.id === session.project_path);
   const model = aiSessionModelLabel(session);
   const transcript = (session.transcript ?? []).map(t => ({
     id: t.id,
@@ -241,7 +266,11 @@ export function serverAiSessionToVibeRun(session: PlatformAiSessionSnapshot, _de
     ? {
         id: session.last_message.id,
         role: session.last_message.role,
-        mode: session.last_message.mode as 'voice' | 'text' | 'action' | undefined,
+        mode: session.last_message.mode as
+          | 'voice'
+          | 'text'
+          | 'action'
+          | undefined,
         content: session.last_message.content,
         timestamp: session.last_message.timestamp,
       }
@@ -249,7 +278,10 @@ export function serverAiSessionToVibeRun(session: PlatformAiSessionSnapshot, _de
 
   return {
     id: session.session_id,
-    title: session.title ?? session.objective?.slice(0, 44) ?? `AI ${session.mode} session`,
+    title:
+      session.title ??
+      session.objective?.slice(0, 44) ??
+      `AI ${session.mode} session`,
     deviceId: session.device_id,
     projectId: project?.id ?? '',
     directory: session.project_path ?? '',
@@ -262,11 +294,14 @@ export function serverAiSessionToVibeRun(session: PlatformAiSessionSnapshot, _de
     currentStep: session.current_step ?? '',
     branch: session.branch ?? `agent/${session.session_id}`,
     lastActivityMs: Date.parse(session.last_active_at ?? '') || activityNowMs(),
-    updatedAt: formatActivityLabel(Date.parse(session.last_active_at ?? '') || activityNowMs()),
+    updatedAt: formatActivityLabel(
+      Date.parse(session.last_active_at ?? '') || activityNowMs(),
+    ),
     transcriptCount: session.transcript_count ?? transcript.length,
     eventCount: session.event_count ?? events.length,
     lastMessage,
-    detailLoadedAt: session.transcript || session.events ? nowTime() : undefined,
+    detailLoadedAt:
+      session.transcript || session.events ? nowTime() : undefined,
     suggestions: ['Ask for plan', 'Open terminal', 'Pause session'],
     transcript,
     events,
@@ -281,16 +316,81 @@ export function mergeAgentMessages(
   incoming: VibeCodingRun['transcript'],
 ): VibeCodingRun['transcript'] {
   if (!incoming.length) return existing;
-  const existingById = new Map(existing.map(item => [item.id, item]));
-  const merged = incoming.map(item => {
-    const current = existingById.get(item.id);
-    return current && current.content.length > item.content.length ? current : item;
+  const incomingById = new Map(incoming.map(item => [item.id, item]));
+  const consumedIncoming = new Set<string>();
+  const confirmedIncomingIds = new Set<string>();
+  const merged: VibeCodingRun['transcript'] = [];
+
+  const resolveMessage = (
+    current: VibeCodingRun['transcript'][number] | undefined,
+    item: VibeCodingRun['transcript'][number],
+  ) =>
+    current?.role === 'assistant' &&
+    item.role === 'assistant' &&
+    current.content.length > item.content.length
+      ? current
+      : item;
+
+  const findPendingConfirmationIndex = (
+    current: VibeCodingRun['transcript'][number],
+  ) => {
+    if (!current.pending) return -1;
+    return incoming.findIndex(
+      item =>
+        !consumedIncoming.has(item.id) &&
+        current.role === item.role &&
+        (current.mode === item.mode || !current.mode || !item.mode) &&
+        current.content === item.content,
+    );
+  };
+
+  const pushIncomingThrough = (incomingIndex: number) => {
+    for (let index = 0; index <= incomingIndex; index += 1) {
+      const item = incoming[index];
+      if (consumedIncoming.has(item.id)) continue;
+      const current = existing.find(existingItem => existingItem.id === item.id);
+      const resolved = resolveMessage(current, item);
+      merged.push(
+        confirmedIncomingIds.has(item.id)
+          ? { ...resolved, pending: false }
+          : resolved,
+      );
+      consumedIncoming.add(item.id);
+    }
+  };
+
+  for (const current of existing) {
+    const incomingIndex = incoming.findIndex(item => item.id === current.id);
+    if (incomingIndex >= 0) {
+      if (current.pending) {
+        confirmedIncomingIds.add(incoming[incomingIndex].id);
+      }
+      pushIncomingThrough(incomingIndex);
+      continue;
+    }
+
+    const pendingIndex = findPendingConfirmationIndex(current);
+    if (pendingIndex >= 0) {
+      confirmedIncomingIds.add(incoming[pendingIndex].id);
+      pushIncomingThrough(pendingIndex);
+      continue;
+    }
+
+    merged.push(current);
+  }
+
+  for (const item of incoming) {
+    if (!consumedIncoming.has(item.id)) {
+      merged.push(resolveMessage(undefined, item));
+      consumedIncoming.add(item.id);
+    }
+  }
+
+  return merged.map(item => {
+    const incomingItem = incomingById.get(item.id);
+    if (!incomingItem || !confirmedIncomingIds.has(item.id)) return item;
+    return { ...item, pending: false };
   });
-  const incomingIds = new Set(merged.map(item => item.id));
-  return [
-    ...merged,
-    ...existing.filter(item => !incomingIds.has(item.id)),
-  ];
 }
 
 export function mergeAgentEvents(
@@ -300,10 +400,7 @@ export function mergeAgentEvents(
   if (!incoming.length) return existing;
   const incomingIds = new Set(incoming.map(item => item.id));
   return tail(
-    [
-      ...incoming,
-      ...existing.filter(item => !incomingIds.has(item.id)),
-    ],
+    [...incoming, ...existing.filter(item => !incomingIds.has(item.id))],
     MAX_RUN_EVENTS,
   );
 }
@@ -320,22 +417,26 @@ export function mergeVibeRunSnapshot(
     existing.lastActivityMs ?? 0,
     incoming.lastActivityMs ?? 0,
   );
+  const transcript = incomingHasDetail
+    ? mergeAgentMessages(existing.transcript, incoming.transcript)
+    : existing.transcript;
+  const events = incomingHasDetail
+    ? mergeAgentEvents(existing.events, incoming.events)
+    : existing.events;
   return {
     ...existing,
     ...incoming,
     lastActivityMs,
     updatedAt: formatActivityLabel(lastActivityMs),
-    transcript: incomingHasDetail
-      ? mergeAgentMessages(existing.transcript, incoming.transcript)
-      : existing.transcript,
-    events: incomingHasDetail
-      ? mergeAgentEvents(existing.events, incoming.events)
-      : existing.events,
+    transcript,
+    events,
     detailLoadedAt: incoming.detailLoadedAt ?? existing.detailLoadedAt,
     lastMessage:
-      incoming.lastMessage ??
+      (incomingHasDetail
+        ? transcript[transcript.length - 1] ?? incoming.lastMessage
+        : incoming.lastMessage) ??
       existing.lastMessage ??
-      existing.transcript[existing.transcript.length - 1],
+      transcript[transcript.length - 1],
   };
 }
 
@@ -349,7 +450,8 @@ export function hasMeaningfulVibeRunUpdate(
   incoming: VibeCodingRun,
 ): boolean {
   if (!existing) return true;
-  if ((incoming.lastActivityMs ?? 0) > (existing.lastActivityMs ?? 0)) return true;
+  if ((incoming.lastActivityMs ?? 0) > (existing.lastActivityMs ?? 0))
+    return true;
   return (
     existing.status !== incoming.status ||
     existing.title !== incoming.title ||
@@ -359,24 +461,35 @@ export function hasMeaningfulVibeRunUpdate(
     existing.branch !== incoming.branch ||
     existing.transcriptCount !== incoming.transcriptCount ||
     existing.eventCount !== incoming.eventCount ||
-    messageFingerprint(existing.lastMessage) !== messageFingerprint(incoming.lastMessage)
+    messageFingerprint(existing.lastMessage) !==
+      messageFingerprint(incoming.lastMessage)
   );
 }
 
 export function mapSessionStatus(status: string): VibeStatus {
   switch (status) {
-    case 'running': return 'running';
-    case 'active': return 'running';
-    case 'creating': return 'running';
-    case 'idle': return 'idle';
-    case 'paused': return 'paused';
-    case 'error': return 'failed';
-    case 'closed': return 'completed';
-    default: return 'idle';
+    case 'running':
+      return 'running';
+    case 'active':
+      return 'running';
+    case 'creating':
+      return 'running';
+    case 'idle':
+      return 'idle';
+    case 'paused':
+      return 'paused';
+    case 'error':
+      return 'failed';
+    case 'closed':
+      return 'completed';
+    default:
+      return 'idle';
   }
 }
 
-export function serverApprovalToClient(sa: PlatformApprovalSnapshot): ApprovalRequest {
+export function serverApprovalToClient(
+  sa: PlatformApprovalSnapshot,
+): ApprovalRequest {
   return {
     id: sa.id,
     kind: (sa.kind as ApprovalKind) ?? 'dangerous_command',
@@ -395,7 +508,9 @@ export function serverApprovalToClient(sa: PlatformApprovalSnapshot): ApprovalRe
   };
 }
 
-export function mapTerminalStatus(status: PlatformTerminalSessionSnapshot['status']): TerminalSessionStatus {
+export function mapTerminalStatus(
+  status: PlatformTerminalSessionSnapshot['status'],
+): TerminalSessionStatus {
   switch (status) {
     case 'creating':
       return 'idle';
@@ -410,7 +525,9 @@ export function mapTerminalStatus(status: PlatformTerminalSessionSnapshot['statu
   }
 }
 
-export function serverTerminalSessionToClient(session: PlatformTerminalSessionSnapshot): TerminalSession {
+export function serverTerminalSessionToClient(
+  session: PlatformTerminalSessionSnapshot,
+): TerminalSession {
   return {
     id: session.session_id,
     deviceId: session.device_id,
@@ -428,9 +545,11 @@ export function serverTerminalSessionToClient(session: PlatformTerminalSessionSn
   };
 }
 
-export function serverPreviewToClient(preview: PlatformPreviewSnapshot): PreviewLink {
+export function serverPreviewToClient(
+  preview: PlatformPreviewSnapshot,
+): PreviewLink {
   const access = ['private', 'team', 'public'].includes(preview.access)
-    ? preview.access as PreviewLink['access']
+    ? (preview.access as PreviewLink['access'])
     : 'private';
   return {
     id: preview.id,
@@ -446,7 +565,10 @@ export function serverPreviewToClient(preview: PlatformPreviewSnapshot): Preview
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value && typeof value === 'object' && !Array.isArray(value));
 
-export const payloadString = (payload: Record<string, unknown> | undefined, key: string) => {
+export const payloadString = (
+  payload: Record<string, unknown> | undefined,
+  key: string,
+) => {
   const value = payload?.[key];
   return typeof value === 'string' ? value : undefined;
 };
@@ -454,14 +576,17 @@ export const payloadString = (payload: Record<string, unknown> | undefined, key:
 export function primitivePayload(payload: unknown): UnifiedEvent['payload'] {
   if (!isRecord(payload)) return undefined;
   const entries = Object.entries(payload)
-    .filter(([, value]) =>
-      value === undefined ||
-      typeof value === 'string' ||
-      typeof value === 'number' ||
-      typeof value === 'boolean',
+    .filter(
+      ([, value]) =>
+        value === undefined ||
+        typeof value === 'string' ||
+        typeof value === 'number' ||
+        typeof value === 'boolean',
     )
     .slice(0, 8);
-  return entries.length ? Object.fromEntries(entries) as UnifiedEvent['payload'] : undefined;
+  return entries.length
+    ? (Object.fromEntries(entries) as UnifiedEvent['payload'])
+    : undefined;
 }
 
 export function realtimeMessageTypeToEventType(
@@ -470,7 +595,9 @@ export function realtimeMessageTypeToEventType(
 ): UnifiedEventType {
   if (messageType === 'device.updated') {
     const device = isRecord(payload?.device) ? payload.device : undefined;
-    return payloadString(device, 'status') === 'offline' ? 'device.offline' : 'device.bound';
+    return payloadString(device, 'status') === 'offline'
+      ? 'device.offline'
+      : 'device.bound';
   }
   if (messageType === 'project.updated') return 'project.updated';
   if (messageType === 'projects.updated') return 'project.scan.completed';
@@ -491,9 +618,11 @@ export function realtimeMessageTypeToEventType(
 }
 
 export function realtimeMessageStatus(messageType: string): UnifiedEventStatus {
-  if (messageType === 'ai.error' || messageType === 'terminal.error') return 'failed';
+  if (messageType === 'ai.error' || messageType === 'terminal.error')
+    return 'failed';
   if (messageType === 'approval.requested') return 'waiting';
-  if (messageType === 'ai.delta' || messageType === 'terminal.output') return 'running';
+  if (messageType === 'ai.delta' || messageType === 'terminal.output')
+    return 'running';
   return 'done';
 }
 
@@ -505,12 +634,18 @@ export function realtimeMessageTitle(
   const device = isRecord(payload?.device) ? payload.device : undefined;
   const session = isRecord(payload?.session) ? payload.session : undefined;
   const approval = isRecord(payload?.approval) ? payload.approval : undefined;
-  if (messageType === 'project.updated') return payloadString(project, 'name') ?? 'Project updated';
-  if (messageType === 'device.updated') return payloadString(device, 'name') ?? 'Device updated';
-  if (messageType === 'approval.requested') return payloadString(approval, 'title') ?? 'Approval requested';
-  if (messageType === 'ai.session.created') return payloadString(session, 'title') ?? 'VibeCoding started';
-  if (messageType === 'ai.session.updated') return payloadString(session, 'title') ?? 'VibeCoding updated';
-  if (messageType === 'ai.sessions.updated') return 'VibeCoding sessions synced';
+  if (messageType === 'project.updated')
+    return payloadString(project, 'name') ?? 'Project updated';
+  if (messageType === 'device.updated')
+    return payloadString(device, 'name') ?? 'Device updated';
+  if (messageType === 'approval.requested')
+    return payloadString(approval, 'title') ?? 'Approval requested';
+  if (messageType === 'ai.session.created')
+    return payloadString(session, 'title') ?? 'VibeCoding started';
+  if (messageType === 'ai.session.updated')
+    return payloadString(session, 'title') ?? 'VibeCoding updated';
+  if (messageType === 'ai.sessions.updated')
+    return 'VibeCoding sessions synced';
   if (messageType === 'ai.done') return 'VibeCoding completed';
   if (messageType === 'ai.error') return 'VibeCoding failed';
   if (messageType === 'preview.ready') return 'Preview ready';
@@ -556,7 +691,9 @@ function realtimeMessageTimestamp(
   return message.created_at;
 }
 
-export function realtimeEventToUnifiedEvent(message: PlatformRealtimeEventSnapshot): UnifiedEvent {
+export function realtimeEventToUnifiedEvent(
+  message: PlatformRealtimeEventSnapshot,
+): UnifiedEvent {
   const payload = isRecord(message.payload) ? message.payload : undefined;
   return {
     id: message.id,
@@ -611,10 +748,7 @@ export function upsertNotification(
   list: PushNotificationItem[],
   item: PushNotificationItem,
 ): PushNotificationItem[] {
-  return [
-    item,
-    ...list.filter(existing => existing.id !== item.id),
-  ]
+  return [item, ...list.filter(existing => existing.id !== item.id)]
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     .slice(0, 120);
 }
@@ -659,7 +793,8 @@ export function serverProjectFileToClient(
     sizeBytes: file.size_bytes,
     lastTouched: file.modified_at ?? 'unknown',
     modifiedAt: file.modified_at,
-    summary: file.summary ?? (isFolder ? 'Directory' : 'Synced from desktop Agent.'),
+    summary:
+      file.summary ?? (isFolder ? 'Directory' : 'Synced from desktop Agent.'),
   };
 }
 
@@ -681,7 +816,9 @@ export function serverProjectContentToFileEntry(
     sizeBytes: content.size_bytes,
     lastTouched: content.modified_at ?? 'unknown',
     modifiedAt: content.modified_at,
-    summary: content.truncated ? 'Loaded preview from desktop Agent. Content was truncated.' : 'Loaded from desktop Agent.',
+    summary: content.truncated
+      ? 'Loaded preview from desktop Agent. Content was truncated.'
+      : 'Loaded from desktop Agent.',
     content: content.content,
     encoding: content.encoding,
     loadedAt: nowTime(),
@@ -701,7 +838,10 @@ export const activeVibeStatuses: VibeStatus[] = [
 export const mergeIds = (...groups: string[][]): string[] =>
   Array.from(new Set(groups.flat().filter(Boolean)));
 
-export const projectBelongsToDevice = (project: Project, device: Device): boolean =>
+export const projectBelongsToDevice = (
+  project: Project,
+  device: Device,
+): boolean =>
   project.deviceId === device.id || device.projectIds.includes(project.id);
 
 export const attachProjectIds = (
@@ -740,7 +880,8 @@ export const attachDeviceRelations = (
   devices: Device[],
   projects: Project[],
   vibeRuns: VibeCodingRun[],
-): Device[] => attachActiveSessionIds(attachProjectIds(devices, projects), vibeRuns);
+): Device[] =>
+  attachActiveSessionIds(attachProjectIds(devices, projects), vibeRuns);
 
 export function stateFromSnapshot(
   snapshot: Awaited<ReturnType<typeof platformTransport.loadSnapshot>>,
@@ -769,10 +910,11 @@ export function stateFromSnapshot(
   const previewLinks = snapshot.previewLinks
     .filter(preview => knownSessionIds.has(preview.sessionId))
     .map(serverPreviewToClient);
-  const realtimeEvents = dedupeUnifiedEvents(snapshot.realtimeEvents
-    .map(realtimeEventToUnifiedEvent)
-    .filter(item => !item.deviceId || knownDeviceIds.has(item.deviceId)))
-    .slice(0, 120);
+  const realtimeEvents = dedupeUnifiedEvents(
+    snapshot.realtimeEvents
+      .map(realtimeEventToUnifiedEvent)
+      .filter(item => !item.deviceId || knownDeviceIds.has(item.deviceId)),
+  ).slice(0, 120);
   const notifications = snapshot.notifications
     .map(serverNotificationToClient)
     .filter(item => !item.deviceId || knownDeviceIds.has(item.deviceId))

@@ -29,14 +29,15 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
 
   // Forward output data from WS to xterm.js
   const handleOutput = useCallback(
-    (data: string, _encoding?: string) => {
+    (data: string, encoding = 'text') => {
       if (!webViewRef.current || !enabled) return;
-      const escaped = data.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '\\r');
       webViewRef.current.injectJavaScript(
-        `window.injectTerminalData('output','${escaped}'); true;`
+        `window.injectTerminalData('output', ${JSON.stringify(
+          data,
+        )}, ${JSON.stringify(encoding)}); true;`,
       );
     },
-    [enabled]
+    [enabled],
   );
 
   // Register/unregister output handler on the global socket listener
@@ -55,7 +56,12 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
   const onMessage = useCallback(
     (event: WebViewMessageEvent) => {
       if (!enabled) return;
-      let payload: { type: string; data?: string; cols?: number; rows?: number };
+      let payload: {
+        type: string;
+        data?: string;
+        cols?: number;
+        rows?: number;
+      };
       try {
         payload = JSON.parse(event.nativeEvent.data);
       } catch {
@@ -93,7 +99,7 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
           break;
       }
     },
-    [sessionId, enabled]
+    [sessionId, enabled],
   );
 
   return (

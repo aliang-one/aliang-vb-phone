@@ -14,7 +14,9 @@ export type RootStackParamList = {
   CreateVibeCoding: { deviceId?: string; projectId?: string };
   AgentSessions: { deviceId?: string; projectId?: string } | undefined;
   VibeCodingSession: { sessionId: string };
-  EventStream: { deviceId?: string; sessionId?: string } | undefined;
+  EventStream:
+    | { deviceId?: string; sessionId?: string; scope?: 'conversation' }
+    | undefined;
   ApprovalCenter: undefined;
   NotificationCenter: undefined;
   Preview: { previewId: string };

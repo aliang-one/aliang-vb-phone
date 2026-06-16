@@ -1,5 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  RefreshControl,
+} from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../theme/useTheme';
@@ -12,11 +19,7 @@ import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard';
 import { ActionTile } from '../../components/visual/ActionTile';
 import { IconBadge, IconName } from '../../components/visual/IconBadge';
-import {
-  Device,
-  Project,
-  VibeCodingRun,
-} from '../../data/platformModels';
+import { Device, Project, VibeCodingRun } from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
 import {
   ProjectFileEntry,
@@ -26,6 +29,14 @@ import {
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { newestFirst } from '../../utils/timeSort';
+import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
+import {
+  ACTIVE_AGENT_WINDOW_MS,
+  formatConversationRelativeShort,
+  getSessionActivityMs,
+  isSessionActiveWithin,
+  parseConversationTimestampMs,
+} from '../../utils/conversationActivity';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -41,12 +52,18 @@ const liveAgentStatuses: VibeCodingRun['status'][] = [
 const ratio = (value: number, total: number) =>
   total > 0 ? Math.min(100, (value / total) * 100) : 0;
 
-// --- Home conversation-events feed ---
-// The home "events" surface is intentionally narrow: only conversation lifecycle
-// (created / completed), the latest in-progress message of the active session,
-// and approval requests. Every entry links straight into the conversation.
+const HOME_CONVERSATION_EVENT_LIMIT = 3;
 
-type ConversationFeedKind = 'created' | 'completed' | 'in_progress' | 'approval';
+// --- Home conversation-events feed ---
+// The home "events" surface is conversation-scoped: lifecycle events, approvals,
+// and recent per-session activity. Every entry links straight into the conversation.
+
+type ConversationFeedKind =
+  | 'created'
+  | 'completed'
+  | 'in_progress'
+  | 'activity'
+  | 'approval';
 
 interface ConversationFeedItem {
   key: string;
@@ -58,31 +75,34 @@ interface ConversationFeedItem {
   ms: number;
 }
 
-const feedMeta: Record<ConversationFeedKind, { icon: IconName; label: string }> = {
+const feedMeta: Record<
+  ConversationFeedKind,
+  { icon: IconName; label: string }
+> = {
   created: { icon: 'chat', label: '新对话' },
   completed: { icon: 'check', label: '已完成' },
   in_progress: { icon: 'agent', label: '进行中' },
+  activity: { icon: 'chat', label: '最近交互' },
   approval: { icon: 'approval', label: '待确认' },
 };
 
-const feedTimestampMs = (value?: string) => {
-  if (!value) return 0;
-  const normalized = value.trim().toLowerCase();
-  if (normalized === 'now' || normalized === 'just now' || value === '刚刚') {
-    return Date.now();
-  }
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
+const projectMatchesSession = (project: Project, session: VibeCodingRun) =>
+  session.projectId === project.id ||
+  (Boolean(project.path) &&
+    session.directory === project.path &&
+    (!project.deviceId || session.deviceId === project.deviceId));
 
-const formatRelativeShort = (ms: number) => {
-  if (!ms) return '';
-  const diffMin = Math.max(0, Math.floor((Date.now() - ms) / 60000));
-  if (diffMin < 1) return '刚刚';
-  if (diffMin < 60) return `${diffMin} 分钟前`;
-  const diffHour = Math.floor(diffMin / 60);
-  if (diffHour < 24) return `${diffHour} 小时前`;
-  return `${Math.floor(diffHour / 24)} 天前`;
+const getProjectActivityMs = (
+  project: Project,
+  sessions: VibeCodingRun[],
+  nowMs: number,
+) => {
+  const projectTime = parseConversationTimestampMs(project.lastDeploy, nowMs);
+  const sessionTime = sessions.reduce((latest, session) => {
+    if (!projectMatchesSession(project, session)) return latest;
+    return Math.max(latest, getSessionActivityMs(session, nowMs));
+  }, 0);
+  return Math.max(projectTime, sessionTime);
 };
 
 export const CommandCenterScreen: React.FC = () => {
@@ -99,7 +119,9 @@ export const CommandCenterScreen: React.FC = () => {
   const scanResults = useControlCenterStore(state => state.scanResults);
   const wsConnected = useControlCenterStore(state => state.wsConnected);
   const serverMode = useControlCenterStore(state => state.serverMode);
-  const refreshFromServer = useControlCenterStore(state => state.refreshFromServer);
+  const refreshFromServer = useControlCenterStore(
+    state => state.refreshFromServer,
+  );
   const [refreshing, setRefreshing] = useState(false);
 
   const onlineDevices = useMemo(
@@ -107,28 +129,42 @@ export const CommandCenterScreen: React.FC = () => {
     [devices],
   );
   const activeAgentRuns = useMemo(
-    () =>
-      vibeRuns
-        .filter(
-          session =>
-            liveAgentStatuses.includes(session.status) &&
-            Date.now() - (session.lastActivityMs ?? 0) <= 24 * 60 * 60 * 1000,
+    () => {
+      const nowMs = Date.now();
+      return vibeRuns
+        .filter(session =>
+          isSessionActiveWithin(session, ACTIVE_AGENT_WINDOW_MS, nowMs),
         )
         .sort(
-          (left, right) => (right.lastActivityMs ?? 0) - (left.lastActivityMs ?? 0),
-        ),
+          (left, right) =>
+            getSessionActivityMs(right, nowMs) -
+            getSessionActivityMs(left, nowMs),
+        );
+    },
     [vibeRuns],
   );
   const recentAgentRuns = useMemo(
-    () =>
-      [...vibeRuns].sort(
-        (left, right) => (right.lastActivityMs ?? 0) - (left.lastActivityMs ?? 0),
-      ),
+    () => {
+      const nowMs = Date.now();
+      return [...vibeRuns].sort(
+        (left, right) =>
+          getSessionActivityMs(right, nowMs) -
+          getSessionActivityMs(left, nowMs),
+      );
+    },
     [vibeRuns],
   );
-  // Filtered home feed: conversation created / completed, the latest in-progress
-  // message of the most recent running session, and approval requests.
+  const activeProjects = useMemo(() => {
+    const nowMs = Date.now();
+    return [...projects].sort(
+      (left, right) =>
+        getProjectActivityMs(right, vibeRuns, nowMs) -
+        getProjectActivityMs(left, vibeRuns, nowMs),
+    );
+  }, [projects, vibeRuns]);
+  // Filtered home feed: conversation lifecycle, approvals, and recent messages.
   const conversationFeed = useMemo<ConversationFeedItem[]>(() => {
+    const nowMs = Date.now();
     const items: ConversationFeedItem[] = [];
     const push = (
       key: string,
@@ -145,31 +181,74 @@ export const CommandCenterScreen: React.FC = () => {
         subtitle,
         sessionId,
         ms,
-        timeLabel: formatRelativeShort(ms),
+        timeLabel: formatConversationRelativeShort(ms, nowMs),
       });
     };
     for (const evt of events) {
       if (evt.type === 'agent.session.started') {
-        push(evt.id, 'created', evt.title || '新对话', evt.detail, evt.sessionId, feedTimestampMs(evt.timestamp));
+        push(
+          evt.id,
+          'created',
+          evt.title || '新对话',
+          evt.detail,
+          evt.sessionId,
+          parseConversationTimestampMs(evt.timestamp, nowMs),
+        );
       } else if (evt.type === 'agent.session.completed') {
-        push(evt.id, 'completed', evt.title || '对话完成', evt.detail, evt.sessionId, feedTimestampMs(evt.timestamp));
+        push(
+          evt.id,
+          'completed',
+          evt.title || '对话完成',
+          evt.detail,
+          evt.sessionId,
+          parseConversationTimestampMs(evt.timestamp, nowMs),
+        );
       } else if (evt.type === 'approval.requested') {
-        push(`approval-${evt.approvalId ?? evt.id}`, 'approval', evt.title || '需要确认', evt.detail, evt.sessionId, feedTimestampMs(evt.timestamp));
+        push(
+          `approval-${evt.approvalId ?? evt.id}`,
+          'approval',
+          evt.title || '需要确认',
+          evt.detail,
+          evt.sessionId,
+          parseConversationTimestampMs(evt.timestamp, nowMs),
+        );
       }
     }
-    const topRunning = activeAgentRuns[0];
-    if (topRunning) {
+    for (const session of activeAgentRuns) {
+      const sessionActivityMs = getSessionActivityMs(session, nowMs);
+      const sessionTitle = formatVibeSessionTitle(session.title, {
+        directory: session.directory,
+      });
+      const actor =
+        session.lastMessage?.role === 'user'
+          ? '你'
+          : session.lastMessage?.role === 'assistant'
+          ? 'AI'
+          : '系统';
+      const latestActivity = session.lastMessage?.content
+        ? `${actor}: ${session.lastMessage.content}`
+        : session.currentStep || '最近有交互';
       push(
-        `inprogress-${topRunning.id}`,
-        'in_progress',
-        topRunning.title,
-        topRunning.lastMessage?.content || topRunning.currentStep || '正在执行…',
-        topRunning.id,
-        topRunning.lastActivityMs ?? 0,
+        `activity-${session.id}-${
+          session.lastMessage?.id ?? sessionActivityMs
+        }`,
+        liveAgentStatuses.includes(session.status) ? 'in_progress' : 'activity',
+        sessionTitle,
+        latestActivity,
+        session.id,
+        sessionActivityMs,
       );
     }
     return items.sort((left, right) => right.ms - left.ms).slice(0, 12);
   }, [events, activeAgentRuns]);
+  const visibleConversationFeed = conversationFeed.slice(
+    0,
+    HOME_CONVERSATION_EVENT_LIMIT,
+  );
+  const hiddenConversationFeedCount = Math.max(
+    0,
+    conversationFeed.length - visibleConversationFeed.length,
+  );
   const projectWorkspace = useMemo(
     () =>
       [...projects].sort((left, right) =>
@@ -187,10 +266,18 @@ export const CommandCenterScreen: React.FC = () => {
   );
   const topApproval = pendingApprovals[0];
   const topNotification = unreadNotifications[0];
-  const topRealtimeKind = topApproval ? 'approval' : topNotification ? 'notification' : undefined;
+  const topRealtimeKind = topApproval
+    ? 'approval'
+    : topNotification
+    ? 'notification'
+    : undefined;
   const topRealtimeTitle = topApproval?.title ?? topNotification?.title;
   const topRealtimeDetail = topApproval?.summary ?? topNotification?.body;
-  const serverStatusLabel = wsConnected ? 'Realtime' : serverMode ? 'API' : 'Offline';
+  const serverStatusLabel = wsConnected
+    ? 'Realtime'
+    : serverMode
+    ? 'API'
+    : 'Offline';
   const serverStatusColor = wsConnected
     ? theme.colors.secondary
     : serverMode
@@ -223,7 +310,9 @@ export const CommandCenterScreen: React.FC = () => {
       },
       {
         label: 'Notifications',
-        value: `${unreadNotifications.length}/${notifications.length || 0} unread`,
+        value: `${unreadNotifications.length}/${
+          notifications.length || 0
+        } unread`,
         progress: ratio(unreadNotifications.length, notifications.length),
         tone: 'secondary' as const,
       },
@@ -235,8 +324,8 @@ export const CommandCenterScreen: React.FC = () => {
   const getDevice = (deviceId: string) =>
     devices.find(device => device.id === deviceId);
   const getProjectDevice = (project: Project) =>
-    devices.find(device => device.id === project.deviceId)
-      ?? devices.find(device => device.projectIds.includes(project.id));
+    devices.find(device => device.id === project.deviceId) ??
+    devices.find(device => device.projectIds.includes(project.id));
   // Home events open straight into the conversation, never the notification list.
   const openConversation = (sessionId?: string, isApproval = false) => {
     if (sessionId) {
@@ -249,7 +338,12 @@ export const CommandCenterScreen: React.FC = () => {
   };
   const openConversationList = () => {
     // 'VibeCoding' is the sibling tab that hosts the conversation list.
-    (navigation as unknown as { navigate: (route: string) => void }).navigate('VibeCoding');
+    (navigation as unknown as { navigate: (route: string) => void }).navigate(
+      'VibeCoding',
+    );
+  };
+  const openConversationEventStream = () => {
+    navigation.navigate('EventStream', { scope: 'conversation' });
   };
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -259,10 +353,10 @@ export const CommandCenterScreen: React.FC = () => {
       setRefreshing(false);
     }
   };
-  const activeAgentList = useIncrementalList(activeAgentRuns, {
-    initialCount: 4,
+  const activeProjectList = useIncrementalList(activeProjects, {
+    initialCount: 3,
     step: 6,
-    resetKey: activeAgentRuns.length,
+    resetKey: activeProjects.length,
   });
   const recentAgentList = useIncrementalList(recentAgentRuns, {
     initialCount: 6,
@@ -304,8 +398,14 @@ export const CommandCenterScreen: React.FC = () => {
             <TouchableOpacity
               activeOpacity={0.75}
               onPress={() => navigation.navigate('NotificationCenter')}
-              style={styles.avatar}>
-              <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+              style={styles.avatar}
+            >
+              <Text
+                style={[
+                  theme.typography.codeSm,
+                  { color: theme.colors.primary },
+                ]}
+              >
                 {unreadNotifications.length || 'AL'}
               </Text>
             </TouchableOpacity>
@@ -322,61 +422,75 @@ export const CommandCenterScreen: React.FC = () => {
             tintColor={theme.colors.primary}
             colors={[theme.colors.primary]}
           />
-        }>
-	        {topRealtimeKind && topRealtimeTitle ? (
-	          <TouchableOpacity
-	            activeOpacity={0.78}
-	            onPress={() =>
-	              openConversation(
-	                topApproval?.sessionId ?? topNotification?.sessionId,
-	                topRealtimeKind === 'approval',
-	              )
-	            }>
-	            <GlassPanel style={styles.realtimeCard}>
-	              <View style={styles.realtimeIconWrap}>
-	                <IconBadge
-	                  name={topRealtimeKind === 'approval' ? 'approval' : 'event'}
-	                  tone={topRealtimeKind === 'approval' ? 'tertiary' : 'secondary'}
-	                  size={34}
-	                  iconSize={17}
-	                />
-	              </View>
-	              <View style={styles.realtimeCopy}>
-	                <Text
-	                  style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
-	                  {topRealtimeKind === 'approval' ? 'WAITING APPROVAL' : 'NEW UPDATE'}
-	                </Text>
-	                <Text
-	                  numberOfLines={1}
-	                  style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-	                  {topRealtimeTitle}
-	                </Text>
-	                <Text
-	                  numberOfLines={2}
-	                  style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-	                  {topRealtimeDetail}
-	                </Text>
-	              </View>
-	              <StatusChip
-	                label={topRealtimeKind === 'approval' ? 'OPEN' : 'VIEW'}
-	                type={topRealtimeKind === 'approval' ? 'warning' : 'info'}
-	              />
-	            </GlassPanel>
-	          </TouchableOpacity>
-	        ) : null}
-	        <View style={styles.sectionHeader}>
-          <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
+        }
+      >
+        {topRealtimeKind && topRealtimeTitle ? (
+          <TouchableOpacity
+            activeOpacity={0.78}
+            onPress={() =>
+              openConversation(
+                topApproval?.sessionId ?? topNotification?.sessionId,
+                topRealtimeKind === 'approval',
+              )
+            }
+          >
+            <GlassPanel style={styles.realtimeCard}>
+              <View style={styles.realtimeIconWrap}>
+                <IconBadge
+                  name={topRealtimeKind === 'approval' ? 'approval' : 'event'}
+                  tone={
+                    topRealtimeKind === 'approval' ? 'tertiary' : 'secondary'
+                  }
+                  size={26}
+                  iconSize={13}
+                />
+              </View>
+              <View style={styles.realtimeCopy}>
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    theme.typography.labelMd,
+                    { color: theme.colors.onSurface },
+                  ]}
+                >
+                  {topRealtimeKind === 'approval' ? '待确认' : '新消息'} ·{' '}
+                  {topRealtimeTitle}
+                  {topRealtimeDetail ? ` · ${topRealtimeDetail}` : ''}
+                </Text>
+              </View>
+              <Text
+                style={[
+                  theme.typography.codeSm,
+                  styles.moreLink,
+                  { color: theme.colors.primary },
+                ]}
+              >
+                更多 ›
+              </Text>
+            </GlassPanel>
+          </TouchableOpacity>
+        ) : null}
+        <View style={styles.sectionHeader}>
+          <Text
+            style={[
+              theme.typography.labelCaps,
+              { color: theme.colors.primary },
+            ]}
+          >
             对话事件 / CONVERSATION EVENTS
           </Text>
           <StatusChip label={`${conversationFeed.length} 条`} type="info" />
         </View>
         {conversationFeed.length ? (
-          conversationFeed.map(item => {
+          <>
+            {visibleConversationFeed.map(item => {
             const meta = feedMeta[item.kind];
             const tone =
               item.kind === 'approval'
                 ? 'tertiary'
                 : item.kind === 'completed'
+                ? 'secondary'
+                : item.kind === 'activity'
                 ? 'secondary'
                 : item.kind === 'in_progress'
                 ? 'primary'
@@ -386,60 +500,98 @@ export const CommandCenterScreen: React.FC = () => {
                 ? theme.colors.tertiary
                 : item.kind === 'completed'
                 ? theme.colors.secondary
+                : item.kind === 'activity'
+                ? theme.colors.secondary
                 : theme.colors.primary;
             return (
               <TouchableOpacity
                 key={item.key}
                 activeOpacity={0.75}
-                onPress={() => openConversation(item.sessionId, item.kind === 'approval')}>
+                onPress={() =>
+                  openConversation(item.sessionId, item.kind === 'approval')
+                }
+              >
                 <GlassPanel style={styles.eventFeedCard}>
                   <View style={styles.eventFeedIconWrap}>
-                    <IconBadge name={meta.icon} tone={tone} size={38} iconSize={19} />
+                    <IconBadge
+                      name={meta.icon}
+                      tone={tone}
+                      size={34}
+                      iconSize={17}
+                    />
+                    {item.timeLabel ? (
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          theme.typography.labelSm,
+                          styles.eventFeedTime,
+                          { color: theme.colors.onSurfaceVariant },
+                        ]}
+                      >
+                        {item.timeLabel}
+                      </Text>
+                    ) : null}
                   </View>
                   <View style={styles.eventFeedCopy}>
-                    <View style={styles.eventFeedMeta}>
-                      <Text style={[theme.typography.labelCaps, { color: accent }]}>
-                        {meta.label}
-                      </Text>
-                      {item.timeLabel ? (
-                        <Text
-                          style={[
-                            theme.typography.codeSm,
-                            { color: theme.colors.onSurfaceVariant },
-                          ]}>
-                          {item.timeLabel}
-                        </Text>
-                      ) : null}
-                    </View>
                     <Text
                       numberOfLines={1}
-                      style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+                      style={[
+                        theme.typography.titleMd,
+                        { color: theme.colors.onSurface },
+                      ]}
+                    >
                       {item.title}
                     </Text>
                     <Text
-                      numberOfLines={2}
+                      numberOfLines={1}
                       style={[
                         theme.typography.bodySm,
                         { color: theme.colors.onSurfaceVariant },
-                      ]}>
+                      ]}
+                    >
                       {item.subtitle}
                     </Text>
                   </View>
-                  <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-                    打开 ›
+                  <Text
+                    style={[
+                      theme.typography.codeSm,
+                      styles.moreLink,
+                      { color: theme.colors.primary },
+                    ]}
+                  >
+                    更多 ›
                   </Text>
                 </GlassPanel>
               </TouchableOpacity>
             );
-          })
+          })}
+            {hiddenConversationFeedCount ? (
+              <LoadMoreRow
+                visibleCount={visibleConversationFeed.length}
+                totalCount={conversationFeed.length}
+                onPress={openConversationEventStream}
+                label="更多对话事件"
+              />
+            ) : null}
+          </>
         ) : (
           <GlassPanel style={styles.emptyAgentCard}>
             <IconBadge name="chat" tone="neutral" size={42} iconSize={21} />
             <View style={styles.emptyAgentCopy}>
-              <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+              <Text
+                style={[
+                  theme.typography.titleMd,
+                  { color: theme.colors.onSurface },
+                ]}
+              >
                 暂无对话事件
               </Text>
-              <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+              <Text
+                style={[
+                  theme.typography.bodySm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
                 新建对话、完成或待确认的操作会显示在这里，点击即可进入对应对话。
               </Text>
             </View>
@@ -447,50 +599,117 @@ export const CommandCenterScreen: React.FC = () => {
         )}
 
         <View style={styles.sectionHeader}>
-          <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
-            24H ACTIVE AGENTS
+          <Text
+            style={[
+              theme.typography.labelCaps,
+              { color: theme.colors.primary },
+            ]}
+          >
+            ACTIVE PROJECTS
           </Text>
-          <StatusChip label={`${activeAgentRuns.length} VIBECODING`} type="success" />
-        </View>
-        {activeAgentRuns.length ? (
-          <>
-          {activeAgentList.visibleItems.map(session => (
-            <VibeSessionCard
-              key={session.id}
-              session={session}
-              project={getProject(session.projectId)}
-              device={getDevice(session.deviceId)}
-              homeFocus
-              onPress={() =>
-                navigation.navigate('VibeCodingSession', { sessionId: session.id })
-              }
-            />
-          ))}
-          <LoadMoreRow
-            visibleCount={activeAgentList.visibleCount}
-            totalCount={activeAgentList.totalCount}
-            onPress={activeAgentList.showMore}
+          <StatusChip
+            label={`${activeProjects.length} PROJECTS`}
+            type="success"
           />
+        </View>
+        {activeProjects.length ? (
+          <>
+            {activeProjectList.visibleItems.map(project => {
+              const sessions = vibeRuns.filter(session =>
+                projectMatchesSession(project, session),
+              );
+              const newestSession = sessions[0];
+              const device = getProjectDevice(project);
+              const scan = scanResults.find(
+                item =>
+                  item.projectId === project.id &&
+                  (!device || item.deviceId === device.id),
+              );
+              return (
+                <ProjectWorkspaceCard
+                  key={project.id}
+                  project={project}
+                  device={device}
+                  sessions={sessions}
+                  files={projectFiles.filter(
+                    item => item.projectId === project.id,
+                  )}
+                  scan={scan}
+                  activeProject
+                  onOpen={() =>
+                    navigation.navigate('ProjectDetail', {
+                      projectId: project.id,
+                      deviceId: device?.id,
+                    })
+                  }
+                  onFiles={() =>
+                    navigation.navigate('FileBrowser', {
+                      projectId: project.id,
+                      deviceId: device?.id,
+                    })
+                  }
+                  onTerminal={() =>
+                    device &&
+                    navigation.navigate('DeviceTerminal', {
+                      deviceId: device.id,
+                      directory:
+                        scan?.path ??
+                        project.path ??
+                        device.authorizedDirectories[0],
+                    })
+                  }
+                  onAgent={() =>
+                    newestSession &&
+                    navigation.navigate('VibeCodingSession', {
+                      sessionId: newestSession.id,
+                    })
+                  }
+                />
+              );
+            })}
+            <LoadMoreRow
+              visibleCount={activeProjectList.visibleCount}
+              totalCount={activeProjectList.totalCount}
+              onPress={activeProjectList.showMore}
+            />
           </>
         ) : (
           <GlassPanel style={styles.emptyAgentCard}>
-            <IconBadge name="agent" tone="neutral" size={42} iconSize={21} />
+            <IconBadge name="project" tone="neutral" size={42} iconSize={21} />
             <View style={styles.emptyAgentCopy}>
-              <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                暂无 24 小时内活跃的 Agent
+              <Text
+                style={[
+                  theme.typography.titleMd,
+                  { color: theme.colors.onSurface },
+                ]}
+              >
+                暂无活跃项目
               </Text>
-              <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-                新建一个 VibeCoding，或从设备恢复最近的会话。
+              <Text
+                style={[
+                  theme.typography.bodySm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
+                最近有交互的项目会显示在这里。
               </Text>
             </View>
           </GlassPanel>
         )}
 
         <View style={styles.sectionHeader}>
-          <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
+          <Text
+            style={[
+              theme.typography.labelCaps,
+              { color: theme.colors.onSurfaceVariant },
+            ]}
+          >
             AGENT ACTIONS
           </Text>
-          <StatusChip label={`${onlineDevices.length} DEVICES READY`} type="info" />
+          <StatusChip
+            label={`${onlineDevices.length} DEVICES READY`}
+            type="info"
+          />
         </View>
         <View style={styles.operationGrid}>
           <ActionTile
@@ -536,7 +755,12 @@ export const CommandCenterScreen: React.FC = () => {
         </View>
 
         <View style={styles.sectionHeader}>
-          <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
+          <Text
+            style={[
+              theme.typography.labelCaps,
+              { color: theme.colors.primary },
+            ]}
+          >
             VIBECODING SESSIONS
           </Text>
           <StatusChip label={`${recentAgentRuns.length} TOTAL`} type="info" />
@@ -548,7 +772,9 @@ export const CommandCenterScreen: React.FC = () => {
             project={getProject(session.projectId)}
             device={getDevice(session.deviceId)}
             onPress={() =>
-              navigation.navigate('VibeCodingSession', { sessionId: session.id })
+              navigation.navigate('VibeCodingSession', {
+                sessionId: session.id,
+              })
             }
           />
         ))}
@@ -559,7 +785,12 @@ export const CommandCenterScreen: React.FC = () => {
         />
 
         <View style={styles.sectionHeader}>
-          <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
+          <Text
+            style={[
+              theme.typography.labelCaps,
+              { color: theme.colors.primary },
+            ]}
+          >
             RECENT PREVIEWS
           </Text>
         </View>
@@ -569,24 +800,45 @@ export const CommandCenterScreen: React.FC = () => {
             <TouchableOpacity
               key={preview.id}
               activeOpacity={0.75}
-              onPress={() => navigation.navigate('Preview', { previewId: preview.id })}>
+              onPress={() =>
+                navigation.navigate('Preview', { previewId: preview.id })
+              }
+            >
               <GlassPanel style={styles.previewCard}>
                 <View style={styles.previewTop}>
                   <Text
-                    style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}
-                    numberOfLines={1}>
-                    {session?.title ?? preview.targetUrl}
+                    style={[
+                      theme.typography.titleMd,
+                      { color: theme.colors.onSurface },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {formatVibeSessionTitle(
+                      session?.title ?? preview.targetUrl,
+                      {
+                        directory: session?.directory,
+                      },
+                    )}
                   </Text>
                   <StatusChip label={`${preview.port}`} type="info" />
                 </View>
                 <Text
-                  style={[theme.typography.codeSm, { color: theme.colors.primary }]}
-                  numberOfLines={1}>
+                  style={[
+                    theme.typography.codeSm,
+                    { color: theme.colors.primary },
+                  ]}
+                  numberOfLines={1}
+                >
                   {preview.shortUrl}
                 </Text>
                 <Text
-                  style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                  {preview.access.toUpperCase()} / expires in {preview.expiresIn}
+                  style={[
+                    theme.typography.labelSm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {preview.access.toUpperCase()} / expires in{' '}
+                  {preview.expiresIn}
                 </Text>
               </GlassPanel>
             </TouchableOpacity>
@@ -599,15 +851,24 @@ export const CommandCenterScreen: React.FC = () => {
         />
 
         <View style={styles.sectionHeader}>
-          <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
+          <Text
+            style={[
+              theme.typography.labelCaps,
+              { color: theme.colors.primary },
+            ]}
+          >
             PROJECT WORKSPACE
           </Text>
           <StatusChip label={`${projects.length} PROJECTS`} type="info" />
         </View>
         {projectList.visibleItems.map(project => {
           const device = getProjectDevice(project);
-          const sessions = vibeRuns.filter(item => item.projectId === project.id);
-          const files = projectFiles.filter(item => item.projectId === project.id);
+          const sessions = vibeRuns.filter(
+            item => item.projectId === project.id,
+          );
+          const files = projectFiles.filter(
+            item => item.projectId === project.id,
+          );
           const scan = scanResults.find(
             item =>
               item.projectId === project.id &&
@@ -638,7 +899,10 @@ export const CommandCenterScreen: React.FC = () => {
                 device &&
                 navigation.navigate('DeviceTerminal', {
                   deviceId: device.id,
-                  directory: scan?.path ?? project.path ?? device.authorizedDirectories[0],
+                  directory:
+                    scan?.path ??
+                    project.path ??
+                    device.authorizedDirectories[0],
                 })
               }
               onAgent={() =>
@@ -657,7 +921,12 @@ export const CommandCenterScreen: React.FC = () => {
         />
 
         <View style={styles.sectionHeader}>
-          <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
+          <Text
+            style={[
+              theme.typography.labelCaps,
+              { color: theme.colors.onSurfaceVariant },
+            ]}
+          >
             DEVICE SNAPSHOT
           </Text>
         </View>
@@ -665,7 +934,9 @@ export const CommandCenterScreen: React.FC = () => {
           <DeviceControlCard
             key={device.id}
             device={device}
-            onPress={() => navigation.navigate('DeviceDetail', { deviceId: device.id })}
+            onPress={() =>
+              navigation.navigate('DeviceDetail', { deviceId: device.id })
+            }
           />
         ))}
         <LoadMoreRow
@@ -675,7 +946,12 @@ export const CommandCenterScreen: React.FC = () => {
         />
 
         <View style={styles.sectionHeader}>
-          <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
+          <Text
+            style={[
+              theme.typography.labelCaps,
+              { color: theme.colors.onSurfaceVariant },
+            ]}
+          >
             ACCOUNT SNAPSHOT
           </Text>
         </View>
@@ -693,14 +969,32 @@ export const CommandCenterScreen: React.FC = () => {
             styles.fabSecondary,
             {
               borderColor: theme.colors.primary,
-              backgroundColor: isDark ? 'rgba(17,20,23,0.96)' : 'rgba(255,255,255,0.96)',
+              backgroundColor: isDark
+                ? 'rgba(17,20,23,0.96)'
+                : 'rgba(255,255,255,0.96)',
               borderRadius: theme.borderRadius.full,
             },
-          ]}>
+          ]}
+        >
           <View style={styles.fabListBars}>
-            <View style={[styles.fabListBar, { backgroundColor: theme.colors.primary }]} />
-            <View style={[styles.fabListBar, { backgroundColor: theme.colors.primary }]} />
-            <View style={[styles.fabListBar, { backgroundColor: theme.colors.primary }]} />
+            <View
+              style={[
+                styles.fabListBar,
+                { backgroundColor: theme.colors.primary },
+              ]}
+            />
+            <View
+              style={[
+                styles.fabListBar,
+                { backgroundColor: theme.colors.primary },
+              ]}
+            />
+            <View
+              style={[
+                styles.fabListBar,
+                { backgroundColor: theme.colors.primary },
+              ]}
+            />
           </View>
         </TouchableOpacity>
         <TouchableOpacity
@@ -713,8 +1007,14 @@ export const CommandCenterScreen: React.FC = () => {
               borderRadius: theme.borderRadius.full,
               ...(isDark ? theme.glow.primary : {}),
             },
-          ]}>
-          <Text style={[theme.typography.headlineMd, { color: theme.colors.onPrimary }]}>
+          ]}
+        >
+          <Text
+            style={[
+              theme.typography.headlineMd,
+              { color: theme.colors.onPrimary },
+            ]}
+          >
             +
           </Text>
         </TouchableOpacity>
@@ -733,141 +1033,263 @@ interface ProjectWorkspaceCardProps {
   onFiles: () => void;
   onTerminal: () => void;
   onAgent: () => void;
+  activeProject?: boolean;
 }
 
-const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(({
-  project,
-  device,
-  sessions,
-  files,
-  scan,
-  onOpen,
-  onFiles,
-  onTerminal,
-  onAgent,
-}) => {
-  const { theme, isDark } = useTheme();
-  const activeSessions = sessions.filter(item =>
-    ['running', 'testing', 'waiting_approval', 'preview_ready'].includes(
-      item.status,
-    ),
-  );
-  const modifiedFiles = files.filter(item =>
-    ['modified', 'added', 'deleted'].includes(item.status),
-  );
-  const deviceOnline = device?.status === 'online';
+const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
+  ({
+    project,
+    device,
+    sessions,
+    files,
+    scan,
+    onOpen,
+    onFiles,
+    onTerminal,
+    onAgent,
+    activeProject = false,
+  }) => {
+    const { theme, isDark } = useTheme();
+    const activeSessions = sessions.filter(item =>
+      ['running', 'testing', 'waiting_approval', 'preview_ready'].includes(
+        item.status,
+      ),
+    );
+    const modifiedFiles = files.filter(item =>
+      ['modified', 'added', 'deleted'].includes(item.status),
+    );
+    const deviceOnline = device?.status === 'online';
 
-  return (
-    <TouchableOpacity activeOpacity={0.78} onPress={onOpen}>
-      <GlassPanel style={styles.projectWorkspaceCard}>
-        <View style={styles.projectTop}>
-          <IconBadge name="project" tone="primary" size={44} iconSize={22} />
-          <View style={styles.projectCopy}>
-            <Text
-              numberOfLines={1}
-              style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-              {project.name}
-            </Text>
-            <Text
-              numberOfLines={1}
-              style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-              {scan?.path ?? device?.authorizedDirectories[0] ?? project.branch}
-            </Text>
+    if (activeProject) {
+      return (
+        <TouchableOpacity activeOpacity={0.78} onPress={onOpen}>
+          <GlassPanel style={styles.activeProjectCard}>
+            <IconBadge name="project" tone="primary" size={38} iconSize={19} />
+            <View style={styles.activeProjectCopy}>
+              <Text
+                numberOfLines={1}
+                style={[
+                  theme.typography.titleMd,
+                  { color: theme.colors.onSurface },
+                ]}
+              >
+                {project.name}
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={[
+                  theme.typography.codeSm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
+                {scan?.path ?? project.path ?? project.branch}
+              </Text>
+              <View style={styles.activeProjectMeta}>
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    theme.typography.labelSm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {sessions.length} sessions
+                </Text>
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    theme.typography.labelSm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {modifiedFiles.length} changed
+                </Text>
+              </View>
+            </View>
+            <StatusChip
+              label={project.status.toUpperCase()}
+              type={
+                project.status === 'active'
+                  ? 'success'
+                  : project.status === 'error'
+                  ? 'error'
+                  : 'neutral'
+              }
+            />
+          </GlassPanel>
+        </TouchableOpacity>
+      );
+    }
+
+    return (
+      <TouchableOpacity activeOpacity={0.78} onPress={onOpen}>
+        <GlassPanel style={styles.projectWorkspaceCard}>
+          <View style={styles.projectTop}>
+            <IconBadge name="project" tone="primary" size={44} iconSize={22} />
+            <View style={styles.projectCopy}>
+              <Text
+                numberOfLines={1}
+                style={[
+                  theme.typography.titleMd,
+                  { color: theme.colors.onSurface },
+                ]}
+              >
+                {project.name}
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={[
+                  theme.typography.codeSm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
+                {scan?.path ??
+                  device?.authorizedDirectories[0] ??
+                  project.branch}
+              </Text>
+            </View>
+            <StatusChip
+              label={project.status.toUpperCase()}
+              type={
+                project.status === 'active'
+                  ? 'success'
+                  : project.status === 'error'
+                  ? 'error'
+                  : 'neutral'
+              }
+            />
           </View>
-          <StatusChip
-            label={project.status.toUpperCase()}
-            type={
-              project.status === 'active'
-                ? 'success'
-                : project.status === 'error'
-                ? 'error'
-                : 'neutral'
-            }
-          />
-        </View>
-        <View
-          style={[
-            styles.deviceRow,
-            {
-              backgroundColor: isDark
-                ? 'rgba(255,255,255,0.04)'
-                : theme.colors.surfaceContainerLow,
-            },
-          ]}>
-          <IconBadge
-            name="device"
-            tone={deviceOnline ? 'secondary' : 'neutral'}
-            size={26}
-            iconSize={14}
-          />
-          <Text
-            numberOfLines={1}
-            style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant, flex: 1 }]}>
-            {device?.name ?? '未绑定设备'} · {device?.os ?? 'unknown'}
-          </Text>
           <View
             style={[
-              styles.deviceStateDot,
-              { backgroundColor: deviceOnline ? theme.colors.secondary : theme.colors.onSurfaceVariant },
+              styles.deviceRow,
+              {
+                backgroundColor: isDark
+                  ? 'rgba(255,255,255,0.04)'
+                  : theme.colors.surfaceContainerLow,
+              },
             ]}
-          />
-          <Text
-            style={[
-              theme.typography.labelSm,
-              { color: deviceOnline ? theme.colors.secondary : theme.colors.onSurfaceVariant },
-            ]}>
-            {deviceOnline ? '在线' : '离线'}
-          </Text>
-        </View>
-        <View style={styles.projectVisualRow}>
-          <ProjectMetric icon="code" value={`${files.length}`} label="Files" />
-          <ProjectMetric icon="agent" value={`${activeSessions.length}`} label="Agents" />
-          <ProjectMetric icon="git" value={`${modifiedFiles.length}`} label="Changed" />
-        </View>
-        <View style={styles.projectMetaRow}>
-          <View
-            style={[
-              styles.metaPill,
-              {
-                backgroundColor: isDark
-                  ? 'rgba(255,255,255,0.05)'
-                  : theme.colors.surfaceContainer,
-              },
-            ]}>
-            <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-              {project.language}
-            </Text>
-          </View>
-          <View
-            style={[
-              styles.metaPill,
-              {
-                backgroundColor: isDark
-                  ? 'rgba(255,255,255,0.05)'
-                  : theme.colors.surfaceContainer,
-              },
-            ]}>
+          >
+            <IconBadge
+              name="device"
+              tone={deviceOnline ? 'secondary' : 'neutral'}
+              size={26}
+              iconSize={14}
+            />
             <Text
               numberOfLines={1}
-              style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-              {project.branch}
+              style={[
+                theme.typography.labelSm,
+                { color: theme.colors.onSurfaceVariant, flex: 1 },
+              ]}
+            >
+              {device?.name ?? '未绑定设备'} · {device?.os ?? 'unknown'}
+            </Text>
+            <View
+              style={[
+                styles.deviceStateDot,
+                {
+                  backgroundColor: deviceOnline
+                    ? theme.colors.secondary
+                    : theme.colors.onSurfaceVariant,
+                },
+              ]}
+            />
+            <Text
+              style={[
+                theme.typography.labelSm,
+                {
+                  color: deviceOnline
+                    ? theme.colors.secondary
+                    : theme.colors.onSurfaceVariant,
+                },
+              ]}
+            >
+              {deviceOnline ? '在线' : '离线'}
             </Text>
           </View>
-        </View>
-        <View style={styles.projectActions}>
-          <ProjectAction label="Files" icon="code" onPress={onFiles} />
-          <ProjectAction label="Term" icon="terminal" onPress={onTerminal} disabled={!device} />
-          <ProjectAction label="+ 新对话" icon="plus" onPress={onAgent} emphasize />
-        </View>
-      </GlassPanel>
-    </TouchableOpacity>
-  );
-}, (prev, next) =>
-  prev.project === next.project &&
-  prev.device === next.device &&
-  prev.sessions === next.sessions &&
-  prev.files === next.files &&
-  prev.scan === next.scan,
+          <View style={styles.projectVisualRow}>
+            <ProjectMetric
+              icon="code"
+              value={`${files.length}`}
+              label="Files"
+            />
+            <ProjectMetric
+              icon="agent"
+              value={`${activeSessions.length}`}
+              label="Agents"
+            />
+            <ProjectMetric
+              icon="git"
+              value={`${modifiedFiles.length}`}
+              label="Changed"
+            />
+          </View>
+          <View style={styles.projectMetaRow}>
+            <View
+              style={[
+                styles.metaPill,
+                {
+                  backgroundColor: isDark
+                    ? 'rgba(255,255,255,0.05)'
+                    : theme.colors.surfaceContainer,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  theme.typography.labelSm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
+                {project.language}
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.metaPill,
+                {
+                  backgroundColor: isDark
+                    ? 'rgba(255,255,255,0.05)'
+                    : theme.colors.surfaceContainer,
+                },
+              ]}
+            >
+              <Text
+                numberOfLines={1}
+                style={[
+                  theme.typography.labelSm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
+                {project.branch}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.projectActions}>
+            <ProjectAction label="Files" icon="code" onPress={onFiles} />
+            <ProjectAction
+              label="Term"
+              icon="terminal"
+              onPress={onTerminal}
+              disabled={!device}
+            />
+            <ProjectAction
+              label="+ 新对话"
+              icon="plus"
+              onPress={onAgent}
+              emphasize
+            />
+          </View>
+        </GlassPanel>
+      </TouchableOpacity>
+    );
+  },
+  (prev, next) =>
+    prev.project === next.project &&
+    prev.device === next.device &&
+    prev.sessions === next.sessions &&
+    prev.files === next.files &&
+    prev.scan === next.scan &&
+    prev.activeProject === next.activeProject,
 );
 
 interface ProjectMetricProps {
@@ -905,14 +1327,18 @@ const ServerStatusCapsule: React.FC<ServerStatusCapsuleProps> = ({
         styles.serverCapsule,
         {
           borderColor: `${color}66`,
-          backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : theme.colors.surfaceContainerLow,
+          backgroundColor: isDark
+            ? 'rgba(255,255,255,0.06)'
+            : theme.colors.surfaceContainerLow,
         },
-      ]}>
+      ]}
+    >
       <View style={styles.serverCapsuleHeader}>
         <View style={[styles.serverStatusOrb, { backgroundColor: color }]} />
         <Text
           numberOfLines={1}
-          style={[theme.typography.codeSm, styles.serverStatusText, { color }]}>
+          style={[theme.typography.codeSm, styles.serverStatusText, { color }]}
+        >
           {label.toUpperCase()}
         </Text>
         <View style={styles.serverSignal}>
@@ -923,7 +1349,8 @@ const ServerStatusCapsule: React.FC<ServerStatusCapsuleProps> = ({
                 styles.serverSignalBar,
                 {
                   height: 5 + index * 3,
-                  backgroundColor: index < signalLevel ? color : theme.colors.outlineVariant,
+                  backgroundColor:
+                    index < signalLevel ? color : theme.colors.outlineVariant,
                 },
               ]}
             />
@@ -932,14 +1359,23 @@ const ServerStatusCapsule: React.FC<ServerStatusCapsuleProps> = ({
       </View>
       <Text
         numberOfLines={1}
-        style={[theme.typography.labelSm, styles.serverMetaText, { color: theme.colors.onSurfaceVariant }]}>
+        style={[
+          theme.typography.labelSm,
+          styles.serverMetaText,
+          { color: theme.colors.onSurfaceVariant },
+        ]}
+      >
         {onlineDevices}/{totalDevices || 0} online · {activeRuns} live
       </Text>
     </View>
   );
 };
 
-const ProjectMetric: React.FC<ProjectMetricProps> = ({ icon, value, label }) => {
+const ProjectMetric: React.FC<ProjectMetricProps> = ({
+  icon,
+  value,
+  label,
+}) => {
   const { theme, isDark } = useTheme();
 
   return (
@@ -951,13 +1387,26 @@ const ProjectMetric: React.FC<ProjectMetricProps> = ({ icon, value, label }) => 
             ? 'rgba(255,255,255,0.05)'
             : theme.colors.surfaceContainer,
         },
-      ]}>
-      <IconBadge name={icon} tone={icon === 'agent' ? 'secondary' : 'primary'} size={32} iconSize={16} />
+      ]}
+    >
+      <IconBadge
+        name={icon}
+        tone={icon === 'agent' ? 'secondary' : 'primary'}
+        size={32}
+        iconSize={16}
+      />
       <View>
-        <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+        <Text
+          style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}
+        >
           {value}
         </Text>
-        <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+        <Text
+          style={[
+            theme.typography.labelSm,
+            { color: theme.colors.onSurfaceVariant },
+          ]}
+        >
           {label}
         </Text>
       </View>
@@ -990,12 +1439,15 @@ const ProjectAction: React.FC<ProjectActionProps> = ({
       style={[
         styles.projectAction,
         {
-          borderColor: emphasize ? theme.colors.primary : theme.colors.outlineVariant,
+          borderColor: emphasize
+            ? theme.colors.primary
+            : theme.colors.outlineVariant,
           borderRadius: theme.borderRadius.full,
           backgroundColor: emphasize ? theme.colors.primary : 'transparent',
           opacity: disabled ? 0.45 : 1,
         },
-      ]}>
+      ]}
+    >
       <IconBadge
         name={icon}
         tone={emphasize ? 'primary' : 'primary'}
@@ -1007,7 +1459,8 @@ const ProjectAction: React.FC<ProjectActionProps> = ({
         style={[
           theme.typography.codeSm,
           { color: emphasize ? theme.colors.onPrimary : theme.colors.primary },
-        ]}>
+        ]}
+      >
         {label}
       </Text>
     </TouchableOpacity>
@@ -1073,19 +1526,21 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
   realtimeCard: {
-    padding: 12,
-    marginBottom: 12,
+    minHeight: 40,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    marginBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   realtimeIconWrap: {
-    width: 38,
+    width: 28,
     alignItems: 'center',
   },
   realtimeCopy: {
     flex: 1,
-    gap: 2,
+    minWidth: 0,
   },
   emptyAgentCard: {
     minHeight: 92,
@@ -1112,6 +1567,23 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 10,
     gap: 12,
+  },
+  activeProjectCard: {
+    minHeight: 70,
+    padding: 10,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  activeProjectCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  activeProjectMeta: {
+    flexDirection: 'row',
+    gap: 10,
   },
   projectTop: {
     flexDirection: 'row',
@@ -1218,24 +1690,31 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   eventFeedCard: {
-    padding: 12,
-    marginBottom: 10,
+    minHeight: 64,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 9,
   },
   eventFeedIconWrap: {
-    width: 42,
+    width: 44,
     alignItems: 'center',
+    gap: 2,
+  },
+  eventFeedTime: {
+    fontSize: 10,
+    textAlign: 'center',
   },
   eventFeedCopy: {
     flex: 1,
-    gap: 3,
+    minWidth: 0,
+    gap: 2,
   },
-  eventFeedMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
+  moreLink: {
+    minWidth: 48,
+    flexShrink: 0,
+    textAlign: 'right',
   },
 });

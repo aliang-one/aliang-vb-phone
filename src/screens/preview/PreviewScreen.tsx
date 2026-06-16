@@ -11,6 +11,7 @@ import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type PreviewRoute = RouteProp<RootStackParamList, 'Preview'>;
@@ -33,6 +34,13 @@ export const PreviewScreen: React.FC = () => {
   const device = session
     ? devices.find(item => item.id === session.deviceId)
     : undefined;
+  const displayTitle = formatVibeSessionTitle(
+    session?.title ?? 'Remote preview',
+    {
+      directory: session?.directory,
+      projectName: project?.name,
+    },
+  );
 
   return (
     <SafeAreaWrapper>
@@ -41,7 +49,10 @@ export const PreviewScreen: React.FC = () => {
         subtitle={project?.name ?? preview.targetUrl}
         onBack={navigation.goBack}
       />
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+      >
         <GlassPanel glowColor="primary" style={styles.browserFrame}>
           <View style={styles.browserTop}>
             <View style={styles.dotRow}>
@@ -50,8 +61,12 @@ export const PreviewScreen: React.FC = () => {
               <View style={[styles.dot, { backgroundColor: '#2ff801' }]} />
             </View>
             <Text
-              style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}
-              numberOfLines={1}>
+              style={[
+                theme.typography.codeSm,
+                { color: theme.colors.onSurfaceVariant },
+              ]}
+              numberOfLines={1}
+            >
               {preview.shortUrl}
             </Text>
           </View>
@@ -63,8 +78,14 @@ export const PreviewScreen: React.FC = () => {
                   ? 'rgba(0,0,0,0.35)'
                   : theme.colors.surfaceContainer,
               },
-            ]}>
-            <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
+            ]}
+          >
+            <Text
+              style={[
+                theme.typography.labelCaps,
+                { color: theme.colors.primary },
+              ]}
+            >
               LIVE PORT {preview.port}
             </Text>
             <Text
@@ -72,21 +93,25 @@ export const PreviewScreen: React.FC = () => {
                 theme.typography.headlineMd,
                 { color: theme.colors.onSurface },
                 styles.previewTitle,
-              ]}>
-              {session?.title ?? 'Remote preview'}
+              ]}
+            >
+              {displayTitle}
             </Text>
             <Text
               style={[
                 theme.typography.bodySm,
                 { color: theme.colors.onSurfaceVariant },
                 styles.previewCopy,
-              ]}>
+              ]}
+            >
               {session?.currentStep ?? preview.targetUrl}
             </Text>
             <View style={styles.placeholderScreen}>
               <View style={styles.placeholderHeader} />
               <View style={styles.placeholderRow} />
-              <View style={[styles.placeholderRow, styles.placeholderRowShort]} />
+              <View
+                style={[styles.placeholderRow, styles.placeholderRowShort]}
+              />
               <View style={styles.placeholderGrid}>
                 <View style={styles.placeholderTile} />
                 <View style={styles.placeholderTile} />
@@ -100,7 +125,8 @@ export const PreviewScreen: React.FC = () => {
             theme.typography.labelCaps,
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
-          ]}>
+          ]}
+        >
           LINK DETAILS
         </Text>
         <GlassPanel style={styles.detailPanel}>
@@ -118,20 +144,36 @@ export const PreviewScreen: React.FC = () => {
             theme.typography.labelCaps,
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
-          ]}>
+          ]}
+        >
           SOURCE
         </Text>
         <GlassPanel style={styles.sourcePanel}>
           <View style={styles.sourceRow}>
-            <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+            <Text
+              style={[
+                theme.typography.bodyMd,
+                { color: theme.colors.onSurface },
+              ]}
+            >
               Device
             </Text>
-            <StatusChip label={device?.status.toUpperCase() ?? 'UNKNOWN'} type="info" />
+            <StatusChip
+              label={device?.status.toUpperCase() ?? 'UNKNOWN'}
+              type="info"
+            />
           </View>
-          <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+          <Text
+            style={[
+              theme.typography.codeSm,
+              { color: theme.colors.onSurfaceVariant },
+            ]}
+          >
             {device?.name ?? 'Unknown device'}
           </Text>
-          <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+          <Text
+            style={[theme.typography.codeSm, { color: theme.colors.primary }]}
+          >
             {session?.branch ?? 'preview branch'}
           </Text>
         </GlassPanel>
@@ -143,7 +185,12 @@ export const PreviewScreen: React.FC = () => {
             variant="primary"
             style={styles.action}
           />
-          <GlowButton title="REVOKE" onPress={() => {}} variant="outline" style={styles.action} />
+          <GlowButton
+            title="REVOKE"
+            onPress={() => {}}
+            variant="outline"
+            style={styles.action}
+          />
         </View>
       </ScrollView>
     </SafeAreaWrapper>
@@ -160,12 +207,18 @@ const DetailRow: React.FC<DetailRowProps> = ({ label, value }) => {
 
   return (
     <View style={styles.detailRow}>
-      <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+      <Text
+        style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}
+      >
         {label}
       </Text>
       <Text
-        style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}
-        numberOfLines={1}>
+        style={[
+          theme.typography.codeSm,
+          { color: theme.colors.onSurfaceVariant },
+        ]}
+        numberOfLines={1}
+      >
         {value}
       </Text>
     </View>

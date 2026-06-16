@@ -15,7 +15,10 @@ import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
-import { vibeStatusLabel, vibeStatusType } from '../../components/vibecoding/status';
+import {
+  vibeStatusLabel,
+  vibeStatusType,
+} from '../../components/vibecoding/status';
 import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useTheme } from '../../theme/useTheme';
@@ -26,6 +29,7 @@ import {
 import { IconBadge } from '../../components/visual/IconBadge';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type AgentSessionsRoute = RouteProp<RootStackParamList, 'AgentSessions'>;
@@ -45,9 +49,15 @@ export const AgentSessionsScreen: React.FC = () => {
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
   const vibeRuns = useControlCenterStore(state => state.vibeRuns);
-  const startAgentSession = useControlCenterStore(state => state.startAgentSession);
-  const pauseAgentSession = useControlCenterStore(state => state.pauseAgentSession);
-  const resumeAgentSession = useControlCenterStore(state => state.resumeAgentSession);
+  const startAgentSession = useControlCenterStore(
+    state => state.startAgentSession,
+  );
+  const pauseAgentSession = useControlCenterStore(
+    state => state.pauseAgentSession,
+  );
+  const resumeAgentSession = useControlCenterStore(
+    state => state.resumeAgentSession,
+  );
   const terminateAgentSession = useControlCenterStore(
     state => state.terminateAgentSession,
   );
@@ -70,7 +80,8 @@ export const AgentSessionsScreen: React.FC = () => {
   const availableProjects = useMemo(
     () =>
       projects.filter(
-        item => item.deviceId === device?.id || device?.projectIds.includes(item.id),
+        item =>
+          item.deviceId === device?.id || device?.projectIds.includes(item.id),
       ),
     [device?.id, device?.projectIds, projects],
   );
@@ -89,7 +100,9 @@ export const AgentSessionsScreen: React.FC = () => {
     .filter(run =>
       route.params?.projectId ? run.projectId === route.params.projectId : true,
     )
-    .sort((left, right) => (right.lastActivityMs ?? 0) - (left.lastActivityMs ?? 0));
+    .sort(
+      (left, right) => (right.lastActivityMs ?? 0) - (left.lastActivityMs ?? 0),
+    );
   const agentList = useIncrementalList(devices, {
     initialCount: 8,
     step: 10,
@@ -103,7 +116,9 @@ export const AgentSessionsScreen: React.FC = () => {
   const sessionList = useIncrementalList(sessions, {
     initialCount: 8,
     step: 10,
-    resetKey: `${route.params?.deviceId ?? 'all'}:${route.params?.projectId ?? 'all'}`,
+    resetKey: `${route.params?.deviceId ?? 'all'}:${
+      route.params?.projectId ?? 'all'
+    }`,
   });
 
   const handleStart = async () => {
@@ -138,49 +153,69 @@ export const AgentSessionsScreen: React.FC = () => {
         subtitle="REGISTERED DESKTOP AGENTS"
         onBack={navigation.goBack}
       />
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+      >
         <Text
           style={[
             theme.typography.labelCaps,
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitleFirst,
-          ]}>
+          ]}
+        >
           REGISTERED AGENTS
         </Text>
         <View style={styles.summary}>
           <StatusChip label={`${devices.length} AGENTS`} type="info" />
           <StatusChip
-            label={`${devices.filter(item => item.status === 'online').length} ONLINE`}
+            label={`${
+              devices.filter(item => item.status === 'online').length
+            } ONLINE`}
             type="success"
           />
           <StatusChip
-            label={`${devices.filter(item => item.aiControlEnabled).length} AI READY`}
+            label={`${
+              devices.filter(item => item.aiControlEnabled).length
+            } AI READY`}
             type="info"
           />
         </View>
         {devices.length ? (
           <>
-          {agentList.visibleItems.map(item => (
-            <DeviceControlCard
-              key={item.id}
-              device={item}
-              onPress={() => navigation.navigate('DeviceDetail', { deviceId: item.id })}
+            {agentList.visibleItems.map(item => (
+              <DeviceControlCard
+                key={item.id}
+                device={item}
+                onPress={() =>
+                  navigation.navigate('DeviceDetail', { deviceId: item.id })
+                }
+              />
+            ))}
+            <LoadMoreRow
+              visibleCount={agentList.visibleCount}
+              totalCount={agentList.totalCount}
+              onPress={agentList.showMore}
             />
-          ))}
-          <LoadMoreRow
-            visibleCount={agentList.visibleCount}
-            totalCount={agentList.totalCount}
-            onPress={agentList.showMore}
-          />
           </>
         ) : (
           <GlassPanel style={styles.emptyAgentCard}>
             <IconBadge name="agent" tone="neutral" size={42} iconSize={21} />
             <View style={styles.emptyAgentCopy}>
-              <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+              <Text
+                style={[
+                  theme.typography.titleMd,
+                  { color: theme.colors.onSurface },
+                ]}
+              >
                 暂无注册 Agent
               </Text>
-              <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+              <Text
+                style={[
+                  theme.typography.bodySm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
                 打开电脑端 Agent 后，它会自动注册到平台并出现在这里。
               </Text>
             </View>
@@ -189,13 +224,26 @@ export const AgentSessionsScreen: React.FC = () => {
 
         <GlassPanel style={styles.createPanel}>
           <View style={styles.panelHeader}>
-            <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+            <Text
+              style={[
+                theme.typography.titleMd,
+                { color: theme.colors.onSurface },
+              ]}
+            >
               Start VibeCoding Task
             </Text>
-            <StatusChip label={providerLabels[provider].toUpperCase()} type="info" />
+            <StatusChip
+              label={providerLabels[provider].toUpperCase()}
+              type="info"
+            />
           </View>
 
-          <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
+          <Text
+            style={[
+              theme.typography.labelCaps,
+              { color: theme.colors.onSurfaceVariant },
+            ]}
+          >
             PROVIDER
           </Text>
           <View style={styles.segmentRow}>
@@ -218,8 +266,9 @@ export const AgentSessionsScreen: React.FC = () => {
                           ? 'rgba(0, 209, 255, 0.12)'
                           : 'rgba(0, 81, 174, 0.08)'
                         : 'transparent',
-                  },
-                ]}>
+                    },
+                  ]}
+                >
                   <IconBadge
                     name={item === 'codex' ? 'code' : 'agent'}
                     tone={active ? 'primary' : 'neutral'}
@@ -235,7 +284,8 @@ export const AgentSessionsScreen: React.FC = () => {
                           ? theme.colors.primary
                           : theme.colors.onSurfaceVariant,
                       },
-                    ]}>
+                    ]}
+                  >
                     {providerLabels[item]}
                   </Text>
                 </TouchableOpacity>
@@ -243,13 +293,19 @@ export const AgentSessionsScreen: React.FC = () => {
             })}
           </View>
 
-          <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
+          <Text
+            style={[
+              theme.typography.labelCaps,
+              { color: theme.colors.onSurfaceVariant },
+            ]}
+          >
             TARGET AGENT
           </Text>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.selectorRow}>
+            contentContainerStyle={styles.selectorRow}
+          >
             {agentList.visibleItems.map(item => {
               const active = item.id === device?.id;
               return (
@@ -265,7 +321,8 @@ export const AgentSessionsScreen: React.FC = () => {
                         ? theme.colors.primary
                         : theme.colors.outlineVariant,
                     },
-                  ]}>
+                  ]}
+                >
                   <Text
                     numberOfLines={1}
                     style={[
@@ -275,7 +332,8 @@ export const AgentSessionsScreen: React.FC = () => {
                           ? theme.colors.primary
                           : theme.colors.onSurfaceVariant,
                       },
-                    ]}>
+                    ]}
+                  >
                     {item.name}
                   </Text>
                 </TouchableOpacity>
@@ -288,66 +346,87 @@ export const AgentSessionsScreen: React.FC = () => {
             onPress={agentList.showMore}
           />
 
-          <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
+          <Text
+            style={[
+              theme.typography.labelCaps,
+              { color: theme.colors.onSurfaceVariant },
+            ]}
+          >
             PROJECT
           </Text>
           <View style={styles.projectGrid}>
             {availableProjects.length ? (
               <>
-              {projectOptionList.visibleItems.map(item => {
-              const active = item.id === project?.id;
-              return (
-                <TouchableOpacity
-                  key={item.id}
-                  activeOpacity={0.75}
-                  onPress={() => setProjectId(item.id)}
-                  style={[
-                    styles.projectOption,
-                    {
-                      borderRadius: theme.borderRadius.md,
-                      borderColor: active
-                        ? theme.colors.primary
-                        : theme.colors.outlineVariant,
-                      backgroundColor: active
-                        ? isDark
-                          ? 'rgba(0, 209, 255, 0.1)'
-                          : 'rgba(0, 81, 174, 0.08)'
-                        : 'transparent',
-                    },
-                  ]}>
-                  <Text
-                    numberOfLines={1}
-                    style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                    {item.name}
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      theme.typography.codeSm,
-                      { color: theme.colors.onSurfaceVariant },
-                    ]}>
-	                    {item.branch}
-	                  </Text>
-	                </TouchableOpacity>
-	              );
-	            })}
-              <LoadMoreRow
-                visibleCount={projectOptionList.visibleCount}
-                totalCount={projectOptionList.totalCount}
-                onPress={projectOptionList.showMore}
-              />
+                {projectOptionList.visibleItems.map(item => {
+                  const active = item.id === project?.id;
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      activeOpacity={0.75}
+                      onPress={() => setProjectId(item.id)}
+                      style={[
+                        styles.projectOption,
+                        {
+                          borderRadius: theme.borderRadius.md,
+                          borderColor: active
+                            ? theme.colors.primary
+                            : theme.colors.outlineVariant,
+                          backgroundColor: active
+                            ? isDark
+                              ? 'rgba(0, 209, 255, 0.1)'
+                              : 'rgba(0, 81, 174, 0.08)'
+                            : 'transparent',
+                        },
+                      ]}
+                    >
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          theme.typography.titleMd,
+                          { color: theme.colors.onSurface },
+                        ]}
+                      >
+                        {item.name}
+                      </Text>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          theme.typography.codeSm,
+                          { color: theme.colors.onSurfaceVariant },
+                        ]}
+                      >
+                        {item.branch}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <LoadMoreRow
+                  visibleCount={projectOptionList.visibleCount}
+                  totalCount={projectOptionList.totalCount}
+                  onPress={projectOptionList.showMore}
+                />
               </>
             ) : (
-	              <View style={styles.inlineEmptyPanel}>
-	                <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-	                  No project reported
-	                </Text>
-	                <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-	                  The Agent session can still run in {directory}.
-	                </Text>
-	              </View>
-	            )}
-	          </View>
+              <View style={styles.inlineEmptyPanel}>
+                <Text
+                  style={[
+                    theme.typography.titleMd,
+                    { color: theme.colors.onSurface },
+                  ]}
+                >
+                  No project reported
+                </Text>
+                <Text
+                  style={[
+                    theme.typography.bodySm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  The Agent session can still run in {directory}.
+                </Text>
+              </View>
+            )}
+          </View>
 
           <TextInput
             value={objective}
@@ -370,32 +449,49 @@ export const AgentSessionsScreen: React.FC = () => {
           />
           <GlowButton
             title={`START ${providerLabels[provider].toUpperCase()}`}
-	            onPress={handleStart}
-	            disabled={!device || !objective.trim()}
-	          />
-	        </GlassPanel>
+            onPress={handleStart}
+            disabled={!device || !objective.trim()}
+          />
+        </GlassPanel>
 
         <Text
           style={[
             theme.typography.labelCaps,
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
-          ]}>
+          ]}
+        >
           ACTIVE AND RECENT SESSIONS
         </Text>
 
         {sessionList.visibleItems.map(session => {
-          const sessionProject = projects.find(item => item.id === session.projectId);
-          const sessionDevice = devices.find(item => item.id === session.deviceId);
+          const sessionProject = projects.find(
+            item => item.id === session.projectId,
+          );
+          const sessionDevice = devices.find(
+            item => item.id === session.deviceId,
+          );
+          const displayTitle = formatVibeSessionTitle(session.title, {
+            directory: session.directory,
+            projectName: sessionProject?.name,
+          });
           const budgetLabel = session.projectBudget
-            ? `${session.projectBudget.currencySymbol}${session.projectBudget.used.toFixed(1)} / ${session.projectBudget.currencySymbol}${session.projectBudget.limit}`
+            ? `${
+                session.projectBudget.currencySymbol
+              }${session.projectBudget.used.toFixed(1)} / ${
+                session.projectBudget.currencySymbol
+              }${session.projectBudget.limit}`
             : '';
 
           return (
             <GlassPanel key={session.id} style={styles.sessionCard}>
               <View style={styles.sessionTop}>
-                  <IconBadge
-                    name={session.model.toLowerCase().includes('codex') ? 'code' : 'agent'}
+                <IconBadge
+                  name={
+                    session.model.toLowerCase().includes('codex')
+                      ? 'code'
+                      : 'agent'
+                  }
                   tone={session.status === 'paused' ? 'neutral' : 'primary'}
                   size={40}
                   iconSize={20}
@@ -403,16 +499,22 @@ export const AgentSessionsScreen: React.FC = () => {
                 <View style={styles.titleBlock}>
                   <Text
                     numberOfLines={1}
-                    style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                    {session.title}
+                    style={[
+                      theme.typography.titleMd,
+                      { color: theme.colors.onSurface },
+                    ]}
+                  >
+                    {displayTitle}
                   </Text>
                   <Text
                     numberOfLines={1}
                     style={[
                       theme.typography.codeSm,
                       { color: theme.colors.onSurfaceVariant },
-                    ]}>
-                    {session.model} / {sessionProject?.name ?? session.projectId} /{' '}
+                    ]}
+                  >
+                    {session.model} /{' '}
+                    {sessionProject?.name ?? session.projectId} /{' '}
                     {sessionDevice?.name ?? session.deviceId}
                   </Text>
                 </View>
@@ -423,7 +525,11 @@ export const AgentSessionsScreen: React.FC = () => {
               </View>
               <Text
                 numberOfLines={2}
-                style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+                style={[
+                  theme.typography.bodySm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
                 {session.currentStep}
               </Text>
               {session.projectBudget ? (
@@ -435,9 +541,20 @@ export const AgentSessionsScreen: React.FC = () => {
                         ? 'rgba(55, 214, 145, 0.1)'
                         : 'rgba(0, 120, 84, 0.08)',
                     },
-                  ]}>
-                  <IconBadge name="quota" tone="secondary" size={24} iconSize={13} />
-                  <Text style={[theme.typography.labelSm, { color: theme.colors.secondary }]}>
+                  ]}
+                >
+                  <IconBadge
+                    name="quota"
+                    tone="secondary"
+                    size={24}
+                    iconSize={13}
+                  />
+                  <Text
+                    style={[
+                      theme.typography.labelSm,
+                      { color: theme.colors.secondary },
+                    ]}
+                  >
                     Codex budget {budgetLabel}
                   </Text>
                 </View>
@@ -495,14 +612,18 @@ const Action: React.FC<ActionProps> = ({ label, onPress, danger }) => {
         styles.actionButton,
         {
           borderRadius: theme.borderRadius.full,
-          borderColor: danger ? theme.colors.error : theme.colors.outlineVariant,
+          borderColor: danger
+            ? theme.colors.error
+            : theme.colors.outlineVariant,
         },
-      ]}>
+      ]}
+    >
       <Text
         style={[
           theme.typography.codeSm,
           { color: danger ? theme.colors.error : theme.colors.primary },
-        ]}>
+        ]}
+      >
         {label}
       </Text>
     </TouchableOpacity>
@@ -637,4 +758,3 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
 });
-

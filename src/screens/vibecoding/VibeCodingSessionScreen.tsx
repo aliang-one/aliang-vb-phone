@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   View,
   Text,
@@ -22,7 +28,10 @@ import { ProgressBar } from '../../components/shared/ProgressBar';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { SuggestionActionBar } from '../../components/vibecoding/SuggestionActionBar';
 import { TranscriptMessageList } from '../../components/vibecoding/TranscriptMessageList';
-import { vibeStatusLabel, vibeStatusType } from '../../components/vibecoding/status';
+import {
+  vibeStatusLabel,
+  vibeStatusType,
+} from '../../components/vibecoding/status';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import { IconBadge, IconName } from '../../components/visual/IconBadge';
@@ -30,6 +39,7 @@ import type { AgentBudgetInfo } from '../../data/platformModels';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { buildDisplayTranscript } from '../../utils/agentTranscript';
+import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type SessionRoute = RouteProp<RootStackParamList, 'VibeCodingSession'>;
@@ -40,6 +50,7 @@ type SessionRoute = RouteProp<RootStackParamList, 'VibeCodingSession'>;
 // times per second (leading edge) plus one trailing update when scrolling stops.
 const SCROLL_THROTTLE_MS = 80;
 const DETAIL_LOAD_TIMEOUT_MS = 10000;
+const SCROLL_FOLLOW_THRESHOLD = 180;
 
 const eventIcon: Record<string, IconName> = {
   command: 'terminal',
@@ -52,7 +63,9 @@ const eventIcon: Record<string, IconName> = {
 
 const formatBudget = (budget?: AgentBudgetInfo) =>
   budget
-    ? `${budget.currencySymbol}${budget.used.toFixed(2)} / ${budget.currencySymbol}${budget.limit}`
+    ? `${budget.currencySymbol}${budget.used.toFixed(2)} / ${
+        budget.currencySymbol
+      }${budget.limit}`
     : '';
 
 export const VibeCodingSessionScreen: React.FC = () => {
@@ -63,10 +76,18 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const projects = useControlCenterStore(state => state.projects);
   const devices = useControlCenterStore(state => state.devices);
   const previewLinks = useControlCenterStore(state => state.previewLinks);
-  const loadAgentSessionDetail = useControlCenterStore(state => state.loadAgentSessionDetail);
-  const appendAgentMessage = useControlCenterStore(state => state.appendAgentMessage);
-  const pauseAgentSession = useControlCenterStore(state => state.pauseAgentSession);
-  const resumeAgentSession = useControlCenterStore(state => state.resumeAgentSession);
+  const loadAgentSessionDetail = useControlCenterStore(
+    state => state.loadAgentSessionDetail,
+  );
+  const appendAgentMessage = useControlCenterStore(
+    state => state.appendAgentMessage,
+  );
+  const pauseAgentSession = useControlCenterStore(
+    state => state.pauseAgentSession,
+  );
+  const resumeAgentSession = useControlCenterStore(
+    state => state.resumeAgentSession,
+  );
   const terminateAgentSession = useControlCenterStore(
     state => state.terminateAgentSession,
   );
@@ -80,14 +101,34 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const [detailError, setDetailError] = useState('');
   const [scrollY, setScrollY] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
+  const scrollViewRef = useRef<ScrollView | null>(null);
   const scrollYRef = useRef(0);
+  const followTailRef = useRef(true);
+  const pendingScrollToEndRef = useRef(false);
   const lastScrollSetRef = useRef(0);
-  const trailingScrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const trailingScrollTimer = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const scrollToEndTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendLockRef = useRef<string | null>(null);
   const [sendingMessage, setSendingMessage] = useState(false);
 
+  const scheduleScrollToEnd = useCallback((animated = true) => {
+    if (scrollToEndTimer.current) {
+      clearTimeout(scrollToEndTimer.current);
+    }
+    scrollToEndTimer.current = setTimeout(() => {
+      scrollToEndTimer.current = null;
+      scrollViewRef.current?.scrollToEnd({ animated });
+    }, 0);
+  }, []);
+
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const y = event.nativeEvent.contentOffset.y;
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const y = contentOffset.y;
+    followTailRef.current =
+      contentSize.height - (y + layoutMeasurement.height) <=
+      SCROLL_FOLLOW_THRESHOLD;
     scrollYRef.current = y;
     const now = Date.now();
     if (now - lastScrollSetRef.current >= SCROLL_THROTTLE_MS) {
@@ -106,7 +147,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
     }
   };
   const [conversationTop, setConversationTop] = useState(0);
-  const [messageLayouts, setMessageLayouts] = useState<Record<string, { top: number; height: number }>>({});
+  const [messageLayouts, setMessageLayouts] = useState<
+    Record<string, { top: number; height: number }>
+  >({});
   const [timelineExpanded, setTimelineExpanded] = useState(false);
   const targetSessionId = session?.id ?? route.params.sessionId;
   const transcript = useMemo(
@@ -114,9 +157,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
     [session?.transcript],
   );
   const visibleSessionEvents = useMemo(
-    () => (session?.events ?? []).filter(
-      event => event.title !== 'Imported local vibe session',
-    ),
+    () =>
+      (session?.events ?? []).filter(
+        event => event.title !== 'Imported local vibe session',
+      ),
     [session?.events],
   );
   const transcriptList = useIncrementalList(transcript, {
@@ -133,7 +177,23 @@ export const VibeCodingSessionScreen: React.FC = () => {
   });
   const visibleTranscript = transcriptList.visibleItems;
   const visibleAgentEvents = agentEventList.visibleItems;
-  const latestAgentEvent = visibleSessionEvents[visibleSessionEvents.length - 1];
+  const latestAgentEvent =
+    visibleSessionEvents[visibleSessionEvents.length - 1];
+  const latestTranscriptKey = useMemo(() => {
+    const latest = session?.transcript[session.transcript.length - 1];
+    if (!latest) return `${targetSessionId}:empty`;
+    return [
+      targetSessionId,
+      session?.transcript.length ?? 0,
+      latest.id,
+      latest.role,
+      latest.content.length,
+    ].join(':');
+  }, [session?.transcript, targetSessionId]);
+  const visibleTranscriptLayoutKey = useMemo(
+    () => visibleTranscript.map(message => message.id).join('|'),
+    [visibleTranscript],
+  );
   const visibleTranscriptIds = useMemo(
     () => new Set(visibleTranscript.map(message => message.id)),
     [visibleTranscript],
@@ -143,7 +203,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
     const fallbackId = visibleTranscript[visibleTranscript.length - 1]?.id;
     if (!viewportHeight) return fallbackId;
 
-    const focusY = scrollY + Math.min(Math.max(viewportHeight * 0.46, 160), 380);
+    const focusY =
+      scrollY + Math.min(Math.max(viewportHeight * 0.46, 160), 380);
     let activeId = fallbackId;
     let activeDistance = Number.POSITIVE_INFINITY;
 
@@ -160,22 +221,50 @@ export const VibeCodingSessionScreen: React.FC = () => {
     }
 
     return activeId;
-  }, [messageLayouts, scrollY, viewportHeight, visibleTranscript, conversationTop]);
+  }, [
+    messageLayouts,
+    scrollY,
+    viewportHeight,
+    visibleTranscript,
+    conversationTop,
+  ]);
   const conversationRailItems = useMemo(() => {
     if (!transcript.length) return [];
     const maxMarks = 16;
-    const step = Math.max(1, Math.ceil(transcript.length / maxMarks));
-    return transcript
-      .filter((message, index) => index % step === 0 || index === transcript.length - 1 || message.id === activeRailMessageId)
-      .map(message => ({
-        message,
-        active: message.id === activeRailMessageId,
-        visible: visibleTranscriptIds.has(message.id),
-      }));
+    const activeIndex = activeRailMessageId
+      ? transcript.findIndex(message => message.id === activeRailMessageId)
+      : -1;
+    const indices = new Set<number>();
+
+    if (transcript.length <= maxMarks) {
+      transcript.forEach((_, index) => indices.add(index));
+    } else {
+      const slots = activeIndex >= 0 ? maxMarks - 1 : maxMarks;
+      const denominator = Math.max(1, slots - 1);
+      for (let index = 0; index < slots; index += 1) {
+        indices.add(
+          Math.round((index * (transcript.length - 1)) / denominator),
+        );
+      }
+      if (activeIndex >= 0) indices.add(activeIndex);
+    }
+
+    return Array.from(indices)
+      .sort((left, right) => left - right)
+      .map(index => {
+        const message = transcript[index];
+        return {
+          message,
+          active: message.id === activeRailMessageId,
+          visible: visibleTranscriptIds.has(message.id),
+        };
+      });
   }, [activeRailMessageId, transcript, visibleTranscriptIds]);
 
   const hasDetail = Boolean(
-    session?.detailLoadedAt || session?.transcript.length || session?.events.length,
+    session?.detailLoadedAt ||
+      session?.transcript.length ||
+      session?.events.length,
   );
 
   useEffect(() => {
@@ -197,7 +286,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
     void Promise.race([detailLoad, timeout])
       .catch(error => {
         if (!cancelled) {
-          setDetailError(error instanceof Error ? error.message : 'Failed to load session detail.');
+          setDetailError(
+            error instanceof Error
+              ? error.message
+              : 'Failed to load session detail.',
+          );
         }
       })
       .finally(() => {
@@ -209,38 +302,95 @@ export const VibeCodingSessionScreen: React.FC = () => {
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [detailError, hasDetail, loadAgentSessionDetail, loadingDetail, targetSessionId]);
+  }, [
+    detailError,
+    hasDetail,
+    loadAgentSessionDetail,
+    loadingDetail,
+    targetSessionId,
+  ]);
 
   useEffect(() => {
-    setMessageLayouts({});
-  }, [targetSessionId, visibleTranscript.length]);
+    const visibleIds = new Set(visibleTranscript.map(message => message.id));
+    setMessageLayouts(current => {
+      const next: Record<string, { top: number; height: number }> = {};
+      for (const [messageId, layout] of Object.entries(current)) {
+        if (visibleIds.has(messageId)) {
+          next[messageId] = layout;
+        }
+      }
+      if (Object.keys(next).length === Object.keys(current).length) {
+        return current;
+      }
+      return next;
+    });
+  }, [targetSessionId, visibleTranscript, visibleTranscriptLayoutKey]);
 
   useEffect(() => {
     setTimelineExpanded(false);
+    setScrollY(0);
+    scrollYRef.current = 0;
+    followTailRef.current = true;
+    pendingScrollToEndRef.current = true;
   }, [targetSessionId]);
 
-  const handleTranscriptMessageLayout = (messageId: string, y: number, height: number) => {
+  useEffect(() => {
+    if (!latestTranscriptKey) return;
+    if (pendingScrollToEndRef.current || followTailRef.current) {
+      pendingScrollToEndRef.current = false;
+      scheduleScrollToEnd(true);
+    }
+  }, [latestTranscriptKey, scheduleScrollToEnd]);
+
+  useEffect(
+    () => () => {
+      if (trailingScrollTimer.current) {
+        clearTimeout(trailingScrollTimer.current);
+      }
+      if (scrollToEndTimer.current) {
+        clearTimeout(scrollToEndTimer.current);
+      }
+    },
+    [],
+  );
+
+  const handleTranscriptMessageLayout = (
+    messageId: string,
+    y: number,
+    height: number,
+  ) => {
     // Store the message's offset relative to the conversation container only.
     // `conversationTop` (the container's own offset within the scroll content) is
     // applied at calculation time so stale closure captures can't desync the rail.
     setMessageLayouts(current => {
       const existing = current[messageId];
-      if (existing && Math.abs(existing.top - y) < 1 && Math.abs(existing.height - height) < 1) {
+      if (
+        existing &&
+        Math.abs(existing.top - y) < 1 &&
+        Math.abs(existing.height - height) < 1
+      ) {
         return current;
       }
       return { ...current, [messageId]: { top: y, height } };
     });
   };
 
-  const appendUserMessage = async (content: string, messageMode: 'voice' | 'text') => {
+  const appendUserMessage = async (
+    content: string,
+    messageMode: 'voice' | 'text',
+  ) => {
     const normalizedContent = content.trim();
     if (!session || !normalizedContent || sendLockRef.current) return false;
     const sendKey = `${session.id}:${messageMode}:${normalizedContent}`;
     sendLockRef.current = sendKey;
+    pendingScrollToEndRef.current = true;
     setSendingMessage(true);
     try {
       await appendAgentMessage(session.id, normalizedContent, messageMode);
       return true;
+    } catch (error) {
+      pendingScrollToEndRef.current = false;
+      throw error;
     } finally {
       if (sendLockRef.current === sendKey) {
         sendLockRef.current = null;
@@ -293,10 +443,19 @@ export const VibeCodingSessionScreen: React.FC = () => {
   if (!session) {
     return (
       <SafeAreaWrapper>
-        <TopAppBar title="VibeCoding" subtitle="LOADING" onBack={navigation.goBack} />
+        <TopAppBar
+          title="VibeCoding"
+          subtitle="LOADING"
+          onBack={navigation.goBack}
+        />
         <View style={styles.loadingState}>
           {loadingDetail && <ActivityIndicator color={theme.colors.primary} />}
-          <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+          <Text
+            style={[
+              theme.typography.bodySm,
+              { color: theme.colors.onSurfaceVariant },
+            ]}
+          >
             {detailError || '正在加载会话...'}
           </Text>
         </View>
@@ -309,6 +468,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const preview = previewLinks.find(item => item.id === session.previewId);
   const budgetLabel = formatBudget(session.projectBudget);
   const isCodexSession = session.model.toLowerCase().includes('codex');
+  const displayTitle = formatVibeSessionTitle(session.title, {
+    directory: session.directory,
+    projectName: project?.name,
+  });
   const progress = Math.min(
     100,
     (session.elapsedMinutes / session.timeLimitMinutes) * 100,
@@ -317,51 +480,95 @@ export const VibeCodingSessionScreen: React.FC = () => {
   return (
     <SafeAreaWrapper>
       <TopAppBar
-        title={project?.name ?? session.title}
+        title={project?.name ?? displayTitle}
         subtitle={device?.name ?? 'VIBECODING SESSION'}
         onBack={navigation.goBack}
         rightAction={
-            <StatusChip
+          <StatusChip
             label={vibeStatusLabel[session.status]}
             type={vibeStatusType[session.status]}
           />
         }
       />
       <ScrollView
+        ref={scrollViewRef}
         style={styles.scrollView}
         contentContainerStyle={styles.content}
         scrollEventThrottle={16}
-        onLayout={event => setViewportHeight(event.nativeEvent.layout.height)}
-        onScroll={handleScroll}>
+        onLayout={event => {
+          const height = event.nativeEvent.layout.height;
+          setViewportHeight(height);
+        }}
+        onMomentumScrollEnd={handleScroll}
+        onContentSizeChange={(_, height) => {
+          if (pendingScrollToEndRef.current || followTailRef.current) {
+            pendingScrollToEndRef.current = false;
+            scheduleScrollToEnd(true);
+          }
+        }}
+        onScroll={handleScroll}
+      >
         <GlassPanel style={styles.sessionHeader}>
           <View style={styles.headerTop}>
             <IconBadge
               name={isCodexSession ? 'code' : 'agent'}
-              tone={session.status === 'waiting_approval' ? 'tertiary' : 'primary'}
+              tone={
+                session.status === 'waiting_approval' ? 'tertiary' : 'primary'
+              }
               size={48}
               iconSize={24}
               filled={session.status === 'running'}
             />
             <View style={styles.headerTitle}>
-              <Text style={[theme.typography.titleLg, { color: theme.colors.onSurface }]}>
-                {session.title}
+              <Text
+                style={[
+                  theme.typography.titleLg,
+                  { color: theme.colors.onSurface },
+                ]}
+              >
+                {displayTitle}
               </Text>
               <Text
-                style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}
-                numberOfLines={1}>
+                style={[
+                  theme.typography.codeSm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+                numberOfLines={1}
+              >
                 {session.directory}
               </Text>
             </View>
-            <StatusChip label={session.risk.toUpperCase()} type={session.risk === 'high' ? 'error' : session.risk === 'medium' ? 'warning' : 'success'} />
+            <StatusChip
+              label={session.risk.toUpperCase()}
+              type={
+                session.risk === 'high'
+                  ? 'error'
+                  : session.risk === 'medium'
+                  ? 'warning'
+                  : 'success'
+              }
+            />
           </View>
-          <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+          <Text
+            style={[
+              theme.typography.bodySm,
+              { color: theme.colors.onSurfaceVariant },
+            ]}
+          >
             {session.objective}
           </Text>
           <View style={styles.progressMeta}>
-            <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+            <Text
+              style={[theme.typography.codeSm, { color: theme.colors.primary }]}
+            >
               Runtime
             </Text>
-            <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+            <Text
+              style={[
+                theme.typography.codeSm,
+                { color: theme.colors.onSurfaceVariant },
+              ]}
+            >
               {session.elapsedMinutes}m / {session.timeLimitMinutes}m
             </Text>
           </View>
@@ -375,17 +582,29 @@ export const VibeCodingSessionScreen: React.FC = () => {
                     ? 'rgba(55, 214, 145, 0.1)'
                     : 'rgba(0, 120, 84, 0.08)',
                 },
-              ]}>
-              <IconBadge name="quota" tone="secondary" size={30} iconSize={15} />
+              ]}
+            >
+              <IconBadge
+                name="quota"
+                tone="secondary"
+                size={30}
+                iconSize={15}
+              />
               <View style={styles.budgetCopy}>
-                <Text style={[theme.typography.labelCaps, { color: theme.colors.secondary }]}>
+                <Text
+                  style={[
+                    theme.typography.labelCaps,
+                    { color: theme.colors.secondary },
+                  ]}
+                >
                   CODEX BUDGET
                 </Text>
                 <Text
                   style={[
                     theme.typography.labelSm,
                     { color: theme.colors.onSurfaceVariant },
-                  ]}>
+                  ]}
+                >
                   {budgetLabel} · updated {session.projectBudget.updatedAt}
                 </Text>
               </View>
@@ -422,18 +641,36 @@ export const VibeCodingSessionScreen: React.FC = () => {
         {preview && (
           <TouchableOpacity
             activeOpacity={0.75}
-            onPress={() => navigation.navigate('Preview', { previewId: preview.id })}>
+            onPress={() =>
+              navigation.navigate('Preview', { previewId: preview.id })
+            }
+          >
             <GlassPanel glowColor="primary" style={styles.previewCard}>
               <View style={styles.previewTop}>
-                <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+                <Text
+                  style={[
+                    theme.typography.titleMd,
+                    { color: theme.colors.onSurface },
+                  ]}
+                >
                   Preview ready
                 </Text>
                 <StatusChip label={`${preview.port}`} type="info" />
               </View>
-              <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+              <Text
+                style={[
+                  theme.typography.codeSm,
+                  { color: theme.colors.primary },
+                ]}
+              >
                 {preview.shortUrl}
               </Text>
-              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+              <Text
+                style={[
+                  theme.typography.labelSm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
                 {preview.access.toUpperCase()} / expires in {preview.expiresIn}
               </Text>
             </GlassPanel>
@@ -442,19 +679,26 @@ export const VibeCodingSessionScreen: React.FC = () => {
 
         <View
           style={styles.conversationSection}
-          onLayout={event => setConversationTop(event.nativeEvent.layout.y)}>
+          onLayout={event => setConversationTop(event.nativeEvent.layout.y)}
+        >
           <View style={styles.chatSectionHeader}>
             <View style={styles.chatHeaderLeft}>
               <IconBadge name="chat" tone="primary" size={34} iconSize={17} />
               <View>
-                <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
+                <Text
+                  style={[
+                    theme.typography.labelCaps,
+                    { color: theme.colors.primary },
+                  ]}
+                >
                   CONVERSATION
                 </Text>
                 <Text
                   style={[
                     theme.typography.labelSm,
                     { color: theme.colors.onSurfaceVariant },
-                  ]}>
+                  ]}
+                >
                   {transcript.length
                     ? `${visibleTranscript.length}/${transcript.length} grouped`
                     : `${session.transcriptCount ?? 0} messages`}
@@ -463,170 +707,230 @@ export const VibeCodingSessionScreen: React.FC = () => {
             </View>
             <StatusChip label={mode.toUpperCase()} type="info" />
           </View>
-        {transcript.length ? (
-          <>
-            {loadingDetail || detailError ? (
-              <GlassPanel style={styles.detailInlinePanel}>
-                {loadingDetail ? <ActivityIndicator color={theme.colors.primary} size="small" /> : null}
-                <Text
-                  style={[
-                    theme.typography.bodySm,
-                    { color: detailError ? theme.colors.tertiary : theme.colors.onSurfaceVariant },
-                  ]}>
-                  {detailError || '正在同步更早的会话内容...'}
-                </Text>
-              </GlassPanel>
-            ) : null}
-            <LoadMoreRow
-              visibleCount={transcriptList.visibleCount}
-              totalCount={transcriptList.totalCount}
-              onPress={transcriptList.showMore}
-              label="LOAD EARLIER MESSAGES"
-            />
-            <TranscriptMessageList
-              items={visibleTranscript}
-              onMessageLayout={handleTranscriptMessageLayout}
-            />
-          </>
-        ) : loadingDetail ? (
-          <GlassPanel style={styles.detailStatePanel}>
-            <ActivityIndicator color={theme.colors.primary} />
-            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-              正在拉取完整会话内容...
-            </Text>
-          </GlassPanel>
-        ) : detailError ? (
-          <GlassPanel style={styles.detailStatePanel}>
-            <Text style={[theme.typography.bodySm, { color: theme.colors.error }]}>
-              {detailError}
-            </Text>
-          </GlassPanel>
-        ) : (
-          <GlassPanel style={styles.detailStatePanel}>
-            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-              暂无会话记录
-            </Text>
-          </GlassPanel>
-        )}
-        {latestAgentEvent ? (
-          <View style={styles.timelineDock}>
-            {timelineExpanded ? (
-              <GlassPanel style={styles.timelinePopover}>
-                <View style={styles.timelinePopoverHeader}>
-                  <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
-                    AGENT TIMELINE
+          {transcript.length ? (
+            <>
+              {loadingDetail || detailError ? (
+                <GlassPanel style={styles.detailInlinePanel}>
+                  {loadingDetail ? (
+                    <ActivityIndicator
+                      color={theme.colors.primary}
+                      size="small"
+                    />
+                  ) : null}
+                  <Text
+                    style={[
+                      theme.typography.bodySm,
+                      {
+                        color: detailError
+                          ? theme.colors.tertiary
+                          : theme.colors.onSurfaceVariant,
+                      },
+                    ]}
+                  >
+                    {detailError || '正在同步更早的会话内容...'}
                   </Text>
-                  <TouchableOpacity onPress={() => setTimelineExpanded(false)}>
-                    <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-                      CLOSE
+                </GlassPanel>
+              ) : null}
+              <LoadMoreRow
+                visibleCount={transcriptList.visibleCount}
+                totalCount={transcriptList.totalCount}
+                onPress={transcriptList.showMore}
+                label="LOAD EARLIER MESSAGES"
+              />
+              <TranscriptMessageList
+                items={visibleTranscript}
+                onMessageLayout={handleTranscriptMessageLayout}
+              />
+            </>
+          ) : loadingDetail ? (
+            <GlassPanel style={styles.detailStatePanel}>
+              <ActivityIndicator color={theme.colors.primary} />
+              <Text
+                style={[
+                  theme.typography.bodySm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
+                正在拉取完整会话内容...
+              </Text>
+            </GlassPanel>
+          ) : detailError ? (
+            <GlassPanel style={styles.detailStatePanel}>
+              <Text
+                style={[theme.typography.bodySm, { color: theme.colors.error }]}
+              >
+                {detailError}
+              </Text>
+            </GlassPanel>
+          ) : (
+            <GlassPanel style={styles.detailStatePanel}>
+              <Text
+                style={[
+                  theme.typography.bodySm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
+                暂无会话记录
+              </Text>
+            </GlassPanel>
+          )}
+          {latestAgentEvent ? (
+            <View style={styles.timelineDock}>
+              {timelineExpanded ? (
+                <GlassPanel style={styles.timelinePopover}>
+                  <View style={styles.timelinePopoverHeader}>
+                    <Text
+                      style={[
+                        theme.typography.labelCaps,
+                        { color: theme.colors.primary },
+                      ]}
+                    >
+                      AGENT TIMELINE
                     </Text>
-                  </TouchableOpacity>
-                </View>
-                <LoadMoreRow
-                  visibleCount={agentEventList.visibleCount}
-                  totalCount={agentEventList.totalCount}
-                  onPress={agentEventList.showMore}
-                  label="LOAD EARLIER EVENTS"
-                />
-                {visibleAgentEvents.map((event, index) => (
-                  <View key={event.id}>
-                    <View style={styles.eventRow}>
-                      <IconBadge
-                        name={eventIcon[event.type] ?? 'event'}
-                        tone={
-                          event.status === 'failed'
-                            ? 'error'
-                            : event.status === 'waiting'
-                            ? 'tertiary'
-                            : 'primary'
-                        }
-                        size={30}
-                        iconSize={15}
-                      />
-                      <View style={styles.eventText}>
-                        <Text style={[theme.typography.labelSm, { color: theme.colors.onSurface }]}>
-                          {event.title}
-                        </Text>
-                        <Text
-                          style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}
-                          numberOfLines={2}>
-                          {event.detail}
-                        </Text>
-                        <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-                          {event.timestamp}
-                        </Text>
-                      </View>
-                      <StatusChip
-                        label={event.status.toUpperCase()}
-                        type={
-                          event.status === 'done'
-                            ? 'success'
-                            : event.status === 'failed'
-                            ? 'error'
-                            : event.status === 'running'
-                            ? 'info'
-                            : 'warning'
-                        }
-                      />
-                    </View>
-                    {index < visibleAgentEvents.length - 1 && <View style={styles.divider} />}
+                    <TouchableOpacity
+                      onPress={() => setTimelineExpanded(false)}
+                    >
+                      <Text
+                        style={[
+                          theme.typography.codeSm,
+                          { color: theme.colors.onSurfaceVariant },
+                        ]}
+                      >
+                        CLOSE
+                      </Text>
+                    </TouchableOpacity>
                   </View>
-                ))}
-              </GlassPanel>
-            ) : null}
-            <TouchableOpacity
-              activeOpacity={0.82}
-              onPress={() => setTimelineExpanded(current => !current)}
-              style={[
-                styles.timelineBadge,
-                {
-                  backgroundColor: isDark
-                    ? 'rgba(17, 20, 23, 0.9)'
-                    : 'rgba(255, 255, 255, 0.95)',
-                  borderColor: isDark
-                    ? 'rgba(255, 255, 255, 0.1)'
-                    : theme.colors.outlineVariant,
-                },
-              ]}>
-              <IconBadge
-                name={eventIcon[latestAgentEvent.type] ?? 'event'}
-                tone={
-                  latestAgentEvent.status === 'failed'
-                    ? 'error'
-                    : latestAgentEvent.status === 'waiting'
-                    ? 'tertiary'
-                    : 'primary'
-                }
-                size={28}
-                iconSize={14}
-              />
-              <View style={styles.timelineBadgeText}>
-                <Text
-                  style={[theme.typography.labelSm, { color: theme.colors.onSurface }]}
-                  numberOfLines={1}>
-                  {latestAgentEvent.title}
-                </Text>
-                <Text
-                  style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}
-                  numberOfLines={1}>
-                  {visibleSessionEvents.length} events · {latestAgentEvent.timestamp}
-                </Text>
-              </View>
-              <StatusChip
-                label={latestAgentEvent.status.toUpperCase()}
-                type={
-                  latestAgentEvent.status === 'done'
-                    ? 'success'
-                    : latestAgentEvent.status === 'failed'
-                    ? 'error'
-                    : latestAgentEvent.status === 'running'
-                    ? 'info'
-                    : 'warning'
-                }
-              />
-            </TouchableOpacity>
-          </View>
-        ) : null}
+                  <LoadMoreRow
+                    visibleCount={agentEventList.visibleCount}
+                    totalCount={agentEventList.totalCount}
+                    onPress={agentEventList.showMore}
+                    label="LOAD EARLIER EVENTS"
+                  />
+                  {visibleAgentEvents.map((event, index) => (
+                    <View key={event.id}>
+                      <View style={styles.eventRow}>
+                        <IconBadge
+                          name={eventIcon[event.type] ?? 'event'}
+                          tone={
+                            event.status === 'failed'
+                              ? 'error'
+                              : event.status === 'waiting'
+                              ? 'tertiary'
+                              : 'primary'
+                          }
+                          size={30}
+                          iconSize={15}
+                        />
+                        <View style={styles.eventText}>
+                          <Text
+                            style={[
+                              theme.typography.labelSm,
+                              { color: theme.colors.onSurface },
+                            ]}
+                          >
+                            {event.title}
+                          </Text>
+                          <Text
+                            style={[
+                              theme.typography.bodySm,
+                              { color: theme.colors.onSurfaceVariant },
+                            ]}
+                            numberOfLines={2}
+                          >
+                            {event.detail}
+                          </Text>
+                          <Text
+                            style={[
+                              theme.typography.codeSm,
+                              { color: theme.colors.onSurfaceVariant },
+                            ]}
+                          >
+                            {event.timestamp}
+                          </Text>
+                        </View>
+                        <StatusChip
+                          label={event.status.toUpperCase()}
+                          type={
+                            event.status === 'done'
+                              ? 'success'
+                              : event.status === 'failed'
+                              ? 'error'
+                              : event.status === 'running'
+                              ? 'info'
+                              : 'warning'
+                          }
+                        />
+                      </View>
+                      {index < visibleAgentEvents.length - 1 && (
+                        <View style={styles.divider} />
+                      )}
+                    </View>
+                  ))}
+                </GlassPanel>
+              ) : null}
+              <TouchableOpacity
+                activeOpacity={0.82}
+                onPress={() => setTimelineExpanded(current => !current)}
+                style={[
+                  styles.timelineBadge,
+                  {
+                    backgroundColor: isDark
+                      ? 'rgba(17, 20, 23, 0.9)'
+                      : 'rgba(255, 255, 255, 0.95)',
+                    borderColor: isDark
+                      ? 'rgba(255, 255, 255, 0.1)'
+                      : theme.colors.outlineVariant,
+                  },
+                ]}
+              >
+                <IconBadge
+                  name={eventIcon[latestAgentEvent.type] ?? 'event'}
+                  tone={
+                    latestAgentEvent.status === 'failed'
+                      ? 'error'
+                      : latestAgentEvent.status === 'waiting'
+                      ? 'tertiary'
+                      : 'primary'
+                  }
+                  size={28}
+                  iconSize={14}
+                />
+                <View style={styles.timelineBadgeText}>
+                  <Text
+                    style={[
+                      theme.typography.labelSm,
+                      { color: theme.colors.onSurface },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {latestAgentEvent.title}
+                  </Text>
+                  <Text
+                    style={[
+                      theme.typography.codeSm,
+                      { color: theme.colors.onSurfaceVariant },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {visibleSessionEvents.length} events ·{' '}
+                    {latestAgentEvent.timestamp}
+                  </Text>
+                </View>
+                <StatusChip
+                  label={latestAgentEvent.status.toUpperCase()}
+                  type={
+                    latestAgentEvent.status === 'done'
+                      ? 'success'
+                      : latestAgentEvent.status === 'failed'
+                      ? 'error'
+                      : latestAgentEvent.status === 'running'
+                      ? 'info'
+                      : 'warning'
+                  }
+                />
+              </TouchableOpacity>
+            </View>
+          ) : null}
         </View>
       </ScrollView>
 
@@ -642,7 +946,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
               ? 'rgba(255, 255, 255, 0.08)'
               : theme.colors.outlineVariant,
           },
-        ]}>
+        ]}
+      >
         {conversationRailItems.map(({ message, active, visible }) => {
           const color =
             message.role === 'user'
@@ -678,7 +983,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
               ? 'rgba(255, 255, 255, 0.06)'
               : theme.colors.outlineVariant,
           },
-        ]}>
+        ]}
+      >
         <SuggestionActionBar
           suggestions={session.suggestions}
           onSelect={suggestion => {
@@ -697,8 +1003,19 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 backgroundColor:
                   mode === 'voice' ? 'rgba(0, 209, 255, 0.12)' : 'transparent',
               },
-            ]}>
-            <Text style={[theme.typography.labelSm, { color: mode === 'voice' ? theme.colors.primary : theme.colors.onSurfaceVariant }]}>
+            ]}
+          >
+            <Text
+              style={[
+                theme.typography.labelSm,
+                {
+                  color:
+                    mode === 'voice'
+                      ? theme.colors.primary
+                      : theme.colors.onSurfaceVariant,
+                },
+              ]}
+            >
               VOICE
             </Text>
           </TouchableOpacity>
@@ -711,8 +1028,19 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 backgroundColor:
                   mode === 'text' ? 'rgba(0, 209, 255, 0.12)' : 'transparent',
               },
-            ]}>
-            <Text style={[theme.typography.labelSm, { color: mode === 'text' ? theme.colors.primary : theme.colors.onSurfaceVariant }]}>
+            ]}
+          >
+            <Text
+              style={[
+                theme.typography.labelSm,
+                {
+                  color:
+                    mode === 'text'
+                      ? theme.colors.primary
+                      : theme.colors.onSurfaceVariant,
+                },
+              ]}
+            >
               TEXT
             </Text>
           </TouchableOpacity>
@@ -722,13 +1050,21 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 session.status === 'paused'
                   ? resumeAgentSession(session.id)
                   : pauseAgentSession(session.id)
-              }>
-              <Text style={[theme.typography.codeSm, { color: theme.colors.tertiary }]}>
+              }
+            >
+              <Text
+                style={[
+                  theme.typography.codeSm,
+                  { color: theme.colors.tertiary },
+                ]}
+              >
                 {session.status === 'paused' ? 'RESUME' : 'PAUSE'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => terminateAgentSession(session.id)}>
-              <Text style={[theme.typography.codeSm, { color: theme.colors.error }]}>
+              <Text
+                style={[theme.typography.codeSm, { color: theme.colors.error }]}
+              >
                 END
               </Text>
             </TouchableOpacity>
@@ -755,7 +1091,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
                         : theme.colors.surfaceContainerLow,
                     },
                   ]}
-                  onPress={handleVoiceCapture}>
+                  onPress={handleVoiceCapture}
+                >
                   <View
                     style={[
                       styles.recordButton,
@@ -763,12 +1100,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
                         backgroundColor: theme.colors.primary,
                         ...(isDark ? theme.glow.primary : {}),
                       },
-                    ]}>
+                    ]}
+                  >
                     <View
                       style={[
                         styles.recordIconRing,
                         { borderColor: theme.colors.onPrimary },
-                      ]}>
+                      ]}
+                    >
                       <View
                         style={[
                           styles.recordIconDot,
@@ -781,10 +1120,20 @@ export const VibeCodingSessionScreen: React.FC = () => {
               </View>
             ) : (
               <GlassPanel style={styles.voiceDraft}>
-                <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
+                <Text
+                  style={[
+                    theme.typography.labelCaps,
+                    { color: theme.colors.primary },
+                  ]}
+                >
                   VOICE DRAFT
                 </Text>
-                <Text style={[theme.typography.bodySm, { color: theme.colors.onSurface }]}>
+                <Text
+                  style={[
+                    theme.typography.bodySm,
+                    { color: theme.colors.onSurface },
+                  ]}
+                >
                   {preparedPrompt || voiceDraft}
                 </Text>
                 <View style={styles.voiceActions}>
@@ -854,11 +1203,20 @@ export const VibeCodingSessionScreen: React.FC = () => {
                       ? 'rgba(255,255,255,0.08)'
                       : theme.colors.surfaceContainerHigh,
                 },
-              ]}>
+              ]}
+            >
               {sendingMessage ? (
-                <ActivityIndicator color={theme.colors.onPrimary} size="small" />
+                <ActivityIndicator
+                  color={theme.colors.onPrimary}
+                  size="small"
+                />
               ) : (
-                <Text style={[theme.typography.labelMd, { color: theme.colors.onPrimary }]}>
+                <Text
+                  style={[
+                    theme.typography.labelMd,
+                    { color: theme.colors.onPrimary },
+                  ]}
+                >
                   SEND
                 </Text>
               )}

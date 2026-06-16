@@ -108,16 +108,21 @@ export function getTerminalHtml(isDark: boolean): string {
         }));
       });
 
+      function decodeBase64Utf8(payload) {
+        try {
+          return decodeURIComponent(escape(atob(payload)));
+        } catch(e) {
+          return atob(payload);
+        }
+      }
+
       // RN → WebView: receive terminal output or commands
-      window.injectTerminalData = function(type, payload) {
+      window.injectTerminalData = function(type, payload, encoding) {
         try {
           if (type === 'output') {
-            var decoded;
-            try {
-              decoded = decodeURIComponent(escape(atob(payload)));
-            } catch(e) {
-              decoded = atob(payload);
-            }
+            var decoded = encoding === 'base64'
+              ? decodeBase64Utf8(payload)
+              : String(payload || '');
             term.write(decoded);
           } else if (type === 'setsize') {
             var size = JSON.parse(payload);

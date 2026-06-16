@@ -72,6 +72,30 @@ describe('applyDeltasToRuns', () => {
     expect(next[0].transcript[1].id).toBe('msg-B');
   });
 
+  it('does not append a new answer to an older assistant after a user follow-up', () => {
+    const base = run('s1', [
+      { id: 'msg-A', role: 'assistant', content: 'Old answer', timestamp: '09:58' },
+      { id: 'msg-user', role: 'user', content: 'Follow-up', timestamp: '09:59' },
+    ]);
+
+    const next = applyDeltasToRuns(
+      [base],
+      [{ sessionId: 's1', delta: 'New answer' }],
+      makeId,
+      nowLabel,
+    );
+
+    expect(next[0].transcript.map(item => item.content)).toEqual([
+      'Old answer',
+      'Follow-up',
+      'New answer',
+    ]);
+    expect(next[0].transcript[2]).toMatchObject({
+      id: 'generated-id',
+      role: 'assistant',
+    });
+  });
+
   it('keeps assistant deltas separate when they reuse the user message id', () => {
     const base = run('s1', [
       { id: 'msg-user', role: 'user', content: 'Please help', timestamp: '09:59' },

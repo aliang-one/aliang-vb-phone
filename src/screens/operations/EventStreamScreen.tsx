@@ -22,8 +22,22 @@ import { newestFirst } from '../../utils/timeSort';
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type EventStreamRoute = RouteProp<RootStackParamList, 'EventStream'>;
 
-const filters: Array<{ label: string; value: 'all' | UnifiedEventType }> = [
+type EventFilter = 'all' | 'conversation' | UnifiedEventType;
+
+const conversationEventTypes = new Set<UnifiedEventType>([
+  'agent.session.started',
+  'agent.session.updated',
+  'agent.session.paused',
+  'agent.session.resumed',
+  'agent.session.completed',
+  'agent.session.failed',
+  'agent.session.terminated',
+  'approval.requested',
+]);
+
+const filters: Array<{ label: string; value: EventFilter }> = [
   { label: 'ALL', value: 'all' },
+  { label: 'CONVO', value: 'conversation' },
   { label: 'TERM', value: 'terminal.output' },
   { label: 'AGENT', value: 'agent.delta' },
   { label: 'CMD', value: 'command.started' },
@@ -69,10 +83,16 @@ export const EventStreamScreen: React.FC = () => {
   const navigation = useNavigation<Navigation>();
   const route = useRoute<EventStreamRoute>();
   const events = useControlCenterStore(state => state.events);
-  const [filter, setFilter] = useState<'all' | UnifiedEventType>('all');
+  const [filter, setFilter] = useState<EventFilter>(
+    route.params?.scope === 'conversation' ? 'conversation' : 'all',
+  );
 
   const filtered = events.filter(item => {
-    const matchesType = filter === 'all' || item.type === filter;
+    const matchesType =
+      filter === 'all' ||
+      (filter === 'conversation'
+        ? conversationEventTypes.has(item.type)
+        : item.type === filter);
     const matchesDevice =
       !route.params?.deviceId || item.deviceId === route.params.deviceId;
     const matchesSession =

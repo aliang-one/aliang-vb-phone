@@ -283,13 +283,14 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       mode,
       content: normalizedContent,
       timestamp: new Date().toISOString(),
+      pending: true,
     };
     set(state => {
       let activeDeviceId = '';
       const vibeRuns = state.vibeRuns.map(run => {
         if (run.id !== sessionId) return run;
         activeDeviceId = run.deviceId;
-        const transcript = mergeAgentMessages(run.transcript, [optimisticMessage]);
+        const transcript = [...run.transcript, optimisticMessage];
         return {
           ...run,
           status: 'running' as VibeStatus,
@@ -319,20 +320,54 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       // carries the server's user message) merges into it instead of
       // rendering a duplicate.
       const serverMessageId = response.message_id;
-      if (serverMessageId && serverMessageId !== optimisticId) {
-        set(state => ({
-          vibeRuns: state.vibeRuns.map(run => {
-            if (run.id !== sessionId) return run;
-            const index = run.transcript.findIndex(item => item.id === optimisticId);
-            if (index === -1) return run;
-            const renamed = run.transcript[index];
-            if (renamed.role !== 'user') return run;
-            const transcript = run.transcript.slice();
-            transcript[index] = { ...renamed, id: serverMessageId };
-            return { ...run, transcript };
-          }),
-        }));
-      }
+      set(state => ({
+        vibeRuns: state.vibeRuns.map(run => {
+          if (run.id !== sessionId) return run;
+          const optimisticIndex = run.transcript.findIndex(
+            item => item.id === optimisticId,
+          );
+          if (optimisticIndex === -1) return run;
+
+          const serverIndex = serverMessageId
+            ? run.transcript.findIndex(item => item.id === serverMessageId)
+            : -1;
+          const optimistic = run.transcript[optimisticIndex];
+          if (optimistic.role !== 'user') return run;
+
+          if (serverMessageId && serverIndex >= 0) {
+            const transcript = run.transcript
+              .filter(item => item.id !== optimisticId)
+              .map(item =>
+                item.id === serverMessageId ? { ...item, pending: false } : item,
+              );
+            return {
+              ...run,
+              transcript,
+              transcriptCount: Math.max(run.transcriptCount ?? 0, transcript.length),
+              lastMessage:
+                run.lastMessage?.id === optimisticId
+                  ? transcript[transcript.length - 1]
+                  : run.lastMessage,
+            };
+          }
+
+          const confirmedMessage = {
+            ...optimistic,
+            id: serverMessageId || optimisticId,
+            pending: false,
+          };
+          const transcript = run.transcript.slice();
+          transcript[optimisticIndex] = confirmedMessage;
+          return {
+            ...run,
+            transcript,
+            lastMessage:
+              run.lastMessage?.id === optimisticId
+                ? confirmedMessage
+                : run.lastMessage,
+          };
+        }),
+      }));
     } catch (error) {
       // Rollback the optimistic bubble on failure so a failed send doesn't
       // leave a dangling "sent" message in the transcript.

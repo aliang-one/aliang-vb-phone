@@ -1,5 +1,12 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  RefreshControl,
+} from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../theme/useTheme';
@@ -9,13 +16,12 @@ import { SearchBar } from '../../components/input/SearchBar';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard';
-import {
-  VibeStatus,
-} from '../../data/platformModels';
+import { VibeStatus } from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -33,7 +39,9 @@ export const VibeCodingListScreen: React.FC = () => {
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
   const vibeRuns = useControlCenterStore(state => state.vibeRuns);
-  const refreshFromServer = useControlCenterStore(state => state.refreshFromServer);
+  const refreshFromServer = useControlCenterStore(
+    state => state.refreshFromServer,
+  );
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | VibeStatus>('all');
   const [refreshing, setRefreshing] = useState(false);
@@ -64,51 +72,64 @@ export const VibeCodingListScreen: React.FC = () => {
         tool.path,
         tool.description,
       ]),
-      ...device.history.flatMap(entry => [entry.tool, entry.path, entry.updated_at]),
-    ]);
-  });
-  const filtered = vibeRuns.filter(session => {
-    const project = projects.find(item => item.id === session.projectId);
-    const device = devices.find(item => item.id === session.deviceId);
-    const sessionMatchesQuery = matchesQuery([
-      session.id,
-      session.title,
-      session.objective,
-      session.model,
-      session.status,
-      session.directory,
-      session.branch,
-      session.currentStep,
-      session.risk,
-      session.previewId,
-      session.lastMessage?.content,
-      project?.id,
-      project?.name,
-      project?.path,
-      project?.branch,
-      project?.language,
-      project?.description,
-      project?.packageManager,
-      ...(project?.detectedPorts ?? []).map(String),
-      ...(project?.sourceTools ?? []),
-      device?.id,
-      device?.name,
-      device?.host,
-      device?.location,
-      device?.os,
-      device?.agentVersion,
-      ...(device?.authorizedDirectories ?? []),
-      ...(device?.tools ?? []).flatMap(tool => [
-        tool.id,
-        tool.name,
-        tool.command,
-        tool.path,
-        tool.description,
+      ...device.history.flatMap(entry => [
+        entry.tool,
+        entry.path,
+        entry.updated_at,
       ]),
     ]);
-    const matchesFilter = filter === 'all' || session.status === filter;
-    return sessionMatchesQuery && matchesFilter;
-  }).sort((left, right) => (right.lastActivityMs ?? 0) - (left.lastActivityMs ?? 0));
+  });
+  const filtered = vibeRuns
+    .filter(session => {
+      const project = projects.find(item => item.id === session.projectId);
+      const device = devices.find(item => item.id === session.deviceId);
+      const displayTitle = formatVibeSessionTitle(session.title, {
+        directory: session.directory,
+        projectName: project?.name,
+      });
+      const sessionMatchesQuery = matchesQuery([
+        session.id,
+        session.title,
+        displayTitle,
+        session.objective,
+        session.model,
+        session.status,
+        session.directory,
+        session.branch,
+        session.currentStep,
+        session.risk,
+        session.previewId,
+        session.lastMessage?.content,
+        project?.id,
+        project?.name,
+        project?.path,
+        project?.branch,
+        project?.language,
+        project?.description,
+        project?.packageManager,
+        ...(project?.detectedPorts ?? []).map(String),
+        ...(project?.sourceTools ?? []),
+        device?.id,
+        device?.name,
+        device?.host,
+        device?.location,
+        device?.os,
+        device?.agentVersion,
+        ...(device?.authorizedDirectories ?? []),
+        ...(device?.tools ?? []).flatMap(tool => [
+          tool.id,
+          tool.name,
+          tool.command,
+          tool.path,
+          tool.description,
+        ]),
+      ]);
+      const matchesFilter = filter === 'all' || session.status === filter;
+      return sessionMatchesQuery && matchesFilter;
+    })
+    .sort(
+      (left, right) => (right.lastActivityMs ?? 0) - (left.lastActivityMs ?? 0),
+    );
   const deviceList = useIncrementalList(filteredDevices, {
     initialCount: 8,
     step: 10,
@@ -136,15 +157,22 @@ export const VibeCodingListScreen: React.FC = () => {
         rightAction={
           <TouchableOpacity
             onPress={() => navigation.navigate('DeviceCameraScanner')}
-            style={styles.addButton}>
-            <Text style={[theme.typography.codeMd, { color: theme.colors.primary }]}>
+            style={styles.addButton}
+          >
+            <Text
+              style={[theme.typography.codeMd, { color: theme.colors.primary }]}
+            >
               +
             </Text>
           </TouchableOpacity>
         }
       />
       <View style={styles.searchContainer}>
-        <SearchBar value={query} onChangeText={setQuery} placeholder="Search agents, hosts, sessions..." />
+        <SearchBar
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Search agents, hosts, sessions..."
+        />
       </View>
       <ScrollView
         style={styles.scrollView}
@@ -156,15 +184,20 @@ export const VibeCodingListScreen: React.FC = () => {
             tintColor={theme.colors.primary}
             colors={[theme.colors.primary]}
           />
-        }>
+        }
+      >
         <View style={styles.summary}>
           <StatusChip label={`${devices.length} AGENTS`} type="info" />
           <StatusChip
-            label={`${devices.filter(item => item.status === 'online').length} ONLINE`}
+            label={`${
+              devices.filter(item => item.status === 'online').length
+            } ONLINE`}
             type="success"
           />
           <StatusChip
-            label={`${devices.filter(item => item.aiControlEnabled).length} AI READY`}
+            label={`${
+              devices.filter(item => item.aiControlEnabled).length
+            } AI READY`}
             type="info"
           />
         </View>
@@ -174,16 +207,19 @@ export const VibeCodingListScreen: React.FC = () => {
             theme.typography.labelCaps,
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
-          ]}>
+          ]}
+        >
           REGISTERED AGENTS
         </Text>
         {deviceList.visibleItems.map(device => (
-            <DeviceControlCard
-              key={device.id}
-              device={device}
-              onPress={() => navigation.navigate('DeviceDetail', { deviceId: device.id })}
-            />
-          ))}
+          <DeviceControlCard
+            key={device.id}
+            device={device}
+            onPress={() =>
+              navigation.navigate('DeviceDetail', { deviceId: device.id })
+            }
+          />
+        ))}
         <LoadMoreRow
           visibleCount={deviceList.visibleCount}
           totalCount={deviceList.totalCount}
@@ -195,13 +231,17 @@ export const VibeCodingListScreen: React.FC = () => {
             style={[
               theme.typography.labelCaps,
               { color: theme.colors.onSurfaceVariant },
-            ]}>
+            ]}
+          >
             VIBECODING SESSIONS
           </Text>
           <TouchableOpacity
             activeOpacity={0.75}
-            onPress={() => navigation.navigate('CreateVibeCoding', {})}>
-            <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+            onPress={() => navigation.navigate('CreateVibeCoding', {})}
+          >
+            <Text
+              style={[theme.typography.codeSm, { color: theme.colors.primary }]}
+            >
               NEW TASK
             </Text>
           </TouchableOpacity>
@@ -209,7 +249,8 @@ export const VibeCodingListScreen: React.FC = () => {
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filters}>
+          contentContainerStyle={styles.filters}
+        >
           {filters.map(item => {
             const active = filter === item.value;
             return (
@@ -229,7 +270,8 @@ export const VibeCodingListScreen: React.FC = () => {
                       ? theme.colors.primary
                       : theme.colors.outlineVariant,
                   },
-                ]}>
+                ]}
+              >
                 <Text
                   style={[
                     theme.typography.labelSm,
@@ -238,7 +280,8 @@ export const VibeCodingListScreen: React.FC = () => {
                         ? theme.colors.primary
                         : theme.colors.onSurfaceVariant,
                     },
-                  ]}>
+                  ]}
+                >
                   {item.label}
                 </Text>
               </TouchableOpacity>
@@ -249,7 +292,9 @@ export const VibeCodingListScreen: React.FC = () => {
         <View style={styles.summary}>
           <StatusChip label={`${filtered.length} SESSIONS`} type="info" />
           <StatusChip
-            label={`${filtered.filter(item => item.status === 'waiting_approval').length} APPROVAL`}
+            label={`${
+              filtered.filter(item => item.status === 'waiting_approval').length
+            } APPROVAL`}
             type="warning"
           />
           <StatusChip
@@ -265,7 +310,9 @@ export const VibeCodingListScreen: React.FC = () => {
             project={projects.find(project => project.id === session.projectId)}
             device={devices.find(device => device.id === session.deviceId)}
             onPress={() =>
-              navigation.navigate('VibeCodingSession', { sessionId: session.id })
+              navigation.navigate('VibeCodingSession', {
+                sessionId: session.id,
+              })
             }
           />
         ))}

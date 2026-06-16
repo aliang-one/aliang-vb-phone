@@ -67,13 +67,110 @@ describe('agentTranscript', () => {
       ),
     );
 
-    expect(segments).toHaveLength(3);
-    expect(segments[0]).toMatchObject({ kind: 'text', content: 'Here is the patch:' });
-    expect(segments[1]).toMatchObject({
-      kind: 'folded',
-      label: 'Code (ts) · 2 lines',
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({
+      kind: 'text',
+      content:
+        'Here is the patch:\n```ts\nconst answer = 42;\nexport default answer;\n```\nDone.',
     });
-    expect(segments[2]).toMatchObject({ kind: 'text', content: 'Done.' });
+    if (segments[0].kind !== 'text') throw new Error('Expected text segment');
+    expect(segments[0].blocks).toMatchObject([
+      { kind: 'paragraph' },
+      {
+        kind: 'code',
+        language: 'ts',
+        content: 'const answer = 42;\nexport default answer;',
+      },
+      { kind: 'paragraph' },
+    ]);
+  });
+
+  it('renders command tags as structured inline text and callouts', () => {
+    const segments = parseTranscriptSegments(
+      message(
+        '6',
+        'assistant',
+        'Run <command-name>npm test</command-name> <command-args>--watch</command-args> now.\n<command-message>**Checking** the app.</command-message>\n<local-command-caveat>Requires a local shell.</local-command-caveat>',
+      ),
+    );
+
+    expect(segments).toHaveLength(3);
+    expect(segments[0]).toMatchObject({
+      kind: 'text',
+      content: 'Run npm test --watch now.',
+    });
+    if (segments[0].kind !== 'text') throw new Error('Expected text segment');
+    expect(segments[0].blocks[0]).toMatchObject({
+      kind: 'paragraph',
+      children: [
+        { kind: 'text', content: 'Run ' },
+        { kind: 'commandName', content: 'npm test' },
+        { kind: 'text', content: ' ' },
+        { kind: 'commandArgs', content: '--watch' },
+        { kind: 'text', content: ' now.' },
+      ],
+    });
+    expect(segments[1]).toMatchObject({
+      kind: 'callout',
+      title: 'Command message',
+      tone: 'info',
+    });
+    expect(segments[2]).toMatchObject({
+      kind: 'callout',
+      title: 'Command caveat',
+      tone: 'warning',
+    });
+  });
+
+  it('parses common markdown without treating code tags as agent markup', () => {
+    const segments = parseTranscriptSegments(
+      message(
+        '7',
+        'assistant',
+        '## Result\n- **Done** with `npm test`\n- [Open docs](https://example.com)\n\n```md\n<command-name>literal</command-name>\n```',
+      ),
+    );
+
+    expect(segments).toHaveLength(1);
+    if (segments[0].kind !== 'text') throw new Error('Expected text segment');
+    expect(segments[0].blocks).toMatchObject([
+      { kind: 'heading', level: 2 },
+      {
+        kind: 'list',
+        ordered: false,
+        items: [
+          [
+            { kind: 'strong', children: [{ kind: 'text', content: 'Done' }] },
+            { kind: 'text', content: ' with ' },
+            { kind: 'inlineCode', content: 'npm test' },
+          ],
+          [
+            {
+              kind: 'link',
+              url: 'https://example.com',
+              children: [{ kind: 'text', content: 'Open docs' }],
+            },
+          ],
+        ],
+      },
+      {
+        kind: 'code',
+        language: 'md',
+        content: '<command-name>literal</command-name>',
+      },
+    ]);
+  });
+
+  it('leaves unknown tags visible as normal markdown text', () => {
+    const segments = parseTranscriptSegments(
+      message('8', 'assistant', 'Keep <unknown-tag>visible</unknown-tag>.'),
+    );
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({
+      kind: 'text',
+      content: 'Keep <unknown-tag>visible</unknown-tag>.',
+    });
   });
 
   it('keeps consecutive user prompts together for repeated input bursts', () => {
