@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { PreviewLink, VibeStatus } from '../data/platformModels';
-import { terminalOutputHandlers } from '../components/terminal/TerminalEmulator';
+import { routeTerminalOutputToEmulator } from '../components/terminal/TerminalEmulator';
 import { applyDeltasToRuns } from '../utils/deltaBatch';
 import { terminalDisplayUpdate } from '../utils/terminalOutput';
 import {
@@ -414,21 +414,45 @@ export const useControlCenterStore = create<ControlCenterState>()(
               return;
 
             case 'terminal.output': {
-              const handler = terminalOutputHandlers.get(
+              const routedToEmulator = routeTerminalOutputToEmulator(
                 transportEvent.sessionId,
-              );
-              if (handler) {
-                handler(transportEvent.data, transportEvent.encoding);
-                return;
-              }
-              const outputUpdate = terminalDisplayUpdate(
                 transportEvent.data,
                 transportEvent.encoding,
               );
-              if (!outputUpdate.lines.length) return;
+              if (routedToEmulator) {
+                return;
+              }
               set(state => ({
                 terminalSessions: state.terminalSessions.map(ts => {
                   if (ts.id !== transportEvent.sessionId) return ts;
+
+                  let screenFrameStartIndex = 0;
+                  for (
+                    let index = ts.lines.length - 1;
+                    index >= 0;
+                    index -= 1
+                  ) {
+                    if (ts.lines[index].kind === 'command') {
+                      screenFrameStartIndex = index + 1;
+                      break;
+                    }
+                  }
+
+                  const previousScreenLines = ts.lines
+                    .slice(screenFrameStartIndex)
+                    .filter(item => item.kind === 'stdout')
+                    .map(item => item.content);
+                  const outputUpdate = terminalDisplayUpdate(
+                    transportEvent.data,
+                    transportEvent.encoding,
+                    previousScreenLines,
+                  );
+                  if (
+                    !outputUpdate.lines.length &&
+                    outputUpdate.mode !== 'replaceScreen'
+                  ) {
+                    return ts;
+                  }
 
                   const nextOutputLines = outputUpdate.lines.map(item =>
                     line('stdout', item),
@@ -436,9 +460,12 @@ export const useControlCenterStore = create<ControlCenterState>()(
                   let preservedLines = ts.lines;
 
                   if (outputUpdate.mode === 'replaceScreen') {
-                    preservedLines = ts.lines.filter(
-                      item => item.kind !== 'stdout',
-                    );
+                    preservedLines = [
+                      ...ts.lines.slice(0, screenFrameStartIndex),
+                      ...ts.lines
+                        .slice(screenFrameStartIndex)
+                        .filter(item => item.kind !== 'stdout'),
+                    ];
                   } else if (outputUpdate.mode === 'rewriteLastLine') {
                     let lastStdoutIndex = -1;
                     for (

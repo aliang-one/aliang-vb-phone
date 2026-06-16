@@ -18,14 +18,13 @@ import { RouteProp } from '@react-navigation/native';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { StatusChip } from '../../components/shared/StatusChip';
-import { TerminalEmulator } from '../../components/terminal/TerminalEmulator';
+import {
+  TerminalEmulator,
+  TerminalEmulatorHandle,
+} from '../../components/terminal/TerminalEmulator';
 import { useTheme } from '../../theme/useTheme';
 import { RootStackParamList } from '../../app/navigation/types';
-import {
-  TerminalLineKind,
-  useControlCenterStore,
-} from '../../store/controlCenterStore';
-import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { useControlCenterStore } from '../../store/controlCenterStore';
 import {
   getTerminalInteractionState,
   getTerminalStatusChip,
@@ -44,25 +43,15 @@ const shortDirectoryName = (path: string) => {
   return parts[parts.length - 1] ?? normalized;
 };
 
-const normalizeCommandLineContent = (content: string, directory: string) => {
-  const currentPrompt = `${directory} $ `;
-  if (content.startsWith(currentPrompt)) {
-    return content.slice(currentPrompt.length);
-  }
-
-  const legacyPrompt = content.match(/^(.{1,240})\s+\$\s+(.+)$/);
-  if (!legacyPrompt) return content;
-
-  const promptPath = legacyPrompt[1];
-  if (
-    promptPath === '~' ||
-    promptPath.startsWith('/') ||
-    promptPath.includes('\\')
-  ) {
-    return legacyPrompt[2];
-  }
-
-  return content;
+const terminalKeyBytes: Record<string, string> = {
+  Esc: '\x1b',
+  Tab: '\x09',
+  'Ctrl+C': '\x03',
+  'Ctrl+D': '\x04',
+  Up: '\x1b[A',
+  Down: '\x1b[B',
+  Left: '\x1b[D',
+  Right: '\x1b[C',
 };
 
 const FolderGlyph: React.FC<{
@@ -85,6 +74,26 @@ const FolderGlyph: React.FC<{
       fill={active ? activeFill : inactiveFill}
       stroke={active ? activeStroke : inactiveStroke}
       strokeWidth={1.4}
+      strokeLinejoin="round"
+    />
+  </Svg>
+);
+
+const EnterDirectoryIcon: React.FC<{ color: string }> = ({ color }) => (
+  <Svg width={18} height={18} viewBox="0 0 18 18">
+    <Path
+      d="M6.2 3.8H4.8c-1.1 0-2 .9-2 2v6.4c0 1.1.9 2 2 2h1.4"
+      fill="none"
+      stroke={color}
+      strokeWidth={1.6}
+      strokeLinecap="round"
+    />
+    <Path
+      d="M8 9h7M12.4 5.8 15.6 9l-3.2 3.2"
+      fill="none"
+      stroke={color}
+      strokeWidth={1.6}
+      strokeLinecap="round"
       strokeLinejoin="round"
     />
   </Svg>
@@ -129,7 +138,8 @@ export const DeviceTerminalScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
   const route = useRoute<DeviceTerminalRoute>();
-  const outputRef = useRef<ScrollView>(null);
+  const terminalBridgeRef = useRef<TerminalEmulatorHandle | null>(null);
+  const directoryPathRef = useRef<ScrollView>(null);
   const devices = useControlCenterStore(state => state.devices);
   const terminalSessions = useControlCenterStore(
     state => state.terminalSessions,
@@ -137,26 +147,16 @@ export const DeviceTerminalScreen: React.FC = () => {
   const createTerminalSession = useControlCenterStore(
     state => state.createTerminalSession,
   );
-  const createPtySession = useControlCenterStore(
-    state => state.createPtySession,
-  );
-  const executeTerminalCommand = useControlCenterStore(
-    state => state.executeTerminalCommand,
-  );
-  const clearTerminal = useControlCenterStore(state => state.clearTerminal);
-  const stopTerminal = useControlCenterStore(state => state.stopTerminal);
-  const closeTerminalSessionAction = useControlCenterStore(
-    state => state.closeTerminalSession,
-  );
   const serverMode = useControlCenterStore(state => state.serverMode);
   const [terminalId, setTerminalId] = useState(route.params.terminalId);
   const [command, setCommand] = useState('');
   const [terminalOpening, setTerminalOpening] = useState(false);
-  const [ptyMode, setPtyMode] = useState(false);
-  const [ptySessionId, setPtySessionId] = useState<string | null>(null);
-  const [ptyLoading, setPtyLoading] = useState(false);
+  const quickDirectoryInitializedRef = useRef(Boolean(route.params.directory));
   const [focusedDirectory, setFocusedDirectory] = useState(
     route.params.directory ?? '~',
+  );
+  const [currentQuickDirectory, setCurrentQuickDirectory] = useState(
+    route.params.directory ?? '',
   );
   const device = devices.find(item => item.id === route.params.deviceId);
   const terminal = terminalSessions.find(item => item.id === terminalId);
@@ -168,12 +168,6 @@ export const DeviceTerminalScreen: React.FC = () => {
     command,
   });
   const terminalStatusChip = getTerminalStatusChip(terminal?.status);
-  const outputList = useIncrementalList(terminal?.lines ?? [], {
-    initialCount: 180,
-    step: 240,
-    from: 'end',
-    resetKey: terminal?.id ?? 'none',
-  });
   const availableDirectories = useMemo(() => {
     const base = device?.authorizedDirectories ?? [];
     const merged = [...base, directory].filter(Boolean);
@@ -182,35 +176,18 @@ export const DeviceTerminalScreen: React.FC = () => {
   const visibleDirectory = availableDirectories.includes(focusedDirectory)
     ? focusedDirectory
     : directory;
-  const commandHistory = useMemo(
-    () =>
-      (terminal?.lines ?? [])
-        .filter(item => item.kind === 'command')
-        .map(item => normalizeCommandLineContent(item.content, directory)),
-    [directory, terminal?.lines],
-  );
   const aiSuggestions = useMemo(() => {
-    const recent = commandHistory[commandHistory.length - 1] ?? '';
-    const suggestions = new Set<string>();
-
-    if (recent.startsWith('git')) {
-      suggestions.add('git status --short');
-      suggestions.add('git log --oneline -5');
-    }
-    if (recent.includes('npm')) {
-      suggestions.add('npm run lint');
-      suggestions.add('npm test -- --runInBand');
-    }
-    if (recent.includes('watch')) {
-      suggestions.add('pkill -f watch');
-    }
-
-    suggestions.add('pwd');
-    suggestions.add('ls -la');
-    suggestions.add('git status');
+    const suggestions = new Set<string>([
+      'pwd',
+      'ls -la',
+      'git status --short',
+      'git log --oneline -5',
+      'npm run lint',
+      'npm test -- --runInBand',
+    ]);
 
     return Array.from(suggestions).slice(0, 4);
-  }, [commandHistory]);
+  }, []);
   const canExecute = terminalInteraction.canExecute;
   const surfaceColor = isDark
     ? 'rgba(255,255,255,0.04)'
@@ -236,9 +213,15 @@ export const DeviceTerminalScreen: React.FC = () => {
   const selectedDirectoryColor = isDark
     ? 'rgba(0,209,255,0.12)'
     : 'rgba(0,81,174,0.08)';
+  const currentDirectoryDotColor = isDark ? theme.colors.secondary : '#16A34A';
   const disabledSurfaceColor = isDark
     ? 'rgba(255,255,255,0.08)'
     : theme.colors.surfaceContainerHigh;
+  const terminalInputEnabled =
+    serverMode &&
+    device?.status === 'online' &&
+    terminal?.status === 'running' &&
+    !terminalOpening;
 
   useEffect(() => {
     if (!terminalId && device) {
@@ -263,48 +246,20 @@ export const DeviceTerminalScreen: React.FC = () => {
 
   useEffect(() => {
     setFocusedDirectory(directory);
-  }, [directory]);
+    if (!quickDirectoryInitializedRef.current && terminal?.directory) {
+      quickDirectoryInitializedRef.current = true;
+      setCurrentQuickDirectory(terminal.directory);
+    }
+  }, [directory, terminal?.directory]);
 
   useEffect(() => {
+    directoryPathRef.current?.scrollTo({ x: 0, animated: false });
     const timer = setTimeout(() => {
-      outputRef.current?.scrollToEnd({ animated: true });
-    }, 60);
+      directoryPathRef.current?.scrollToEnd({ animated: true });
+    }, 500);
 
     return () => clearTimeout(timer);
-  }, [terminal?.lines.length]);
-
-  const getLineColor = (kind: TerminalLineKind) => {
-    switch (kind) {
-      case 'command':
-        return theme.colors.primary;
-      case 'stderr':
-        return theme.colors.error;
-      case 'success':
-        return isDark ? theme.colors.secondary : theme.colors.primary;
-      case 'system':
-        return theme.colors.tertiary;
-      default:
-        return theme.colors.onSurface;
-    }
-  };
-
-  const getLinePrompt = (kind: TerminalLineKind) => {
-    switch (kind) {
-      case 'command':
-        return '$';
-      case 'stderr':
-        return '!';
-      case 'system':
-        return '#';
-      default:
-        return '';
-    }
-  };
-
-  const getTerminalLineContent = (kind: TerminalLineKind, content: string) => {
-    if (kind !== 'command') return content;
-    return normalizeCommandLineContent(content, directory);
-  };
+  }, [visibleDirectory]);
 
   const handleBack = () => {
     if (navigation.canGoBack()) {
@@ -322,6 +277,9 @@ export const DeviceTerminalScreen: React.FC = () => {
     setTerminalOpening(true);
     try {
       setTerminalId(await createTerminalSession(device.id, nextDirectory));
+      quickDirectoryInitializedRef.current = true;
+      setCurrentQuickDirectory(nextDirectory);
+      setFocusedDirectory(nextDirectory);
       setCommand('');
     } finally {
       setTerminalOpening(false);
@@ -330,13 +288,22 @@ export const DeviceTerminalScreen: React.FC = () => {
 
   const handleDirectorySelect = async (nextDirectory: string) => {
     setFocusedDirectory(nextDirectory);
-    if (nextDirectory === directory) {
-      return;
-    }
-    await handleDirectoryChange(nextDirectory);
   };
 
-  const handleDirectoryScroll = (
+  const handleDirectoryEnter = async () => {
+    if (visibleDirectory === directory) {
+      return;
+    }
+    await handleDirectoryChange(visibleDirectory);
+  };
+
+  const sendToTerminal = (data: string) => {
+    if (!terminalInputEnabled || !data) return;
+    terminalBridgeRef.current?.sendText(data);
+    terminalBridgeRef.current?.focus();
+  };
+
+  const focusDirectoryFromScroll = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
     if (!availableDirectories.length) return;
@@ -348,59 +315,27 @@ export const DeviceTerminalScreen: React.FC = () => {
     setFocusedDirectory(availableDirectories[index]);
   };
 
+  const handleDirectoryScroll = (
+    event: NativeSyntheticEvent<NativeScrollEvent>,
+  ) => {
+    focusDirectoryFromScroll(event);
+  };
+
   const handleDirectoryScrollEnd = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
-    if (!availableDirectories.length) return;
-    const step = DIRECTORY_TILE_WIDTH + DIRECTORY_TILE_GAP;
-    const index = Math.min(
-      availableDirectories.length - 1,
-      Math.max(0, Math.round(event.nativeEvent.contentOffset.x / step)),
-    );
-    void handleDirectorySelect(availableDirectories[index]);
+    focusDirectoryFromScroll(event);
   };
 
   const handleExecute = () => {
     const trimmed = command.trim();
 
-    if (!canExecute || !terminal || !trimmed) {
+    if (!canExecute || !terminalInputEnabled || !trimmed) {
       return;
     }
 
-    if (trimmed.toLowerCase() === 'clear') {
-      clearTerminal(terminal.id);
-      setCommand('');
-      return;
-    }
-
-    executeTerminalCommand(terminal.id, trimmed);
+    sendToTerminal(`${trimmed}\r`);
     setCommand('');
-  };
-
-  const handleOpenPty = async () => {
-    if (!device || ptyLoading) return;
-    setPtyLoading(true);
-    try {
-      const sessionId = await createPtySession(device.id, {
-        cwd: directory,
-        cols: 80,
-        rows: 24,
-      });
-      setPtySessionId(sessionId);
-      setPtyMode(true);
-    } catch {
-      // Fall back to command mode on error
-    } finally {
-      setPtyLoading(false);
-    }
-  };
-
-  const handleClosePty = () => {
-    if (ptySessionId) {
-      void closeTerminalSessionAction(ptySessionId).catch(() => {});
-    }
-    setPtyMode(false);
-    setPtySessionId(null);
   };
 
   if (!device) {
@@ -411,31 +346,6 @@ export const DeviceTerminalScreen: React.FC = () => {
           subtitle="NOT FOUND"
           onBack={navigation.goBack}
         />
-      </SafeAreaWrapper>
-    );
-  }
-
-  // PTY interactive terminal mode
-  if (ptyMode && ptySessionId) {
-    return (
-      <SafeAreaWrapper>
-        <TopAppBar
-          title="Interactive Terminal"
-          subtitle={device.name}
-          onBack={handleClosePty}
-          rightAction={<StatusChip label="PTY" type="info" />}
-        />
-        <View
-          style={[
-            styles.ptyContainer,
-            { backgroundColor: theme.colors.surfaceContainerLowest },
-          ]}
-        >
-          <TerminalEmulator
-            sessionId={ptySessionId}
-            enabled={device.status === 'online'}
-          />
-        </View>
       </SafeAreaWrapper>
     );
   }
@@ -659,7 +569,8 @@ export const DeviceTerminalScreen: React.FC = () => {
                     contentContainerStyle={styles.directoryFolders}
                   >
                     {availableDirectories.map(item => {
-                      const active = item === directory;
+                      const active = item === visibleDirectory;
+                      const current = item === currentQuickDirectory;
                       return (
                         <TouchableOpacity
                           key={item}
@@ -683,6 +594,18 @@ export const DeviceTerminalScreen: React.FC = () => {
                             },
                           ]}
                         >
+                          {current ? (
+                            <View
+                              style={[
+                                styles.currentDirectoryDot,
+                                {
+                                  backgroundColor: currentDirectoryDotColor,
+                                  borderColor:
+                                    theme.colors.surfaceContainerLowest,
+                                },
+                              ]}
+                            />
+                          ) : null}
                           <FolderGlyph
                             active={active}
                             activeFill={selectedDirectoryColor}
@@ -708,26 +631,57 @@ export const DeviceTerminalScreen: React.FC = () => {
                       );
                     })}
                   </ScrollView>
-                  <View
+                  <TouchableOpacity
+                    activeOpacity={0.76}
+                    onPress={() => void handleDirectoryEnter()}
+                    disabled={
+                      !terminalInteraction.canChangeDirectory ||
+                      visibleDirectory === directory
+                    }
                     style={[
                       styles.directoryPathRow,
                       {
                         backgroundColor: recessedSurfaceColor,
                         borderColor: outlineColor,
+                        opacity:
+                          !terminalInteraction.canChangeDirectory ||
+                          visibleDirectory === directory
+                            ? 0.72
+                            : 1,
                       },
                     ]}
                   >
-                    <Text
-                      numberOfLines={1}
+                    <View
                       style={[
-                        theme.typography.codeSm,
-                        styles.directoryPath,
-                        { color: theme.colors.tertiary },
+                        styles.directoryEnterIcon,
+                        {
+                          backgroundColor: selectedDirectoryColor,
+                          borderColor: outlineColor,
+                        },
                       ]}
                     >
-                      {visibleDirectory}
-                    </Text>
-                  </View>
+                      <EnterDirectoryIcon color={theme.colors.primary} />
+                    </View>
+                    <ScrollView
+                      ref={directoryPathRef}
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      scrollEnabled={false}
+                      style={styles.directoryPathScroller}
+                      contentContainerStyle={styles.directoryPathContent}
+                    >
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          theme.typography.codeSm,
+                          styles.directoryPath,
+                          { color: theme.colors.tertiary },
+                        ]}
+                      >
+                        {visibleDirectory}
+                      </Text>
+                    </ScrollView>
+                  </TouchableOpacity>
                 </View>
               </View>
             </View>
@@ -739,77 +693,26 @@ export const DeviceTerminalScreen: React.FC = () => {
               { backgroundColor: theme.colors.surfaceContainerLowest },
             ]}
           >
-            <ScrollView
-              ref={outputRef}
-              style={styles.outputWindow}
-              contentContainerStyle={styles.outputContent}
-            >
-              {outputList.visibleCount < outputList.totalCount ? (
-                <TouchableOpacity
-                  activeOpacity={0.74}
-                  onPress={outputList.showMore}
+            {terminal ? (
+              <TerminalEmulator
+                sessionId={terminal.id}
+                enabled={terminalInputEnabled}
+                terminalRef={terminalBridgeRef}
+              />
+            ) : (
+              <View style={styles.terminalPlaceholder}>
+                <Text
                   style={[
-                    styles.loadEarlierButton,
-                    {
-                      backgroundColor: surfaceColor,
-                      borderColor: outlineColor,
-                    },
+                    theme.typography.codeSm,
+                    { color: theme.colors.onSurfaceVariant },
                   ]}
                 >
-                  <Text
-                    style={[
-                      theme.typography.labelCaps,
-                      styles.loadEarlierText,
-                      { color: theme.colors.primary },
-                    ]}
-                  >
-                    LOAD EARLIER OUTPUT
-                  </Text>
-                  <Text
-                    style={[
-                      theme.typography.codeSm,
-                      styles.loadEarlierCount,
-                      { color: theme.colors.onSurfaceVariant },
-                    ]}
-                  >
-                    {outputList.visibleCount}/{outputList.totalCount}
-                  </Text>
-                </TouchableOpacity>
-              ) : null}
-              {outputList.visibleItems.map(item => {
-                const prompt = getLinePrompt(item.kind);
-
-                return (
-                  <View
-                    key={item.id}
-                    style={[
-                      styles.outputLine,
-                      item.kind === 'command' ? styles.outputCommandLine : null,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        theme.typography.codeSm,
-                        styles.outputPrompt,
-                        { color: getLineColor(item.kind) },
-                      ]}
-                    >
-                      {prompt}
-                    </Text>
-                    <Text
-                      selectable
-                      style={[
-                        theme.typography.codeSm,
-                        styles.outputText,
-                        { color: getLineColor(item.kind) },
-                      ]}
-                    >
-                      {getTerminalLineContent(item.kind, item.content)}
-                    </Text>
-                  </View>
-                );
-              })}
-            </ScrollView>
+                  {terminalOpening
+                    ? 'Opening terminal session...'
+                    : 'Terminal session unavailable'}
+                </Text>
+              </View>
+            )}
           </View>
 
           <View
@@ -831,19 +734,14 @@ export const DeviceTerminalScreen: React.FC = () => {
                 <TouchableOpacity
                   key={item}
                   activeOpacity={0.76}
-                  disabled={
-                    !terminalInteraction.inputEnabled || terminalOpening
-                  }
-                  onPress={() => setCommand(item)}
+                  disabled={!terminalInputEnabled}
+                  onPress={() => sendToTerminal(`${item}\r`)}
                   style={[
                     styles.aiBubble,
                     {
                       backgroundColor: surfaceColor,
                       borderColor: outlineColor,
-                      opacity:
-                        !terminalInteraction.inputEnabled || terminalOpening
-                          ? 0.48
-                          : 1,
+                      opacity: !terminalInputEnabled ? 0.48 : 1,
                     },
                   ]}
                 >
@@ -861,85 +759,38 @@ export const DeviceTerminalScreen: React.FC = () => {
               ))}
             </ScrollView>
 
-            <View style={styles.quickActionRow}>
-              <TouchableOpacity
-                activeOpacity={0.74}
-                onPress={handleOpenPty}
-                disabled={
-                  !serverMode || device.status !== 'online' || ptyLoading
-                }
-                style={[
-                  styles.quickActionButton,
-                  {
-                    backgroundColor: elevatedSurfaceColor,
-                    borderColor: outlineColor,
-                    opacity:
-                      !serverMode || device.status !== 'online' || ptyLoading
-                        ? 0.45
-                        : 1,
-                  },
-                ]}
-              >
-                <Text
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.keyRow}
+            >
+              {Object.entries(terminalKeyBytes).map(([label, value]) => (
+                <TouchableOpacity
+                  key={label}
+                  activeOpacity={0.74}
+                  onPress={() => sendToTerminal(value)}
+                  disabled={!terminalInputEnabled}
                   style={[
-                    theme.typography.labelCaps,
-                    styles.quickActionText,
-                    { color: theme.colors.primary },
+                    styles.keyButton,
+                    {
+                      backgroundColor: elevatedSurfaceColor,
+                      borderColor: outlineColor,
+                      opacity: !terminalInputEnabled ? 0.45 : 1,
+                    },
                   ]}
                 >
-                  {ptyLoading ? 'OPENING PTY' : 'PTY'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.74}
-                onPress={() => terminal && clearTerminal(terminal.id)}
-                disabled={!terminal}
-                style={[
-                  styles.quickActionButton,
-                  {
-                    backgroundColor: elevatedSurfaceColor,
-                    borderColor: outlineColor,
-                    opacity: !terminal ? 0.45 : 1,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    theme.typography.labelCaps,
-                    styles.quickActionText,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}
-                >
-                  CLEAR
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.74}
-                onPress={() => {
-                  if (terminal) void stopTerminal(terminal.id).catch(() => {});
-                }}
-                disabled={!terminal || terminal.status === 'stopped'}
-                style={[
-                  styles.quickActionButton,
-                  {
-                    backgroundColor: elevatedSurfaceColor,
-                    borderColor: outlineColor,
-                    opacity:
-                      !terminal || terminal.status === 'stopped' ? 0.45 : 1,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    theme.typography.labelCaps,
-                    styles.quickActionText,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}
-                >
-                  STOP
-                </Text>
-              </TouchableOpacity>
-            </View>
+                  <Text
+                    style={[
+                      theme.typography.labelCaps,
+                      styles.quickActionText,
+                      { color: theme.colors.onSurfaceVariant },
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
 
             <View
               style={[
@@ -967,10 +818,10 @@ export const DeviceTerminalScreen: React.FC = () => {
                     ? 'Opening terminal session...'
                     : device.status === 'offline'
                     ? 'Device offline'
-                    : 'Type a command to execute...'
+                    : 'Send text to terminal...'
                 }
                 placeholderTextColor={theme.colors.onSurfaceVariant}
-                editable={terminalInteraction.inputEnabled}
+                editable={terminalInputEnabled}
                 autoCapitalize="none"
                 autoCorrect={false}
                 returnKeyType="send"
@@ -984,15 +835,15 @@ export const DeviceTerminalScreen: React.FC = () => {
               <TouchableOpacity
                 activeOpacity={0.76}
                 onPress={handleExecute}
-                disabled={!canExecute || terminalOpening}
+                disabled={!canExecute || !terminalInputEnabled}
                 style={[
                   styles.executeButton,
                   {
                     backgroundColor:
-                      canExecute && !terminalOpening
+                      canExecute && terminalInputEnabled
                         ? theme.colors.primary
                         : disabledSurfaceColor,
-                    opacity: canExecute && !terminalOpening ? 1 : 0.7,
+                    opacity: canExecute && terminalInputEnabled ? 1 : 0.7,
                   },
                 ]}
               >
@@ -1158,16 +1009,45 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 5,
   },
+  currentDirectoryDot: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 9,
+    height: 9,
+    borderWidth: 1,
+    borderRadius: 5,
+  },
   folderLabel: {
     width: 58,
     textAlign: 'center',
   },
   directoryPathRow: {
     minHeight: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     borderWidth: 1,
     borderRadius: 8,
-    paddingHorizontal: 10,
+    paddingLeft: 6,
+    paddingRight: 10,
+  },
+  directoryEnterIcon: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 8,
+  },
+  directoryPathScroller: {
+    flex: 1,
+    minWidth: 0,
+  },
+  directoryPathContent: {
+    minHeight: 28,
+    alignItems: 'center',
+    paddingRight: 8,
   },
   directoryPath: {
     letterSpacing: 0,
@@ -1176,57 +1056,11 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 180,
   },
-  ptyContainer: {
+  terminalPlaceholder: {
     flex: 1,
-  },
-  outputWindow: {
-    flex: 1,
-  },
-  outputContent: {
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 18,
-    gap: 2,
-  },
-  loadEarlierButton: {
-    flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 8,
-    marginBottom: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderRadius: 8,
-  },
-  loadEarlierText: {
-    letterSpacing: 0,
-  },
-  loadEarlierCount: {
-    letterSpacing: 0,
-  },
-  outputLine: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    minHeight: 18,
-  },
-  outputCommandLine: {
-    marginTop: 4,
-  },
-  outputPrompt: {
-    width: 16,
-    fontSize: 12,
-    fontWeight: '700',
-    lineHeight: 18,
-    textAlign: 'right',
-    letterSpacing: 0,
-  },
-  outputText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 18,
-    letterSpacing: 0,
+    justifyContent: 'center',
+    padding: 16,
   },
   inputDivider: {
     height: 1,
@@ -1252,21 +1086,22 @@ const styles = StyleSheet.create({
   aiBubbleText: {
     letterSpacing: 0,
   },
-  quickActionRow: {
-    flexDirection: 'row',
-    gap: 8,
+  quickActionText: {
+    fontSize: 10,
+    letterSpacing: 0,
   },
-  quickActionButton: {
+  keyRow: {
+    gap: 8,
+    paddingRight: 12,
+  },
+  keyButton: {
+    minWidth: 54,
     minHeight: 34,
-    minWidth: 72,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     borderWidth: 1,
     borderRadius: 8,
-  },
-  quickActionText: {
-    letterSpacing: 0,
   },
   inputRow: {
     minHeight: 50,

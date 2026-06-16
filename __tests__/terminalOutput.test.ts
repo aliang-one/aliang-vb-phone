@@ -37,12 +37,53 @@ describe('terminalOutput', () => {
     });
   });
 
+  it('projects cursor-addressed top output onto the current screen frame', () => {
+    const firstFrame = terminalDisplayUpdate(
+      '\x1b[Htop - 10:00:01\nTasks: 20 total\nPID COMMAND\n1 node\n',
+    );
+    expect(firstFrame).toMatchObject({
+      mode: 'replaceScreen',
+      lines: ['top - 10:00:01', 'Tasks: 20 total', 'PID COMMAND', '1 node'],
+    });
+
+    expect(
+      terminalDisplayUpdate(
+        '\x1b[H\x1b[2Ktop - 10:00:02\n\x1b[2KTasks: 21 total\n\x1b[2KPID COMMAND\n\x1b[2K2 zsh\n',
+        'text',
+        firstFrame.lines,
+      ),
+    ).toMatchObject({
+      mode: 'replaceScreen',
+      lines: ['top - 10:00:02', 'Tasks: 21 total', 'PID COMMAND', '2 zsh'],
+    });
+  });
+
   it('detects carriage-return progress updates as last-line rewrites', () => {
     expect(
       terminalDisplayUpdate('Downloading 10%\rDownloading 20%'),
     ).toMatchObject({
       mode: 'rewriteLastLine',
       lines: ['Downloading 20%'],
+    });
+  });
+
+  it('does not treat zsh prompt repaint cleanup as a screen replacement', () => {
+    expect(
+      terminalDisplayUpdate(
+        '\x1b[1m\x1b[7m%\x1b[27m\x1b[1m\x1b[0m                                                                               \r \r',
+      ),
+    ).toMatchObject({
+      mode: 'append',
+      lines: [],
+    });
+
+    expect(
+      terminalDisplayUpdate(
+        '\r\x1b[0m\x1b[27m\x1b[24m\x1b[J(base) mac@MacBookPro ~/project$ \x1b[K\x1b[?2004h',
+      ),
+    ).toMatchObject({
+      mode: 'append',
+      lines: ['(base) mac@MacBookPro ~/project$'],
     });
   });
 });

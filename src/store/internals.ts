@@ -545,6 +545,18 @@ export function serverTerminalSessionToClient(
   };
 }
 
+export function mergeTerminalSessionSnapshot(
+  existing: TerminalSession | undefined,
+  incoming: TerminalSession,
+): TerminalSession {
+  if (!existing) return incoming;
+
+  return {
+    ...incoming,
+    lines: existing.lines.length ? existing.lines : incoming.lines,
+  };
+}
+
 export function serverPreviewToClient(
   preview: PlatformPreviewSnapshot,
 ): PreviewLink {
@@ -886,6 +898,7 @@ export const attachDeviceRelations = (
 export function stateFromSnapshot(
   snapshot: Awaited<ReturnType<typeof platformTransport.loadSnapshot>>,
   previousRuns: VibeCodingRun[],
+  previousTerminalSessions: TerminalSession[] = [],
 ) {
   const baseDevices = snapshot.devices.map(platformDeviceToClient);
   const knownDeviceIds = new Set(baseDevices.map(device => device.id));
@@ -903,9 +916,17 @@ export function stateFromSnapshot(
   const approvals = snapshot.approvals
     .filter(approval => knownDeviceIds.has(approval.device_id))
     .map(serverApprovalToClient);
+  const previousTerminalSessionsById = new Map(
+    previousTerminalSessions.map(session => [session.id, session]),
+  );
   const terminalSessions = snapshot.terminalSessions
     .filter(session => knownDeviceIds.has(session.device_id))
-    .map(serverTerminalSessionToClient);
+    .map(session =>
+      mergeTerminalSessionSnapshot(
+        previousTerminalSessionsById.get(session.session_id),
+        serverTerminalSessionToClient(session),
+      ),
+    );
   const knownSessionIds = new Set(vibeRuns.map(session => session.id));
   const previewLinks = snapshot.previewLinks
     .filter(preview => knownSessionIds.has(preview.sessionId))

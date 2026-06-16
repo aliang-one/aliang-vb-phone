@@ -217,44 +217,64 @@ export interface ControlCenterState {
     language?: string;
     description?: string;
   }) => Promise<string>;
-  updateProject: (projectId: string, input: Partial<{
-    name: string;
-    path: string;
-    branch: string;
-    language: string;
-    description: string;
-    status: 'active' | 'idle' | 'error' | 'fresh';
-  }>) => Promise<void>;
+  updateProject: (
+    projectId: string,
+    input: Partial<{
+      name: string;
+      path: string;
+      branch: string;
+      language: string;
+      description: string;
+      status: 'active' | 'idle' | 'error' | 'fresh';
+    }>,
+  ) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
   loadProjectFiles: (projectId: string, path?: string) => Promise<void>;
   loadProjectFileContent: (projectId: string, path: string) => Promise<void>;
-  createTerminalSession: (deviceId: string, directory?: string) => Promise<string>;
+  createTerminalSession: (
+    deviceId: string,
+    directory?: string,
+  ) => Promise<string>;
   executeTerminalCommand: (terminalId: string, command: string) => void;
   clearTerminal: (terminalId: string) => void;
   stopTerminal: (terminalId: string) => Promise<void>;
+  interruptTerminal: (terminalId: string) => void;
   startAgentSession: (input: StartAgentInput) => Promise<string>;
   loadAgentSessionDetail: (sessionId: string) => Promise<void>;
   pauseAgentSession: (sessionId: string) => Promise<void>;
   resumeAgentSession: (sessionId: string) => Promise<void>;
   terminateAgentSession: (sessionId: string) => Promise<void>;
-  updateAgentSession: (sessionId: string, input: Partial<{
-    title: string;
-    objective: string;
-    status: 'idle' | 'running' | 'paused' | 'error' | 'closed';
-    currentStep: string;
-    risk: 'low' | 'medium' | 'high';
-  }>) => Promise<void>;
+  updateAgentSession: (
+    sessionId: string,
+    input: Partial<{
+      title: string;
+      objective: string;
+      status: 'idle' | 'running' | 'paused' | 'error' | 'closed';
+      currentStep: string;
+      risk: 'low' | 'medium' | 'high';
+    }>,
+  ) => Promise<void>;
   deleteAgentSession: (sessionId: string) => Promise<void>;
   appendAgentMessage: (
     sessionId: string,
     content: string,
     mode: 'voice' | 'text',
   ) => Promise<void>;
-  resolveApproval: (approvalId: string, decision: 'approved' | 'denied') => Promise<void>;
+  resolveApproval: (
+    approvalId: string,
+    decision: 'approved' | 'denied',
+  ) => Promise<void>;
   markNotificationRead: (notificationId: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
-  createPtySession: (deviceId: string, options?: { cwd?: string; cols?: number; rows?: number }) => Promise<string>;
-  sendTerminalInput: (sessionId: string, data: string, encoding?: string) => void;
+  createPtySession: (
+    deviceId: string,
+    options?: { cwd?: string; cols?: number; rows?: number },
+  ) => Promise<string>;
+  sendTerminalInput: (
+    sessionId: string,
+    data: string,
+    encoding?: string,
+  ) => void;
   resizeTerminal: (sessionId: string, cols: number, rows: number) => void;
   closeTerminalSession: (sessionId: string) => Promise<void>;
 }

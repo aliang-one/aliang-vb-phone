@@ -8,9 +8,54 @@ import { platformTransport } from '../../services/platformTransport';
 interface TerminalEmulatorProps {
   /** Server-side terminal session ID */
   sessionId: string;
-  /** Whether the terminal is active */
+  /** Whether terminal input is accepted. Output is still buffered/rendered. */
   enabled: boolean;
+  /** Optional ref bridge for sending shortcut keys/commands into xterm.js. */
+  terminalRef?: React.MutableRefObject<TerminalEmulatorHandle | null>;
 }
+
+export interface TerminalEmulatorHandle {
+  sendText: (data: string) => void;
+  focus: () => void;
+}
+
+const MAX_PENDING_OUTPUT = 200;
+
+interface TerminalOutputChunk {
+  data: string;
+  encoding: string;
+}
+
+const pendingTerminalOutput = new Map<string, TerminalOutputChunk[]>();
+
+export const routeTerminalOutputToEmulator = (
+  sessionId: string,
+  data: string,
+  encoding = 'text',
+) => {
+  const handler = terminalOutputHandlers.get(sessionId);
+  if (handler) {
+    handler(data, encoding);
+    return true;
+  }
+
+  const pending = pendingTerminalOutput.get(sessionId) ?? [];
+  pendingTerminalOutput.set(sessionId, [
+    ...pending.slice(-(MAX_PENDING_OUTPUT - 1)),
+    { data, encoding },
+  ]);
+  return false;
+};
+
+export const drainPendingTerminalOutput = (sessionId: string) => {
+  const pending = pendingTerminalOutput.get(sessionId) ?? [];
+  pendingTerminalOutput.delete(sessionId);
+  return pending;
+};
+
+export const clearPendingTerminalOutput = (sessionId: string) => {
+  pendingTerminalOutput.delete(sessionId);
+};
 
 /**
  * WebView-based xterm.js terminal emulator.
@@ -22,40 +67,93 @@ interface TerminalEmulatorProps {
 export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
   sessionId,
   enabled,
+  terminalRef,
 }) => {
   const { isDark } = useTheme();
   const webViewRef = useRef<WebView>(null);
+  const readyRef = useRef(false);
+  const pendingOutputRef = useRef<Array<{ data: string; encoding: string }>>([]);
   const html = useRef(getTerminalHtml(isDark)).current;
+
+  const injectTerminalData = useCallback(
+    (type: string, payload = '', encoding = 'text') => {
+      webViewRef.current?.injectJavaScript(
+        `window.injectTerminalData(${JSON.stringify(
+          type,
+        )}, ${JSON.stringify(payload)}, ${JSON.stringify(encoding)}); true;`,
+      );
+    },
+    [],
+  );
+
+  const flushPendingOutput = useCallback(() => {
+    if (!readyRef.current || !pendingOutputRef.current.length) {
+      return;
+    }
+    const pending = pendingOutputRef.current;
+    pendingOutputRef.current = [];
+    pending.forEach(item => {
+      injectTerminalData('output', item.data, item.encoding);
+    });
+  }, [injectTerminalData]);
 
   // Forward output data from WS to xterm.js
   const handleOutput = useCallback(
     (data: string, encoding = 'text') => {
-      if (!webViewRef.current || !enabled) return;
-      webViewRef.current.injectJavaScript(
-        `window.injectTerminalData('output', ${JSON.stringify(
-          data,
-        )}, ${JSON.stringify(encoding)}); true;`,
-      );
+      if (!readyRef.current || !webViewRef.current) {
+        pendingOutputRef.current = [
+          ...pendingOutputRef.current.slice(-(MAX_PENDING_OUTPUT - 1)),
+          { data, encoding },
+        ];
+        return;
+      }
+      injectTerminalData('output', data, encoding);
     },
-    [enabled],
+    [injectTerminalData],
   );
+
+  useEffect(() => {
+    if (!terminalRef) return undefined;
+
+    terminalRef.current = {
+      sendText: (data: string) => {
+        if (!enabled || !data) return;
+        platformTransport.send({
+          type: 'terminal.input',
+          session_id: sessionId,
+          encoding: 'text',
+          data,
+        });
+      },
+      focus: () => injectTerminalData('focus'),
+    };
+
+    return () => {
+      terminalRef.current = null;
+    };
+  }, [enabled, injectTerminalData, sessionId, terminalRef]);
+
+  useEffect(() => {
+    readyRef.current = false;
+    pendingOutputRef.current = [];
+  }, [sessionId]);
 
   // Register/unregister output handler on the global socket listener
   useEffect(() => {
-    if (!enabled) return;
-
     // Register this session's output handler
     terminalOutputHandlers.set(sessionId, handleOutput);
+    drainPendingTerminalOutput(sessionId).forEach(item => {
+      handleOutput(item.data, item.encoding);
+    });
 
     return () => {
       terminalOutputHandlers.delete(sessionId);
     };
-  }, [sessionId, handleOutput, enabled]);
+  }, [sessionId, handleOutput]);
 
   // Handle messages from xterm.js WebView
   const onMessage = useCallback(
     (event: WebViewMessageEvent) => {
-      if (!enabled) return;
       let payload: {
         type: string;
         data?: string;
@@ -72,7 +170,7 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
         case 'input':
         case 'binary':
           // Forward keystroke to server via WS
-          if (payload.data) {
+          if (enabled && payload.data) {
             platformTransport.send({
               type: 'terminal.input',
               session_id: sessionId,
@@ -95,11 +193,20 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
           break;
 
         case 'ready':
-          // Terminal initialized — notify that we're ready
+          readyRef.current = true;
+          if (payload.cols && payload.rows) {
+            platformTransport.send({
+              type: 'terminal.resize',
+              session_id: sessionId,
+              cols: payload.cols,
+              rows: payload.rows,
+            });
+          }
+          flushPendingOutput();
           break;
       }
     },
-    [sessionId, enabled],
+    [sessionId, enabled, flushPendingOutput],
   );
 
   return (

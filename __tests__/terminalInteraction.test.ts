@@ -29,10 +29,20 @@ describe('terminalInteraction', () => {
     });
   });
 
-  it('blocks input only when the terminal is unavailable or waiting on approval', () => {
+  it('blocks input when the terminal is unavailable, closed, or waiting on approval', () => {
     expect(
       getTerminalInteractionState({
         terminalStatus: 'waiting_approval',
+        deviceStatus: 'online',
+        command: 'pwd',
+      }),
+    ).toMatchObject({
+      inputEnabled: false,
+      canExecute: false,
+    });
+    expect(
+      getTerminalInteractionState({
+        terminalStatus: 'completed',
         deviceStatus: 'online',
         command: 'pwd',
       }),

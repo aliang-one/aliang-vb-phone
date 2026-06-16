@@ -16,6 +16,7 @@ interface TerminalInteractionInput {
 }
 
 const blockedInputStatuses = new Set<TerminalSessionStatus>([
+  'completed',
   'failed',
   'stopped',
   'waiting_approval',

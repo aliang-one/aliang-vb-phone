@@ -1,7 +1,10 @@
 import type { StateCreator } from 'zustand';
 import type { Device } from '../../data/platformModels';
 import { platformTransport } from '../../services/platformTransport';
-import { terminalOutputHandlers } from '../../components/terminal/TerminalEmulator';
+import {
+  clearPendingTerminalOutput,
+  terminalOutputHandlers,
+} from '../../components/terminal/TerminalEmulator';
 import type { ControlCenterState, TerminalSessionStatus } from '../types';
 import {
   event,
@@ -19,6 +22,7 @@ type TerminalSlice = Pick<
   | 'executeTerminalCommand'
   | 'clearTerminal'
   | 'stopTerminal'
+  | 'interruptTerminal'
   | 'createPtySession'
   | 'sendTerminalInput'
   | 'resizeTerminal'
@@ -100,12 +104,11 @@ export const createTerminalSlice: StateCreator<
       return;
     }
 
-    // Send via WebSocket if connected
     if (get().serverMode) {
       const sent = platformTransport.send({
         type: 'terminal.input',
         session_id: terminalId,
-        data: `${trimmed}\n`,
+        data: `${trimmed}\r`,
         encoding: 'text',
       });
       if (sent) {
@@ -115,10 +118,6 @@ export const createTerminalSlice: StateCreator<
               ? {
                   ...item,
                   status: 'running' as TerminalSessionStatus,
-                  lines: tail(
-                    [...item.lines, line('command', trimmed)],
-                    MAX_TERMINAL_LINES,
-                  ),
                   updatedAt: nowTime(),
                 }
               : item,
@@ -147,6 +146,38 @@ export const createTerminalSlice: StateCreator<
     }));
   },
 
+  interruptTerminal: terminalId => {
+    const terminal = get().terminalSessions.find(
+      item => item.id === terminalId,
+    );
+    if (!terminal || !get().serverMode) {
+      return;
+    }
+
+    const sent = platformTransport.send({
+      type: 'terminal.interrupt',
+      session_id: terminalId,
+    });
+
+    if (!sent) return;
+
+    set(state => ({
+      terminalSessions: state.terminalSessions.map(item =>
+        item.id === terminalId
+          ? {
+              ...item,
+              status: 'running' as TerminalSessionStatus,
+              updatedAt: nowTime(),
+              lines: tail(
+                [...item.lines, line('system', 'Sent Ctrl+C interrupt.')],
+                MAX_TERMINAL_LINES,
+              ),
+            }
+          : item,
+      ),
+    }));
+  },
+
   stopTerminal: async terminalId => {
     if (!get().serverMode) {
       throw new Error(
@@ -158,6 +189,7 @@ export const createTerminalSlice: StateCreator<
     );
     const closed = serverTerminalSessionToClient(serverSession);
     terminalOutputHandlers.delete(terminalId);
+    clearPendingTerminalOutput(terminalId);
     set(state => ({
       terminalSessions: state.terminalSessions.map(item =>
         item.id === terminalId
@@ -249,6 +281,7 @@ export const createTerminalSlice: StateCreator<
     );
     const closed = serverTerminalSessionToClient(serverSession);
     terminalOutputHandlers.delete(sessionId);
+    clearPendingTerminalOutput(sessionId);
     set(state => ({
       terminalSessions: state.terminalSessions.map(item =>
         item.id === sessionId
