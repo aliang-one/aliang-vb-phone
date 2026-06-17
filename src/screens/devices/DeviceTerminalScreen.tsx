@@ -48,6 +48,7 @@ import {
   terminalKeyboardProxyChangeAction,
   terminalKeyboardProxyKeyAction,
 } from '../../utils/terminalKeyboardProxy';
+import { terminalShortcutKeyRows } from '../../utils/terminalKeySequences';
 import { buildTerminalSuggestions } from '../../utils/terminalSuggestions';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -61,24 +62,6 @@ const shortDirectoryName = (path: string) => {
   if (!normalized || normalized === '~') return '~';
   const parts = normalized.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? normalized;
-};
-
-const terminalKeyBytes: Record<string, string> = {
-  Esc: '\x1b',
-  Tab: '\x09',
-  Enter: '\r',
-  Backspace: '\x7f',
-  Delete: '\x1b[3~',
-  Home: '\x1b[H',
-  End: '\x1b[F',
-  PgUp: '\x1b[5~',
-  PgDn: '\x1b[6~',
-  'Ctrl+C': '\x03',
-  'Ctrl+D': '\x04',
-  Up: '\x1b[A',
-  Down: '\x1b[B',
-  Left: '\x1b[D',
-  Right: '\x1b[C',
 };
 
 const FolderGlyph: React.FC<{
@@ -1130,7 +1113,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                       style={styles.keyboardProxy}
                     />
                   </TouchableOpacity>
-                  {Object.entries(terminalKeyBytes).map(([label, value]) => (
+                  {terminalShortcutKeyRows.map(([label, value]) => (
                     <TouchableOpacity
                       key={label}
                       testID={`terminal-key-${label}`}

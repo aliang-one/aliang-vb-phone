@@ -1,3 +1,5 @@
+import { terminalNativeKeySequences } from './terminalKeySequences';
+
 export const TERMINAL_KEYBOARD_PROXY_VALUE = '\u200b';
 export const TERMINAL_KEYBOARD_PROXY_SELECTION = {
   start: TERMINAL_KEYBOARD_PROXY_VALUE.length,
@@ -159,20 +161,7 @@ export function terminalKeyboardProxyKeyAction(
 }
 
 function terminalKeyboardProxyInputFromKey(key: string): string {
-  if (key === 'Enter') return '\r';
-  if (key === 'Backspace') return '\x7f';
-  if (key === 'Tab') return '\t';
-  if (key === 'Escape') return '\x1b';
-  if (key === 'ArrowUp') return '\x1b[A';
-  if (key === 'ArrowDown') return '\x1b[B';
-  if (key === 'ArrowRight') return '\x1b[C';
-  if (key === 'ArrowLeft') return '\x1b[D';
-  if (key === 'Delete') return '\x1b[3~';
-  if (key === 'Home') return '\x1b[H';
-  if (key === 'End') return '\x1b[F';
-  if (key === 'PageUp') return '\x1b[5~';
-  if (key === 'PageDown') return '\x1b[6~';
-  return '';
+  return terminalNativeKeySequences[key] ?? '';
 }
 
 export function resetTerminalKeyboardProxyInput(
