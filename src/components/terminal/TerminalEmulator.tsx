@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useTheme } from '../../theme/useTheme';
-import { getTerminalHtml } from './terminalHtml';
+import { getTerminalHtml, getTerminalThemePalette } from './terminalHtml';
 import { platformTransport } from '../../services/platformTransport';
 
 interface TerminalEmulatorProps {
@@ -85,6 +85,7 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
   const renderedRef = useRef(false);
   const pendingOutputRef = useRef<Array<{ data: string; encoding: string }>>([]);
   const html = useRef(getTerminalHtml(isDark)).current;
+  const terminalTheme = getTerminalThemePalette(isDark);
 
   const injectTerminalData = useCallback(
     (type: string, payload = '', encoding = 'text', focus = true) => {
@@ -148,6 +149,11 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
     pendingOutputRef.current = [];
   }, [sessionId]);
 
+  useEffect(() => {
+    if (!readyRef.current) return;
+    injectTerminalData('theme', JSON.stringify(terminalTheme));
+  }, [injectTerminalData, terminalTheme]);
+
   // Register/unregister output handler on the global socket listener
   useEffect(() => {
     // Register this session's output handler
@@ -206,6 +212,7 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
 
         case 'ready':
           readyRef.current = true;
+          injectTerminalData('theme', JSON.stringify(terminalTheme));
           if (payload.cols && payload.rows) {
             platformTransport.send({
               type: 'terminal.resize',
@@ -239,9 +246,11 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
       sessionId,
       enabled,
       flushPendingOutput,
+      injectTerminalData,
       onFocusRequest,
       onRenderError,
       onRendered,
+      terminalTheme,
     ],
   );
 

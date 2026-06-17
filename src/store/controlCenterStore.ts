@@ -596,6 +596,29 @@ export const useControlCenterStore = create<ControlCenterState>()(
               }));
               return;
 
+            // Server-initiated close (idle-timeout reaper, agent disconnect, or
+            // an explicit close from another client). Mark the local session
+            // completed so list views drop it; the PTY is already gone.
+            case 'terminal.closed':
+              set(state => ({
+                terminalSessions: state.terminalSessions.map(ts =>
+                  ts.id === transportEvent.sessionId
+                    ? { ...ts, status: 'completed' as TerminalSessionStatus }
+                    : ts,
+                ),
+                events: [
+                  event(
+                    'command.completed',
+                    'Terminal session closed',
+                    transportEvent.sessionId,
+                    'done',
+                    { terminalId: transportEvent.sessionId },
+                  ),
+                  ...state.events,
+                ].slice(0, 120),
+              }));
+              return;
+
             case 'terminal.exit':
               set(state => ({
                 terminalSessions: state.terminalSessions.map(ts =>

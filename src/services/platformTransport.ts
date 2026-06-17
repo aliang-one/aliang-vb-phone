@@ -132,6 +132,7 @@ export type PlatformTransportEvent =
   | { type: 'ai.sessions.updated'; deviceId?: string; raw: Record<string, unknown> }
   | { type: 'terminal.output'; sessionId: string; data: string; encoding: string; raw: Record<string, unknown> }
   | { type: 'terminal.created'; sessionId: string; raw: Record<string, unknown> }
+  | { type: 'terminal.closed'; sessionId: string; raw: Record<string, unknown> }
   | { type: 'terminal.exit'; sessionId: string; failed: boolean; raw: Record<string, unknown> }
   | { type: 'approval.requested'; approval: PlatformApprovalSnapshot; raw: Record<string, unknown> }
   | { type: 'notification.created'; notification: PlatformNotificationSnapshot; raw: Record<string, unknown> }
@@ -484,6 +485,14 @@ class PlatformTransport {
     if (type === 'terminal.created') {
       return {
         type: 'terminal.created',
+        sessionId: String(message.session_id ?? ''),
+        raw: message,
+      };
+    }
+
+    if (type === 'terminal.closed') {
+      return {
+        type: 'terminal.closed',
         sessionId: String(message.session_id ?? ''),
         raw: message,
       };

@@ -13,6 +13,7 @@ import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { SearchBar } from '../../components/input/SearchBar';
+import { GlassPanel } from '../../components/shared/GlassPanel';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard';
@@ -48,6 +49,8 @@ export const VibeCodingListScreen: React.FC = () => {
   const refreshFromServer = useControlCenterStore(
     state => state.refreshFromServer,
   );
+  const terminalSessions = useControlCenterStore(state => state.terminalSessions);
+  const stopTerminal = useControlCenterStore(state => state.stopTerminal);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | VibeStatus>('all');
   const [refreshing, setRefreshing] = useState(false);
@@ -178,6 +181,26 @@ export const VibeCodingListScreen: React.FC = () => {
     step: 12,
     resetKey: `${normalizedQuery}:${filter}`,
   });
+  // All live remote shells across every device. Resume reopens the same PTY;
+  // Close kills it. Closed/stopped sessions are filtered out.
+  const activeTerminals = useMemo(
+    () =>
+      terminalSessions
+        .filter(
+          t =>
+            t.status === 'running' ||
+            t.status === 'idle' ||
+            t.status === 'waiting_approval',
+        )
+        .map(terminal => ({
+          terminal,
+          device: devices.find(item => item.id === terminal.deviceId),
+        }))
+        .sort((a, b) =>
+          b.terminal.updatedAt > a.terminal.updatedAt ? 1 : -1,
+        ),
+    [terminalSessions, devices],
+  );
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
@@ -362,6 +385,107 @@ export const VibeCodingListScreen: React.FC = () => {
           totalCount={sessionList.totalCount}
           onPress={sessionList.showMore}
         />
+
+        <View style={styles.sectionHeader}>
+          <Text
+            style={[
+              theme.typography.labelCaps,
+              { color: theme.colors.onSurfaceVariant },
+            ]}>
+            REMOTE TERMINALS
+          </Text>
+          <StatusChip label={`${activeTerminals.length} ACTIVE`} type="info" />
+        </View>
+        {activeTerminals.length ? (
+          activeTerminals.map(({ terminal, device }) => {
+            const offline = isDeviceStatusOffline(
+              deviceStatusIndex.get(terminal.deviceId),
+            );
+            return (
+              <GlassPanel key={terminal.id} style={styles.terminalCard}>
+                <View style={styles.terminalTop}>
+                  <View style={styles.terminalCopy}>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        theme.typography.titleMd,
+                        { color: theme.colors.onSurface },
+                      ]}>
+                      {device?.name ?? terminal.deviceId}
+                    </Text>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        theme.typography.codeSm,
+                        { color: theme.colors.onSurfaceVariant },
+                      ]}>
+                      {terminal.shell || 'shell'} · {terminal.directory || '~'}
+                    </Text>
+                  </View>
+                  <StatusChip
+                    label={terminal.status.toUpperCase()}
+                    type={
+                      terminal.status === 'running'
+                        ? 'success'
+                        : terminal.status === 'waiting_approval'
+                        ? 'warning'
+                        : 'neutral'
+                    }
+                  />
+                </View>
+                <View style={styles.terminalActions}>
+                  <TouchableOpacity
+                    disabled={offline}
+                    style={[
+                      styles.terminalBtn,
+                      { borderColor: theme.colors.primary },
+                    ]}
+                    onPress={() =>
+                      navigation.navigate('DeviceTerminal', {
+                        deviceId: terminal.deviceId,
+                        terminalId: terminal.id,
+                        directory: terminal.directory,
+                      })
+                    }>
+                    <Text
+                      style={[
+                        theme.typography.labelSm,
+                        { color: theme.colors.primary },
+                      ]}>
+                      RESUME
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    disabled={offline}
+                    style={[
+                      styles.terminalBtn,
+                      { borderColor: theme.colors.outlineVariant },
+                    ]}
+                    onPress={() => {
+                      stopTerminal(terminal.id).catch(() => {});
+                    }}>
+                    <Text
+                      style={[
+                        theme.typography.labelSm,
+                        { color: theme.colors.onSurfaceVariant },
+                      ]}>
+                      CLOSE
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </GlassPanel>
+            );
+          })
+        ) : (
+          <Text
+            style={[
+              theme.typography.bodySm,
+              { color: theme.colors.onSurfaceVariant },
+              styles.emptyText,
+            ]}>
+            没有进行中的远程终端。在设备页打开 Terminal 即可开始。
+          </Text>
+        )}
       </ScrollView>
     </SafeAreaWrapper>
   );
@@ -410,5 +534,33 @@ const styles = StyleSheet.create({
     gap: 8,
     flexWrap: 'wrap',
     marginBottom: 12,
+  },
+  terminalCard: {
+    padding: 12,
+    gap: 10,
+    marginBottom: 10,
+  },
+  terminalTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  terminalCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  terminalActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  terminalBtn: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  emptyText: {
+    paddingVertical: 12,
   },
 });

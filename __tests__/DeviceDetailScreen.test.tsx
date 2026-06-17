@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
+import { Text, TouchableOpacity } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { DeviceDetailScreen } from '../src/screens/devices/DeviceDetailScreen';
 import { ThemeContext } from '../src/theme/ThemeContext';
@@ -30,6 +31,8 @@ jest.mock('../src/components/vibecoding/VibeSessionCard', () => ({
 }));
 
 describe('DeviceDetailScreen', () => {
+  let screen: ReactTestRenderer.ReactTestRenderer | undefined;
+
   beforeEach(() => {
     useControlCenterStore.setState({
       devices: [
@@ -100,8 +103,38 @@ describe('DeviceDetailScreen', () => {
       events: [],
       approvals: [],
       scanResults: [],
+      terminalSessions: [
+        {
+          id: 'term-active',
+          deviceId: 'device-1',
+          directory: '~/project',
+          shell: 'zsh',
+          status: 'running',
+          lines: [],
+          createdAt: '2026-06-17T10:00:00.000Z',
+          updatedAt: '2026-06-17T10:05:00.000Z',
+        },
+        {
+          id: 'term-closed',
+          deviceId: 'device-1',
+          directory: '~/old',
+          shell: 'zsh',
+          status: 'completed',
+          lines: [],
+          createdAt: '2026-06-17T09:00:00.000Z',
+          updatedAt: '2026-06-17T09:05:00.000Z',
+        },
+      ],
+      stopTerminal: jest.fn().mockResolvedValue(undefined),
     });
     jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    act(() => {
+      screen?.unmount();
+    });
+    screen = undefined;
   });
 
   const renderScreen = () =>
@@ -126,7 +159,6 @@ describe('DeviceDetailScreen', () => {
     );
 
   it('sorts device sessions by last activity timestamp within the active tier', () => {
-    let screen: ReactTestRenderer.ReactTestRenderer | undefined;
     act(() => {
       screen = renderScreen();
     });
@@ -139,5 +171,42 @@ describe('DeviceDetailScreen', () => {
       'older-display-newer-activity',
       'newer-display-older-activity',
     ]);
+  });
+
+  it('shows active terminals and resumes or closes the same PTY', async () => {
+    act(() => {
+      screen = renderScreen();
+    });
+
+    const textContent = screen!.root.findAllByType(Text).map(node => {
+      const children = node.props.children;
+      return Array.isArray(children) ? children.join('') : String(children);
+    });
+    expect(textContent).toContain('term-active');
+    expect(textContent).not.toContain('term-closed');
+
+    const buttons = screen!.root.findAllByType(TouchableOpacity);
+    const resumeButton = buttons.find(button =>
+      button.findAllByType(Text).some(node => node.props.children === 'RESUME'),
+    );
+    const closeButton = buttons.find(button =>
+      button.findAllByType(Text).some(node => node.props.children === 'CLOSE'),
+    );
+
+    act(() => {
+      resumeButton?.props.onPress();
+    });
+    expect(mockNavigate).toHaveBeenCalledWith('DeviceTerminal', {
+      deviceId: 'device-1',
+      terminalId: 'term-active',
+      directory: '~/project',
+    });
+
+    await act(async () => {
+      closeButton?.props.onPress();
+    });
+    expect(useControlCenterStore.getState().stopTerminal).toHaveBeenCalledWith(
+      'term-active',
+    );
   });
 });

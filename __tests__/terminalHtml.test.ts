@@ -1,6 +1,22 @@
-import { getTerminalHtml } from '../src/components/terminal/terminalHtml';
+import {
+  getTerminalHtml,
+  getTerminalThemePalette,
+} from '../src/components/terminal/terminalHtml';
 
 describe('terminalHtml', () => {
+  it('builds terminal theme palettes for light and dark mode', () => {
+    expect(getTerminalThemePalette(true)).toMatchObject({
+      background: '#0d1117',
+      foreground: '#e6edf3',
+      cursor: '#58a6ff',
+    });
+    expect(getTerminalThemePalette(false)).toMatchObject({
+      background: '#ffffff',
+      foreground: '#1f2328',
+      cursor: '#0969da',
+    });
+  });
+
   it('keeps xterm as the writable terminal input source', () => {
     const html = getTerminalHtml(true);
 
@@ -13,6 +29,10 @@ describe('terminalHtml', () => {
     expect(html).toContain('term.onData(postTextInput)');
     expect(html).toContain("encoding: 'text'");
     expect(html).toContain('if (focus !== false) term.focus()');
+    expect(html).toContain('var currentTheme =');
+    expect(html).toContain('function applyTheme(theme)');
+    expect(html).toContain('term.options.theme = theme');
+    expect(html).toContain("} else if (type === 'theme') {");
     expect(html).toContain('#terminal-root { width: 100%; height: 100%');
     expect(html).toContain("} else if (type === 'fit') {");
     expect(html).toContain('fitAddon.fit()');

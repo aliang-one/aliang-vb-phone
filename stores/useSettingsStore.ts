@@ -12,6 +12,7 @@ import {
   type AccountPortalData,
 } from '../src/api/account';
 import { setApiAuthTokenProvider } from '../src/api/client';
+import { platformTransport } from '../src/services/platformTransport';
 import {
   SessionExpiredError,
   decodeJwtExp,
@@ -84,6 +85,28 @@ export const useSessionStore = create<SessionState>()(
         }
       },
       logout: async () => {
+        // Best-effort: close any active remote terminals before the token is
+        // cleared, so shells don't linger on the device after sign-out. The
+        // server idle-timeout reaper is the ultimate backstop; this just makes
+        // manual sign-out prompt. Failures (e.g. already-expired token) are
+        // swallowed — sign-out must still complete.
+        try {
+          const activeTerminals = useControlCenterStore
+            .getState()
+            .terminalSessions.filter(
+              t =>
+                t.status === 'running' ||
+                t.status === 'idle' ||
+                t.status === 'waiting_approval',
+            );
+          await Promise.all(
+            activeTerminals.map(t =>
+              platformTransport.closeTerminalSession(t.id).catch(() => {}),
+            ),
+          );
+        } catch {
+          // Best-effort only.
+        }
         try {
           await apiLogout();
         } catch {

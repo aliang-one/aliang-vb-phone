@@ -8,11 +8,61 @@
 
 import { XTERM_CSS, XTERM_FIT_JS, XTERM_JS } from './terminalAssets';
 
+export interface TerminalThemePalette {
+  background: string;
+  foreground: string;
+  cursor: string;
+  selectionBackground: string;
+  selectionForeground: string;
+  black: string;
+  red: string;
+  green: string;
+  yellow: string;
+  blue: string;
+  magenta: string;
+  cyan: string;
+  white: string;
+  brightBlack: string;
+  brightRed: string;
+  brightGreen: string;
+  brightYellow: string;
+  brightBlue: string;
+  brightMagenta: string;
+  brightCyan: string;
+  brightWhite: string;
+}
+
+export function getTerminalThemePalette(isDark: boolean): TerminalThemePalette {
+  return {
+    background: isDark ? '#0d1117' : '#ffffff',
+    foreground: isDark ? '#e6edf3' : '#1f2328',
+    cursor: isDark ? '#58a6ff' : '#0969da',
+    selectionBackground: isDark
+      ? 'rgba(88,166,255,0.25)'
+      : 'rgba(9,105,218,0.25)',
+    selectionForeground: isDark ? '#e6edf3' : '#1f2328',
+    black: '#484f58',
+    red: '#ff7b72',
+    green: '#3fb950',
+    yellow: '#d29922',
+    blue: '#58a6ff',
+    magenta: '#bc8cff',
+    cyan: '#39c5cf',
+    white: '#b1bac4',
+    brightBlack: '#6e7681',
+    brightRed: '#ffa198',
+    brightGreen: '#56d364',
+    brightYellow: '#e3b341',
+    brightBlue: '#79c0ff',
+    brightMagenta: '#d2a8ff',
+    brightCyan: '#56d4dd',
+    brightWhite: '#f0f6fc',
+  };
+}
+
 export function getTerminalHtml(isDark: boolean): string {
-  const bgColor = isDark ? '#0d1117' : '#ffffff';
-  const fgColor = isDark ? '#e6edf3' : '#1f2328';
-  const cursorColor = isDark ? '#58a6ff' : '#0969da';
-  const selectionBg = isDark ? 'rgba(88,166,255,0.25)' : 'rgba(9,105,218,0.25)';
+  const palette = getTerminalThemePalette(isDark);
+  const serializedPalette = JSON.stringify(palette);
 
   return `<!DOCTYPE html>
 <html>
@@ -24,7 +74,7 @@ export function getTerminalHtml(isDark: boolean): string {
   </style>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; overflow: hidden; background: ${bgColor}; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: ${palette.background}; }
     #terminal-container { width: 100%; height: 100%; overflow: hidden; }
     #terminal-root { width: 100%; height: 100%; min-height: 80px; }
   </style>
@@ -51,31 +101,10 @@ export function getTerminalHtml(isDark: boolean): string {
       };
 
       var didAnnounceRendered = false;
+      var currentTheme = ${serializedPalette};
       try {
       var term = new Terminal({
-        theme: {
-          background: '${bgColor}',
-          foreground: '${fgColor}',
-          cursor: '${cursorColor}',
-          selectionBackground: '${selectionBg}',
-          selectionForeground: '${fgColor}',
-          black: '#484f58',
-          red: '#ff7b72',
-          green: '#3fb950',
-          yellow: '#d29922',
-          blue: '#58a6ff',
-          magenta: '#bc8cff',
-          cyan: '#39c5cf',
-          white: '#b1bac4',
-          brightBlack: '#6e7681',
-          brightRed: '#ffa198',
-          brightGreen: '#56d364',
-          brightYellow: '#e3b341',
-          brightBlue: '#79c0ff',
-          brightMagenta: '#d2a8ff',
-          brightCyan: '#56d4dd',
-          brightWhite: '#f0f6fc'
-        },
+        theme: currentTheme,
         fontFamily: 'Menlo, Monaco, "Courier New", monospace',
         fontSize: 13,
         lineHeight: 1.15,
@@ -229,6 +258,14 @@ export function getTerminalHtml(isDark: boolean): string {
         });
       }
 
+      function applyTheme(theme) {
+        if (!theme) return;
+        currentTheme = theme;
+        document.documentElement.style.background = theme.background;
+        document.body.style.background = theme.background;
+        term.options.theme = theme;
+      }
+
       term.onData(postTextInput);
 
       // RN → WebView: receive terminal output or commands
@@ -256,6 +293,8 @@ export function getTerminalHtml(isDark: boolean): string {
           } else if (type === 'fit') {
             fitAddon.fit();
             configureHelperTextarea();
+          } else if (type === 'theme') {
+            applyTheme(JSON.parse(payload));
           } else if (type === 'clear') {
             term.clear();
             term.reset();

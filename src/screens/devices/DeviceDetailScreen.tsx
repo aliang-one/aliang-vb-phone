@@ -78,6 +78,8 @@ export const DeviceDetailScreen: React.FC = () => {
   const events = useControlCenterStore(state => state.events);
   const approvals = useControlCenterStore(state => state.approvals);
   const scanResults = useControlCenterStore(state => state.scanResults);
+  const terminalSessions = useControlCenterStore(state => state.terminalSessions);
+  const stopTerminal = useControlCenterStore(state => state.stopTerminal);
   const device = devices.find(item => item.id === route.params.deviceId);
   const deviceOffline = device?.status === 'offline';
 
@@ -113,7 +115,7 @@ export const DeviceDetailScreen: React.FC = () => {
     () => sessions.filter(session => activeSessionStatuses.includes(session.status)),
     [sessions],
   );
-const recentEvents = useMemo(
+  const recentEvents = useMemo(
     () => events.filter(e => e.deviceId === device?.id).length,
     [events, device?.id],
   );
@@ -127,6 +129,21 @@ const recentEvents = useMemo(
   );
   const terminalDirectory =
     device?.authorizedDirectories[0] ?? projects[0]?.path ?? '~';
+  // Active remote shells on this device (running / idle / awaiting approval).
+  // Closed/stopped/failed sessions are excluded. Tapping one resumes the SAME
+  // PTY (DeviceTerminal reuses when terminalId is passed); Close kills it.
+  const activeTerminals = useMemo(() => {
+    if (!device) return [];
+    return terminalSessions
+      .filter(
+        t =>
+          t.deviceId === device.id &&
+          (t.status === 'running' ||
+            t.status === 'idle' ||
+            t.status === 'waiting_approval'),
+      )
+      .sort((a, b) => (b.updatedAt > a.updatedAt ? 1 : -1));
+  }, [terminalSessions, device]);
   const knownProjectPaths = uniqueStrings(projects.map(project => project.path));
   const toolList = useIncrementalList(device?.tools ?? [], {
     initialCount: 8,
@@ -138,9 +155,9 @@ const recentEvents = useMemo(
       newestFirst(left.updated_at, right.updated_at),
     ),
     {
-    initialCount: 8,
-    step: 12,
-    resetKey: device?.id ?? 'missing',
+      initialCount: 8,
+      step: 12,
+      resetKey: device?.id ?? 'missing',
     },
   );
   const directoryList = useIncrementalList(device?.authorizedDirectories ?? [], {
@@ -295,6 +312,64 @@ const recentEvents = useMemo(
             accent={pendingApprovals > 0}
           />
         </View>
+
+        <SectionTitle title="ACTIVE TERMINALS" />
+        {activeTerminals.length ? (
+          activeTerminals.map(terminal => (
+            <GlassPanel key={terminal.id} style={styles.projectCard}>
+              <View style={styles.projectTop}>
+                <View style={styles.projectTitleBlock}>
+                  <Text
+                    numberOfLines={1}
+                    style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+                    {terminal.shell || 'shell'} · {terminal.directory || '~'}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+                    {terminal.id}
+                  </Text>
+                </View>
+                <StatusChip
+                  label={terminal.status.toUpperCase()}
+                  type={
+                    terminal.status === 'running'
+                      ? 'success'
+                      : terminal.status === 'waiting_approval'
+                      ? 'warning'
+                      : 'neutral'
+                  }
+                />
+              </View>
+              <View style={styles.projectActionRow}>
+                <GlowButton
+                  title="RESUME"
+                  disabled={deviceOffline}
+                  onPress={() =>
+                    navigation.navigate('DeviceTerminal', {
+                      deviceId: device!.id,
+                      terminalId: terminal.id,
+                      directory: terminal.directory,
+                    })
+                  }
+                />
+                <GlowButton
+                  title="CLOSE"
+                  disabled={deviceOffline}
+                  onPress={() => {
+                    stopTerminal(terminal.id).catch(() => {});
+                  }}
+                />
+              </View>
+            </GlassPanel>
+          ))
+        ) : (
+          <GlassPanel style={styles.emptyTerminalCard}>
+            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+              暂无进行中的终端。点击上方 Terminal 开启一个远程 shell。
+            </Text>
+          </GlassPanel>
+        )}
 
         <SectionTitle title="PROJECTS ON DEVICE" />
         {projects.length ? (
@@ -917,6 +992,10 @@ const styles = StyleSheet.create({
   projectCard: {
     padding: 12,
     gap: 9,
+    marginBottom: 10,
+  },
+  emptyTerminalCard: {
+    padding: 12,
     marginBottom: 10,
   },
   projectTop: {

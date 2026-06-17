@@ -5,10 +5,14 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider } from './src/theme/ThemeContext';
 import { useTheme } from './src/theme/useTheme';
 import { RootNavigator } from './src/app/navigation/RootNavigator';
+import { usePresenceHeartbeat } from './src/hooks/usePresenceHeartbeat';
 import type { AppInitialProps } from './src/app/debugInitialProps';
 
 function AppContent({ debugDeviceTerminal }: AppInitialProps = {}) {
   const { theme, isDark } = useTheme();
+  // App-level presence: keeps the user's terminals alive while the app is in the
+  // foreground (the server's idle reaper closes them after N min of no activity).
+  usePresenceHeartbeat();
 
   return (
     <>

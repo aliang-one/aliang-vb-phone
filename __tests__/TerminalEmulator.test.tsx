@@ -9,6 +9,7 @@ import {
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { platformTransport } from '../src/services/platformTransport';
+import { getTerminalThemePalette } from '../src/components/terminal/terminalHtml';
 
 const mockWebViewInjectJavaScript = jest.fn();
 const mockWebViewMount = jest.fn();
@@ -148,6 +149,42 @@ describe('TerminalEmulator WebView bridge', () => {
     });
 
     expect(onRendered).toHaveBeenCalledTimes(1);
+  });
+
+  it('injects the active theme when xterm becomes ready and when it changes', () => {
+    const tree = renderTerminal();
+    const webview = tree.root.findByType(WebView);
+
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+
+    expect(mockWebViewInjectJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining(
+        JSON.stringify(JSON.stringify(getTerminalThemePalette(false))),
+      ),
+    );
+
+    act(() => {
+      tree.update(
+        <ThemeContext.Provider
+          value={{
+            theme: utilityMinimalist,
+            mode: 'dark',
+            setMode: jest.fn(),
+            isDark: true,
+          }}
+        >
+          <TerminalEmulator sessionId="term-1" enabled terminalRef={undefined} />
+        </ThemeContext.Provider>,
+      );
+    });
+
+    expect(mockWebViewInjectJavaScript).toHaveBeenLastCalledWith(
+      expect.stringContaining(
+        JSON.stringify(JSON.stringify(getTerminalThemePalette(true))),
+      ),
+    );
   });
 
   it('resets rendered state when the session changes', () => {

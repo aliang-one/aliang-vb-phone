@@ -59,6 +59,7 @@ describe('terminal output store handling', () => {
         },
       ],
       terminalCommandHistory: {},
+      events: [],
     });
     jest.clearAllMocks();
   });
@@ -234,6 +235,24 @@ describe('terminal output store handling', () => {
       session_id: 'term-1',
       data: '\t',
       encoding: 'text',
+    });
+  });
+
+  it('marks a terminal completed when the server closes its PTY', () => {
+    useControlCenterStore.getState().handleTransportEvent({
+      type: 'terminal.closed',
+      sessionId: 'term-1',
+      raw: {},
+    });
+
+    const state = useControlCenterStore.getState();
+    expect(state.terminalSessions[0].status).toBe('completed');
+    expect(state.events[0]).toMatchObject({
+      type: 'command.completed',
+      title: 'Terminal session closed',
+      detail: 'term-1',
+      status: 'done',
+      terminalId: 'term-1',
     });
   });
 
