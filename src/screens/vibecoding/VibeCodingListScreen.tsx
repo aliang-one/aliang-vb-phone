@@ -40,6 +40,11 @@ const filters: Array<{ label: string; value: 'all' | VibeStatus }> = [
   { label: 'DONE', value: 'completed' },
 ];
 
+const getFilterChipBackground = (active: boolean, isDark: boolean) => {
+  if (!active) return 'transparent';
+  return isDark ? 'rgba(86, 156, 214, 0.15)' : 'rgba(0, 81, 174, 0.1)';
+};
+
 export const VibeCodingListScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
@@ -322,11 +327,7 @@ export const VibeCodingListScreen: React.FC = () => {
                   styles.filterChip,
                   {
                     borderRadius: theme.borderRadius.full,
-                    backgroundColor: active
-                      ? isDark
-                        ? 'rgba(86, 156, 214, 0.15)'
-                        : 'rgba(0, 81, 174, 0.1)'
-                      : 'transparent',
+                    backgroundColor: getFilterChipBackground(active, isDark),
                     borderColor: active
                       ? theme.colors.primary
                       : theme.colors.outlineVariant,

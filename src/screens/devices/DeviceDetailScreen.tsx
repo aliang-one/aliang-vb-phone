@@ -60,6 +60,17 @@ const TOOL_LABELS: Record<string, string> = {
 
 const workspaceToolLabel = (tool: string) => TOOL_LABELS[tool] ?? tool;
 
+const activePanelStyle = (
+  isDark: boolean,
+  lightBackgroundColor: string,
+) => ({
+  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : lightBackgroundColor,
+});
+
+const lowPanelStyle = (isDark: boolean, lightBackgroundColor: string) => ({
+  backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : lightBackgroundColor,
+});
+
 const formatBytes = (bytes: number) => {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
   if (bytes < 1024) return `${bytes} B`;
@@ -379,7 +390,7 @@ export const DeviceDetailScreen: React.FC = () => {
               key={project.id}
               style={[
                 styles.projectCard,
-                { opacity: deviceOffline ? 0.5 : 1 },
+                deviceOffline && styles.disabledCard,
               ]}>
               <View style={styles.projectTop}>
                 <View style={styles.projectTitleBlock}>
@@ -749,11 +760,7 @@ const MiniMetric: React.FC<{ label: string; value: string }> = ({ label, value }
     <View
       style={[
         styles.miniMetric,
-        {
-          backgroundColor: isDark
-            ? 'rgba(255,255,255,0.05)'
-            : theme.colors.surfaceContainer,
-        },
+        activePanelStyle(isDark, theme.colors.surfaceContainer),
       ]}>
       <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
         {value}
@@ -772,11 +779,7 @@ const Fact: React.FC<{ label: string; value: string }> = ({ label, value }) => {
     <View
       style={[
         styles.fact,
-        {
-          backgroundColor: isDark
-            ? 'rgba(255,255,255,0.04)'
-            : theme.colors.surfaceContainerLow,
-        },
+        lowPanelStyle(isDark, theme.colors.surfaceContainerLow),
       ]}>
       <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
         {label}
@@ -797,11 +800,7 @@ const MetaPill: React.FC<{ label: string }> = ({ label }) => {
     <View
       style={[
         styles.metaPill,
-        {
-          backgroundColor: isDark
-            ? 'rgba(255,255,255,0.05)'
-            : theme.colors.surfaceContainer,
-        },
+        activePanelStyle(isDark, theme.colors.surfaceContainer),
       ]}>
       <Text
         numberOfLines={1}
@@ -993,6 +992,9 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 9,
     marginBottom: 10,
+  },
+  disabledCard: {
+    opacity: 0.5,
   },
   emptyTerminalCard: {
     padding: 12,
