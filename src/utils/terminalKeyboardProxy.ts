@@ -167,6 +167,11 @@ function terminalKeyboardProxyInputFromKey(key: string): string {
   if (key === 'ArrowDown') return '\x1b[B';
   if (key === 'ArrowRight') return '\x1b[C';
   if (key === 'ArrowLeft') return '\x1b[D';
+  if (key === 'Delete') return '\x1b[3~';
+  if (key === 'Home') return '\x1b[H';
+  if (key === 'End') return '\x1b[F';
+  if (key === 'PageUp') return '\x1b[5~';
+  if (key === 'PageDown') return '\x1b[6~';
   return '';
 }
 

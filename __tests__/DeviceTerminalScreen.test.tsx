@@ -284,6 +284,25 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     });
   });
 
+  it('offers common terminal navigation shortcuts in the floating key row', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    expect(screen!.root.findByProps({ testID: 'terminal-key-Home' })).toBeTruthy();
+    expect(screen!.root.findByProps({ testID: 'terminal-key-End' })).toBeTruthy();
+    expect(screen!.root.findByProps({ testID: 'terminal-key-PgUp' })).toBeTruthy();
+    expect(screen!.root.findByProps({ testID: 'terminal-key-PgDn' })).toBeTruthy();
+
+    act(() => {
+      screen!.root.findByProps({ testID: 'terminal-key-Delete' }).props.onPress();
+    });
+
+    expect(mockTerminalSendText).toHaveBeenCalledWith('\x1b[3~', {
+      focus: false,
+    });
+  });
+
   it('shows focused keyboard state when the KB control requests soft keyboard focus', async () => {
     await act(async () => {
       screen = renderScreen();

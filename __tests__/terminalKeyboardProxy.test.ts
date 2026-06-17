@@ -244,6 +244,21 @@ describe('terminalKeyboardProxy', () => {
     expect(terminalKeyboardProxyKeyAction(state, 'ArrowLeft', 1000).input).toBe(
       '\x1b[D',
     );
+    expect(terminalKeyboardProxyKeyAction(state, 'Delete', 1000).input).toBe(
+      '\x1b[3~',
+    );
+    expect(terminalKeyboardProxyKeyAction(state, 'Home', 1000).input).toBe(
+      '\x1b[H',
+    );
+    expect(terminalKeyboardProxyKeyAction(state, 'End', 1000).input).toBe(
+      '\x1b[F',
+    );
+    expect(terminalKeyboardProxyKeyAction(state, 'PageUp', 1000).input).toBe(
+      '\x1b[5~',
+    );
+    expect(terminalKeyboardProxyKeyAction(state, 'PageDown', 1000).input).toBe(
+      '\x1b[6~',
+    );
   });
 
   it('ignores non-terminal keypress values', () => {
