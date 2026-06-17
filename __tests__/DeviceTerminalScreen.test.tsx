@@ -289,6 +289,9 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       screen = renderScreen();
     });
 
+    expect(screen!.root.findByProps({ children: 'Core' })).toBeTruthy();
+    expect(screen!.root.findByProps({ children: 'Edit' })).toBeTruthy();
+    expect(screen!.root.findByProps({ children: 'Move' })).toBeTruthy();
     expect(screen!.root.findByProps({ testID: 'terminal-key-Home' })).toBeTruthy();
     expect(screen!.root.findByProps({ testID: 'terminal-key-End' })).toBeTruthy();
     expect(screen!.root.findByProps({ testID: 'terminal-key-PgUp' })).toBeTruthy();

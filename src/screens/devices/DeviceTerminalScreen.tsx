@@ -48,7 +48,7 @@ import {
   terminalKeyboardProxyChangeAction,
   terminalKeyboardProxyKeyAction,
 } from '../../utils/terminalKeyboardProxy';
-import { terminalShortcutKeyRows } from '../../utils/terminalKeySequences';
+import { terminalShortcutGroups } from '../../utils/terminalKeySequences';
 import { buildTerminalSuggestions } from '../../utils/terminalSuggestions';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -1113,37 +1113,49 @@ export const DeviceTerminalScreen: React.FC = () => {
                       style={styles.keyboardProxy}
                     />
                   </TouchableOpacity>
-                  {terminalShortcutKeyRows.map(([label, value]) => (
-                    <TouchableOpacity
-                      key={label}
-                      testID={`terminal-key-${label}`}
-                      activeOpacity={0.74}
-                      onPress={() =>
-                        sendToTerminal(value, {
-                          focus: false,
-                          keepKeyboardProxyFocused: true,
-                        })
-                      }
-                      disabled={!terminalInputEnabled}
-                      style={[
-                        styles.keyButton,
-                        {
-                          backgroundColor: elevatedSurfaceColor,
-                          borderColor: outlineColor,
-                        },
-                        !terminalInputEnabled && styles.disabledControl,
-                      ]}
-                    >
+                  {terminalShortcutGroups.map(group => (
+                    <View key={group.label} style={styles.keyGroup}>
                       <Text
                         style={[
                           theme.typography.labelCaps,
-                          styles.quickActionText,
+                          styles.keyGroupLabel,
                           { color: theme.colors.onSurfaceVariant },
-                        ]}
-                      >
-                        {label}
+                        ]}>
+                        {group.label}
                       </Text>
-                    </TouchableOpacity>
+                      {group.rows.map(([label, value]) => (
+                        <TouchableOpacity
+                          key={label}
+                          testID={`terminal-key-${label}`}
+                          activeOpacity={0.74}
+                          onPress={() =>
+                            sendToTerminal(value, {
+                              focus: false,
+                              keepKeyboardProxyFocused: true,
+                            })
+                          }
+                          disabled={!terminalInputEnabled}
+                          style={[
+                            styles.keyButton,
+                            {
+                              backgroundColor: elevatedSurfaceColor,
+                              borderColor: outlineColor,
+                            },
+                            !terminalInputEnabled && styles.disabledControl,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              theme.typography.labelCaps,
+                              styles.quickActionText,
+                              { color: theme.colors.onSurfaceVariant },
+                            ]}
+                          >
+                            {label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
                   ))}
                 </ScrollView>
               </View>
@@ -1432,8 +1444,19 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
   keyRow: {
-    gap: 8,
+    gap: 10,
     paddingRight: 12,
+  },
+  keyGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  keyGroupLabel: {
+    width: 34,
+    textAlign: 'center',
+    fontSize: 9,
+    letterSpacing: 0,
   },
   keyButton: {
     minWidth: 54,
