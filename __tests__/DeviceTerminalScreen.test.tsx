@@ -309,6 +309,54 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     );
   });
 
+  it('reuses the last keyboard height while the soft keyboard is re-opening', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    const keyboardButton = screen!.root.findByProps({
+      testID: 'terminal-keyboard-focus',
+    });
+    act(() => {
+      keyboardButton.props.onPressIn();
+    });
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-floating-controls' }).props
+        .style,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ bottom: 300 })]),
+    );
+
+    act(() => {
+      keyboardListeners.keyboardWillShow?.forEach(listener =>
+        listener({
+          endCoordinates: { height: 256 },
+        } as KeyboardEvent),
+      );
+    });
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-floating-controls' }).props
+        .style,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ bottom: 256 })]),
+    );
+
+    act(() => {
+      keyboardListeners.keyboardDidHide?.forEach(listener => listener());
+    });
+
+    act(() => {
+      keyboardButton.props.onPressIn();
+    });
+
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-floating-controls' }).props
+        .style,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ bottom: 256 })]),
+    );
+  });
+
   it('collapses the terminal top project controls while the keyboard is open', async () => {
     await act(async () => {
       screen = renderScreen();

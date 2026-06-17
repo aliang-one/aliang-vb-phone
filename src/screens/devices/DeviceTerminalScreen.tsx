@@ -168,6 +168,7 @@ export const DeviceTerminalScreen: React.FC = () => {
   const keyboardProxyFocusRetryRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const keyboardInsetCacheRef = useRef(0);
   const directoryPathRef = useRef<ScrollView>(null);
   const devices = useControlCenterStore(state => state.devices);
   const terminalSessions = useControlCenterStore(
@@ -261,7 +262,7 @@ export const DeviceTerminalScreen: React.FC = () => {
     keyboardInset > 0
       ? keyboardInset
       : keyboardProxyFocused
-      ? PENDING_KEYBOARD_LIFT_INSET
+      ? keyboardInsetCacheRef.current || PENDING_KEYBOARD_LIFT_INSET
       : 0;
   const terminalViewportInset = terminal
     ? Math.max(floatingControlsHeight + keyboardLiftInset, 104)
@@ -329,8 +330,12 @@ export const DeviceTerminalScreen: React.FC = () => {
     const syncKeyboardInset = (event: {
       endCoordinates?: { height?: number };
     }) => {
+      const nextKeyboardInset = Math.max(0, event.endCoordinates?.height ?? 0);
+      if (nextKeyboardInset > 0) {
+        keyboardInsetCacheRef.current = nextKeyboardInset;
+      }
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setKeyboardInset(Math.max(0, event.endCoordinates?.height ?? 0));
+      setKeyboardInset(nextKeyboardInset);
     };
     const clearKeyboardInset = () => {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
