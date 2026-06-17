@@ -480,11 +480,17 @@ export const DeviceTerminalScreen: React.FC = () => {
     await handleDirectoryChange(visibleDirectory);
   };
 
-  const sendToTerminal = (data: string, options?: { focus?: boolean }) => {
+  const sendToTerminal = (
+    data: string,
+    options?: { focus?: boolean; keepKeyboardProxyFocused?: boolean },
+  ) => {
     if (!terminalInputEnabled || !data) return;
     const shouldFocus = options?.focus !== false;
     terminalBridgeRef.current?.sendText(data, { focus: shouldFocus });
     if (shouldFocus) terminalBridgeRef.current?.focus();
+    if (options?.keepKeyboardProxyFocused) {
+      focusKeyboardProxyInput();
+    }
   };
 
   const focusKeyboardProxyInput = () => {
@@ -1026,7 +1032,12 @@ export const DeviceTerminalScreen: React.FC = () => {
                       key={item}
                       activeOpacity={0.76}
                       disabled={!terminalInputEnabled}
-                      onPress={() => sendToTerminal(`${item}\r`, { focus: false })}
+                      onPress={() =>
+                        sendToTerminal(`${item}\r`, {
+                          focus: false,
+                          keepKeyboardProxyFocused: true,
+                        })
+                      }
                       style={[
                         styles.aiBubble,
                         {
@@ -1119,7 +1130,12 @@ export const DeviceTerminalScreen: React.FC = () => {
                       key={label}
                       testID={`terminal-key-${label}`}
                       activeOpacity={0.74}
-                      onPress={() => sendToTerminal(value, { focus: false })}
+                      onPress={() =>
+                        sendToTerminal(value, {
+                          focus: false,
+                          keepKeyboardProxyFocused: true,
+                        })
+                      }
                       disabled={!terminalInputEnabled}
                       style={[
                         styles.keyButton,

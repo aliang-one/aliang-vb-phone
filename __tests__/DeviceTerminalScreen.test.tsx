@@ -226,6 +226,15 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(mockTerminalSendText).toHaveBeenNthCalledWith(3, '\t', {
       focus: false,
     });
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props.style,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          borderColor: utilityMinimalist.colors.primary,
+        }),
+      ]),
+    );
     expect(mockTerminalFocus).not.toHaveBeenCalled();
   });
 
@@ -710,6 +719,15 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       {
         focus: false,
       },
+    );
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props.style,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          borderColor: utilityMinimalist.colors.primary,
+        }),
+      ]),
     );
     expect(mockTerminalFocus).not.toHaveBeenCalled();
   });
