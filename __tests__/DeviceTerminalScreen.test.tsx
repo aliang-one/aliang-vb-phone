@@ -33,9 +33,11 @@ jest.mock('@react-navigation/native', () => ({
 jest.mock('../src/components/terminal/TerminalEmulator', () => ({
   TerminalEmulator: ({
     terminalRef,
+    onFocusRequest,
     onRendered,
   }: {
     terminalRef?: React.MutableRefObject<unknown>;
+    onFocusRequest?: () => void;
     onRendered?: () => void;
   }) => {
     const MockReact = require('react');
@@ -50,7 +52,10 @@ jest.mock('../src/components/terminal/TerminalEmulator', () => ({
         fit: mockTerminalFit,
       };
     }
-    return MockReact.createElement(View, { testID: 'terminal-emulator' });
+    return MockReact.createElement(View, {
+      testID: 'terminal-emulator',
+      onPress: onFocusRequest,
+    });
   },
 }));
 
@@ -249,6 +254,43 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       expect.arrayContaining([expect.objectContaining({ bottom: 300 })]),
     );
     expect(mockTerminalSendText).not.toHaveBeenCalled();
+  });
+
+  it('uses xterm touch focus requests to open the native keyboard proxy', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    expect(
+      screen!.root.findAllByProps({ testID: 'terminal-top-grid' }).length,
+    ).toBeGreaterThan(0);
+
+    const terminalEmulator = screen!.root.findByProps({
+      testID: 'terminal-emulator',
+    });
+
+    act(() => {
+      terminalEmulator.props.onPress();
+    });
+
+    expect(
+      screen!.root.findAllByProps({ testID: 'terminal-top-grid' }).length,
+    ).toBe(0);
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props.style,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          borderColor: utilityMinimalist.colors.primary,
+        }),
+      ]),
+    );
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-floating-controls' }).props
+        .style,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ bottom: 300 })]),
+    );
   });
 
   it('keeps directory taps available while the soft keyboard is open', async () => {
