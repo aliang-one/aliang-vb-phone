@@ -1,5 +1,4 @@
 import type { StateCreator } from 'zustand';
-import type { Device, Project } from '../../data/platformModels';
 import { platformTransport } from '../../services/platformTransport';
 import type { ControlCenterState } from '../types';
 import {
@@ -316,4 +315,3 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
     }
   },
 });
-
