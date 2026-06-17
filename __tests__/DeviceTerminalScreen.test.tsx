@@ -901,4 +901,59 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       expect.arrayContaining([expect.objectContaining({ paddingBottom: 408 })]),
     );
   });
+
+  it('keeps terminal controls aligned when the keyboard frame changes', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    const floatingControls = screen!.root.findByProps({
+      testID: 'terminal-floating-controls',
+    });
+    act(() => {
+      floatingControls.props.onLayout({
+        nativeEvent: { layout: { height: 104 } },
+      });
+    });
+
+    act(() => {
+      keyboardListeners.keyboardDidShow?.forEach(listener =>
+        listener({
+          endCoordinates: { height: 280 },
+        } as KeyboardEvent),
+      );
+    });
+
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-floating-controls' }).props
+        .style,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ bottom: 280 })]),
+    );
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-viewport' }).props.style,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ paddingBottom: 384 })]),
+    );
+
+    act(() => {
+      keyboardListeners.keyboardWillChangeFrame?.forEach(listener =>
+        listener({
+          endCoordinates: { height: 336 },
+        } as KeyboardEvent),
+      );
+    });
+
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-floating-controls' }).props
+        .style,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ bottom: 336 })]),
+    );
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-viewport' }).props.style,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ paddingBottom: 440 })]),
+    );
+  });
 });
