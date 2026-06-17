@@ -156,6 +156,8 @@ const TopStatusShape: React.FC<{
   </Svg>
 );
 
+const PENDING_KEYBOARD_LIFT_INSET = 300;
+
 export const DeviceTerminalScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
@@ -255,8 +257,14 @@ export const DeviceTerminalScreen: React.FC = () => {
     : 'rgba(0,81,174,0.08)';
   const currentDirectoryDotColor = isDark ? theme.colors.secondary : '#16A34A';
   const topPanelCollapsed = keyboardInset > 0 || keyboardProxyFocused;
+  const keyboardLiftInset =
+    keyboardInset > 0
+      ? keyboardInset
+      : keyboardProxyFocused
+      ? PENDING_KEYBOARD_LIFT_INSET
+      : 0;
   const terminalViewportInset = terminal
-    ? Math.max(floatingControlsHeight + keyboardInset, 104)
+    ? Math.max(floatingControlsHeight + keyboardLiftInset, 104)
     : 0;
   const terminalRendered = Boolean(terminal && renderedTerminalId === terminal.id);
   const terminalRenderErrorMessage =
@@ -327,6 +335,7 @@ export const DeviceTerminalScreen: React.FC = () => {
     const clearKeyboardInset = () => {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setKeyboardInset(0);
+      setKeyboardProxyFocused(false);
     };
     const subscriptions = [
       Keyboard.addListener('keyboardWillShow', syncKeyboardInset),
@@ -390,7 +399,7 @@ export const DeviceTerminalScreen: React.FC = () => {
     }, 40);
 
     return () => clearTimeout(timer);
-  }, [keyboardInset, terminalViewportInset]);
+  }, [keyboardLiftInset, terminalViewportInset]);
 
   const handleBack = () => {
     if (navigation.canGoBack()) {
@@ -949,7 +958,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                 onLayout={event =>
                   setFloatingControlsHeight(event.nativeEvent.layout.height)
                 }
-                style={[styles.floatingControls, { bottom: keyboardInset }]}
+                style={[styles.floatingControls, { bottom: keyboardLiftInset }]}
               >
                 <ScrollView
                   testID="terminal-suggestion-row"

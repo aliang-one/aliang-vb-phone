@@ -238,6 +238,12 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
         }),
       ]),
     );
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-floating-controls' }).props
+        .style,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ bottom: 300 })]),
+    );
     expect(mockTerminalSendText).not.toHaveBeenCalled();
   });
 
