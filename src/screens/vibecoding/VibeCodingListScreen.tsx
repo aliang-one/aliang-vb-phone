@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  useWindowDimensions,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -13,10 +14,9 @@ import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { SearchBar } from '../../components/input/SearchBar';
-import { GlassPanel } from '../../components/shared/GlassPanel';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
-import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard';
+import { TerminalCard } from '../../components/terminals/TerminalCard';
 import { VibeStatus } from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
@@ -41,14 +41,24 @@ const filters: Array<{ label: string; value: 'all' | VibeStatus }> = [
   { label: 'DONE', value: 'completed' },
 ];
 
+const getActiveChipBackground = (isDark: boolean) =>
+  isDark ? 'rgba(86, 156, 214, 0.15)' : 'rgba(0, 81, 174, 0.1)';
+
 const getFilterChipBackground = (active: boolean, isDark: boolean) => {
   if (!active) return 'transparent';
-  return isDark ? 'rgba(86, 156, 214, 0.15)' : 'rgba(0, 81, 174, 0.1)';
+  return getActiveChipBackground(isDark);
 };
+
+type VibecodingTab = { key: 'vibecoding'; title: string } | { key: 'terminals'; title: string };
+const TABS: VibecodingTab[] = [
+  { key: 'vibecoding', title: 'Vibecoding' },
+  { key: 'terminals', title: 'Terminals' },
+];
 
 export const VibeCodingListScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
+  const { width } = useWindowDimensions();
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
   const vibeRuns = useControlCenterStore(state => state.vibeRuns);
@@ -60,6 +70,8 @@ export const VibeCodingListScreen: React.FC = () => {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | VibeStatus>('all');
   const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState(0);
+  const pagerRef = useRef<ScrollView>(null);
 
   const deviceStatusIndex = useMemo(
     () => buildDeviceStatusIndex(devices),
@@ -74,37 +86,6 @@ export const VibeCodingListScreen: React.FC = () => {
         .filter((value): value is string => Boolean(value))
         .some(value => value.toLowerCase().includes(normalizedQuery)),
     [normalizedQuery],
-  );
-  const filteredDevices = useMemo(
-    () =>
-      devices.filter(device => {
-        return matchesQuery([
-          device.id,
-          device.name,
-          device.host,
-          device.location,
-          device.os,
-          device.status,
-          device.uniqueCode,
-          device.agentVersion,
-          ...device.capabilities,
-          ...device.authorizedDirectories,
-          ...device.activePorts.map(String),
-          ...device.tools.flatMap(tool => [
-            tool.id,
-            tool.name,
-            tool.command,
-            tool.path,
-            tool.description,
-          ]),
-          ...device.history.flatMap(entry => [
-            entry.tool,
-            entry.path,
-            entry.updated_at,
-          ]),
-        ]);
-      }),
-    [devices, matchesQuery],
   );
   const filtered = useMemo(
     () =>
@@ -174,21 +155,15 @@ export const VibeCodingListScreen: React.FC = () => {
         ),
     [vibeRuns, projects, devices, filter, matchesQuery, deviceStatusIndex],
   );
-  const sortedDevices = [...filteredDevices].sort(
-    offlineLastComparator(deviceStatusIndex, device => device.id, () => 0),
-  );
-  const deviceList = useIncrementalList(sortedDevices, {
-    initialCount: 8,
-    step: 10,
-    resetKey: normalizedQuery,
-  });
   const sessionList = useIncrementalList(filtered, {
     initialCount: 10,
     step: 12,
     resetKey: `${normalizedQuery}:${filter}`,
   });
-  // All live remote shells across every device. Resume reopens the same PTY;
-  // Close kills it. Closed/stopped sessions are filtered out.
+
+  // All live remote shells across every device (Tab 2). Resume reopens the same
+  // PTY; Close kills it. Closed/stopped sessions are filtered out. Searchable by
+  // directory / device / shell / last command.
   const activeTerminals = useMemo(
     () =>
       terminalSessions
@@ -197,11 +172,21 @@ export const VibeCodingListScreen: React.FC = () => {
           terminal,
           device: devices.find(item => item.id === terminal.deviceId),
         }))
+        .filter(({ terminal, device }) =>
+          matchesQuery([
+            terminal.directory,
+            terminal.shell,
+            terminal.lastCommand,
+            device?.name,
+            device?.id,
+          ]),
+        )
         .sort((a, b) =>
           b.terminal.updatedAt > a.terminal.updatedAt ? 1 : -1,
         ),
-    [terminalSessions, devices],
+    [terminalSessions, devices, matchesQuery],
   );
+
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
@@ -211,319 +196,291 @@ export const VibeCodingListScreen: React.FC = () => {
     }
   };
 
+  const goToTab = (index: number) => {
+    setActiveTab(index);
+    pagerRef.current?.scrollTo({ x: index * width, animated: true });
+  };
+
+  const onPagerScroll = (event: {
+    nativeEvent: { contentOffset: { x: number } };
+  }) => {
+    const index = Math.round(event.nativeEvent.contentOffset.x / width);
+    if (index !== activeTab && index >= 0 && index < TABS.length) {
+      setActiveTab(index);
+    }
+  };
+
+  const refreshControl = (
+    <RefreshControl
+      refreshing={refreshing}
+      onRefresh={handleRefresh}
+      tintColor={theme.colors.primary}
+      colors={[theme.colors.primary]}
+    />
+  );
+
   return (
     <SafeAreaWrapper>
-      <TopAppBar
-        title="Agents"
-        subtitle="REGISTERED DESKTOP AGENTS"
-        rightAction={
-          <TouchableOpacity
-            onPress={() => navigation.navigate('DeviceCameraScanner')}
-            style={styles.addButton}
-          >
-            <Text
-              style={[theme.typography.codeMd, { color: theme.colors.primary }]}
-            >
-              +
-            </Text>
-          </TouchableOpacity>
-        }
-      />
+      <TopAppBar title="VibeCoding" subtitle="SESSIONS · TERMINALS" />
+      <View style={styles.tabBar}>
+        {TABS.map((tab, index) => {
+          const active = activeTab === index;
+          const activeStyle = active
+            ? isDark
+              ? styles.activeTabButtonDark
+              : styles.activeTabButtonLight
+            : null;
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              activeOpacity={0.75}
+              onPress={() => goToTab(index)}
+              style={[
+                styles.tabButton,
+                activeStyle,
+                {
+                  borderColor: active
+                    ? theme.colors.primary
+                    : theme.colors.outlineVariant,
+                },
+              ]}>
+              <Text
+                style={[
+                  theme.typography.labelMd,
+                  {
+                    color: active
+                      ? theme.colors.primary
+                      : theme.colors.onSurfaceVariant,
+                  },
+                ]}>
+                {tab.title}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
       <View style={styles.searchContainer}>
         <SearchBar
           value={query}
           onChangeText={setQuery}
-          placeholder="Search agents, hosts, sessions..."
+          placeholder="Search sessions, terminals, directories..."
         />
       </View>
+
       <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.content}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor={theme.colors.primary}
-            colors={[theme.colors.primary]}
-          />
-        }
-      >
-        <View style={styles.summary}>
-          <StatusChip label={`${devices.length} AGENTS`} type="info" />
-          <StatusChip
-            label={`${
-              devices.filter(item => item.status === 'online').length
-            } ONLINE`}
-            type="success"
-          />
-          <StatusChip
-            label={`${
-              devices.filter(item => item.aiControlEnabled).length
-            } AI READY`}
-            type="info"
-          />
-        </View>
-
-        <Text
-          style={[
-            theme.typography.labelCaps,
-            { color: theme.colors.onSurfaceVariant },
-            styles.sectionTitle,
-          ]}
-        >
-          REGISTERED AGENTS
-        </Text>
-        {deviceList.visibleItems.map(device => (
-          <DeviceControlCard
-            key={device.id}
-            device={device}
-            onPress={() =>
-              navigation.navigate('DeviceDetail', { deviceId: device.id })
-            }
-          />
-        ))}
-        <LoadMoreRow
-          visibleCount={deviceList.visibleCount}
-          totalCount={deviceList.totalCount}
-          onPress={deviceList.showMore}
-        />
-
-        <View style={styles.sectionHeader}>
-          <Text
-            style={[
-              theme.typography.labelCaps,
-              { color: theme.colors.onSurfaceVariant },
-            ]}
-          >
-            VIBECODING SESSIONS
-          </Text>
-          <TouchableOpacity
-            activeOpacity={0.75}
-            onPress={() => navigation.navigate('CreateVibeCoding', {})}
-          >
-            <Text
-              style={[theme.typography.codeSm, { color: theme.colors.primary }]}
-            >
-              NEW TASK
-            </Text>
-          </TouchableOpacity>
-        </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filters}
-        >
-          {filters.map(item => {
-            const active = filter === item.value;
-            return (
-              <TouchableOpacity
-                key={item.value}
-                onPress={() => setFilter(item.value)}
+        ref={pagerRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={onPagerScroll}
+        onMomentumScrollEnd={onPagerScroll}
+        style={styles.pager}>
+        {/* ---------- Page 1: Vibecoding sessions ---------- */}
+        <View style={{ width }}>
+          <ScrollView
+            nestedScrollEnabled
+            contentContainerStyle={styles.content}
+            refreshControl={refreshControl}>
+            <View style={styles.sectionHeader}>
+              <Text
                 style={[
-                  styles.filterChip,
-                  {
-                    borderRadius: theme.borderRadius.full,
-                    backgroundColor: getFilterChipBackground(active, isDark),
-                    borderColor: active
-                      ? theme.colors.primary
-                      : theme.colors.outlineVariant,
-                  },
-                ]}
-              >
+                  theme.typography.labelCaps,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}>
+                VIBECODING SESSIONS
+              </Text>
+              <TouchableOpacity
+                activeOpacity={0.75}
+                onPress={() => navigation.navigate('CreateVibeCoding', {})}>
                 <Text
                   style={[
-                    theme.typography.labelSm,
-                    {
-                      color: active
-                        ? theme.colors.primary
-                        : theme.colors.onSurfaceVariant,
-                    },
-                  ]}
-                >
-                  {item.label}
+                    theme.typography.codeSm,
+                    { color: theme.colors.primary },
+                  ]}>
+                  NEW TASK
                 </Text>
               </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
-        <View style={styles.summary}>
-          <StatusChip label={`${filtered.length} SESSIONS`} type="info" />
-          <StatusChip
-            label={`${
-              filtered.filter(item => item.status === 'waiting_approval').length
-            } APPROVAL`}
-            type="warning"
-          />
-          <StatusChip
-            label={`${filtered.filter(item => item.previewId).length} PREVIEWS`}
-            type="info"
-          />
-        </View>
-
-        {sessionList.visibleItems.map(session => (
-          <VibeSessionCard
-            key={session.id}
-            session={session}
-            project={projects.find(project => project.id === session.projectId)}
-            device={devices.find(device => device.id === session.deviceId)}
-            disabled={isDeviceStatusOffline(
-              deviceStatusIndex.get(session.deviceId),
-            )}
-            onPress={() =>
-              navigation.navigate('VibeCodingSession', {
-                sessionId: session.id,
-              })
-            }
-          />
-        ))}
-        <LoadMoreRow
-          visibleCount={sessionList.visibleCount}
-          totalCount={sessionList.totalCount}
-          onPress={sessionList.showMore}
-        />
-
-        <View style={styles.sectionHeader}>
-          <Text
-            style={[
-              theme.typography.labelCaps,
-              { color: theme.colors.onSurfaceVariant },
-            ]}>
-            REMOTE TERMINALS
-          </Text>
-          <StatusChip label={`${activeTerminals.length} ACTIVE`} type="info" />
-        </View>
-        {activeTerminals.length ? (
-          activeTerminals.map(({ terminal, device }) => {
-            const offline = isDeviceStatusOffline(
-              deviceStatusIndex.get(terminal.deviceId),
-            );
-            return (
-              <GlassPanel key={terminal.id} style={styles.terminalCard}>
-                <View style={styles.terminalTop}>
-                  <View style={styles.terminalCopy}>
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        theme.typography.titleMd,
-                        { color: theme.colors.onSurface },
-                      ]}>
-                      {device?.name ?? terminal.deviceId}
-                    </Text>
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        theme.typography.codeSm,
-                        { color: theme.colors.onSurfaceVariant },
-                      ]}>
-                      {terminal.shell || 'shell'} · {terminal.directory || '~'}
-                    </Text>
-                    {terminal.lastCommand ? (
-                      <Text
-                        numberOfLines={1}
-                        style={[
-                          theme.typography.codeSm,
-                          { color: theme.colors.primary },
-                        ]}>
-                        LAST {terminal.lastCommand}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <StatusChip
-                    label={terminal.status.toUpperCase()}
-                    type={
-                      terminal.status === 'running'
-                        ? 'success'
-                        : terminal.status === 'waiting_approval'
-                        ? 'warning'
-                        : 'neutral'
-                    }
-                  />
-                </View>
-                <View style={styles.terminalActions}>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filters}>
+              {filters.map(item => {
+                const active = filter === item.value;
+                return (
                   <TouchableOpacity
-                    disabled={offline}
+                    key={item.value}
+                    onPress={() => setFilter(item.value)}
                     style={[
-                      styles.terminalBtn,
-                      { borderColor: theme.colors.primary },
-                    ]}
-                    onPress={() =>
-                      navigation.navigate('DeviceTerminal', {
-                        deviceId: terminal.deviceId,
-                        terminalId: terminal.id,
-                        directory: terminal.directory,
-                      })
-                    }>
+                      styles.filterChip,
+                      {
+                        borderRadius: theme.borderRadius.full,
+                        backgroundColor: getFilterChipBackground(active, isDark),
+                        borderColor: active
+                          ? theme.colors.primary
+                          : theme.colors.outlineVariant,
+                      },
+                    ]}>
                     <Text
                       style={[
                         theme.typography.labelSm,
-                        { color: theme.colors.primary },
+                        {
+                          color: active
+                            ? theme.colors.primary
+                            : theme.colors.onSurfaceVariant,
+                        },
                       ]}>
-                      RESUME
+                      {item.label}
                     </Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    disabled={offline}
-                    style={[
-                      styles.terminalBtn,
-                      { borderColor: theme.colors.outlineVariant },
-                    ]}
-                    onPress={() => {
-                      stopTerminal(terminal.id).catch(() => {});
-                    }}>
-                    <Text
-                      style={[
-                        theme.typography.labelSm,
-                        { color: theme.colors.onSurfaceVariant },
-                      ]}>
-                      CLOSE
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </GlassPanel>
-            );
-          })
-        ) : (
-          <Text
-            style={[
-              theme.typography.bodySm,
-              { color: theme.colors.onSurfaceVariant },
-              styles.emptyText,
-            ]}>
-            没有进行中的远程终端。在设备页打开 Terminal 即可开始。
-          </Text>
-        )}
+                );
+              })}
+            </ScrollView>
+
+            <View style={styles.summary}>
+              <StatusChip label={`${filtered.length} SESSIONS`} type="info" />
+              <StatusChip
+                label={`${
+                  filtered.filter(item => item.status === 'waiting_approval')
+                    .length
+                } APPROVAL`}
+                type="warning"
+              />
+              <StatusChip
+                label={`${filtered.filter(item => item.previewId).length} PREVIEWS`}
+                type="info"
+              />
+            </View>
+
+            {sessionList.visibleItems.map(session => (
+              <VibeSessionCard
+                key={session.id}
+                session={session}
+                project={projects.find(project => project.id === session.projectId)}
+                device={devices.find(device => device.id === session.deviceId)}
+                disabled={isDeviceStatusOffline(
+                  deviceStatusIndex.get(session.deviceId),
+                )}
+                onPress={() =>
+                  navigation.navigate('VibeCodingSession', {
+                    sessionId: session.id,
+                  })
+                }
+              />
+            ))}
+            <LoadMoreRow
+              visibleCount={sessionList.visibleCount}
+              totalCount={sessionList.totalCount}
+              onPress={sessionList.showMore}
+            />
+            {!filtered.length ? (
+              <Text
+                style={[
+                  theme.typography.bodySm,
+                  { color: theme.colors.onSurfaceVariant },
+                  styles.emptyText,
+                ]}>
+                没有匹配的 Vibecoding 会话。
+              </Text>
+            ) : null}
+          </ScrollView>
+        </View>
+
+        {/* ---------- Page 2: Terminals ---------- */}
+        <View style={{ width }}>
+          <ScrollView
+            nestedScrollEnabled
+            contentContainerStyle={styles.content}
+            refreshControl={refreshControl}>
+            <View style={styles.sectionHeader}>
+              <Text
+                style={[
+                  theme.typography.labelCaps,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}>
+                REMOTE TERMINALS
+              </Text>
+              <StatusChip
+                label={`${activeTerminals.length} ACTIVE`}
+                type="info"
+              />
+            </View>
+            {activeTerminals.map(({ terminal, device }) => (
+              <TerminalCard
+                key={terminal.id}
+                terminal={terminal}
+                deviceName={device?.name}
+                disabled={isDeviceStatusOffline(
+                  deviceStatusIndex.get(terminal.deviceId),
+                )}
+                onPress={() =>
+                  navigation.navigate('DeviceTerminal', {
+                    deviceId: terminal.deviceId,
+                    terminalId: terminal.id,
+                    directory: terminal.directory,
+                  })
+                }
+                onClose={() => {
+                  stopTerminal(terminal.id).catch(() => {});
+                }}
+              />
+            ))}
+            {!activeTerminals.length ? (
+              <Text
+                style={[
+                  theme.typography.bodySm,
+                  { color: theme.colors.onSurfaceVariant },
+                  styles.emptyText,
+                ]}>
+                没有进行中的远程终端。在设备页打开 Terminal 即可开始。
+              </Text>
+            ) : null}
+          </ScrollView>
+        </View>
       </ScrollView>
     </SafeAreaWrapper>
   );
 };
 
 const styles = StyleSheet.create({
-  addButton: {
-    width: 32,
-    height: 32,
+  tabBar: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 6,
+  },
+  tabButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 9,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  activeTabButtonLight: {
+    backgroundColor: 'rgba(0, 81, 174, 0.1)',
+  },
+  activeTabButtonDark: {
+    backgroundColor: 'rgba(86, 156, 214, 0.16)',
+  },
   searchContainer: {
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 10,
   },
-  scrollView: {
+  pager: {
     flex: 1,
   },
   content: {
     paddingHorizontal: 16,
     paddingBottom: 40,
-  },
-  sectionTitle: {
-    marginBottom: 8,
+    paddingTop: 4,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 16,
+    marginTop: 8,
     marginBottom: 2,
   },
   filters: {
@@ -541,31 +498,6 @@ const styles = StyleSheet.create({
     gap: 8,
     flexWrap: 'wrap',
     marginBottom: 12,
-  },
-  terminalCard: {
-    padding: 12,
-    gap: 10,
-    marginBottom: 10,
-  },
-  terminalTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  terminalCopy: {
-    flex: 1,
-    gap: 3,
-  },
-  terminalActions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  terminalBtn: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
   },
   emptyText: {
     paddingVertical: 12,

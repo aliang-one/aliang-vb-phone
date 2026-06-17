@@ -2,11 +2,11 @@ import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { Text, TouchableOpacity } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { VibeCodingListScreen } from '../src/screens/vibecoding/VibeCodingListScreen';
+import { TerminalListScreen } from '../src/screens/terminals/TerminalListScreen';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { useControlCenterStore } from '../src/store/controlCenterStore';
-import type { Device, VibeCodingRun } from '../src/data/platformModels';
+import type { Device } from '../src/data/platformModels';
 
 const mockNavigate = jest.fn();
 
@@ -27,25 +27,12 @@ jest.mock('../src/components/vibecoding/DeviceControlCard', () => ({
   },
 }));
 
-jest.mock('../src/components/vibecoding/VibeSessionCard', () => ({
-  VibeSessionCard: ({ session }: { session: VibeCodingRun }) => {
-    const MockReact = require('react');
-    const { View: MockView } = require('react-native');
-    return MockReact.createElement(MockView, {
-      testID: 'session-card',
-      'data-session-id': session.id,
-    });
-  },
-}));
-
-describe('VibeCodingListScreen remote terminal shortcuts', () => {
+describe('TerminalListScreen active terminal shortcuts', () => {
   let screen: ReactTestRenderer.ReactTestRenderer | undefined;
 
   beforeEach(() => {
     useControlCenterStore.setState({
       devices: [device('device-1', 'MacBook', 'online')],
-      projects: [],
-      vibeRuns: [],
       terminalSessions: [
         terminal('term-active', 'device-1', 'running', '~/project'),
         terminal('term-completed', 'device-1', 'completed', '~/old'),
@@ -71,20 +58,18 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
           mode: 'light',
           setMode: jest.fn(),
           isDark: false,
-        }}
-      >
+        }}>
         <SafeAreaProvider
           initialMetrics={{
             frame: { x: 0, y: 0, width: 390, height: 844 },
             insets: { top: 0, right: 0, bottom: 0, left: 0 },
-          }}
-        >
-          <VibeCodingListScreen />
+          }}>
+          <TerminalListScreen />
         </SafeAreaProvider>
       </ThemeContext.Provider>,
     );
 
-  it('shows only active remote terminals and resumes or closes the same PTY', async () => {
+  it('shows active terminals and resumes or closes the same PTY', async () => {
     act(() => {
       screen = renderScreen();
     });
@@ -94,10 +79,10 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
       return Array.isArray(children) ? children.join('') : String(children);
     });
     const joinedText = textContent.join('\n');
-    expect(joinedText).toContain('REMOTE TERMINALS');
+    expect(joinedText).toContain('ACTIVE TERMINALS');
     expect(joinedText).toContain('1 ACTIVE');
-    expect(joinedText).toContain('MacBook');
     expect(joinedText).toContain('project');
+    expect(joinedText).toContain('MacBook');
     expect(joinedText).toContain('zsh');
     expect(joinedText).toContain('$ git status --short');
     expect(joinedText).not.toContain('old');
@@ -123,7 +108,7 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
     );
   });
 
-  it('disables remote terminal actions when the owning device is offline', () => {
+  it('disables active terminal actions when the owning device is offline', () => {
     useControlCenterStore.setState({
       devices: [device('device-1', 'MacBook', 'offline')],
     });
