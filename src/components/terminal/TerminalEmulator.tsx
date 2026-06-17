@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useTheme } from '../../theme/useTheme';
@@ -85,7 +85,8 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
   const renderedRef = useRef(false);
   const pendingOutputRef = useRef<Array<{ data: string; encoding: string }>>([]);
   const html = useRef(getTerminalHtml(isDark)).current;
-  const terminalTheme = getTerminalThemePalette(isDark);
+  const terminalTheme = useMemo(() => getTerminalThemePalette(isDark), [isDark]);
+  const terminalThemeJson = useMemo(() => JSON.stringify(terminalTheme), [terminalTheme]);
 
   const injectTerminalData = useCallback(
     (type: string, payload = '', encoding = 'text', focus = true) => {
@@ -151,8 +152,8 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
 
   useEffect(() => {
     if (!readyRef.current) return;
-    injectTerminalData('theme', JSON.stringify(terminalTheme));
-  }, [injectTerminalData, terminalTheme]);
+    injectTerminalData('theme', terminalThemeJson);
+  }, [injectTerminalData, terminalThemeJson]);
 
   // Register/unregister output handler on the global socket listener
   useEffect(() => {
@@ -212,7 +213,7 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
 
         case 'ready':
           readyRef.current = true;
-          injectTerminalData('theme', JSON.stringify(terminalTheme));
+          injectTerminalData('theme', terminalThemeJson);
           if (payload.cols && payload.rows) {
             platformTransport.send({
               type: 'terminal.resize',
@@ -250,7 +251,7 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
       onFocusRequest,
       onRenderError,
       onRendered,
-      terminalTheme,
+      terminalThemeJson,
     ],
   );
 

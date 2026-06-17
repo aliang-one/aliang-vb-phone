@@ -187,6 +187,34 @@ describe('TerminalEmulator WebView bridge', () => {
     );
   });
 
+  it('does not reinject the theme when the parent rerenders with the same mode', () => {
+    const tree = renderTerminal();
+    const webview = tree.root.findByType(WebView);
+
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+
+    const callCountAfterReady = mockWebViewInjectJavaScript.mock.calls.length;
+
+    act(() => {
+      tree.update(
+        <ThemeContext.Provider
+          value={{
+            theme: utilityMinimalist,
+            mode: 'light',
+            setMode: jest.fn(),
+            isDark: false,
+          }}
+        >
+          <TerminalEmulator sessionId="term-1" enabled terminalRef={undefined} />
+        </ThemeContext.Provider>,
+      );
+    });
+
+    expect(mockWebViewInjectJavaScript.mock.calls.length).toBe(callCountAfterReady);
+  });
+
   it('resets rendered state when the session changes', () => {
     const onRendered = jest.fn();
     const tree = renderTerminal({ onRendered });
