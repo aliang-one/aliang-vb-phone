@@ -56,10 +56,12 @@ jest.mock('../src/components/terminal/TerminalEmulator', () => ({
 describe('DeviceTerminalScreen mobile terminal input', () => {
   let keyboardListeners: Record<string, Array<(event?: KeyboardEvent) => void>>;
   let screen: ReactTestRenderer.ReactTestRenderer | null;
+  let keyboardDismissSpy: jest.SpyInstance;
 
   beforeEach(() => {
     keyboardListeners = {};
     screen = null;
+    keyboardDismissSpy = jest.spyOn(Keyboard, 'dismiss').mockImplementation();
     jest.spyOn(Keyboard, 'addListener').mockImplementation((event, callback) => {
       const listener = callback as (event?: KeyboardEvent) => void;
       keyboardListeners[event] = [...(keyboardListeners[event] ?? []), listener];
@@ -457,6 +459,44 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
         .style,
     ).toEqual(
       expect.arrayContaining([expect.objectContaining({ bottom: 0 })]),
+    );
+  });
+
+  it('dismisses the soft keyboard when terminal input becomes unavailable', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    keyboardDismissSpy.mockClear();
+    const keyboardButton = screen!.root.findByProps({
+      testID: 'terminal-keyboard-focus',
+    });
+    act(() => {
+      keyboardButton.props.onPressIn();
+    });
+
+    act(() => {
+      useControlCenterStore.setState(state => ({
+        devices: state.devices.map(device =>
+          device.id === 'device-1'
+            ? {
+                ...device,
+                status: 'offline',
+              }
+            : device,
+        ),
+      }));
+    });
+
+    expect(keyboardDismissSpy).toHaveBeenCalledTimes(1);
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props.style,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          borderColor: utilityMinimalist.colors.outlineVariant,
+        }),
+      ]),
     );
   });
 

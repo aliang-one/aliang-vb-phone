@@ -372,12 +372,14 @@ export const DeviceTerminalScreen: React.FC = () => {
 
     keyboardProxyStateRef.current = createTerminalKeyboardProxyState();
     setKeyboardProxyFocused(false);
-    if (keyboardProxyFocusRetryRef.current) {
-      clearTimeout(keyboardProxyFocusRetryRef.current);
-      keyboardProxyFocusRetryRef.current = null;
-    }
+    cancelKeyboardProxyFocusRetry();
+    Keyboard.dismiss();
     resetKeyboardProxyInput();
-  }, [resetKeyboardProxyInput, terminalInputEnabled]);
+  }, [
+    cancelKeyboardProxyFocusRetry,
+    resetKeyboardProxyInput,
+    terminalInputEnabled,
+  ]);
 
   useEffect(() => {
     setFocusedDirectory(directory);
