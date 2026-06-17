@@ -758,7 +758,9 @@ export const DeviceTerminalScreen: React.FC = () => {
                   ]}
                 >
                   <ScrollView
+                    testID="terminal-directory-scroll"
                     horizontal
+                    keyboardShouldPersistTaps="handled"
                     snapToInterval={DIRECTORY_TILE_WIDTH + DIRECTORY_TILE_GAP}
                     decelerationRate="fast"
                     showsHorizontalScrollIndicator={false}

@@ -249,6 +249,17 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(mockTerminalSendText).not.toHaveBeenCalled();
   });
 
+  it('keeps directory taps available while the soft keyboard is open', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-directory-scroll' }).props
+        .keyboardShouldPersistTaps,
+    ).toBe('handled');
+  });
+
   it('keeps suggestions and shortcuts floating above the keyboard', async () => {
     await act(async () => {
       screen = renderScreen();
