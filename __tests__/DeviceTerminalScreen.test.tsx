@@ -195,9 +195,9 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       focus: false,
     });
     expect(mockTerminalSendText).toHaveBeenNthCalledWith(3, '\t', {
-      focus: true,
+      focus: false,
     });
-    expect(mockTerminalFocus).toHaveBeenCalledTimes(1);
+    expect(mockTerminalFocus).not.toHaveBeenCalled();
   });
 
   it('shows focused keyboard state when the KB control requests soft keyboard focus', async () => {

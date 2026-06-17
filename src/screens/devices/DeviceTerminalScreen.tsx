@@ -1066,7 +1066,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                       key={label}
                       testID={`terminal-key-${label}`}
                       activeOpacity={0.74}
-                      onPress={() => sendToTerminal(value)}
+                      onPress={() => sendToTerminal(value, { focus: false })}
                       disabled={!terminalInputEnabled}
                       style={[
                         styles.keyButton,
