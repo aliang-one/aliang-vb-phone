@@ -609,4 +609,46 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       screen!.root.findAllByProps({ testID: 'terminal-top-grid' }).length,
     ).toBeGreaterThan(0);
   });
+
+  it('collapses and lifts terminal controls from Android keyboard show events', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    const floatingControls = screen!.root.findByProps({
+      testID: 'terminal-floating-controls',
+    });
+    act(() => {
+      floatingControls.props.onLayout({
+        nativeEvent: { layout: { height: 96 } },
+      });
+    });
+
+    expect(
+      screen!.root.findAllByProps({ testID: 'terminal-top-grid' }).length,
+    ).toBeGreaterThan(0);
+
+    act(() => {
+      keyboardListeners.keyboardDidShow?.forEach(listener =>
+        listener({
+          endCoordinates: { height: 312 },
+        } as KeyboardEvent),
+      );
+    });
+
+    expect(
+      screen!.root.findAllByProps({ testID: 'terminal-top-grid' }).length,
+    ).toBe(0);
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-floating-controls' }).props
+        .style,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ bottom: 312 })]),
+    );
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-viewport' }).props.style,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ paddingBottom: 408 })]),
+    );
+  });
 });
