@@ -181,6 +181,28 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(getTerminalProxyKeyboardType('ios')).toBe('ascii-capable');
   });
 
+  it('exposes an accessible back control to leave the terminal', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    const backButton = screen!.root.findByProps({ testID: 'terminal-back' });
+    expect(backButton.props.accessibilityRole).toBe('button');
+    expect(backButton.props.accessibilityLabel).toBe('Back to devices');
+    expect(backButton.props.hitSlop).toEqual({
+      top: 6,
+      right: 6,
+      bottom: 6,
+      left: 6,
+    });
+
+    act(() => {
+      backButton.props.onPress();
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('MainTabs');
+  });
+
   it('routes soft keyboard text, enter, and shortcut keys through xterm', async () => {
     await act(async () => {
       screen = renderScreen();
@@ -282,6 +304,36 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     });
 
     expect(mockTerminalSendText).toHaveBeenCalledWith('i', { focus: false });
+  });
+
+  it('exposes approval center access when the terminal waits for approval', async () => {
+    useControlCenterStore.setState(state => ({
+      terminalSessions: state.terminalSessions.map(item =>
+        item.id === 'term-1' ? { ...item, status: 'waiting_approval' } : item,
+      ),
+    }));
+
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    const approvalButton = screen!.root.findByProps({
+      testID: 'terminal-approval-center',
+    });
+    expect(approvalButton.props.accessibilityRole).toBe('button');
+    expect(approvalButton.props.accessibilityLabel).toBe('Open approval center');
+    expect(approvalButton.props.hitSlop).toEqual({
+      top: 6,
+      right: 6,
+      bottom: 6,
+      left: 6,
+    });
+
+    act(() => {
+      approvalButton.props.onPress();
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('ApprovalCenter');
   });
 
   it('routes native control keypresses through the hidden keyboard proxy', async () => {

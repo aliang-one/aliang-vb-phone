@@ -616,7 +616,11 @@ export const DeviceTerminalScreen: React.FC = () => {
             >
               <View style={styles.headerRow}>
                 <TouchableOpacity
+                  testID="terminal-back"
                   activeOpacity={0.74}
+                  accessibilityRole="button"
+                  accessibilityLabel="Back to devices"
+                  hitSlop={terminalControlHitSlop}
                   onPress={handleBack}
                   style={[
                     styles.backButton,
@@ -1190,7 +1194,11 @@ export const DeviceTerminalScreen: React.FC = () => {
 
           {terminal?.status === 'waiting_approval' ? (
             <TouchableOpacity
+              testID="terminal-approval-center"
               activeOpacity={0.76}
+              accessibilityRole="button"
+              accessibilityLabel="Open approval center"
+              hitSlop={terminalControlHitSlop}
               onPress={() => navigation.navigate('ApprovalCenter')}
               style={[
                 styles.approvalButton,
