@@ -113,6 +113,52 @@ describe('TerminalEmulator WebView bridge', () => {
     expect(onRendered).toHaveBeenCalledTimes(1);
   });
 
+  it('resets rendered state when the session changes', () => {
+    const onRendered = jest.fn();
+    const tree = renderTerminal({ onRendered });
+    const webview = tree.root.findByType(WebView);
+
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+      webview.props.onMessage(message('rendered', { cols: 80, rows: 24 }));
+      webview.props.onMessage(message('input', { data: 'pwd\r', encoding: 'text' }));
+    });
+
+    expect(platformTransport.send).toHaveBeenCalledWith({
+      type: 'terminal.resize',
+      session_id: 'term-1',
+      cols: 80,
+      rows: 24,
+    });
+    expect(onRendered).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      tree.update(
+        <ThemeContext.Provider
+          value={{
+            theme: utilityMinimalist,
+            mode: 'light',
+            setMode: jest.fn(),
+            isDark: false,
+          }}
+        >
+          <TerminalEmulator
+            sessionId="term-2"
+            enabled
+            terminalRef={undefined}
+            onRendered={onRendered}
+          />
+        </ThemeContext.Provider>,
+      );
+    });
+
+    act(() => {
+      webview.props.onMessage(message('rendered', { cols: 80, rows: 24 }));
+    });
+
+    expect(onRendered).toHaveBeenCalledTimes(2);
+  });
+
   it('forwards xterm text input as text encoding', () => {
     const tree = renderTerminal();
     const webview = tree.root.findByType(WebView);
