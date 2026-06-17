@@ -11,6 +11,8 @@ import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { platformTransport } from '../src/services/platformTransport';
 
 const mockWebViewInjectJavaScript = jest.fn();
+const mockWebViewMount = jest.fn();
+const mockWebViewUnmount = jest.fn();
 
 jest.mock('react-native-webview', () => {
   const MockReact = require('react');
@@ -18,6 +20,10 @@ jest.mock('react-native-webview', () => {
 
   return {
     WebView: MockReact.forwardRef((props: Record<string, unknown>, ref: unknown) => {
+      MockReact.useEffect(() => {
+        mockWebViewMount();
+        return () => mockWebViewUnmount();
+      }, []);
       MockReact.useImperativeHandle(ref, () => ({
         injectJavaScript: mockWebViewInjectJavaScript,
       }));
@@ -68,6 +74,8 @@ describe('TerminalEmulator WebView bridge', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockWebViewInjectJavaScript.mockClear();
+    mockWebViewMount.mockClear();
+    mockWebViewUnmount.mockClear();
   });
 
   it('uses an inline xterm document without external CDN resources', () => {
@@ -86,6 +94,35 @@ describe('TerminalEmulator WebView bridge', () => {
     const webview = tree.root.findByType(WebView);
 
     expect(webview.props.keyboardDisplayRequiresUserAction).toBeUndefined();
+  });
+
+  it('rebuilds the WebView when switching terminal sessions', () => {
+    const tree = renderTerminal({ sessionId: 'term-1' });
+
+    expect(mockWebViewMount).toHaveBeenCalledTimes(1);
+    expect(mockWebViewUnmount).not.toHaveBeenCalled();
+
+    act(() => {
+      tree.update(
+        <ThemeContext.Provider
+          value={{
+            theme: utilityMinimalist,
+            mode: 'light',
+            setMode: jest.fn(),
+            isDark: false,
+          }}
+        >
+          <TerminalEmulator
+            sessionId="term-2"
+            enabled
+            terminalRef={undefined}
+          />
+        </ThemeContext.Provider>,
+      );
+    });
+
+    expect(mockWebViewUnmount).toHaveBeenCalledTimes(1);
+    expect(mockWebViewMount).toHaveBeenCalledTimes(2);
   });
 
   it('only reports rendered after xterm emits its first render event', () => {
@@ -153,7 +190,9 @@ describe('TerminalEmulator WebView bridge', () => {
     });
 
     act(() => {
-      webview.props.onMessage(message('rendered', { cols: 80, rows: 24 }));
+      tree.root
+        .findByType(WebView)
+        .props.onMessage(message('rendered', { cols: 80, rows: 24 }));
     });
 
     expect(onRendered).toHaveBeenCalledTimes(2);

@@ -253,6 +253,7 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
       }}
     >
       <WebView
+        key={sessionId}
         ref={webViewRef}
         source={{ html }}
         onMessage={onMessage}
