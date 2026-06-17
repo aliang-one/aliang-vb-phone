@@ -177,6 +177,7 @@ export const DeviceTerminalScreen: React.FC = () => {
     null,
   );
   const keyboardInsetCacheRef = useRef(0);
+  const routeTerminalIdRef = useRef(route.params.terminalId);
   const directoryPathRef = useRef<ScrollView>(null);
   const devices = useControlCenterStore(state => state.devices);
   const terminalSessions = useControlCenterStore(
@@ -315,6 +316,14 @@ export const DeviceTerminalScreen: React.FC = () => {
     }
     return undefined;
   }, [createTerminalSession, device, route.params.directory, terminalId]);
+
+  useEffect(() => {
+    if (routeTerminalIdRef.current === route.params.terminalId) return;
+    routeTerminalIdRef.current = route.params.terminalId;
+    setTerminalId(route.params.terminalId);
+    setRenderedTerminalId('');
+    setTerminalRenderError(null);
+  }, [route.params.terminalId]);
 
   useEffect(
     () => () => {

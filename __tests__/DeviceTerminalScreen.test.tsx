@@ -340,6 +340,64 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(mockTerminalSendText).not.toHaveBeenCalled();
   });
 
+  it('syncs a changed route terminal id before enabling input', async () => {
+    useControlCenterStore.setState(state => ({
+      ...state,
+      terminalSessions: [
+        ...state.terminalSessions,
+        {
+          id: 'term-2',
+          deviceId: 'device-1',
+          directory: '~/project',
+          shell: 'zsh',
+          status: 'running',
+          lines: [],
+          createdAt: '2026-06-17T11:00:00.000Z',
+          updatedAt: '2026-06-17T11:00:00.000Z',
+        },
+      ],
+    }));
+
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    mockAutoRenderTerminal = false;
+    mockRouteParams = {
+      deviceId: 'device-1',
+      directory: '~/project',
+      terminalId: 'term-2',
+    };
+
+    await act(async () => {
+      screen!.update(
+        <ThemeContext.Provider
+          value={{
+            theme: utilityMinimalist,
+            mode: 'light',
+            setMode: jest.fn(),
+            isDark: false,
+          }}
+        >
+          <SafeAreaProvider
+            initialMetrics={{
+              frame: { x: 0, y: 0, width: 390, height: 844 },
+              insets: { top: 0, right: 0, bottom: 0, left: 0 },
+            }}
+          >
+            <DeviceTerminalScreen />
+          </SafeAreaProvider>
+        </ThemeContext.Provider>,
+      );
+    });
+
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
+        .disabled,
+    ).toBe(true);
+    expect(mockTerminalSendText).not.toHaveBeenCalled();
+  });
+
   it('keeps the terminal disabled until a newly opened session renders', async () => {
     const mockCreateTerminalSession = jest
       .fn()
