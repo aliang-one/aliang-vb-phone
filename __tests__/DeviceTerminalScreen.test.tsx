@@ -229,6 +229,34 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(mockTerminalFocus).not.toHaveBeenCalled();
   });
 
+  it('keeps idle terminal sessions interactive after xterm renders', async () => {
+    useControlCenterStore.setState(state => ({
+      terminalSessions: state.terminalSessions.map(item =>
+        item.id === 'term-1' ? { ...item, status: 'idle' } : item,
+      ),
+    }));
+
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    const keyboardButton = screen!.root.findByProps({
+      testID: 'terminal-keyboard-focus',
+    });
+    const keyboardProxy = screen!.root.findByProps({
+      testID: 'terminal-keyboard-proxy',
+    });
+
+    expect(keyboardButton.props.disabled).toBe(false);
+    expect(keyboardProxy.props.editable).toBe(true);
+
+    act(() => {
+      keyboardProxy.props.onChangeText(`${TERMINAL_KEYBOARD_PROXY_VALUE}i`);
+    });
+
+    expect(mockTerminalSendText).toHaveBeenCalledWith('i', { focus: false });
+  });
+
   it('shows focused keyboard state when the KB control requests soft keyboard focus', async () => {
     await act(async () => {
       screen = renderScreen();

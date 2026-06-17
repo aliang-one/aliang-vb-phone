@@ -285,12 +285,9 @@ export const DeviceTerminalScreen: React.FC = () => {
       ? terminalRenderError.message
       : '';
   const terminalInputEnabled =
-    serverMode &&
-    device?.status === 'online' &&
-    terminal?.status === 'running' &&
+    terminalInteraction.inputEnabled &&
     terminalRendered &&
-    !terminalRenderErrorMessage &&
-    !terminalOpening;
+    !terminalRenderErrorMessage;
 
   const cancelKeyboardProxyFocusRetry = useCallback(() => {
     if (keyboardProxyFocusRetryRef.current) {
