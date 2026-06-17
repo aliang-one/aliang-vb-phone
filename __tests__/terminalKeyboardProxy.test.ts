@@ -49,6 +49,19 @@ describe('terminalKeyboardProxy', () => {
     ).toBe('echo ok');
   });
 
+  it('normalizes pasted newline variants to single terminal returns', () => {
+    expect(
+      terminalKeyboardProxyInputFromText(
+        `${TERMINAL_KEYBOARD_PROXY_VALUE}echo one\r\necho two`,
+      ),
+    ).toBe('echo one\recho two');
+    expect(
+      terminalKeyboardProxyInputFromText(
+        `${TERMINAL_KEYBOARD_PROXY_VALUE}echo one\recho two`,
+      ),
+    ).toBe('echo one\recho two');
+  });
+
   it('ignores sentinel-only native text changes during keyboard resets', () => {
     const state = createTerminalKeyboardProxyState();
 

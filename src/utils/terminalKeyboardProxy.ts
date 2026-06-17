@@ -40,10 +40,13 @@ export function terminalKeyboardProxyInputFromText(value: string): string {
 }
 
 function terminalKeyboardProxyVisibleInput(value: string): string {
-  return value
-    .split(TERMINAL_KEYBOARD_PROXY_VALUE)
-    .join('')
-    .replace(/\n/g, '\r');
+  return terminalKeyboardProxyNormalizeNewlines(
+    value.split(TERMINAL_KEYBOARD_PROXY_VALUE).join(''),
+  );
+}
+
+function terminalKeyboardProxyNormalizeNewlines(value: string): string {
+  return value.replace(/\r\n?|\n/g, '\r');
 }
 
 function terminalKeyboardProxyInputDelta(
