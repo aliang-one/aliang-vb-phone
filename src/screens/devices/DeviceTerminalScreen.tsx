@@ -157,6 +157,11 @@ const TopStatusShape: React.FC<{
 );
 
 const PENDING_KEYBOARD_LIFT_INSET = 300;
+const testIdSlug = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 
 export const DeviceTerminalScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
@@ -186,7 +191,9 @@ export const DeviceTerminalScreen: React.FC = () => {
   const serverMode = useControlCenterStore(state => state.serverMode);
   const [terminalId, setTerminalId] = useState(route.params.terminalId);
   const [terminalOpening, setTerminalOpening] = useState(false);
-  const [renderedTerminalId, setRenderedTerminalId] = useState('');
+  const [renderedTerminalId, setRenderedTerminalId] = useState(
+    route.params.terminalId ?? '',
+  );
   const [terminalRenderError, setTerminalRenderError] = useState<{
     sessionId: string;
     message: string;
@@ -428,8 +435,13 @@ export const DeviceTerminalScreen: React.FC = () => {
     }
 
     setTerminalOpening(true);
+    setRenderedTerminalId('');
+    setTerminalRenderError(null);
     try {
-      setTerminalId(await createTerminalSession(device.id, nextDirectory));
+      const nextTerminalId = await createTerminalSession(device.id, nextDirectory);
+      setRenderedTerminalId('');
+      setTerminalRenderError(null);
+      setTerminalId(nextTerminalId);
       quickDirectoryInitializedRef.current = true;
       setCurrentQuickDirectory(nextDirectory);
       setFocusedDirectory(nextDirectory);
@@ -774,6 +786,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                       const current = item === currentQuickDirectory;
                       return (
                         <TouchableOpacity
+                          testID={`terminal-directory-${testIdSlug(item)}`}
                           key={item}
                           activeOpacity={0.78}
                           disabled={!terminalInteraction.canChangeDirectory}
@@ -831,6 +844,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                     })}
                   </ScrollView>
                   <TouchableOpacity
+                    testID="terminal-directory-enter"
                     activeOpacity={0.76}
                     onPress={() => {
                       handleDirectoryEnter().catch(() => {});
@@ -989,9 +1003,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                 >
                   {aiSuggestions.map(item => (
                     <TouchableOpacity
-                      testID={`terminal-suggestion-${item
-                        .toLowerCase()
-                        .replace(/[^a-z0-9]+/g, '-')}`}
+                      testID={`terminal-suggestion-${testIdSlug(item)}`}
                       key={item}
                       activeOpacity={0.76}
                       disabled={!terminalInputEnabled}

@@ -13,6 +13,7 @@ const mockTerminalFocus = jest.fn();
 const mockTerminalFit = jest.fn();
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
+let mockAutoRenderTerminal = true;
 
 let mockRouteParams = {
   deviceId: 'device-1',
@@ -40,7 +41,7 @@ jest.mock('../src/components/terminal/TerminalEmulator', () => ({
     const MockReact = require('react');
     const { View } = require('react-native');
     MockReact.useEffect(() => {
-      onRendered?.();
+      if (mockAutoRenderTerminal) onRendered?.();
     }, []);
     if (terminalRef) {
       terminalRef.current = {
@@ -61,6 +62,7 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
   beforeEach(() => {
     keyboardListeners = {};
     screen = null;
+    mockAutoRenderTerminal = true;
     keyboardDismissSpy = jest.spyOn(Keyboard, 'dismiss').mockImplementation();
     jest.spyOn(Keyboard, 'addListener').mockImplementation((event, callback) => {
       const listener = callback as (event?: KeyboardEvent) => void;
@@ -258,6 +260,68 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       screen!.root.findByProps({ testID: 'terminal-directory-scroll' }).props
         .keyboardShouldPersistTaps,
     ).toBe('handled');
+  });
+
+  it('keeps the terminal disabled until a newly opened session renders', async () => {
+    const mockCreateTerminalSession = jest
+      .fn()
+      .mockResolvedValueOnce('term-2');
+    useControlCenterStore.setState(state => ({
+      ...state,
+      createTerminalSession: mockCreateTerminalSession,
+      devices: state.devices.map(device =>
+        device.id === 'device-1'
+          ? {
+              ...device,
+              authorizedDirectories: ['~/project', '~/other'],
+            }
+          : device,
+      ),
+      terminalSessions: [
+        ...state.terminalSessions,
+        {
+          id: 'term-2',
+          deviceId: 'device-1',
+          directory: '~/other',
+          shell: 'zsh',
+          status: 'running',
+          lines: [],
+          createdAt: '2026-06-17T11:00:00.000Z',
+          updatedAt: '2026-06-17T11:00:00.000Z',
+        },
+      ],
+    }));
+
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
+        .disabled,
+    ).toBe(false);
+
+    mockAutoRenderTerminal = false;
+    act(() => {
+      screen!.root.findByProps({ testID: 'terminal-directory-other' }).props
+        .onPress();
+    });
+
+    await act(async () => {
+      screen!.root.findByProps({ testID: 'terminal-directory-enter' }).props
+        .onPress();
+    });
+
+    expect(mockCreateTerminalSession).toHaveBeenCalledWith(
+      'device-1',
+      '~/other',
+    );
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
+        .disabled,
+    ).toBe(true);
+
+    expect(mockTerminalSendText).not.toHaveBeenCalled();
   });
 
   it('keeps suggestions and shortcuts floating above the keyboard', async () => {
