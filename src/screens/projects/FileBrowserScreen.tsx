@@ -17,6 +17,7 @@ import {
 } from '../../store/controlCenterStore';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { describeDeviceError } from '../../utils/deviceError';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type FileRoute = RouteProp<RootStackParamList, 'FileBrowser'>;
@@ -54,25 +55,17 @@ interface FileErrorMessage {
 }
 
 const humanizeFileError = (error: unknown): FileErrorMessage => {
+  // device_offline / agent_request_timeout 等「Agent 不可达」错误走公共翻译，
+  // 与终端页、扫描页口径一致。
+  const deviceMessage = describeDeviceError(error);
+  if (deviceMessage) {
+    return deviceMessage;
+  }
   const err = error as { code?: string; message?: string } | null;
   const code = err?.code;
   const message = error instanceof Error ? error.message : String(err?.message ?? error ?? '');
   const matches = (value?: string) => Boolean(value && (code === value || message.includes(value as string)));
 
-  if (matches('device_offline')) {
-    return {
-      title: '桌面 Agent 未连接',
-      detail: '电脑端 Agent 当前不在线。请确认 Agent 正在运行并已连接到同一台服务，然后重试。',
-      offline: true,
-    };
-  }
-  if (matches('agent_request_timeout')) {
-    return {
-      title: 'Agent 响应超时',
-      detail: '桌面 Agent 未能及时返回文件内容，请稍后重试，或确认 Agent 没有被其他任务占用。',
-      offline: true,
-    };
-  }
   if (matches('project_path_missing')) {
     return {
       title: '项目路径缺失',

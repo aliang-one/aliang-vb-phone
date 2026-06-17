@@ -50,6 +50,7 @@ import {
 } from '../../utils/terminalKeyboardProxy';
 import { terminalShortcutGroups } from '../../utils/terminalKeySequences';
 import { buildTerminalSuggestions } from '../../utils/terminalSuggestions';
+import { describeDeviceError } from '../../utils/deviceError';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DeviceTerminalRoute = RouteProp<RootStackParamList, 'DeviceTerminal'>;
@@ -192,6 +193,8 @@ export const DeviceTerminalScreen: React.FC = () => {
     sessionId: string;
     message: string;
   } | null>(null);
+  const [terminalOpenError, setTerminalOpenError] = useState<unknown>(null);
+  const [openRetryToken, setOpenRetryToken] = useState(0);
   const [keyboardProxyFocused, setKeyboardProxyFocused] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [floatingControlsHeight, setFloatingControlsHeight] = useState(0);
@@ -273,6 +276,17 @@ export const DeviceTerminalScreen: React.FC = () => {
     terminal && terminalRenderError?.sessionId === terminal.id
       ? terminalRenderError.message
       : '';
+  // 建会话阶段的「Agent 不可达」提示：主动（已知离线）+ 响应式（建会话抛错）合一。
+  const openErrorMessage = useMemo(() => {
+    if (device?.status === 'offline') {
+      return describeDeviceError(new Error('device_offline'));
+    }
+    // 正在（重新）打开时不展示上一次的陈旧错误，交给「Opening...」占位。
+    if (terminalOpening) {
+      return null;
+    }
+    return terminalOpenError ? describeDeviceError(terminalOpenError) : null;
+  }, [device?.status, terminalOpenError, terminalOpening]);
   const terminalInputEnabled =
     terminalInteraction.inputEnabled &&
     terminalRendered &&
@@ -287,14 +301,25 @@ export const DeviceTerminalScreen: React.FC = () => {
 
   useEffect(() => {
     if (!terminalId && device) {
+      // Agent 已知离线时别发注定失败的请求：占位区会用 openErrorMessage 给出说明，
+      // 且设备重新上线时本 effect 会因依赖 device 而自动重跑。
+      if (device.status === 'offline') {
+        return undefined;
+      }
       let cancelled = false;
       setTerminalOpening(true);
       createTerminalSession(device.id, route.params.directory)
         .then(sessionId => {
-          if (!cancelled) setTerminalId(sessionId);
+          if (!cancelled) {
+            setTerminalId(sessionId);
+            setTerminalOpenError(null);
+          }
         })
-        .catch(() => {
-          if (!cancelled) setTerminalId(undefined);
+        .catch(error => {
+          if (!cancelled) {
+            setTerminalId(undefined);
+            setTerminalOpenError(error);
+          }
         })
         .finally(() => {
           if (!cancelled) setTerminalOpening(false);
@@ -304,7 +329,13 @@ export const DeviceTerminalScreen: React.FC = () => {
       };
     }
     return undefined;
-  }, [createTerminalSession, device, route.params.directory, terminalId]);
+  }, [
+    createTerminalSession,
+    device,
+    route.params.directory,
+    terminalId,
+    openRetryToken,
+  ]);
 
   useEffect(() => {
     const targetChanged =
@@ -1036,16 +1067,62 @@ export const DeviceTerminalScreen: React.FC = () => {
               </View>
             ) : (
               <View style={styles.terminalPlaceholder}>
-                <Text
-                  style={[
-                    theme.typography.codeSm,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}
-                >
-                  {terminalOpening
-                    ? 'Opening terminal session...'
-                    : 'Terminal session unavailable'}
-                </Text>
+                {openErrorMessage ? (
+                  <>
+                    <Text
+                      style={[
+                        theme.typography.labelMd,
+                        {
+                          color: openErrorMessage.offline
+                            ? theme.colors.tertiary
+                            : theme.colors.error,
+                        },
+                        styles.terminalStatusText,
+                      ]}>
+                      {openErrorMessage.title}
+                    </Text>
+                    <Text
+                      style={[
+                        theme.typography.bodySm,
+                        { color: theme.colors.onSurfaceVariant },
+                        styles.terminalStatusDetail,
+                      ]}>
+                      {openErrorMessage.detail}
+                    </Text>
+                    {/* 离线时设备上线会自动重连，只在非离线错误（如超时）下给手动重试。 */}
+                    {device?.status !== 'offline' ? (
+                      <TouchableOpacity
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                        onPress={() => {
+                          setTerminalOpenError(null);
+                          setOpenRetryToken(value => value + 1);
+                        }}
+                        style={[
+                          styles.terminalRetryButton,
+                          { borderColor: theme.colors.outline },
+                        ]}>
+                        <Text
+                          style={[
+                            theme.typography.labelSm,
+                            { color: theme.colors.primary },
+                          ]}>
+                          重试
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </>
+                ) : (
+                  <Text
+                    style={[
+                      theme.typography.codeSm,
+                      { color: theme.colors.onSurfaceVariant },
+                    ]}
+                  >
+                    {terminalOpening
+                      ? 'Opening terminal session...'
+                      : 'Terminal session unavailable'}
+                  </Text>
+                )}
               </View>
             )}
 
@@ -1493,6 +1570,13 @@ const styles = StyleSheet.create({
   terminalStatusDetail: {
     maxWidth: 220,
     textAlign: 'center',
+  },
+  terminalRetryButton: {
+    marginTop: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
   },
   floatingControls: {
     position: 'absolute',

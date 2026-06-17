@@ -8,6 +8,13 @@ import {
   RefreshControl,
   useWindowDimensions,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  interpolate,
+  interpolateColor,
+  SharedValue,
+} from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../theme/useTheme';
@@ -55,6 +62,103 @@ const TABS: VibecodingTab[] = [
   { key: 'terminals', title: 'Terminals' },
 ];
 
+// Light-mode elevation for the sliding indicator (dark mode uses theme glow).
+const INDICATOR_LIGHT_SHADOW = {
+  shadowColor: '#0B1F3A',
+  shadowOffset: { width: 0, height: 1 },
+  shadowOpacity: 0.18,
+  shadowRadius: 3,
+  elevation: 2,
+};
+
+type ProgressValue = SharedValue<number>;
+
+interface SegmentedTabProps {
+  progress: ProgressValue;
+  index: number;
+  title: string;
+  count: number;
+  onPress: () => void;
+}
+
+// A single folder-tab. Its card lifts up (top shrinks while the bottom stays
+// glued to the baseline, so it reads as a folder divider rising, not a block
+// floating free) and cross-fades color as the shared `progress` glides past.
+const SegmentedTab: React.FC<SegmentedTabProps> = ({
+  progress,
+  index,
+  title,
+  count,
+  onPress,
+}) => {
+  const { theme, isDark } = useTheme();
+  const fill = isDark ? 'rgba(86, 156, 214, 0.16)' : 'rgba(0, 81, 174, 0.09)';
+  const primary = theme.colors.primary;
+
+  // The card itself: rounded top corners, sits on the baseline, grows taller
+  // (top: 16 → 2) as it activates. Bottom edge is open so it fuses with the
+  // shared baseline — the folder-tab silhouette.
+  const fillStyle = useAnimatedStyle(() => {
+    const a = Math.max(0, Math.min(1, 1 - Math.abs(progress.value - index)));
+    return {
+      top: interpolate(a, [0, 1], [16, 2]),
+      opacity: a,
+      backgroundColor: interpolateColor(a, [0, 1], ['rgba(0,0,0,0)', fill]),
+      borderColor: interpolateColor(a, [0, 1], [`${primary}00`, primary]),
+    };
+  });
+
+  const titleStyle = useAnimatedStyle(() => {
+    const a = Math.max(0, Math.min(1, 1 - Math.abs(progress.value - index)));
+    return {
+      color: interpolateColor(a, [0, 1], [
+        theme.colors.onSurfaceVariant,
+        primary,
+      ]),
+      opacity: interpolate(a, [0, 1], [0.7, 1]),
+      transform: [{ scale: interpolate(a, [0, 1], [0.95, 1]) }],
+    };
+  });
+
+  const countStyle = useAnimatedStyle(() => {
+    const a = Math.max(0, Math.min(1, 1 - Math.abs(progress.value - index)));
+    return {
+      color: interpolateColor(a, [0, 1], [
+        theme.colors.onSurfaceVariant,
+        primary,
+      ]),
+      opacity: interpolate(a, [0, 1], [0.4, 0.85]),
+    };
+  });
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.85}
+      onPress={onPress}
+      style={styles.tabButton}
+      hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.tabFill,
+          fillStyle,
+          isDark ? theme.glow.primary : INDICATOR_LIGHT_SHADOW,
+        ]}
+      />
+      <View style={styles.tabContent}>
+        <Animated.Text
+          style={[theme.typography.labelMd, styles.tabTitle, titleStyle]}>
+          {title}
+        </Animated.Text>
+        <Animated.Text
+          style={[theme.typography.codeSm, styles.tabCount, countStyle]}>
+          {count}
+        </Animated.Text>
+      </View>
+    </TouchableOpacity>
+  );
+};
+
 export const VibeCodingListScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
@@ -72,6 +176,11 @@ export const VibeCodingListScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
   const pagerRef = useRef<ScrollView>(null);
+
+  // Folder-tab activeness driven directly by the horizontal pager's scroll
+  // offset, so each tab's card lifts/fades in real time as you swipe (and
+  // follows the animated scrollTo on tap) — single source of truth.
+  const progress = useSharedValue(0);
 
   const deviceStatusIndex = useMemo(
     () => buildDeviceStatusIndex(devices),
@@ -198,13 +307,17 @@ export const VibeCodingListScreen: React.FC = () => {
 
   const goToTab = (index: number) => {
     setActiveTab(index);
+    // progress updates via onScroll while the pager animates — keeps the
+    // indicator perfectly in sync with the page glide.
     pagerRef.current?.scrollTo({ x: index * width, animated: true });
   };
 
   const onPagerScroll = (event: {
     nativeEvent: { contentOffset: { x: number } };
   }) => {
-    const index = Math.round(event.nativeEvent.contentOffset.x / width);
+    const offset = event.nativeEvent.contentOffset.x;
+    progress.value = offset / width;
+    const index = Math.round(offset / width);
     if (index !== activeTab && index >= 0 && index < TABS.length) {
       setActiveTab(index);
     }
@@ -222,42 +335,25 @@ export const VibeCodingListScreen: React.FC = () => {
   return (
     <SafeAreaWrapper>
       <TopAppBar title="VibeCoding" subtitle="SESSIONS · TERMINALS" />
-      <View style={styles.tabBar}>
-        {TABS.map((tab, index) => {
-          const active = activeTab === index;
-          const activeStyle = active
-            ? isDark
-              ? styles.activeTabButtonDark
-              : styles.activeTabButtonLight
-            : null;
-          return (
-            <TouchableOpacity
-              key={tab.key}
-              activeOpacity={0.75}
-              onPress={() => goToTab(index)}
-              style={[
-                styles.tabButton,
-                activeStyle,
-                {
-                  borderColor: active
-                    ? theme.colors.primary
-                    : theme.colors.outlineVariant,
-                },
-              ]}>
-              <Text
-                style={[
-                  theme.typography.labelMd,
-                  {
-                    color: active
-                      ? theme.colors.primary
-                      : theme.colors.onSurfaceVariant,
-                  },
-                ]}>
-                {tab.title}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
+      <View
+        style={[
+          styles.tabBarContainer,
+          {
+            borderBottomColor: isDark
+              ? `${theme.colors.primary}66`
+              : theme.colors.outlineVariant,
+          },
+        ]}>
+        {TABS.map((tab, index) => (
+          <SegmentedTab
+            key={tab.key}
+            progress={progress}
+            index={index}
+            title={tab.title}
+            count={index === 0 ? filtered.length : activeTerminals.length}
+            onPress={() => goToTab(index)}
+          />
+        ))}
       </View>
       <View style={styles.searchContainer}>
         <SearchBar
@@ -444,25 +540,46 @@ export const VibeCodingListScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  tabBar: {
+  tabBarContainer: {
     flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingTop: 6,
+    marginHorizontal: 16,
+    marginTop: 10,
+    paddingTop: 8,
+    height: 52,
+    borderBottomWidth: 2,
+    position: 'relative',
   },
   tabButton: {
     flex: 1,
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingVertical: 9,
+    position: 'relative',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: 9,
   },
-  activeTabButtonLight: {
-    backgroundColor: 'rgba(0, 81, 174, 0.1)',
+  tabFill: {
+    position: 'absolute',
+    bottom: 0,
+    left: 5,
+    right: 5,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    borderBottomLeftRadius: 2,
+    borderBottomRightRadius: 2,
+    borderWidth: 1,
+    borderBottomWidth: 0,
   },
-  activeTabButtonDark: {
-    backgroundColor: 'rgba(86, 156, 214, 0.16)',
+  tabContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  tabTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  tabCount: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   searchContainer: {
     paddingHorizontal: 16,

@@ -14,6 +14,10 @@ import { ProjectScanResult, useControlCenterStore } from '../../store/controlCen
 import { IconBadge } from '../../components/visual/IconBadge';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import {
+  describeDeviceError,
+  type DeviceErrorMessage,
+} from '../../utils/deviceError';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type ScanRoute = RouteProp<RootStackParamList, 'ProjectScan'>;
@@ -38,6 +42,7 @@ export const ProjectScanScreen: React.FC = () => {
   const scanDeviceProjects = useControlCenterStore(state => state.scanDeviceProjects);
   const refreshFromServer = useControlCenterStore(state => state.refreshFromServer);
   const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState<DeviceErrorMessage | null>(null);
   const device = devices.find(item => item.id === route.params.deviceId);
   const results = scanResults
     .filter(item => item.deviceId === route.params.deviceId)
@@ -56,6 +61,12 @@ export const ProjectScanScreen: React.FC = () => {
 
   const handleScan = async () => {
     if (!device || scanning) return;
+    setScanError(null);
+    // Agent 已知离线：扫描注定失败（结果是 Agent 跑出来的），直接给提示，不发请求。
+    if (device.status === 'offline') {
+      setScanError(describeDeviceError(new Error('device_offline')));
+      return;
+    }
     setScanning(true);
     const startCount = results.length;
     const hadResultsAtStart = startCount > 0;
@@ -64,8 +75,14 @@ export const ProjectScanScreen: React.FC = () => {
     // poll the result count so the spinner reflects real result arrival.
     try {
       await scanDeviceProjects(device.id);
-    } catch {
-      // ignore — WS / polling may still deliver results
+    } catch (error) {
+      // 设备类错误（刚掉线/超时）需要明确告诉用户；其余错误仍可能由 WS/轮询兜底。
+      const deviceMessage = describeDeviceError(error);
+      if (deviceMessage) {
+        setScanError(deviceMessage);
+        setScanning(false);
+        return;
+      }
     }
     refreshFromServer().catch(() => {});
     let polls = 0;
@@ -154,6 +171,7 @@ export const ProjectScanScreen: React.FC = () => {
                 title="SCAN NOW"
                 onPress={handleScan}
                 variant="secondary"
+                disabled={device.status === 'offline'}
                 style={styles.scanButton}
               />
             )}
@@ -164,6 +182,29 @@ export const ProjectScanScreen: React.FC = () => {
             <Metric label="PORTS" value={`${portCount}`} />
           </View>
         </GlassPanel>
+
+        {scanError ? (
+          <GlassPanel style={styles.scanErrorPanel}>
+            <Text
+              style={[
+                theme.typography.labelMd,
+                {
+                  color: scanError.offline
+                    ? theme.colors.tertiary
+                    : theme.colors.error,
+                },
+              ]}>
+              {scanError.title}
+            </Text>
+            <Text
+              style={[
+                theme.typography.bodySm,
+                { color: theme.colors.onSurfaceVariant },
+              ]}>
+              {scanError.detail}
+            </Text>
+          </GlassPanel>
+        ) : null}
 
         <Text
           style={[
@@ -388,6 +429,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  scanErrorPanel: {
+    padding: 14,
+    gap: 6,
   },
   emptyCopy: {
     flex: 1,
