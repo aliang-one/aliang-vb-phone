@@ -145,6 +145,7 @@ const TopStatusShape: React.FC<{
 );
 
 const PENDING_KEYBOARD_LIFT_INSET = 300;
+const terminalControlHitSlop = { top: 6, right: 6, bottom: 6, left: 6 };
 export const getTerminalProxyKeyboardType = (os: typeof Platform.OS) =>
   os === 'android' ? 'visible-password' : 'ascii-capable';
 const TERMINAL_PROXY_KEYBOARD_TYPE = getTerminalProxyKeyboardType(Platform.OS);
@@ -1019,6 +1020,9 @@ export const DeviceTerminalScreen: React.FC = () => {
                       testID={`terminal-suggestion-${testIdSlug(item)}`}
                       key={item}
                       activeOpacity={0.76}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Run suggested command ${item}`}
+                      hitSlop={terminalControlHitSlop}
                       disabled={!terminalInputEnabled}
                       onPress={() =>
                         sendToTerminal(`${item}\r`, {
@@ -1058,6 +1062,9 @@ export const DeviceTerminalScreen: React.FC = () => {
                   <TouchableOpacity
                     testID="terminal-keyboard-focus"
                     activeOpacity={0.74}
+                    accessibilityRole="button"
+                    accessibilityLabel="Focus terminal keyboard"
+                    hitSlop={terminalControlHitSlop}
                     onPressIn={focusTerminalInput}
                     disabled={!terminalInputEnabled}
                     style={[
@@ -1128,6 +1135,9 @@ export const DeviceTerminalScreen: React.FC = () => {
                           key={label}
                           testID={`terminal-key-${label}`}
                           activeOpacity={0.74}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Send terminal key ${label}`}
+                          hitSlop={terminalControlHitSlop}
                           onPress={() =>
                             sendToTerminal(value, {
                               focus: false,
@@ -1427,7 +1437,7 @@ const styles = StyleSheet.create({
   },
   aiBubble: {
     maxWidth: 178,
-    minHeight: 34,
+    minHeight: 40,
     justifyContent: 'center',
     paddingHorizontal: 12,
     borderWidth: 1,
@@ -1460,7 +1470,7 @@ const styles = StyleSheet.create({
   },
   keyButton: {
     minWidth: 54,
-    minHeight: 34,
+    minHeight: 40,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 10,

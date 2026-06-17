@@ -226,6 +226,20 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(mockTerminalSendText).toHaveBeenNthCalledWith(3, '\t', {
       focus: false,
     });
+    expect(screen!.root.findByProps({ testID: 'terminal-key-Tab' }).props.hitSlop).toEqual({
+      top: 6,
+      right: 6,
+      bottom: 6,
+      left: 6,
+    });
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-key-Tab' }).props
+        .accessibilityLabel,
+    ).toBe('Send terminal key Tab');
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-key-Tab' }).props
+        .accessibilityRole,
+    ).toBe('button');
     expect(
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props.style,
     ).toEqual(
@@ -304,6 +318,12 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(mockTerminalSendText).toHaveBeenCalledWith('\x1b[3~', {
       focus: false,
     });
+    expect(screen!.root.findByProps({ testID: 'terminal-key-Delete' }).props.hitSlop).toEqual({
+      top: 6,
+      right: 6,
+      bottom: 6,
+      left: 6,
+    });
   });
 
   it('offers common terminal editing shortcuts in the floating key row', async () => {
@@ -331,6 +351,10 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(mockTerminalSendText).toHaveBeenCalledWith('\x15', {
       focus: false,
     });
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-key-Ctrl+U' }).props
+        .accessibilityLabel,
+    ).toBe('Send terminal key Ctrl+U');
   });
 
   it('keeps keyboard proxy input usable after pressing an editing shortcut', async () => {
@@ -371,6 +395,10 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
         }),
       ]),
     );
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
+        .accessibilityLabel,
+    ).toBe('Focus terminal keyboard');
   });
 
   it('shows focused keyboard state when the KB control requests soft keyboard focus', async () => {
@@ -701,6 +729,14 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
         .some(node => node.props.children === 'git status --short');
 
     expect(hasSuggestion()).toBe(true);
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-suggestion-git-status-short' })
+        .props.accessibilityRole,
+    ).toBe('button');
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-suggestion-git-status-short' })
+        .props.accessibilityLabel,
+    ).toBe('Run suggested command git status --short');
 
     const floatingControls = screen!.root.findByProps({
       testID: 'terminal-floating-controls',
