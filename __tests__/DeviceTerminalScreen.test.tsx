@@ -427,6 +427,39 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     );
   });
 
+  it('clears the focused keyboard state when the keyboard hides', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    const keyboardButton = screen!.root.findByProps({
+      testID: 'terminal-keyboard-focus',
+    });
+    act(() => {
+      keyboardButton.props.onPressIn();
+    });
+
+    act(() => {
+      keyboardListeners.keyboardDidHide?.forEach(listener => listener());
+    });
+
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props.style,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          borderColor: utilityMinimalist.colors.outlineVariant,
+        }),
+      ]),
+    );
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-floating-controls' }).props
+        .style,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ bottom: 0 })]),
+    );
+  });
+
   it('collapses the terminal top project controls while the keyboard is open', async () => {
     await act(async () => {
       screen = renderScreen();

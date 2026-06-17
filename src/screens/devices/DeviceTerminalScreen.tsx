@@ -280,6 +280,13 @@ export const DeviceTerminalScreen: React.FC = () => {
     !terminalRenderErrorMessage &&
     !terminalOpening;
 
+  const cancelKeyboardProxyFocusRetry = useCallback(() => {
+    if (keyboardProxyFocusRetryRef.current) {
+      clearTimeout(keyboardProxyFocusRetryRef.current);
+      keyboardProxyFocusRetryRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     if (!terminalId && device) {
       let cancelled = false;
@@ -303,11 +310,9 @@ export const DeviceTerminalScreen: React.FC = () => {
 
   useEffect(
     () => () => {
-      if (keyboardProxyFocusRetryRef.current) {
-        clearTimeout(keyboardProxyFocusRetryRef.current);
-      }
+      cancelKeyboardProxyFocusRetry();
     },
-    [],
+    [cancelKeyboardProxyFocusRetry],
   );
 
   const resetKeyboardProxyInput = useCallback(() => {
@@ -341,6 +346,7 @@ export const DeviceTerminalScreen: React.FC = () => {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setKeyboardInset(0);
       setKeyboardProxyFocused(false);
+      cancelKeyboardProxyFocusRetry();
     };
     const subscriptions = [
       Keyboard.addListener('keyboardWillShow', syncKeyboardInset),
@@ -353,7 +359,7 @@ export const DeviceTerminalScreen: React.FC = () => {
     return () => {
       subscriptions.forEach(subscription => subscription.remove());
     };
-  }, []);
+  }, [cancelKeyboardProxyFocusRetry]);
 
   useEffect(() => {
     keyboardProxyStateRef.current = createTerminalKeyboardProxyState();
@@ -475,10 +481,7 @@ export const DeviceTerminalScreen: React.FC = () => {
 
   const handleKeyboardProxyBlur = () => {
     setKeyboardProxyFocused(false);
-    if (keyboardProxyFocusRetryRef.current) {
-      clearTimeout(keyboardProxyFocusRetryRef.current);
-      keyboardProxyFocusRetryRef.current = null;
-    }
+    cancelKeyboardProxyFocusRetry();
   };
 
   const handleKeyboardProxyChange = (value: string) => {
