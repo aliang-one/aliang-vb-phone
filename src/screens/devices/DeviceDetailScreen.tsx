@@ -104,7 +104,7 @@ export const DeviceDetailScreen: React.FC = () => {
           const leftActive = activeSessionStatuses.includes(left.status) ? 0 : 1;
           const rightActive = activeSessionStatuses.includes(right.status) ? 0 : 1;
           if (leftActive !== rightActive) return leftActive - rightActive;
-          return newestFirst(left.updatedAt, right.updatedAt);
+          return (right.lastActivityMs ?? 0) - (left.lastActivityMs ?? 0);
         });
     },
     [vibeRuns, device],
