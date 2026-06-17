@@ -225,6 +225,27 @@ describe('terminalKeyboardProxy', () => {
     expect(suppressedChange.state.suppressedInput).toBeNull();
   });
 
+  it('maps terminal control keypresses to escape sequences', () => {
+    const state = createTerminalKeyboardProxyState();
+
+    expect(terminalKeyboardProxyKeyAction(state, 'Tab', 1000).input).toBe('\t');
+    expect(terminalKeyboardProxyKeyAction(state, 'Escape', 1000).input).toBe(
+      '\x1b',
+    );
+    expect(terminalKeyboardProxyKeyAction(state, 'ArrowUp', 1000).input).toBe(
+      '\x1b[A',
+    );
+    expect(terminalKeyboardProxyKeyAction(state, 'ArrowDown', 1000).input).toBe(
+      '\x1b[B',
+    );
+    expect(terminalKeyboardProxyKeyAction(state, 'ArrowRight', 1000).input).toBe(
+      '\x1b[C',
+    );
+    expect(terminalKeyboardProxyKeyAction(state, 'ArrowLeft', 1000).input).toBe(
+      '\x1b[D',
+    );
+  });
+
   it('ignores non-terminal keypress values', () => {
     const state = createTerminalKeyboardProxyState();
 

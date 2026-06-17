@@ -161,6 +161,12 @@ export function terminalKeyboardProxyKeyAction(
 function terminalKeyboardProxyInputFromKey(key: string): string {
   if (key === 'Enter') return '\r';
   if (key === 'Backspace') return '\x7f';
+  if (key === 'Tab') return '\t';
+  if (key === 'Escape') return '\x1b';
+  if (key === 'ArrowUp') return '\x1b[A';
+  if (key === 'ArrowDown') return '\x1b[B';
+  if (key === 'ArrowRight') return '\x1b[C';
+  if (key === 'ArrowLeft') return '\x1b[D';
   return '';
 }
 

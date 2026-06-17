@@ -266,6 +266,24 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(mockTerminalSendText).toHaveBeenCalledWith('i', { focus: false });
   });
 
+  it('routes native control keypresses through the hidden keyboard proxy', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    const keyboardProxy = screen!.root.findByProps({
+      testID: 'terminal-keyboard-proxy',
+    });
+
+    act(() => {
+      keyboardProxy.props.onKeyPress({ nativeEvent: { key: 'ArrowUp' } });
+    });
+
+    expect(mockTerminalSendText).toHaveBeenCalledWith('\x1b[A', {
+      focus: false,
+    });
+  });
+
   it('shows focused keyboard state when the KB control requests soft keyboard focus', async () => {
     await act(async () => {
       screen = renderScreen();
