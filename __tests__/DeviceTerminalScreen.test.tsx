@@ -241,6 +241,10 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
         .accessibilityRole,
     ).toBe('button');
     expect(
+      screen!.root.findByProps({ testID: 'terminal-key-Tab' }).props
+        .accessibilityState,
+    ).toEqual({ disabled: false });
+    expect(
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props.style,
     ).toEqual(
       expect.arrayContaining([
@@ -399,6 +403,10 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
         .accessibilityLabel,
     ).toBe('Focus terminal keyboard');
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
+        .accessibilityState,
+    ).toEqual({ disabled: false });
   });
 
   it('shows focused keyboard state when the KB control requests soft keyboard focus', async () => {
@@ -571,6 +579,10 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
         .disabled,
     ).toBe(true);
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
+        .accessibilityState,
+    ).toEqual({ disabled: true });
     expect(mockTerminalSendText).not.toHaveBeenCalled();
   });
 
@@ -653,6 +665,10 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
         .disabled,
     ).toBe(true);
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
+        .accessibilityState,
+    ).toEqual({ disabled: true });
     expect(mockTerminalSendText).not.toHaveBeenCalled();
   });
 
@@ -714,6 +730,10 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
         .disabled,
     ).toBe(true);
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
+        .accessibilityState,
+    ).toEqual({ disabled: true });
 
     expect(mockTerminalSendText).not.toHaveBeenCalled();
   });
@@ -737,6 +757,10 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       screen!.root.findByProps({ testID: 'terminal-suggestion-git-status-short' })
         .props.accessibilityLabel,
     ).toBe('Run suggested command git status --short');
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-suggestion-git-status-short' })
+        .props.accessibilityState,
+    ).toEqual({ disabled: false });
 
     const floatingControls = screen!.root.findByProps({
       testID: 'terminal-floating-controls',
@@ -984,6 +1008,14 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
         }),
       ]),
     );
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
+        .accessibilityState,
+    ).toEqual({ disabled: true });
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-key-Tab' }).props
+        .accessibilityState,
+    ).toEqual({ disabled: true });
   });
 
   it('collapses the terminal top project controls while the keyboard is open', async () => {

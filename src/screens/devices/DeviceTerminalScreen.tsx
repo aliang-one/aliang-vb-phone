@@ -1023,6 +1023,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                       accessibilityRole="button"
                       accessibilityLabel={`Run suggested command ${item}`}
                       hitSlop={terminalControlHitSlop}
+                      accessibilityState={{ disabled: !terminalInputEnabled }}
                       disabled={!terminalInputEnabled}
                       onPress={() =>
                         sendToTerminal(`${item}\r`, {
@@ -1065,6 +1066,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                     accessibilityRole="button"
                     accessibilityLabel="Focus terminal keyboard"
                     hitSlop={terminalControlHitSlop}
+                    accessibilityState={{ disabled: !terminalInputEnabled }}
                     onPressIn={focusTerminalInput}
                     disabled={!terminalInputEnabled}
                     style={[
@@ -1138,6 +1140,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                           accessibilityRole="button"
                           accessibilityLabel={`Send terminal key ${label}`}
                           hitSlop={terminalControlHitSlop}
+                          accessibilityState={{ disabled: !terminalInputEnabled }}
                           onPress={() =>
                             sendToTerminal(value, {
                               focus: false,
