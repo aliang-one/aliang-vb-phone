@@ -46,4 +46,33 @@ describe('useNowTick', () => {
 
     expect(renders).toHaveLength(2);
   });
+
+  it('resets the exposed tick when the last subscriber unmounts', () => {
+    const renders: number[] = [];
+    let screen: ReactTestRenderer.ReactTestRenderer | undefined;
+
+    act(() => {
+      screen = ReactTestRenderer.create(
+        <TickProbe onRender={tick => renders.push(tick)} />,
+      );
+    });
+
+    act(() => {
+      screen?.unmount();
+    });
+
+    act(() => {
+      jest.advanceTimersByTime(60_000);
+    });
+
+    const nowBeforeRemount = Date.now();
+    act(() => {
+      screen = ReactTestRenderer.create(
+        <TickProbe onRender={tick => renders.push(tick)} />,
+      );
+    });
+
+    expect(renders).toHaveLength(2);
+    expect(Math.abs(renders[1] - nowBeforeRemount)).toBeLessThan(5_000);
+  });
 });

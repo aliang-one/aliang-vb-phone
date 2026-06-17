@@ -18,6 +18,7 @@ let lastTick = Date.now();
 
 function ensureTicking() {
   if (timer) return;
+  lastTick = Date.now();
   timer = setInterval(() => {
     lastTick = Date.now();
     for (const handler of subscribers) handler(lastTick);
@@ -38,9 +39,11 @@ function stopIfIdle() {
  * label is rendered from a stored timestamp.
  */
 export function useNowTick(): number {
-  const [, bump] = useState(0);
+  const [tick, setTick] = useState(() => Date.now());
   useEffect(() => {
-    const handler = () => bump(n => (n + 1) % 1_000_000);
+    lastTick = Date.now();
+    setTick(lastTick);
+    const handler = (nextTick: number) => setTick(nextTick);
     subscribers.add(handler);
     ensureTicking();
     return () => {
@@ -48,5 +51,5 @@ export function useNowTick(): number {
       stopIfIdle();
     };
   }, []);
-  return lastTick;
+  return tick;
 }
