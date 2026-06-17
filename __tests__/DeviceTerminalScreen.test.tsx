@@ -320,6 +320,26 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     ).toBe('handled');
   });
 
+  it('keeps an initial terminal disabled until xterm renders', async () => {
+    mockAutoRenderTerminal = false;
+
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
+        .disabled,
+    ).toBe(true);
+
+    act(() => {
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
+        .onPressIn();
+    });
+
+    expect(mockTerminalSendText).not.toHaveBeenCalled();
+  });
+
   it('keeps the terminal disabled until a newly opened session renders', async () => {
     const mockCreateTerminalSession = jest
       .fn()

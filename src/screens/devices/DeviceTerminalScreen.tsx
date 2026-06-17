@@ -194,9 +194,7 @@ export const DeviceTerminalScreen: React.FC = () => {
   const serverMode = useControlCenterStore(state => state.serverMode);
   const [terminalId, setTerminalId] = useState(route.params.terminalId);
   const [terminalOpening, setTerminalOpening] = useState(false);
-  const [renderedTerminalId, setRenderedTerminalId] = useState(
-    route.params.terminalId ?? '',
-  );
+  const [renderedTerminalId, setRenderedTerminalId] = useState('');
   const [terminalRenderError, setTerminalRenderError] = useState<{
     sessionId: string;
     message: string;
