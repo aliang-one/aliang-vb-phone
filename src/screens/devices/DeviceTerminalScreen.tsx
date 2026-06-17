@@ -157,6 +157,9 @@ const TopStatusShape: React.FC<{
 );
 
 const PENDING_KEYBOARD_LIFT_INSET = 300;
+export const getTerminalProxyKeyboardType = (os: typeof Platform.OS) =>
+  os === 'android' ? 'visible-password' : 'ascii-capable';
+const TERMINAL_PROXY_KEYBOARD_TYPE = getTerminalProxyKeyboardType(Platform.OS);
 const testIdSlug = (value: string) =>
   value
     .toLowerCase()
@@ -1080,7 +1083,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                       autoCapitalize="none"
                       autoCorrect={false}
                       autoComplete="off"
-                      keyboardType="ascii-capable"
+                      keyboardType={TERMINAL_PROXY_KEYBOARD_TYPE}
                       showSoftInputOnFocus
                       multiline
                       blurOnSubmit={false}

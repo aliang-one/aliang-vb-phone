@@ -1,8 +1,11 @@
 import React from 'react';
-import { Keyboard, Text, type KeyboardEvent } from 'react-native';
+import { Keyboard, Platform, Text, type KeyboardEvent } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { DeviceTerminalScreen } from '../src/screens/devices/DeviceTerminalScreen';
+import {
+  DeviceTerminalScreen,
+  getTerminalProxyKeyboardType,
+} from '../src/screens/devices/DeviceTerminalScreen';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { useControlCenterStore } from '../src/store/controlCenterStore';
@@ -169,6 +172,11 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     return screen;
   };
 
+  it('uses a terminal-friendly keyboard type on Android', () => {
+    expect(getTerminalProxyKeyboardType('android')).toBe('visible-password');
+    expect(getTerminalProxyKeyboardType('ios')).toBe('ascii-capable');
+  });
+
   it('routes soft keyboard text, enter, and shortcut keys through xterm', async () => {
     await act(async () => {
       screen = renderScreen();
@@ -180,6 +188,9 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
 
     expect(keyboardProxy.props.value).toBeUndefined();
     expect(keyboardProxy.props.defaultValue).toBe(TERMINAL_KEYBOARD_PROXY_VALUE);
+    expect(keyboardProxy.props.keyboardType).toBe(
+      getTerminalProxyKeyboardType(Platform.OS),
+    );
     expect(
       screen!.root
         .findByProps({ testID: 'terminal-keyboard-focus' })
