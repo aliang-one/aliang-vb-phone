@@ -330,6 +330,46 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     });
   });
 
+  it('keeps keyboard proxy input usable after pressing an editing shortcut', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    const keyboardButton = screen!.root.findByProps({
+      testID: 'terminal-keyboard-focus',
+    });
+    act(() => {
+      keyboardButton.props.onPressIn();
+    });
+
+    act(() => {
+      screen!.root.findByProps({ testID: 'terminal-key-Ctrl+W' }).props.onPress();
+    });
+
+    const keyboardProxy = screen!.root.findByProps({
+      testID: 'terminal-keyboard-proxy',
+    });
+    act(() => {
+      keyboardProxy.props.onChangeText(`${TERMINAL_KEYBOARD_PROXY_VALUE}x`);
+    });
+
+    expect(mockTerminalSendText).toHaveBeenNthCalledWith(1, '\x17', {
+      focus: false,
+    });
+    expect(mockTerminalSendText).toHaveBeenNthCalledWith(2, 'x', {
+      focus: false,
+    });
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props.style,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          borderColor: utilityMinimalist.colors.primary,
+        }),
+      ]),
+    );
+  });
+
   it('shows focused keyboard state when the KB control requests soft keyboard focus', async () => {
     await act(async () => {
       screen = renderScreen();
