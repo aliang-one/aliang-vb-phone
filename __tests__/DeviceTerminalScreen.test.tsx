@@ -357,6 +357,36 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     );
   });
 
+  it('sends suggestion chips without dropping the soft keyboard focus', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    const keyboardButton = screen!.root.findByProps({
+      testID: 'terminal-keyboard-focus',
+    });
+
+    act(() => {
+      keyboardButton.props.onPressIn();
+    });
+
+    const suggestionButton = screen!.root.findByProps({
+      testID: 'terminal-suggestion-git-status-short',
+    });
+
+    act(() => {
+      suggestionButton.props.onPress();
+    });
+
+    expect(mockTerminalSendText).toHaveBeenCalledWith(
+      'git status --short\r',
+      {
+        focus: false,
+      },
+    );
+    expect(mockTerminalFocus).not.toHaveBeenCalled();
+  });
+
   it('collapses the terminal top project controls while the keyboard is open', async () => {
     await act(async () => {
       screen = renderScreen();

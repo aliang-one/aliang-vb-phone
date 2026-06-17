@@ -974,10 +974,13 @@ export const DeviceTerminalScreen: React.FC = () => {
                 >
                   {aiSuggestions.map(item => (
                     <TouchableOpacity
+                      testID={`terminal-suggestion-${item
+                        .toLowerCase()
+                        .replace(/[^a-z0-9]+/g, '-')}`}
                       key={item}
                       activeOpacity={0.76}
                       disabled={!terminalInputEnabled}
-                      onPress={() => sendToTerminal(`${item}\r`)}
+                      onPress={() => sendToTerminal(`${item}\r`, { focus: false })}
                       style={[
                         styles.aiBubble,
                         {
