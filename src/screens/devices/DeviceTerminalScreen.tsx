@@ -1083,8 +1083,10 @@ export const DeviceTerminalScreen: React.FC = () => {
                       autoCapitalize="none"
                       autoCorrect={false}
                       autoComplete="off"
+                      textContentType="none"
                       keyboardType={TERMINAL_PROXY_KEYBOARD_TYPE}
                       showSoftInputOnFocus
+                      disableFullscreenUI
                       multiline
                       blurOnSubmit={false}
                       caretHidden
