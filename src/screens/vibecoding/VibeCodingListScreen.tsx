@@ -418,6 +418,16 @@ export const VibeCodingListScreen: React.FC = () => {
                       ]}>
                       {terminal.shell || 'shell'} · {terminal.directory || '~'}
                     </Text>
+                    {terminal.lastCommand ? (
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          theme.typography.codeSm,
+                          { color: theme.colors.primary },
+                        ]}>
+                        LAST {terminal.lastCommand}
+                      </Text>
+                    ) : null}
                   </View>
                   <StatusChip
                     label={terminal.status.toUpperCase()}

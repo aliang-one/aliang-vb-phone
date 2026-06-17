@@ -68,6 +68,8 @@ export interface TerminalSession {
   lines: TerminalLine[];
   createdAt: string;
   updatedAt: string;
+  lastCommand?: string;
+  lastCommandAt?: string;
 }
 
 export interface TerminalCommandHistoryItem {

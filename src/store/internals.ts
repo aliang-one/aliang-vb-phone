@@ -619,6 +619,8 @@ export function serverTerminalSessionToClient(
     ],
     createdAt: session.created_at,
     updatedAt: session.last_active_at,
+    lastCommand: session.last_command,
+    lastCommandAt: session.last_command_at,
   };
 }
 

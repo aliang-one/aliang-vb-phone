@@ -97,6 +97,7 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
     expect(textContent).toContain('1 ACTIVE');
     expect(textContent).toContain('MacBook');
     expect(textContent).toContain('zsh · ~/project');
+    expect(textContent).toContain('LAST git status --short');
     expect(textContent).not.toContain('zsh · ~/old');
 
     const buttons = screen!.root.findAllByType(TouchableOpacity);
@@ -184,5 +185,8 @@ function terminal(
     lines: [],
     createdAt: '2026-06-17T10:00:00.000Z',
     updatedAt: '2026-06-17T10:00:00.000Z',
+    lastCommand: status === 'running' ? 'git status --short' : undefined,
+    lastCommandAt:
+      status === 'running' ? '2026-06-17T10:00:00.000Z' : undefined,
   };
 }

@@ -113,6 +113,8 @@ describe('DeviceDetailScreen', () => {
           lines: [],
           createdAt: '2026-06-17T10:00:00.000Z',
           updatedAt: '2026-06-17T10:05:00.000Z',
+          lastCommand: 'npm test -- --runInBand',
+          lastCommandAt: '2026-06-17T10:04:00.000Z',
         },
         {
           id: 'term-closed',
@@ -183,6 +185,7 @@ describe('DeviceDetailScreen', () => {
       return Array.isArray(children) ? children.join('') : String(children);
     });
     expect(textContent).toContain('term-active');
+    expect(textContent).toContain('LAST npm test -- --runInBand');
     expect(textContent).not.toContain('term-closed');
 
     const buttons = screen!.root.findAllByType(TouchableOpacity);

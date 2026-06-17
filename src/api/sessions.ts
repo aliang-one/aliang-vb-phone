@@ -58,6 +58,8 @@ export interface ServerTerminalSession {
   created_at: string;
   last_active_at: string;
   closed_at?: string;
+  last_command?: string;
+  last_command_at?: string;
 }
 
 export interface ServerTerminalCommand {

@@ -340,6 +340,8 @@ describe('terminal output store handling', () => {
             rows: 24,
             created_at: '2026-06-16T10:00:00.000Z',
             last_active_at: '2026-06-16T10:00:02.000Z',
+            last_command: 'git status --short',
+            last_command_at: '2026-06-16T10:00:01.000Z',
           },
         ],
         approvals: [],
@@ -357,6 +359,10 @@ describe('terminal output store handling', () => {
       ['command', 'watch date'],
       ['stdout', 'total 8'],
     ]);
+    expect(refreshed.terminalSessions[0]).toMatchObject({
+      lastCommand: 'git status --short',
+      lastCommandAt: '2026-06-16T10:00:01.000Z',
+    });
   });
 });
 

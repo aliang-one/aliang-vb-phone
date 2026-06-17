@@ -338,6 +338,13 @@ export const DeviceDetailScreen: React.FC = () => {
                     style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
                     {terminal.id}
                   </Text>
+                  {terminal.lastCommand ? (
+                    <Text
+                      numberOfLines={1}
+                      style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+                      LAST {terminal.lastCommand}
+                    </Text>
+                  ) : null}
                 </View>
                 <StatusChip
                   label={terminal.status.toUpperCase()}
