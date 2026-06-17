@@ -209,10 +209,22 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       testID: 'terminal-keyboard-focus',
     });
 
+    expect(
+      screen!.root.findAllByProps({ testID: 'terminal-top-grid' }).length,
+    ).toBeGreaterThan(0);
+
     act(() => {
       keyboardButton.props.onPressIn();
     });
 
+    expect(
+      screen!.root.findAllByProps({ testID: 'terminal-top-grid' }).length,
+    ).toBe(0);
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-console-top' }).props.style,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ minHeight: 76 })]),
+    );
     expect(
       screen!.root.findByProps({ testID: 'terminal-keyboard-proxy' }).props
         .pointerEvents,
