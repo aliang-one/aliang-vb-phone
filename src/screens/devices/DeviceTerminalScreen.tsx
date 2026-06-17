@@ -803,6 +803,12 @@ export const DeviceTerminalScreen: React.FC = () => {
                           testID={`terminal-directory-${testIdSlug(item)}`}
                           key={item}
                           activeOpacity={0.78}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Select terminal directory ${item}`}
+                          accessibilityState={{
+                            disabled: !terminalInteraction.canChangeDirectory,
+                            selected: active,
+                          }}
                           disabled={!terminalInteraction.canChangeDirectory}
                           onPress={() => handleDirectorySelect(item)}
                           style={[
@@ -860,6 +866,13 @@ export const DeviceTerminalScreen: React.FC = () => {
                   <TouchableOpacity
                     testID="terminal-directory-enter"
                     activeOpacity={0.76}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open terminal in ${visibleDirectory}`}
+                    accessibilityState={{
+                      disabled:
+                        !terminalInteraction.canChangeDirectory ||
+                        visibleDirectory === directory,
+                    }}
                     onPress={() => {
                       handleDirectoryEnter().catch(() => {});
                     }}

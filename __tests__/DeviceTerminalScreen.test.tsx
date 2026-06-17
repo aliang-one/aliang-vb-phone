@@ -502,6 +502,22 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       screen!.root.findByProps({ testID: 'terminal-directory-scroll' }).props
         .keyboardShouldPersistTaps,
     ).toBe('handled');
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-directory-project' }).props
+        .accessibilityLabel,
+    ).toBe('Select terminal directory ~/project');
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-directory-project' }).props
+        .accessibilityState,
+    ).toEqual({ disabled: false, selected: true });
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-directory-enter' }).props
+        .accessibilityLabel,
+    ).toBe('Open terminal in ~/project');
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-directory-enter' }).props
+        .accessibilityState,
+    ).toEqual({ disabled: true });
   });
 
   it('keeps an initial terminal disabled until xterm renders', async () => {
@@ -662,6 +678,10 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       ]),
     );
     expect(
+      screen!.root.findByProps({ testID: 'terminal-directory-other' }).props
+        .accessibilityState,
+    ).toEqual({ disabled: false, selected: true });
+    expect(
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
         .disabled,
     ).toBe(true);
@@ -734,6 +754,10 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
         .accessibilityState,
     ).toEqual({ disabled: true });
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-directory-other' }).props
+        .accessibilityState,
+    ).toEqual({ disabled: false, selected: true });
 
     expect(mockTerminalSendText).not.toHaveBeenCalled();
   });
@@ -1016,6 +1040,10 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       screen!.root.findByProps({ testID: 'terminal-key-Tab' }).props
         .accessibilityState,
     ).toEqual({ disabled: true });
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-directory-project' }).props
+        .accessibilityState,
+    ).toEqual({ disabled: true, selected: true });
   });
 
   it('collapses the terminal top project controls while the keyboard is open', async () => {
