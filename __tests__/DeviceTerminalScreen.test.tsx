@@ -1104,6 +1104,9 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     });
 
     expect(
+      screen!.root.findAllByProps({ testID: 'terminal-collapsed-summary' }).length,
+    ).toBe(0);
+    expect(
       screen!.root.findAllByProps({ testID: 'terminal-top-grid' }).length,
     ).toBeGreaterThan(0);
 
@@ -1119,6 +1122,16 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       screen!.root.findAllByProps({ testID: 'terminal-top-grid' }).length,
     ).toBe(0);
     expect(
+      screen!.root.findByProps({ testID: 'terminal-collapsed-summary' }),
+    ).toBeTruthy();
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-collapsed-directory' }).props
+        .children,
+    ).toBe('~/project');
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-collapsed-status' }),
+    ).toBeTruthy();
+    expect(
       screen!.root.findByProps({ testID: 'terminal-console-top' }).props.style,
     ).toEqual(
       expect.arrayContaining([expect.objectContaining({ minHeight: 76 })]),
@@ -1131,6 +1144,9 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(
       screen!.root.findAllByProps({ testID: 'terminal-top-grid' }).length,
     ).toBeGreaterThan(0);
+    expect(
+      screen!.root.findAllByProps({ testID: 'terminal-collapsed-summary' }).length,
+    ).toBe(0);
   });
 
   it('collapses and lifts terminal controls from Android keyboard show events', async () => {

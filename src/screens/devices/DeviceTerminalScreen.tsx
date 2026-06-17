@@ -640,7 +640,12 @@ export const DeviceTerminalScreen: React.FC = () => {
                     {'<'}
                   </Text>
                 </TouchableOpacity>
-                <View style={styles.headerCopy}>
+                <View
+                  testID={
+                    topPanelCollapsed ? 'terminal-collapsed-summary' : undefined
+                  }
+                  style={styles.headerCopy}
+                >
                   <Text
                     style={[
                       theme.typography.labelCaps,
@@ -650,19 +655,34 @@ export const DeviceTerminalScreen: React.FC = () => {
                   >
                     TERMINAL
                   </Text>
-                  <Text
-                    style={[
-                      theme.typography.codeMd,
-                      styles.headerShell,
-                      { color: theme.colors.onSurface },
-                    ]}
-                  >
-                    shell {terminal?.shell ?? 'zsh'}
-                  </Text>
+                  {topPanelCollapsed ? (
+                    <Text
+                      testID="terminal-collapsed-directory"
+                      numberOfLines={1}
+                      style={[
+                        theme.typography.codeSm,
+                        styles.headerDirectory,
+                        { color: theme.colors.tertiary },
+                      ]}
+                    >
+                      {visibleDirectory}
+                    </Text>
+                  ) : (
+                    <Text
+                      style={[
+                        theme.typography.codeMd,
+                        styles.headerShell,
+                        { color: theme.colors.onSurface },
+                      ]}
+                    >
+                      shell {terminal?.shell ?? 'zsh'}
+                    </Text>
+                  )}
                 </View>
                 <View
                   style={[
                     styles.devicePod,
+                    topPanelCollapsed && styles.devicePodCollapsed,
                     {
                       backgroundColor: elevatedSurfaceColor,
                       borderColor: outlineColor,
@@ -679,17 +699,30 @@ export const DeviceTerminalScreen: React.FC = () => {
                   >
                     {device.name}
                   </Text>
-                  <StatusChip
-                    label={device.status.toUpperCase()}
-                    type={
-                      device.status === 'online'
-                        ? 'success'
-                        : device.status === 'warning'
-                        ? 'warning'
-                        : 'neutral'
-                    }
-                    style={styles.deviceStatusChip}
-                  />
+                  {topPanelCollapsed ? (
+                    <View
+                      testID="terminal-collapsed-status"
+                      style={styles.collapsedStatusSlot}
+                    >
+                      <StatusChip
+                        label={terminalStatusChip.label}
+                        type={terminalStatusType}
+                        style={styles.deviceStatusChip}
+                      />
+                    </View>
+                  ) : (
+                    <StatusChip
+                      label={device.status.toUpperCase()}
+                      type={
+                        device.status === 'online'
+                          ? 'success'
+                          : device.status === 'warning'
+                          ? 'warning'
+                          : 'neutral'
+                      }
+                      style={styles.deviceStatusChip}
+                    />
+                  )}
                 </View>
               </View>
 
@@ -1286,6 +1319,10 @@ const styles = StyleSheet.create({
     marginTop: 3,
     letterSpacing: 0,
   },
+  headerDirectory: {
+    marginTop: 3,
+    letterSpacing: 0,
+  },
   devicePod: {
     minWidth: 132,
     maxWidth: 166,
@@ -1297,12 +1334,24 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     borderWidth: 1,
   },
+  devicePodCollapsed: {
+    minWidth: 118,
+    maxWidth: 146,
+    minHeight: 48,
+    paddingLeft: 12,
+    paddingRight: 8,
+  },
   deviceName: {
     fontWeight: '700',
     maxWidth: 116,
   },
   deviceStatusChip: {
     marginTop: 5,
+  },
+  collapsedStatusSlot: {
+    marginTop: 5,
+    alignSelf: 'flex-end',
+    transform: [{ scale: 0.86 }],
   },
   topGrid: {
     flexDirection: 'row',
