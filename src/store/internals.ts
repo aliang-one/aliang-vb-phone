@@ -88,6 +88,11 @@ export const createId = (prefix: string) =>
 export const MAX_TERMINAL_LINES = 2000; // per terminal session, ring buffer
 export const MAX_RUN_EVENTS = 200; // per AI session lifecycle events
 export const MAX_SESSION_DETAIL = 8; // LRU: full transcripts held for at most this many sessions
+export const MAX_VIBE_RUNS = 50; // Maximum number of AI sessions kept in memory
+export const MAX_TRANSCRIPT_LENGTH = 500; // Maximum messages per session transcript (hot window)
+export const MAX_EVENTS = 120; // Global event log limit
+export const MAX_NOTIFICATIONS = 120; // Notification list limit
+export const MAX_APPROVALS = 50; // Pending/resolved approvals limit
 export const tail = <T>(list: T[], limit: number): T[] =>
   list.length <= limit ? list : list.slice(list.length - limit);
 
@@ -128,6 +133,35 @@ export function evictStaleSessionDetail(
       ? { ...run, transcript: [], events: [], detailLoadedAt: undefined }
       : run,
   );
+}
+
+/**
+ * Bound the total number of AI sessions in memory. When the list exceeds
+ * MAX_VIBE_RUNS, the oldest inactive sessions are dropped entirely (they can
+ * be re-fetched from the server if the user navigates back). Active sessions
+ * are always retained.
+ */
+export function evictOverflowVibeRuns(runs: VibeCodingRun[]): VibeCodingRun[] {
+  if (runs.length <= MAX_VIBE_RUNS) return runs;
+  // Separate active (must keep) from inactive (can evict)
+  const active = runs.filter(run => ACTIVE_RUN_STATUS.has(run.status));
+  const inactive = runs.filter(run => !ACTIVE_RUN_STATUS.has(run.status));
+  // Sort inactive by lastActivityMs descending, keep most recent
+  const keptInactive = inactive
+    .sort((a, b) => (b.lastActivityMs ?? 0) - (a.lastActivityMs ?? 0))
+    .slice(0, MAX_VIBE_RUNS - active.length);
+  // Re-merge preserving original order hint (active first for relevance)
+  const kept = new Set([...active, ...keptInactive].map(r => r.id));
+  return runs.filter(r => kept.has(r.id));
+}
+
+/**
+ * Bound a single session's transcript length. When it exceeds
+ * MAX_TRANSCRIPT_LENGTH, the oldest messages are dropped (the server still
+ * holds the full history and loadEarlierAiMessages can fetch them).
+ */
+export function trimTranscript(transcript: VibeCodingRun['transcript']): VibeCodingRun['transcript'] {
+  return tail(transcript, MAX_TRANSCRIPT_LENGTH);
 }
 
 export const line = (
@@ -171,8 +205,8 @@ export function platformDeviceToClient(sd: PlatformDeviceSnapshot): Device {
     location: sd.location ?? 'Remote device',
     os: sd.platform,
     host: sd.host ?? sd.uniqueCode ?? sd.deviceId,
-    cpuLoad: sd.cpuLoad ?? 0,
-    memLoad: sd.memLoad ?? 0,
+    cpuLoad: sd.cpuLoad != null ? Math.round(sd.cpuLoad) : 0,
+    memLoad: sd.memLoad != null ? Math.round(sd.memLoad) : 0,
     battery: sd.battery,
     authorizedDirectories: sd.authorizedDirectories,
     activePorts: sd.activePorts,
@@ -335,12 +369,23 @@ export function mergeAgentMessages(
     current: VibeCodingRun['transcript'][number],
   ) => {
     if (!current.pending) return -1;
-    return incoming.findIndex(
+    // Try exact match first (id + role + content).
+    const exactIndex = incoming.findIndex(
       item =>
         !consumedIncoming.has(item.id) &&
         current.role === item.role &&
         (current.mode === item.mode || !current.mode || !item.mode) &&
         current.content === item.content,
+    );
+    if (exactIndex >= 0) return exactIndex;
+    // Fallback: content-based match (handles race conditions where WebSocket
+    // merged the server copy with a different id before the HTTP response
+    // handler could reconcile). Match by role + content similarity.
+    return incoming.findIndex(
+      item =>
+        !consumedIncoming.has(item.id) &&
+        current.role === item.role &&
+        current.content.trim() === item.content.trim(),
     );
   };
 
@@ -909,13 +954,17 @@ export function stateFromSnapshot(
     .filter(session => knownDeviceIds.has(session.device_id))
     .map(session => serverAiSessionToVibeRun(session, baseDevices, projects));
   const previousRunsById = new Map(previousRuns.map(run => [run.id, run]));
-  const mergedVibeRuns = vibeRuns.map(run =>
-    mergeVibeRunSnapshot(previousRunsById.get(run.id), run),
+  const mergedVibeRuns = evictOverflowVibeRuns(
+    vibeRuns.map(run => ({
+      ...mergeVibeRunSnapshot(previousRunsById.get(run.id), run),
+      transcript: trimTranscript(run.transcript),
+    })),
   );
   const devices = attachDeviceRelations(baseDevices, projects, mergedVibeRuns);
   const approvals = snapshot.approvals
     .filter(approval => knownDeviceIds.has(approval.device_id))
-    .map(serverApprovalToClient);
+    .map(serverApprovalToClient)
+    .slice(0, MAX_APPROVALS);
   const previousTerminalSessionsById = new Map(
     previousTerminalSessions.map(session => [session.id, session]),
   );
@@ -935,12 +984,12 @@ export function stateFromSnapshot(
     snapshot.realtimeEvents
       .map(realtimeEventToUnifiedEvent)
       .filter(item => !item.deviceId || knownDeviceIds.has(item.deviceId)),
-  ).slice(0, 120);
+  ).slice(0, MAX_EVENTS);
   const notifications = snapshot.notifications
     .map(serverNotificationToClient)
     .filter(item => !item.deviceId || knownDeviceIds.has(item.deviceId))
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-    .slice(0, 120);
+    .slice(0, MAX_NOTIFICATIONS);
   const warningEvents = snapshot.warnings.map(detail =>
     event('command.completed', 'Partial platform sync', detail, 'failed'),
   );
@@ -953,7 +1002,7 @@ export function stateFromSnapshot(
     approvals,
     previewLinks,
     notifications,
-    events: [...warningEvents, ...realtimeEvents].slice(0, 120),
+    events: [...warningEvents, ...realtimeEvents].slice(0, MAX_EVENTS),
   };
 }
 
@@ -963,6 +1012,7 @@ export const emptySessionData = () => ({
   vibeRuns: [],
   previewLinks: [],
   terminalSessions: [],
+  terminalCommandHistory: {},
   scanResults: [],
   approvals: [],
   notifications: [],

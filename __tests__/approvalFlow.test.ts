@@ -1,0 +1,259 @@
+import { useControlCenterStore } from '../src/store/controlCenterStore';
+import { platformTransport } from '../src/services/platformTransport';
+import type { VibeCodingRun } from '../src/data/platformModels';
+import type { ApprovalRequest } from '../src/store/controlCenterStore';
+
+jest.mock('../src/services/platformTransport', () => ({
+  platformTransport: {
+    disconnect: jest.fn(),
+    loadSnapshot: jest.fn(),
+    connect: jest.fn(),
+    respondApproval: jest.fn(),
+  },
+}));
+
+const run = (events: VibeCodingRun['events'] = []): VibeCodingRun => ({
+  id: 'session-1',
+  title: 'run-session-1',
+  deviceId: 'device-1',
+  projectId: 'project-1',
+  directory: '~/proj',
+  status: 'running',
+  objective: '',
+  model: 'Claude Code',
+  timeLimitMinutes: 60,
+  elapsedMinutes: 0,
+  risk: 'medium',
+  currentStep: '',
+  branch: 'main',
+  lastActivityMs: 0,
+  updatedAt: '',
+  suggestions: [],
+  transcript: [],
+  events,
+});
+
+const serverApproval = (status: ApprovalRequest['status'] = 'pending') => ({
+  id: 'approval-1',
+  approval_id: 'approval-1',
+  user_id: 'user-1',
+  device_id: 'device-1',
+  project_id: 'project-1',
+  session_id: 'session-1',
+  terminal_id: undefined,
+  kind: 'dangerous_command',
+  title: 'Run migration',
+  summary: 'The agent wants to run a migration.',
+  command: 'npm run migrate',
+  files: [],
+  risk: 'high' as const,
+  status,
+  created_at: '2026-06-16T10:00:00.000Z',
+  resolved_at:
+    status === 'pending' ? undefined : '2026-06-16T10:01:00.000Z',
+});
+
+const seed = () => {
+  useControlCenterStore.setState({
+    serverMode: true,
+    approvals: [],
+    notifications: [],
+    events: [],
+    vibeRuns: [run()],
+  });
+};
+
+describe('approval realtime flow', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    seed();
+  });
+
+  it('adds approval requests to global approvals and the matching session timeline', () => {
+    useControlCenterStore.getState().handleTransportEvent({
+      type: 'approval.requested',
+      approval: serverApproval(),
+      raw: {},
+    });
+
+    const state = useControlCenterStore.getState();
+    expect(state.approvals).toHaveLength(1);
+    expect(state.events).toHaveLength(1);
+    expect(state.events[0]).toMatchObject({
+      type: 'approval.requested',
+      approvalId: 'approval-1',
+    });
+    expect(state.vibeRuns[0]).toMatchObject({
+      status: 'waiting_approval',
+      currentStep: 'Run migration',
+    });
+    expect(state.vibeRuns[0].events).toEqual([
+      expect.objectContaining({
+        id: 'approval-approval-1',
+        type: 'approval',
+        title: 'Run migration',
+        status: 'waiting',
+      }),
+    ]);
+  });
+
+  it('does not duplicate approval events when the matching notification arrives', () => {
+    const store = useControlCenterStore.getState();
+    store.handleTransportEvent({
+      type: 'approval.requested',
+      approval: serverApproval(),
+      raw: {},
+    });
+    store.handleTransportEvent({
+      type: 'notification.created',
+      notification: {
+        id: 'notif-1',
+        notification_id: 'notif-1',
+        user_id: 'user-1',
+        type: 'approval',
+        title: 'Run migration',
+        body: 'The agent wants to run a migration.',
+        device_id: 'device-1',
+        session_id: 'session-1',
+        approval_id: 'approval-1',
+        read: false,
+        created_at: '2026-06-16T10:00:00.000Z',
+      },
+      raw: {},
+    });
+
+    const state = useControlCenterStore.getState();
+    expect(state.notifications).toHaveLength(1);
+    expect(
+      state.events.filter(item => item.type === 'approval.requested'),
+    ).toHaveLength(1);
+  });
+
+  it('marks related notifications read and resolves the session approval event after response', async () => {
+    useControlCenterStore.setState({
+      approvals: [
+        {
+          id: 'approval-1',
+          kind: 'dangerous_command',
+          title: 'Run migration',
+          summary: 'The agent wants to run a migration.',
+          deviceId: 'device-1',
+          projectId: 'project-1',
+          sessionId: 'session-1',
+          risk: 'high',
+          status: 'pending',
+          createdAt: '2026-06-16T10:00:00.000Z',
+        },
+      ],
+      notifications: [
+        {
+          id: 'notif-1',
+          type: 'approval',
+          title: 'Run migration',
+          body: 'The agent wants to run a migration.',
+          deviceId: 'device-1',
+          sessionId: 'session-1',
+          approvalId: 'approval-1',
+          read: false,
+          createdAt: '2026-06-16T10:00:00.000Z',
+        },
+      ],
+      vibeRuns: [
+        run([
+          {
+            id: 'approval-approval-1',
+            type: 'approval',
+            title: 'Run migration',
+            detail: 'The agent wants to run a migration.',
+            status: 'waiting',
+            timestamp: '2026-06-16T10:00:00.000Z',
+          },
+        ]),
+      ],
+    });
+    (platformTransport.respondApproval as jest.Mock).mockResolvedValue(
+      serverApproval('approved'),
+    );
+
+    await useControlCenterStore
+      .getState()
+      .resolveApproval('approval-1', 'approved');
+
+    const state = useControlCenterStore.getState();
+    expect(state.approvals[0].status).toBe('approved');
+    expect(state.notifications[0].read).toBe(true);
+    expect(state.vibeRuns[0].events).toEqual([
+      expect.objectContaining({
+        id: 'approval-approval-1',
+        title: 'Approval granted',
+        status: 'done',
+      }),
+    ]);
+  });
+
+  it('updates local approval state when another client resolves it', () => {
+    useControlCenterStore.setState({
+      approvals: [
+        {
+          id: 'approval-1',
+          kind: 'dangerous_command',
+          title: 'Run migration',
+          summary: 'The agent wants to run a migration.',
+          deviceId: 'device-1',
+          projectId: 'project-1',
+          sessionId: 'session-1',
+          risk: 'high',
+          status: 'pending',
+          createdAt: '2026-06-16T10:00:00.000Z',
+        },
+      ],
+      vibeRuns: [
+        {
+          ...run(),
+          status: 'waiting_approval',
+          events: [
+            {
+              id: 'approval-approval-1',
+              type: 'approval',
+              title: 'Run migration',
+              detail: 'The agent wants to run a migration.',
+              status: 'waiting',
+              timestamp: '2026-06-16T10:00:00.000Z',
+            },
+          ],
+        },
+      ],
+    });
+
+    useControlCenterStore.getState().handleTransportEvent({
+      type: 'notification.created',
+      notification: {
+        id: 'notif-result-1',
+        notification_id: 'notif-result-1',
+        user_id: 'user-1',
+        type: 'completed',
+        title: 'Approval granted',
+        body: 'Run migration',
+        device_id: 'device-1',
+        session_id: 'session-1',
+        approval_id: 'approval-1',
+        read: false,
+        created_at: '2026-06-16T10:01:00.000Z',
+      },
+      raw: {},
+    });
+
+    const state = useControlCenterStore.getState();
+    expect(state.approvals[0]).toMatchObject({
+      status: 'approved',
+      resolvedAt: '2026-06-16T10:01:00.000Z',
+    });
+    expect(state.vibeRuns[0]).toMatchObject({
+      status: 'running',
+      currentStep: 'Approval granted. Waiting for agent to continue.',
+    });
+    expect(
+      state.events.filter(item => item.approvalId === 'approval-1'),
+    ).toHaveLength(0);
+  });
+});

@@ -1,11 +1,14 @@
 import type { StateCreator } from 'zustand';
-import type { Device } from '../../data/platformModels';
 import { platformTransport } from '../../services/platformTransport';
 import {
   clearPendingTerminalOutput,
   terminalOutputHandlers,
 } from '../../components/terminal/TerminalEmulator';
-import type { ControlCenterState, TerminalSessionStatus } from '../types';
+import type {
+  ControlCenterState,
+  TerminalCommandHistoryItem,
+  TerminalSessionStatus,
+} from '../types';
 import {
   event,
   line,
@@ -18,11 +21,13 @@ import {
 type TerminalSlice = Pick<
   ControlCenterState,
   | 'terminalSessions'
+  | 'terminalCommandHistory'
   | 'createTerminalSession'
   | 'executeTerminalCommand'
   | 'clearTerminal'
   | 'stopTerminal'
   | 'interruptTerminal'
+  | 'loadTerminalCommandHistory'
   | 'createPtySession'
   | 'sendTerminalInput'
   | 'resizeTerminal'
@@ -36,6 +41,7 @@ export const createTerminalSlice: StateCreator<
   TerminalSlice
 > = (set, get) => ({
   terminalSessions: [],
+  terminalCommandHistory: {},
 
   createTerminalSession: async (deviceId, directory) => {
     if (!get().serverMode) {
@@ -178,6 +184,35 @@ export const createTerminalSlice: StateCreator<
     }));
   },
 
+  loadTerminalCommandHistory: async (terminalId, deviceId) => {
+    if (!get().serverMode) return;
+
+    const [sessionCommands, deviceCommands] = await Promise.all([
+      platformTransport.loadTerminalSessionCommands(terminalId, 20),
+      deviceId
+        ? platformTransport.loadDeviceTerminalCommands(deviceId, 30)
+        : Promise.resolve([]),
+    ]);
+
+    set(state => ({
+      terminalCommandHistory: {
+        ...state.terminalCommandHistory,
+        [`session:${terminalId}`]: mergeCommandHistory(
+          sessionCommands.map(serverTerminalCommandToClient),
+          state.terminalCommandHistory[`session:${terminalId}`],
+        ),
+        ...(deviceId
+          ? {
+              [`device:${deviceId}`]: mergeCommandHistory(
+                deviceCommands.map(serverTerminalCommandToClient),
+                state.terminalCommandHistory[`device:${deviceId}`],
+              ),
+            }
+          : {}),
+      },
+    }));
+  },
+
   stopTerminal: async terminalId => {
     if (!get().serverMode) {
       throw new Error(
@@ -252,7 +287,7 @@ export const createTerminalSlice: StateCreator<
     return terminal.id;
   },
 
-  sendTerminalInput: (sessionId, data, encoding = 'base64') => {
+  sendTerminalInput: (sessionId, data, encoding = 'text') => {
     platformTransport.send({
       type: 'terminal.input',
       session_id: sessionId,
@@ -298,3 +333,33 @@ export const createTerminalSlice: StateCreator<
     }));
   },
 });
+
+function serverTerminalCommandToClient(
+  command: Awaited<
+    ReturnType<typeof platformTransport.loadTerminalSessionCommands>
+  >[number],
+): TerminalCommandHistoryItem {
+  return {
+    id: command.id,
+    terminalSessionId: command.terminalSessionId,
+    deviceId: command.deviceId,
+    command: command.command,
+    timestamp: command.timestamp,
+    exitCode: command.exitCode,
+    createdAt: command.createdAt,
+  };
+}
+
+function mergeCommandHistory(
+  incoming: TerminalCommandHistoryItem[],
+  existing: TerminalCommandHistoryItem[] = [],
+) {
+  const byId = new Map<string, TerminalCommandHistoryItem>();
+  [...incoming, ...existing].forEach(item => {
+    if (item.command.trim()) byId.set(item.id, item);
+  });
+
+  return Array.from(byId.values())
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, 40);
+}

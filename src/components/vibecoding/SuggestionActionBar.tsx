@@ -27,10 +27,10 @@ export const SuggestionActionBar: React.FC<SuggestionActionBarProps> = ({
             styles.chip,
             {
               borderColor: isDark
-                ? 'rgba(0, 209, 255, 0.25)'
+                ? 'rgba(86, 156, 214, 0.25)'
                 : theme.colors.outlineVariant,
               backgroundColor: isDark
-                ? 'rgba(0, 209, 255, 0.08)'
+                ? 'rgba(86, 156, 214, 0.08)'
                 : theme.colors.surfaceContainer,
               borderRadius: theme.borderRadius.full,
             },

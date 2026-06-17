@@ -1,5 +1,5 @@
-import React from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -33,8 +33,10 @@ export const ProjectScanScreen: React.FC = () => {
   const navigation = useNavigation<Navigation>();
   const route = useRoute<ScanRoute>();
   const devices = useControlCenterStore(state => state.devices);
+  const projects = useControlCenterStore(state => state.projects);
   const scanResults = useControlCenterStore(state => state.scanResults);
   const scanDeviceProjects = useControlCenterStore(state => state.scanDeviceProjects);
+  const [scanning, setScanning] = useState(false);
   const device = devices.find(item => item.id === route.params.deviceId);
   const results = scanResults
     .filter(item => item.deviceId === route.params.deviceId)
@@ -50,6 +52,39 @@ export const ProjectScanScreen: React.FC = () => {
     0,
   );
   const packageCount = results.filter(item => item.packageManager !== 'none').length;
+
+  const handleScan = async () => {
+    if (!device || scanning) return;
+    setScanning(true);
+    try {
+      await scanDeviceProjects(device.id);
+    } finally {
+      // Keep spinner for a short while so the user sees feedback
+      // WS may deliver results asynchronously
+      setTimeout(() => setScanning(false), 1500);
+    }
+  };
+
+  const handleProjectPress = (item: ProjectScanResult) => {
+    // If the scan result has a valid projectId, navigate to ProjectDetail
+    if (item.projectId) {
+      navigation.navigate('ProjectDetail', {
+        projectId: item.projectId,
+        deviceId: item.deviceId,
+      });
+    } else {
+      // Otherwise, find a matching project by path
+      const matchedProject = projects.find(
+        p => p.deviceId === item.deviceId && p.path === item.path,
+      );
+      if (matchedProject) {
+        navigation.navigate('ProjectDetail', {
+          projectId: matchedProject.id,
+          deviceId: item.deviceId,
+        });
+      }
+    }
+  };
 
   if (!device) {
     return (
@@ -83,12 +118,21 @@ export const ProjectScanScreen: React.FC = () => {
                 {device.authorizedDirectories.length} directories
               </Text>
             </View>
-            <GlowButton
-              title="SCAN NOW"
-              onPress={() => scanDeviceProjects(device.id)}
-              variant="secondary"
-              style={styles.scanButton}
-            />
+            {scanning ? (
+              <View style={[styles.scanningBadge, { borderRadius: theme.borderRadius.md }]}>
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+                <Text style={[theme.typography.labelSm, { color: theme.colors.primary }]}>
+                  SCANNING...
+                </Text>
+              </View>
+            ) : (
+              <GlowButton
+                title="SCAN NOW"
+                onPress={handleScan}
+                variant="secondary"
+                style={styles.scanButton}
+              />
+            )}
           </View>
           <View style={styles.statRow}>
             <Metric label="GIT REPOS" value={`${results.length}`} />
@@ -106,16 +150,25 @@ export const ProjectScanScreen: React.FC = () => {
           DISCOVERED PROJECTS
         </Text>
 
+        {results.length === 0 && !scanning ? (
+          <GlassPanel style={styles.emptyPanel}>
+            <IconBadge name="project" tone="neutral" size={42} iconSize={21} />
+            <View style={styles.emptyCopy}>
+              <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+                No projects discovered
+              </Text>
+              <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+                Run a scan to discover Git repositories and project directories on this device.
+              </Text>
+            </View>
+          </GlassPanel>
+        ) : null}
+
         {resultList.visibleItems.map(item => (
           <TouchableOpacity
             key={item.id}
             activeOpacity={0.75}
-            onPress={() =>
-              navigation.navigate('ProjectDetail', {
-                projectId: item.projectId,
-                deviceId: item.deviceId,
-              })
-            }>
+            onPress={() => handleProjectPress(item)}>
             <GlassPanel style={styles.projectCard}>
               <View style={styles.cardHeader}>
                 <IconBadge
@@ -193,6 +246,21 @@ export const ProjectScanScreen: React.FC = () => {
                     AGENT
                   </Text>
                 </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.75}
+                  onPress={() => handleProjectPress(item)}
+                  style={[
+                    styles.actionButton,
+                    styles.openButton,
+                    {
+                      borderColor: theme.colors.primary,
+                      borderRadius: theme.borderRadius.full,
+                    },
+                  ]}>
+                  <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+                    OPEN
+                  </Text>
+                </TouchableOpacity>
               </View>
             </GlassPanel>
           </TouchableOpacity>
@@ -266,6 +334,15 @@ const styles = StyleSheet.create({
     minWidth: 118,
     paddingHorizontal: 12,
   },
+  scanningBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 118,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(86, 156, 214, 0.08)',
+  },
   summaryCopy: {
     flex: 1,
   },
@@ -281,6 +358,16 @@ const styles = StyleSheet.create({
   sectionTitle: {
     marginTop: 20,
     marginBottom: 8,
+  },
+  emptyPanel: {
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  emptyCopy: {
+    flex: 1,
+    gap: 4,
   },
   projectCard: {
     padding: 12,
@@ -317,5 +404,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
+  },
+  openButton: {
+    flex: 1,
   },
 });

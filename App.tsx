@@ -5,8 +5,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider } from './src/theme/ThemeContext';
 import { useTheme } from './src/theme/useTheme';
 import { RootNavigator } from './src/app/navigation/RootNavigator';
+import type { AppInitialProps } from './src/app/debugInitialProps';
 
-function AppContent() {
+function AppContent({ debugDeviceTerminal }: AppInitialProps = {}) {
   const { theme, isDark } = useTheme();
 
   return (
@@ -34,17 +35,17 @@ function AppContent() {
             heavy: { fontFamily: 'Inter', fontWeight: '900' },
           },
         }}>
-        <RootNavigator />
+        <RootNavigator debugDeviceTerminal={debugDeviceTerminal} />
       </NavigationContainer>
     </>
   );
 }
 
-function App() {
+function App(props: AppInitialProps = {}) {
   return (
     <SafeAreaProvider>
       <ThemeProvider>
-        <AppContent />
+        <AppContent debugDeviceTerminal={props.debugDeviceTerminal} />
       </ThemeProvider>
     </SafeAreaProvider>
   );

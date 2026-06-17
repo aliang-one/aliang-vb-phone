@@ -104,7 +104,7 @@ export const DeviceBindingScreen: React.FC = () => {
                   ? theme.colors.error
                   : theme.colors.primary,
                 backgroundColor: isDark
-                  ? 'rgba(0, 209, 255, 0.07)'
+                  ? 'rgba(86, 156, 214, 0.07)'
                   : theme.colors.surfaceContainerLow,
               },
             ]}>

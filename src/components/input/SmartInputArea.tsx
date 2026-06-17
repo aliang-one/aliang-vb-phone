@@ -69,7 +69,7 @@ export const SmartInputArea: React.FC<SmartInputAreaProps> = ({
                 styles.snippet,
                 {
                   backgroundColor: isDark
-                    ? 'rgba(0, 209, 255, 0.1)'
+                    ? 'rgba(86, 156, 214, 0.1)'
                     : 'rgba(0, 81, 174, 0.08)',
                   borderRadius: theme.borderRadius.sm,
                 },

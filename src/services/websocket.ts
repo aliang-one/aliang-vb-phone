@@ -1,4 +1,8 @@
 import { getPlatformServiceBaseUrl, toWebSocketUrl } from '../config/localService';
+import {
+  isAuthRejectionClose,
+  notifySessionInvalidated,
+} from '../api/sessionAuth';
 
 export type WsMessageHandler = (message: Record<string, unknown>) => void;
 export type WsConnectionState = 'connecting' | 'connected' | 'disconnected';
@@ -19,6 +23,11 @@ export class MobileWebSocket {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private intentionalClose = false;
+  // Set when the server closed the socket over an auth rejection (1008 +
+  // token/auth reason). Stops the reconnect loop — a dead token would otherwise
+  // reconnect forever — and fires the session-invalidation hub so the app
+  // returns to Login.
+  private authRejected = false;
   private _connected = false;
   private onStateChange?: (state: WsConnectionState) => void;
   private token?: string;
@@ -59,6 +68,9 @@ export class MobileWebSocket {
 
   private async doConnect(): Promise<void> {
     this.cleanup();
+    // A fresh connect attempt is no longer auth-rejected (e.g. user re-logged in
+    // with a valid token). This flag is only meaningful across a close cycle.
+    this.authRejected = false;
     this.onStateChange?.('connecting');
 
     const baseUrl = await getPlatformServiceBaseUrl();
@@ -84,11 +96,19 @@ export class MobileWebSocket {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event: WebSocketCloseEvent) => {
       this._connected = false;
       this.stopHeartbeat();
       this.onStateChange?.('disconnected');
-      if (!this.intentionalClose) {
+      // The server rejected our token (1008 + auth reason): stop retrying with
+      // the same dead token and tear the session down. Network blips use other
+      // close codes (1006/1011/1000) and still reconnect normally.
+      if (isAuthRejectionClose(event.code ?? 0, event.reason)) {
+        this.authRejected = true;
+        notifySessionInvalidated();
+        return;
+      }
+      if (!this.intentionalClose && !this.authRejected) {
         this.scheduleReconnect();
       }
     };
@@ -118,7 +138,7 @@ export class MobileWebSocket {
       this._connected = false;
       this.stopHeartbeat();
       this.onStateChange?.('disconnected');
-      if (!this.intentionalClose) {
+      if (!this.intentionalClose && !this.authRejected) {
         this.scheduleReconnect();
       }
     });

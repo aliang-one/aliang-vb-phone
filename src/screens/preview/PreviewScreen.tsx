@@ -277,7 +277,7 @@ const styles = StyleSheet.create({
     width: '58%',
     height: 18,
     borderRadius: 4,
-    backgroundColor: 'rgba(0, 209, 255, 0.35)',
+    backgroundColor: 'rgba(86, 156, 214, 0.35)',
   },
   placeholderRow: {
     width: '100%',
@@ -296,7 +296,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 74,
     borderRadius: 8,
-    backgroundColor: 'rgba(47, 248, 1, 0.12)',
+    backgroundColor: 'rgba(204, 204, 204, 0.08)',
   },
   sectionTitle: {
     marginTop: 20,

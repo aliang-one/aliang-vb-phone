@@ -21,6 +21,7 @@ interface ActionTileProps {
   tone?: Tone;
   onPress: () => void;
   compact?: boolean;
+  mini?: boolean;
   style?: object;
 }
 
@@ -42,6 +43,7 @@ export const ActionTile: React.FC<ActionTileProps> = ({
   tone = 'primary',
   onPress,
   compact = false,
+  mini = false,
   style,
 }) => {
   const { theme } = useTheme();
@@ -50,33 +52,42 @@ export const ActionTile: React.FC<ActionTileProps> = ({
       ? 'secondary'
       : tone === 'info'
       ? 'primary'
+      : tone === 'error'
+      ? 'error'
       : tone;
 
   return (
     <TouchableOpacity activeOpacity={0.76} onPress={onPress} style={style}>
-      <GlassPanel glowColor={toneToGlow[tone]} style={[styles.tile, compact && styles.compact]}>
+      <GlassPanel glowColor={toneToGlow[tone]} style={[styles.tile, compact && styles.compact, mini && styles.mini]}>
         <View style={styles.topRow}>
-          <IconBadge name={icon} tone={iconTone} size={compact ? 34 : 42} iconSize={compact ? 18 : 21} />
+          <IconBadge name={icon} tone={iconTone} size={mini ? 26 : compact ? 34 : 42} iconSize={mini ? 13 : compact ? 18 : 21} />
           {value ? (
             <Text style={[theme.typography.headlineMd, { color: theme.colors.onSurface }]}>
               {value}
             </Text>
           ) : null}
         </View>
-        <View style={styles.copy}>
-          <Text
-            numberOfLines={1}
-            style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+        {!mini && (
+          <View style={styles.copy}>
+            <Text
+              numberOfLines={1}
+              style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+              {label}
+            </Text>
+            {caption ? (
+              <Text
+                numberOfLines={2}
+                style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                {caption}
+              </Text>
+            ) : null}
+          </View>
+        )}
+        {mini && (
+          <Text numberOfLines={1} style={[theme.typography.labelMd, { color: theme.colors.onSurface, marginTop: 4 }]}>
             {label}
           </Text>
-          {caption ? (
-            <Text
-              numberOfLines={2}
-              style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-              {caption}
-            </Text>
-          ) : null}
-        </View>
+        )}
       </GlassPanel>
     </TouchableOpacity>
   );
@@ -92,6 +103,12 @@ const styles = StyleSheet.create({
   compact: {
     minHeight: 86,
     padding: 10,
+  },
+  mini: {
+    minHeight: 60,
+    padding: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   topRow: {
     flexDirection: 'row',

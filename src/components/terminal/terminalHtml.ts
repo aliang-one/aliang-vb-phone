@@ -3,8 +3,10 @@
  *
  * Communication bridge:
  *   WebView → RN:  window.ReactNativeWebView.postMessage(JSON)
- *   RN → WebView:  window.injectTerminalData(type, payload)
+ *   RN → WebView:  window.injectTerminalData(type, payload, encoding, focus)
  */
+
+import { XTERM_CSS, XTERM_FIT_JS, XTERM_JS } from './terminalAssets';
 
 export function getTerminalHtml(isDark: boolean): string {
   const bgColor = isDark ? '#0d1117' : '#ffffff';
@@ -17,19 +19,39 @@ export function getTerminalHtml(isDark: boolean): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/css/xterm.css">
+  <style>
+    ${XTERM_CSS}
+  </style>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: ${bgColor}; }
-    #terminal-container { width: 100%; height: 100%; }
+    #terminal-container { width: 100%; height: 100%; overflow: hidden; }
+    #terminal-root { width: 100%; height: 100%; min-height: 80px; }
   </style>
 </head>
 <body>
-  <div id="terminal-container"></div>
-  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/lib/xterm.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0/lib/addon-fit.js"></script>
+  <div id="terminal-container"><div id="terminal-root"></div></div>
+  <script>
+    ${XTERM_JS}
+  </script>
+  <script>
+    ${XTERM_FIT_JS}
+  </script>
   <script>
     (function() {
+      function postBridgeMessage(payload) {
+        window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+      }
+
+      window.onerror = function(message) {
+        postBridgeMessage({
+          type: 'error',
+          message: String(message || 'Terminal runtime error')
+        });
+      };
+
+      var didAnnounceRendered = false;
+      try {
       var term = new Terminal({
         theme: {
           background: '${bgColor}',
@@ -63,49 +85,122 @@ export function getTerminalHtml(isDark: boolean): string {
         allowProposedApi: true,
         allowTransparency: false,
         drawBoldTextInBrightColors: true,
-        convertEol: false
+        convertEol: false,
+        disableStdin: false
       });
 
       var fitAddon = new FitAddon.FitAddon();
       term.loadAddon(fitAddon);
 
       var container = document.getElementById('terminal-container');
-      term.open(container);
+      var terminalRoot = document.getElementById('terminal-root');
+      var pendingTouchStart = null;
+
+      function configureHelperTextarea() {
+        var textarea = terminalRoot.querySelector('.xterm-helper-textarea');
+        if (!textarea) return;
+        textarea.setAttribute('autocapitalize', 'off');
+        textarea.setAttribute('autocomplete', 'off');
+        textarea.setAttribute('autocorrect', 'off');
+        textarea.setAttribute('spellcheck', 'false');
+        if (textarea.dataset.mobileKeyboardConfigured) return;
+        textarea.dataset.mobileKeyboardConfigured = 'true';
+      }
+
+      configureHelperTextarea();
+      setTimeout(configureHelperTextarea, 0);
+
+      function postFocusRequest() {
+        configureHelperTextarea();
+        postBridgeMessage({
+          type: 'focusrequest'
+        });
+      }
+
+      function clearPendingTouchKeyboard() {
+        pendingTouchStart = null;
+      }
+
+      function requestNativeKeyboard(event) {
+        clearPendingTouchKeyboard();
+        var touch = event.touches && event.touches[0];
+        pendingTouchStart = touch
+          ? { x: touch.clientX, y: touch.clientY, at: Date.now() }
+          : null;
+      }
+
+      function cancelNativeKeyboardForGesture(event) {
+        if (!pendingTouchStart) return;
+        var touch = event.touches && event.touches[0];
+        if (!touch) {
+          clearPendingTouchKeyboard();
+          return;
+        }
+        var dx = Math.abs(touch.clientX - pendingTouchStart.x);
+        var dy = Math.abs(touch.clientY - pendingTouchStart.y);
+        if (dx > 8 || dy > 8) {
+          clearPendingTouchKeyboard();
+        }
+      }
+
+      function focusTerminal() {
+        configureHelperTextarea();
+        term.focus();
+      }
+
+      function announceRendered() {
+        if (didAnnounceRendered) return;
+        didAnnounceRendered = true;
+        postBridgeMessage({
+          type: 'rendered',
+          cols: term.cols,
+          rows: term.rows
+        });
+      }
+
+      term.onRender(function() {
+        announceRendered();
+      });
+
+      term.open(terminalRoot);
+
+      terminalRoot.addEventListener('touchstart', requestNativeKeyboard, {
+        passive: true
+      });
+      terminalRoot.addEventListener('touchmove', cancelNativeKeyboardForGesture, {
+        passive: true
+      });
+      terminalRoot.addEventListener('touchcancel', clearPendingTouchKeyboard, {
+        passive: true
+      });
+      terminalRoot.addEventListener('touchend', function(event) {
+        if (!pendingTouchStart) return;
+        var elapsed = Date.now() - pendingTouchStart.at;
+        clearPendingTouchKeyboard();
+        if (elapsed > 450) return;
+        if (event.cancelable) {
+          event.preventDefault();
+        }
+        event.stopPropagation();
+        postFocusRequest();
+      });
+      terminalRoot.addEventListener('mousedown', focusTerminal);
 
       // Initial fit + resize observer
-      setTimeout(function() { fitAddon.fit(); }, 100);
+      setTimeout(function() {
+        fitAddon.fit();
+        term.refresh(0, term.rows - 1);
+        announceRendered();
+      }, 100);
       window.addEventListener('resize', function() { fitAddon.fit(); });
-
-      // Keyboard input → RN
-      term.onData(function(data) {
-        var encoded;
-        try {
-          encoded = btoa(unescape(encodeURIComponent(data)));
-        } catch(e) {
-          encoded = btoa(data);
-        }
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'input',
-          data: encoded
-        }));
-      });
-
-      // Binary input (paste, etc) → RN
-      term.onBinary(function(data) {
-        var encoded = btoa(data);
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'binary',
-          data: encoded
-        }));
-      });
 
       // Resize → RN
       term.onResize(function(size) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
+        postBridgeMessage({
           type: 'resize',
           cols: size.cols,
           rows: size.rows
-        }));
+        });
       });
 
       function decodeBase64Utf8(payload) {
@@ -116,8 +211,18 @@ export function getTerminalHtml(isDark: boolean): string {
         }
       }
 
+      function postTextInput(data) {
+        postBridgeMessage({
+          type: 'input',
+          encoding: 'text',
+          data: data
+        });
+      }
+
+      term.onData(postTextInput);
+
       // RN → WebView: receive terminal output or commands
-      window.injectTerminalData = function(type, payload, encoding) {
+      window.injectTerminalData = function(type, payload, encoding, focus) {
         try {
           if (type === 'output') {
             var decoded = encoding === 'base64'
@@ -130,11 +235,20 @@ export function getTerminalHtml(isDark: boolean): string {
               term.resize(size.cols, size.rows);
               fitAddon.fit();
             }
+          } else if (type === 'input') {
+            var input = encoding === 'base64'
+              ? decodeBase64Utf8(payload)
+              : String(payload || '');
+            if (focus !== false) term.focus();
+            postTextInput(input);
+          } else if (type === 'focus') {
+            term.focus();
+          } else if (type === 'fit') {
+            fitAddon.fit();
+            configureHelperTextarea();
           } else if (type === 'clear') {
             term.clear();
             term.reset();
-          } else if (type === 'focus') {
-            term.focus();
           } else if (type === 'bell') {
             // visual bell handled by xterm
           }
@@ -144,11 +258,17 @@ export function getTerminalHtml(isDark: boolean): string {
       };
 
       // Notify RN that terminal is ready
-      window.ReactNativeWebView.postMessage(JSON.stringify({
+      postBridgeMessage({
         type: 'ready',
         cols: term.cols,
         rows: term.rows
-      }));
+      });
+      } catch(e) {
+        postBridgeMessage({
+          type: 'error',
+          message: e && e.message ? e.message : String(e)
+        });
+      }
     })();
   </script>
 </body>

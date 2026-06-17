@@ -1,41 +1,55 @@
 import { AppTheme } from '../../types';
 
+// VSCode Dark+ Theme inspired colors
 export const cyberLogic: AppTheme = {
   mode: 'dark',
   colors: {
-    background: '#0B0E11',
-    surface: '#111417',
-    surfaceDim: '#111417',
-    surfaceBright: '#37393d',
-    surfaceContainerLowest: '#0b0e11',
-    surfaceContainerLow: '#191c1f',
-    surfaceContainer: '#1d2023',
-    surfaceContainerHigh: '#272a2e',
-    surfaceContainerHighest: '#323538',
-    onSurface: '#e1e2e7',
-    onSurfaceVariant: '#bbc9cf',
-    inverseSurface: '#e1e2e7',
-    inverseOnSurface: '#2e3134',
-    outline: '#859399',
-    outlineVariant: '#3c494e',
-    surfaceTint: '#4cd6ff',
-    primary: '#00D1FF',
-    onPrimary: '#003543',
-    primaryContainer: '#00d1ff',
-    onPrimaryContainer: '#00566a',
-    inversePrimary: '#00677f',
-    secondary: '#2FF801',
-    onSecondary: '#053900',
-    secondaryContainer: '#2ff801',
-    onSecondaryContainer: '#0f6d00',
-    tertiary: '#FEB127',
-    onTertiary: '#442b00',
-    tertiaryContainer: '#feb127',
-    onTertiaryContainer: '#6b4700',
-    error: '#ffb4ab',
-    onError: '#690005',
-    errorContainer: '#93000a',
-    onErrorContainer: '#ffdad6',
+    // Background layers - VSCode classic dark
+    background: '#1E1E1E',
+    surface: '#252526',
+    surfaceDim: '#1E1E1E',
+    surfaceBright: '#2D2D2D',
+    surfaceContainerLowest: '#1E1E1E',
+    surfaceContainerLow: '#252526',
+    surfaceContainer: '#2D2D2D',
+    surfaceContainerHigh: '#333333',
+    surfaceContainerHighest: '#3C3C3C',
+
+    // Text colors
+    onSurface: '#CCCCCC',
+    onSurfaceVariant: '#9CDCFE',  // VSCode light blue for properties
+    inverseSurface: '#D4D4D4',
+    inverseOnSurface: '#1E1E1E',
+
+    // Borders and outlines
+    outline: '#6E6E6E',
+    outlineVariant: '#454545',
+    surfaceTint: '#569CD6',
+
+    // Primary - VSCode blue for keywords/functions
+    primary: '#569CD6',
+    onPrimary: '#1E1E1E',
+    primaryContainer: '#264F78',
+    onPrimaryContainer: '#DCEBEB',
+    inversePrimary: '#4FC1FF',
+
+    // Secondary - VSCode teal for types
+    secondary: '#4EC9B0',
+    onSecondary: '#1E1E1E',
+    secondaryContainer: '#2D5A56',
+    onSecondaryContainer: '#B4D4C9',
+
+    // Tertiary - VSCode purple for control keywords
+    tertiary: '#C586C0',
+    onTertiary: '#1E1E1E',
+    tertiaryContainer: '#4D3557',
+    onTertiaryContainer: '#D4A8C8',
+
+    // Error/Warning
+    error: '#F14C4C',
+    onError: '#1E1E1E',
+    errorContainer: '#5A1D1D',
+    onErrorContainer: '#F48771',
   },
   typography: {
     displayLg: {
@@ -132,37 +146,37 @@ export const cyberLogic: AppTheme = {
   },
   elevation: {
     level0: {
-      backgroundColor: '#0B0E11',
+      backgroundColor: '#1E1E1E',
     },
     level1: {
-      backgroundColor: '#121212',
+      backgroundColor: '#252526',
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.1)',
+      borderColor: '#3C3C3C',
     },
     level2: {
-      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+      backgroundColor: '#2D2D2D',
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.08)',
+      borderColor: '#454545',
     },
   },
   glow: {
     primary: {
-      shadowColor: '#00D1FF',
+      shadowColor: '#569CD6',
       shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.4,
-      shadowRadius: 8,
+      shadowOpacity: 0.25,
+      shadowRadius: 6,
     },
     secondary: {
-      shadowColor: '#2FF801',
+      shadowColor: '#4EC9B0',
       shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.3,
-      shadowRadius: 6,
+      shadowOpacity: 0.2,
+      shadowRadius: 4,
     },
     error: {
-      shadowColor: '#ffb4ab',
+      shadowColor: '#F14C4C',
       shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.3,
-      shadowRadius: 6,
+      shadowOpacity: 0.25,
+      shadowRadius: 4,
     },
   },
 };

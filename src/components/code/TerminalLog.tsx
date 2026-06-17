@@ -8,11 +8,12 @@ interface TerminalLogProps {
   logs: LogEntry[];
 }
 
+// VSCode Dark+ inspired log level colors
 const levelColors: Record<string, string> = {
-  info: '#00D1FF',
-  warn: '#FEB127',
-  error: '#FF6B6B',
-  success: '#2FF801',
+  info: '#569CD6',      // VSCode keyword blue
+  warn: '#CE9178',      // VSCode string orange
+  error: '#F48771',     // VSCode error red
+  success: '#6A9955',   // VSCode comment green
 };
 
 const levelColorsLight: Record<string, string> = {

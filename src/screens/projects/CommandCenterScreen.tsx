@@ -31,6 +31,11 @@ import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { newestFirst } from '../../utils/timeSort';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import {
+  buildDeviceStatusIndex,
+  isDeviceStatusOffline,
+  offlineLastComparator,
+} from '../../utils/deviceStatus';
+import {
   ACTIVE_AGENT_WINDOW_MS,
   formatConversationRelativeShort,
   getSessionActivityMs,
@@ -128,6 +133,10 @@ export const CommandCenterScreen: React.FC = () => {
     () => devices.filter(device => device.status === 'online'),
     [devices],
   );
+  const deviceStatusIndex = useMemo(
+    () => buildDeviceStatusIndex(devices),
+    [devices],
+  );
   const activeAgentRuns = useMemo(
     () => {
       const nowMs = Date.now();
@@ -147,21 +156,29 @@ export const CommandCenterScreen: React.FC = () => {
     () => {
       const nowMs = Date.now();
       return [...vibeRuns].sort(
-        (left, right) =>
-          getSessionActivityMs(right, nowMs) -
-          getSessionActivityMs(left, nowMs),
+        offlineLastComparator(
+          deviceStatusIndex,
+          session => session.deviceId,
+          (left, right) =>
+            getSessionActivityMs(right, nowMs) -
+            getSessionActivityMs(left, nowMs),
+        ),
       );
     },
-    [vibeRuns],
+    [vibeRuns, deviceStatusIndex],
   );
   const activeProjects = useMemo(() => {
     const nowMs = Date.now();
     return [...projects].sort(
-      (left, right) =>
-        getProjectActivityMs(right, vibeRuns, nowMs) -
-        getProjectActivityMs(left, vibeRuns, nowMs),
+      offlineLastComparator(
+        deviceStatusIndex,
+        project => project.deviceId,
+        (left, right) =>
+          getProjectActivityMs(right, vibeRuns, nowMs) -
+          getProjectActivityMs(left, vibeRuns, nowMs),
+      ),
     );
-  }, [projects, vibeRuns]);
+  }, [projects, vibeRuns, deviceStatusIndex]);
   // Filtered home feed: conversation lifecycle, approvals, and recent messages.
   const conversationFeed = useMemo<ConversationFeedItem[]>(() => {
     const nowMs = Date.now();
@@ -251,10 +268,14 @@ export const CommandCenterScreen: React.FC = () => {
   );
   const projectWorkspace = useMemo(
     () =>
-      [...projects].sort((left, right) =>
-        newestFirst(left.lastDeploy, right.lastDeploy),
+      [...projects].sort(
+        offlineLastComparator(
+          deviceStatusIndex,
+          project => project.deviceId,
+          (left, right) => newestFirst(left.lastDeploy, right.lastDeploy),
+        ),
       ),
-    [projects],
+    [projects, deviceStatusIndex],
   );
   const pendingApprovals = useMemo(
     () => approvals.filter(item => item.status === 'pending'),
@@ -335,12 +356,6 @@ export const CommandCenterScreen: React.FC = () => {
     } else {
       navigation.navigate('NotificationCenter');
     }
-  };
-  const openConversationList = () => {
-    // 'VibeCoding' is the sibling tab that hosts the conversation list.
-    (navigation as unknown as { navigate: (route: string) => void }).navigate(
-      'VibeCoding',
-    );
   };
   const openConversationEventStream = () => {
     navigation.navigate('EventStream', { scope: 'conversation' });
@@ -485,6 +500,11 @@ export const CommandCenterScreen: React.FC = () => {
           <>
             {visibleConversationFeed.map(item => {
             const meta = feedMeta[item.kind];
+            const itemOffline = isDeviceStatusOffline(
+              deviceStatusIndex.get(
+                vibeRuns.find(run => run.id === item.sessionId)?.deviceId ?? '',
+              ),
+            );
             const tone =
               item.kind === 'approval'
                 ? 'tertiary'
@@ -495,14 +515,6 @@ export const CommandCenterScreen: React.FC = () => {
                 : item.kind === 'in_progress'
                 ? 'primary'
                 : 'primary';
-            const accent =
-              item.kind === 'approval'
-                ? theme.colors.tertiary
-                : item.kind === 'completed'
-                ? theme.colors.secondary
-                : item.kind === 'activity'
-                ? theme.colors.secondary
-                : theme.colors.primary;
             return (
               <TouchableOpacity
                 key={item.key}
@@ -511,7 +523,11 @@ export const CommandCenterScreen: React.FC = () => {
                   openConversation(item.sessionId, item.kind === 'approval')
                 }
               >
-                <GlassPanel style={styles.eventFeedCard}>
+                <GlassPanel
+                  style={[
+                    styles.eventFeedCard,
+                    { opacity: itemOffline ? 0.5 : 1 },
+                  ]}>
                   <View style={styles.eventFeedIconWrap}>
                     <IconBadge
                       name={meta.icon}
@@ -636,6 +652,7 @@ export const CommandCenterScreen: React.FC = () => {
                   )}
                   scan={scan}
                   activeProject
+                  disabled={device?.status === 'offline'}
                   onOpen={() =>
                     navigation.navigate('ProjectDetail', {
                       projectId: project.id,
@@ -711,46 +728,87 @@ export const CommandCenterScreen: React.FC = () => {
             type="info"
           />
         </View>
-        <View style={styles.operationGrid}>
+        {/* Approvals - 突出显示，占据主要位置 */}
+        <TouchableOpacity
+          activeOpacity={0.76}
+          onPress={() => navigation.navigate('ApprovalCenter')}
+          style={styles.approvalsHeroWrap}>
+          <GlassPanel
+            glowColor={pendingApprovals.length > 0 ? 'error' : 'none'}
+            style={[
+              styles.approvalsHero,
+              {
+                borderRadius: theme.borderRadius.lg,
+                borderColor: pendingApprovals.length > 0
+                  ? theme.colors.error
+                  : isDark
+                    ? 'rgba(255,255,255,0.08)'
+                    : theme.colors.outlineVariant,
+              },
+            ]}>
+            <View style={styles.approvalsHeroTop}>
+              <IconBadge
+                name="approval"
+                tone={pendingApprovals.length > 0 ? 'error' : 'secondary'}
+                size={44}
+                iconSize={22}
+                filled={pendingApprovals.length > 0}
+              />
+              <View style={styles.approvalsHeroValue}>
+                <Text style={[theme.typography.headlineMd, { color: theme.colors.onSurface }]}>
+                  {pendingApprovals.length}
+                </Text>
+                <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
+                  PENDING
+                </Text>
+              </View>
+              <View style={styles.approvalsHeroStatus}>
+                <StatusChip
+                  label={pendingApprovals.length > 0 ? '需要确认' : '无需确认'}
+                  type={pendingApprovals.length > 0 ? 'error' : 'success'}
+                />
+              </View>
+            </View>
+            <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+              Approvals
+            </Text>
+            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+              AI 操作需要你的确认才能继续执行
+            </Text>
+          </GlassPanel>
+        </TouchableOpacity>
+
+        {/* Agents + Events + Scan - 紧凑一行 */}
+        <View style={styles.actionMiniRow}>
           <ActionTile
             icon="agent"
-            label="Agents"
-            value={`${devices.length}`}
-            caption="已注册"
-            tone="primary"
-            compact
+            label="Sessions"
+            value={`${recentAgentRuns.length}`}
+            caption={`${activeAgentRuns.length} 活跃`}
+            tone={activeAgentRuns.length > 0 ? 'primary' : 'neutral'}
+            mini
             onPress={() => navigation.navigate('AgentSessions')}
-            style={styles.operationTileWrap}
-          />
-          <ActionTile
-            icon="approval"
-            label="Approvals"
-            value={`${pendingApprovals.length}`}
-            caption="需要确认"
-            tone="tertiary"
-            compact
-            onPress={() => navigation.navigate('ApprovalCenter')}
-            style={styles.operationTileWrap}
+            style={styles.actionMiniTile}
           />
           <ActionTile
             icon="event"
             label="Events"
             value={`${events.length}`}
-            caption="实时流"
+            caption="事件"
             tone="info"
-            compact
+            mini
             onPress={() => navigation.navigate('EventStream')}
-            style={styles.operationTileWrap}
+            style={styles.actionMiniTile}
           />
           <ActionTile
             icon="scan"
             label="Scan"
-            value="+"
-            tone="success"
-            caption="扫码设备"
-            compact
+            value={`${scanResults.length}`}
+            caption="结果"
+            tone="secondary"
+            mini
             onPress={() => navigation.navigate('DeviceCameraScanner')}
-            style={styles.operationTileWrap}
+            style={styles.actionMiniTile}
           />
         </View>
 
@@ -771,6 +829,9 @@ export const CommandCenterScreen: React.FC = () => {
             session={session}
             project={getProject(session.projectId)}
             device={getDevice(session.deviceId)}
+            disabled={isDeviceStatusOffline(
+              deviceStatusIndex.get(session.deviceId),
+            )}
             onPress={() =>
               navigation.navigate('VibeCodingSession', {
                 sessionId: session.id,
@@ -883,6 +944,7 @@ export const CommandCenterScreen: React.FC = () => {
               sessions={sessions}
               files={files}
               scan={scan}
+              disabled={device?.status === 'offline'}
               onOpen={() =>
                 navigation.navigate('ProjectDetail', {
                   projectId: project.id,
@@ -958,67 +1020,28 @@ export const CommandCenterScreen: React.FC = () => {
         <UsageSummaryCard summary={platformSummary} />
       </ScrollView>
 
-      <View pointerEvents="box-none" style={styles.fabCluster}>
-        <TouchableOpacity
-          activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel="对话列表"
-          onPress={openConversationList}
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onPress={() => navigation.navigate('CreateVibeCoding', {})}
+        style={[
+          styles.fab,
+          styles.fabCluster,
+          {
+            backgroundColor: theme.colors.primary,
+            borderRadius: theme.borderRadius.full,
+            ...(isDark ? theme.glow.primary : {}),
+          },
+        ]}
+      >
+        <Text
           style={[
-            styles.fab,
-            styles.fabSecondary,
-            {
-              borderColor: theme.colors.primary,
-              backgroundColor: isDark
-                ? 'rgba(17,20,23,0.96)'
-                : 'rgba(255,255,255,0.96)',
-              borderRadius: theme.borderRadius.full,
-            },
+            theme.typography.headlineMd,
+            { color: theme.colors.onPrimary },
           ]}
         >
-          <View style={styles.fabListBars}>
-            <View
-              style={[
-                styles.fabListBar,
-                { backgroundColor: theme.colors.primary },
-              ]}
-            />
-            <View
-              style={[
-                styles.fabListBar,
-                { backgroundColor: theme.colors.primary },
-              ]}
-            />
-            <View
-              style={[
-                styles.fabListBar,
-                { backgroundColor: theme.colors.primary },
-              ]}
-            />
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('CreateVibeCoding', {})}
-          style={[
-            styles.fab,
-            {
-              backgroundColor: theme.colors.primary,
-              borderRadius: theme.borderRadius.full,
-              ...(isDark ? theme.glow.primary : {}),
-            },
-          ]}
-        >
-          <Text
-            style={[
-              theme.typography.headlineMd,
-              { color: theme.colors.onPrimary },
-            ]}
-          >
-            +
-          </Text>
-        </TouchableOpacity>
-      </View>
+          +
+        </Text>
+      </TouchableOpacity>
     </SafeAreaWrapper>
   );
 };
@@ -1034,6 +1057,8 @@ interface ProjectWorkspaceCardProps {
   onTerminal: () => void;
   onAgent: () => void;
   activeProject?: boolean;
+  /** 设备离线时整张卡片置灰并禁用点击与子动作。 */
+  disabled?: boolean;
 }
 
 const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
@@ -1048,6 +1073,7 @@ const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
     onTerminal,
     onAgent,
     activeProject = false,
+    disabled = false,
   }) => {
     const { theme, isDark } = useTheme();
     const activeSessions = sessions.filter(item =>
@@ -1062,7 +1088,12 @@ const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
 
     if (activeProject) {
       return (
-        <TouchableOpacity activeOpacity={0.78} onPress={onOpen}>
+        <TouchableOpacity
+          activeOpacity={0.78}
+          onPress={onOpen}
+          disabled={disabled}
+          style={{ opacity: disabled ? 0.5 : 1 }}
+        >
           <GlassPanel style={styles.activeProjectCard}>
             <IconBadge name="project" tone="primary" size={38} iconSize={19} />
             <View style={styles.activeProjectCopy}>
@@ -1121,7 +1152,12 @@ const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
     }
 
     return (
-      <TouchableOpacity activeOpacity={0.78} onPress={onOpen}>
+      <TouchableOpacity
+        activeOpacity={0.78}
+        onPress={onOpen}
+        disabled={disabled}
+        style={{ opacity: disabled ? 0.5 : 1 }}
+      >
         <GlassPanel style={styles.projectWorkspaceCard}>
           <View style={styles.projectTop}>
             <IconBadge name="project" tone="primary" size={44} iconSize={22} />
@@ -1265,18 +1301,24 @@ const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
             </View>
           </View>
           <View style={styles.projectActions}>
-            <ProjectAction label="Files" icon="code" onPress={onFiles} />
+            <ProjectAction
+              label="Files"
+              icon="code"
+              onPress={onFiles}
+              disabled={disabled}
+            />
             <ProjectAction
               label="Term"
               icon="terminal"
               onPress={onTerminal}
-              disabled={!device}
+              disabled={!device || disabled}
             />
             <ProjectAction
               label="+ 新对话"
               icon="plus"
               onPress={onAgent}
               emphasize
+              disabled={disabled}
             />
           </View>
         </GlassPanel>
@@ -1289,7 +1331,8 @@ const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
     prev.sessions === next.sessions &&
     prev.files === next.files &&
     prev.scan === next.scan &&
-    prev.activeProject === next.activeProject,
+    prev.activeProject === next.activeProject &&
+    prev.disabled === next.disabled,
 );
 
 interface ProjectMetricProps {
@@ -1562,6 +1605,37 @@ const styles = StyleSheet.create({
   },
   operationTileWrap: {
     width: '48.8%',
+  },
+  approvalsHeroWrap: {
+    marginTop: 12,
+  },
+  approvalsHero: {
+    minHeight: 116,
+    padding: 14,
+    borderWidth: 1,
+    gap: 8,
+  },
+  approvalsHeroTop: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  approvalsHeroValue: {
+    flex: 1,
+    minWidth: 0,
+  },
+  approvalsHeroStatus: {
+    alignItems: 'flex-end',
+  },
+  actionMiniRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  actionMiniTile: {
+    flex: 1,
+    minWidth: 0,
   },
   projectWorkspaceCard: {
     padding: 12,

@@ -9,14 +9,15 @@ interface StatusBarProps {
   file?: string;
 }
 
+// VSCode Dark+ inspired colors
 const statusConfig: Record<
   StatusBarState,
   { label: string; color: string; lightColor: string }
 > = {
-  thinking: { label: 'AI THINKING', color: '#00D1FF', lightColor: '#0051AE' },
-  applying: { label: 'APPLYING', color: '#FEB127', lightColor: '#B8860B' },
-  success: { label: 'SUCCESS', color: '#2FF801', lightColor: '#0969DA' },
-  paused: { label: 'PAUSED', color: '#FF6B6B', lightColor: '#BA1A1A' },
+  thinking: { label: 'AI THINKING', color: '#569CD6', lightColor: '#0051AE' },  // VSCode keyword blue
+  applying: { label: 'APPLYING', color: '#CE9178', lightColor: '#B8860B' },    // VSCode string orange
+  success: { label: 'SUCCESS', color: '#6A9955', lightColor: '#0969DA' },      // VSCode comment green
+  paused: { label: 'PAUSED', color: '#C586C0', lightColor: '#BA1A1A' },        // VSCode purple
 };
 
 export const StatusBar: React.FC<StatusBarProps> = ({ status, file }) => {

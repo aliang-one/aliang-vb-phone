@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,11 @@ import { useControlCenterStore } from '../../store/controlCenterStore';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
+import {
+  buildDeviceStatusIndex,
+  isDeviceStatusOffline,
+  offlineLastComparator,
+} from '../../utils/deviceStatus';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -45,6 +50,11 @@ export const VibeCodingListScreen: React.FC = () => {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | VibeStatus>('all');
   const [refreshing, setRefreshing] = useState(false);
+
+  const deviceStatusIndex = useMemo(
+    () => buildDeviceStatusIndex(devices),
+    [devices],
+  );
 
   const normalizedQuery = query.trim().toLowerCase();
   const matchesQuery = (values: Array<string | undefined>) =>
@@ -128,9 +138,17 @@ export const VibeCodingListScreen: React.FC = () => {
       return sessionMatchesQuery && matchesFilter;
     })
     .sort(
-      (left, right) => (right.lastActivityMs ?? 0) - (left.lastActivityMs ?? 0),
+      offlineLastComparator(
+        deviceStatusIndex,
+        session => session.deviceId,
+        (left, right) =>
+          (right.lastActivityMs ?? 0) - (left.lastActivityMs ?? 0),
+      ),
     );
-  const deviceList = useIncrementalList(filteredDevices, {
+  const sortedDevices = [...filteredDevices].sort(
+    offlineLastComparator(deviceStatusIndex, device => device.id, () => 0),
+  );
+  const deviceList = useIncrementalList(sortedDevices, {
     initialCount: 8,
     step: 10,
     resetKey: normalizedQuery,
@@ -263,7 +281,7 @@ export const VibeCodingListScreen: React.FC = () => {
                     borderRadius: theme.borderRadius.full,
                     backgroundColor: active
                       ? isDark
-                        ? 'rgba(0, 209, 255, 0.15)'
+                        ? 'rgba(86, 156, 214, 0.15)'
                         : 'rgba(0, 81, 174, 0.1)'
                       : 'transparent',
                     borderColor: active
@@ -309,6 +327,9 @@ export const VibeCodingListScreen: React.FC = () => {
             session={session}
             project={projects.find(project => project.id === session.projectId)}
             device={devices.find(device => device.id === session.deviceId)}
+            disabled={isDeviceStatusOffline(
+              deviceStatusIndex.get(session.deviceId),
+            )}
             onPress={() =>
               navigation.navigate('VibeCodingSession', {
                 sessionId: session.id,

@@ -7,6 +7,10 @@ import {
   ALIANG_ACCOUNT_BASE_URL,
   normalizeAccountBaseUrl,
 } from '../config/accountService';
+import {
+  isSessionInvalidError,
+  notifySessionInvalidated,
+} from './sessionAuth';
 
 const REQUEST_TIMEOUT_MS = 10000;
 const ACCOUNT_BASE_URL_CANDIDATES = [
@@ -64,15 +68,15 @@ export async function accountFetch<T = unknown>(
       ]);
 
       if (!response.ok) {
-        let errorMessage = `Request failed with HTTP ${response.status}`;
+        let errorMessage = `${fetchOptions.method ?? 'GET'} ${url} failed with HTTP ${response.status}`;
         let errorCode: string | undefined;
         try {
           const payload = await response.json();
           if (typeof payload?.error === 'string') {
-            errorMessage = payload.error;
+            errorMessage = `${fetchOptions.method ?? 'GET'} ${url}: ${payload.error}`;
             errorCode = payload.error;
           } else if (typeof payload?.message === 'string') {
-            errorMessage = payload.message;
+            errorMessage = `${fetchOptions.method ?? 'GET'} ${url}: ${payload.message}`;
           }
         } catch {
           // Keep the generic HTTP error for non-JSON responses.
@@ -88,6 +92,9 @@ export async function accountFetch<T = unknown>(
       return (text ? JSON.parse(text) : undefined) as T;
     } catch (error) {
       if (error instanceof ApiResponseError) {
+        // /api/auth/me returning "Invalid token" (expired JWT) is the canonical
+        // session-dead signal for the account service. Tear down locally.
+        if (isSessionInvalidError(error)) notifySessionInvalidated();
         throw error;
       }
       lastError = error;

@@ -98,7 +98,7 @@ export const ApprovalCenterScreen: React.FC = () => {
                       : theme.colors.outlineVariant,
                     backgroundColor: active
                       ? isDark
-                        ? 'rgba(0, 209, 255, 0.12)'
+                        ? 'rgba(86, 156, 214, 0.12)'
                         : 'rgba(0, 81, 174, 0.08)'
                       : 'transparent',
                   },
@@ -193,7 +193,12 @@ export const ApprovalCenterScreen: React.FC = () => {
                 </View>
               ) : null}
               <View style={styles.metaRow}>
-                <Meta label="DEVICE" value={device?.name ?? item.deviceId} />
+                <Meta
+                  label="DEVICE"
+                  value={`${device?.name ?? item.deviceId}${
+                    device?.status === 'offline' ? ' · 离线' : ''
+                  }`}
+                />
                 <Meta label="PROJECT" value={project?.name ?? item.projectId ?? 'none'} />
                 <Meta label="RISK" value={item.risk.toUpperCase()} />
                 <Meta label="TIME" value={item.createdAt} />
@@ -202,12 +207,14 @@ export const ApprovalCenterScreen: React.FC = () => {
                 <View style={styles.actionRow}>
                   <GlowButton
                     title="APPROVE"
+                    disabled={device?.status === 'offline'}
                     onPress={() => resolveApproval(item.id, 'approved')}
                     variant="primary"
                     style={styles.primaryAction}
                   />
                   <GlowButton
                     title="DENY"
+                    disabled={device?.status === 'offline'}
                     onPress={() => resolveApproval(item.id, 'denied')}
                     variant="outline"
                     style={styles.secondaryAction}

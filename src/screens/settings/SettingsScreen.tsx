@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Linking,
   View,
   Text,
@@ -19,6 +20,7 @@ import { StatusChip } from '../../components/shared/StatusChip';
 import { UsageSummaryCard } from '../../components/vibecoding/UsageSummaryCard';
 import { ActionTile } from '../../components/visual/ActionTile';
 import { IconBadge } from '../../components/visual/IconBadge';
+import { RingMeter } from '../../components/visual/RingMeter';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import {
@@ -28,29 +30,13 @@ import {
 } from '../../config/localService';
 import { useSessionStore } from '../../../stores/useSettingsStore';
 import { ALIANG_ACCOUNT_BASE_URL } from '../../config/accountService';
+import { ratioPercent, daysUntil, formatDate } from '../../utils/format';
+import type { AccountSubscription } from '../../api/account';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 const ratio = (value: number, total: number) =>
   total > 0 ? Math.min(100, (value / total) * 100) : 0;
-
-const asRecord = (value: unknown): Record<string, unknown> | undefined =>
-  Boolean(value && typeof value === 'object' && !Array.isArray(value))
-    ? value as Record<string, unknown>
-    : undefined;
-
-const unwrapData = (value: unknown): Record<string, unknown> => {
-  const root = asRecord(value) ?? {};
-  return asRecord(root.data) ?? root;
-};
-
-const firstString = (...values: unknown[]) => {
-  for (const value of values) {
-    if (typeof value === 'string' && value.trim()) return value.trim();
-    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-  }
-  return undefined;
-};
 
 export const SettingsScreen: React.FC = () => {
   const { theme, isDark, mode, setMode } = useTheme();
@@ -109,7 +95,30 @@ export const SettingsScreen: React.FC = () => {
     { key: 'light', label: 'LIGHT' },
   ] as const;
 
-  const { usageRows, platformSummary } = useMemo(() => {
+  // --- Account / Subscriptions / Usage (from aliang-official-website backend) ---
+  const profile = accountData?.profile;
+  const subscriptions = accountData?.subscriptions ?? [];
+  const usageStats = accountData?.usageStats;
+
+  // Primary subscription (first active with group access)
+  const primarySubscription = subscriptions[0];
+  const primaryGroup = primarySubscription?.group;
+
+  // Balance display
+  const balance = profile?.balance ?? 0;
+  const balanceDisplay = `$${balance.toFixed(2)}`;
+
+  // Token usage display
+  const totalTokens = usageStats?.total_tokens ?? 0;
+  const totalCost = usageStats?.total_actual_cost ?? 0;
+  const totalRequests = usageStats?.total_requests ?? 0;
+
+  // Avatar and profile info
+  const avatarUrl = profile?.avatar_url ?? null;
+  const profileName = profile?.username || operatorName;
+  const profileEmail = profile?.email || user?.email || 'Mobile VibeCoding controller';
+
+  const { platformSummary } = useMemo(() => {
     const onlineDevices = devices.filter(device => device.status === 'online');
     const activeSessions = vibeRuns.filter(
       session =>
@@ -122,45 +131,6 @@ export const SettingsScreen: React.FC = () => {
     );
     const pendingApprovals = approvals.filter(item => item.status === 'pending');
     const unreadNotifications = notifications.filter(item => !item.read);
-    const subscription = unwrapData(accountData?.subscriptionSummary);
-    const activeSubscription = unwrapData(accountData?.activeSubscription);
-    const usage = unwrapData(accountData?.usage);
-    const packageName = firstString(
-      subscription.plan_name,
-      subscription.package_name,
-      subscription.name,
-      activeSubscription.plan_name,
-      activeSubscription.package_name,
-      activeSubscription.name,
-      activeSubscription.plan,
-    ) ?? 'Not loaded';
-    const packageStatus = firstString(
-      subscription.status,
-      activeSubscription.status,
-      subscription.subscription_status,
-    ) ?? (accountData ? 'Active' : 'Unknown');
-    const usageTotal = firstString(
-      usage.total_requests,
-      usage.requests_total,
-      usage.total,
-      usage.usage_count,
-    ) ?? '-';
-    const usageToday = firstString(
-      usage.today_requests,
-      usage.requests_today,
-      usage.today,
-      usage.daily_requests,
-    ) ?? '-';
-    const usageRows = [
-      ['Package', packageName],
-      ['Package status', packageStatus],
-      ['Usage today', usageToday],
-      ['Usage total', usageTotal],
-      ['Registered devices', `${devices.length}`],
-      ['Online devices', `${onlineDevices.length}`],
-      ['Projects', `${projects.length}`],
-      ['VibeCoding sessions', `${activeSessions.length}/${vibeRuns.length || 0} active`],
-    ];
     const platformSummary = {
       title: 'Platform Console',
       headline: `${activeSessions.length} active sessions`,
@@ -195,11 +165,8 @@ export const SettingsScreen: React.FC = () => {
       ],
     };
 
-    return {
-      usageRows,
-      platformSummary,
-    };
-  }, [devices, vibeRuns, projects, approvals, notifications, accountData]);
+    return { platformSummary };
+  }, [devices, vibeRuns, projects, approvals, notifications]);
 
   const handleCheckConnection = async () => {
     setCheckingConnection(true);
@@ -223,19 +190,95 @@ export const SettingsScreen: React.FC = () => {
     await logout();
   };
 
+  const renderSectionTitle = (label: string) => (
+    <Text
+      style={[
+        theme.typography.labelCaps,
+        { color: theme.colors.onSurfaceVariant },
+        styles.sectionTitle,
+      ]}>
+      {label}
+    </Text>
+  );
+
+  const renderMetricCell = (label: string, value: string) => (
+    <View style={styles.metricCell}>
+      <Text style={[theme.typography.headlineMd, { color: theme.colors.onSurface }]}>
+        {value}
+      </Text>
+      <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
+        {label}
+      </Text>
+    </View>
+  );
+
+  const renderSubscriptionRow = (sub: AccountSubscription, isLast: boolean) => {
+    const group = sub.group;
+    const remainingDays = daysUntil(sub.expires_at);
+    const isActive = remainingDays > 0;
+    // Usage against monthly limit
+    const monthlyUsage = sub.monthly_usage_usd ?? 0;
+    const monthlyLimit = group?.monthly_limit_usd;
+
+    return (
+      <View key={String(sub.id)}>
+        <View style={styles.orderRow}>
+          <View style={styles.orderMain}>
+            <Text
+              style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}
+              numberOfLines={1}>
+              {group?.name ?? `Group #${sub.group_id}`}
+            </Text>
+            <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+              {formatDate(sub.expires_at)} · {group?.subscription_type ?? 'sub'}
+            </Text>
+          </View>
+          <View style={styles.orderSide}>
+            {monthlyLimit ? (
+              <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+                ${monthlyUsage.toFixed(2)} / ${monthlyLimit.toFixed(2)}
+              </Text>
+            ) : (
+              <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+                ${monthlyUsage.toFixed(2)}
+              </Text>
+            )}
+            {isActive ? (
+              <Text style={[theme.typography.labelSm, { color: theme.colors.secondary }]}>
+                剩 {remainingDays} 天
+              </Text>
+            ) : null}
+          </View>
+        </View>
+        {!isLast && <View style={styles.divider} />}
+      </View>
+    );
+  };
+
   return (
     <SafeAreaWrapper>
       <TopAppBar title="Platform" subtitle="SERVICE / CONSOLE / PREFERENCES" />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <View style={styles.profile}>
-          <IconBadge name="user" tone="primary" size={46} iconSize={23} />
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+          ) : (
+            <IconBadge name="user" tone="primary" size={46} iconSize={23} />
+          )}
           <View style={styles.profileText}>
             <Text style={[theme.typography.titleLg, { color: theme.colors.onSurface }]}>
-              {operatorName}
+              {profileName}
             </Text>
-            <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-              {user?.email ?? 'Mobile VibeCoding controller'}
-            </Text>
+            <View style={styles.profileSub}>
+              {primaryGroup ? (
+                <StatusChip label={primaryGroup.subscription_type?.toUpperCase() ?? 'GROUP'} type="info" />
+              ) : null}
+              <Text
+                style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}
+                numberOfLines={1}>
+                {profileEmail}
+              </Text>
+            </View>
           </View>
           <StatusChip
             label={wsConnected ? 'REALTIME' : serverMode ? 'API' : 'LOCAL'}
@@ -255,14 +298,123 @@ export const SettingsScreen: React.FC = () => {
 
         {sectionsReady ? (
           <>
-            <Text
-              style={[
-                theme.typography.labelCaps,
-                { color: theme.colors.onSurfaceVariant },
-                styles.sectionTitle,
-              ]}>
-              PLATFORM SERVICE
-            </Text>
+            {renderSectionTitle('账户 ACCOUNT')}
+            <GlassPanel style={styles.panel}>
+              <View style={styles.planHeader}>
+                <View style={styles.planTitle}>
+                  <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+                    {profile?.username ?? '未登录'}
+                  </Text>
+                  <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                    余额: {balanceDisplay}
+                  </Text>
+                </View>
+                <StatusChip
+                  label={profile?.status ?? '未知'}
+                  type={profile?.status === 'active' ? 'success' : 'neutral'}
+                />
+              </View>
+              <View style={styles.divider} />
+              <View style={styles.metricGrid}>
+                {renderMetricCell('余额', balanceDisplay)}
+                {renderMetricCell('累计充值', profile?.total_recharged ? `$${(profile.total_recharged ?? 0).toFixed(2)}` : '-')}
+                {renderMetricCell('并发限制', String(profile?.concurrency ?? 0))}
+                {renderMetricCell('请求限制', profile?.rpm_limit ? `${profile.rpm_limit}/min` : '无限制')}
+              </View>
+            </GlassPanel>
+
+            {renderSectionTitle('用量 USAGE')}
+            <GlassPanel style={styles.usagePanel}>
+              {usageStats ? (
+                <View style={styles.ringsRow}>
+                  <View style={styles.ringCell}>
+                    <RingMeter
+                      progress={ratioPercent(totalTokens, 1_000_000)}
+                      value={totalTokens >= 1000000 ? `${(totalTokens / 1000000).toFixed(1)}M` : `${Math.round(totalTokens / 1000)}K`}
+                      label="Token"
+                      size={98}
+                    />
+                    <Text
+                      style={[theme.typography.labelSm, styles.ringCaption]}
+                      numberOfLines={1}>
+                      {totalTokens.toLocaleString()}
+                    </Text>
+                  </View>
+                  <View style={styles.ringCell}>
+                    <RingMeter
+                      progress={Math.min(100, totalCost * 10)}
+                      value={`$${totalCost.toFixed(2)}`}
+                      label="费用"
+                      color={theme.colors.secondary}
+                      size={98}
+                    />
+                    <Text
+                      style={[theme.typography.labelSm, styles.ringCaption]}
+                      numberOfLines={1}>
+                      今日: ${totalCost.toFixed(4)}
+                    </Text>
+                  </View>
+                  <View style={styles.ringCell}>
+                    <RingMeter
+                      progress={Math.min(100, totalRequests / 100)}
+                      value={String(totalRequests)}
+                      label="请求"
+                      color={theme.colors.primary}
+                      size={98}
+                    />
+                    <Text
+                      style={[theme.typography.labelSm, styles.ringCaption]}
+                      numberOfLines={1}>
+                      次请求
+                    </Text>
+                  </View>
+                  <View style={styles.ringCell}>
+                    <RingMeter
+                      progress={balance > 0 ? Math.min(100, (totalCost / balance) * 100) : 0}
+                      value={balanceDisplay}
+                      label="余额"
+                      color={theme.colors.tertiary}
+                      size={98}
+                    />
+                    <Text
+                      style={[theme.typography.labelSm, styles.ringCaption]}
+                      numberOfLines={1}>
+                      可用
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                  未加载用量数据
+                </Text>
+              )}
+            </GlassPanel>
+
+            {renderSectionTitle('订阅 SUBSCRIPTIONS')}
+            <GlassPanel style={styles.panel}>
+              {subscriptions.length === 0 ? (
+                <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                  暂无活跃订阅
+                </Text>
+              ) : (
+                <>
+                  <View style={styles.orderSummaryRow}>
+                    <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                      活跃订阅 {subscriptions.length} 个
+                    </Text>
+                    <Text style={[theme.typography.codeSm, { color: theme.colors.secondary }]}>
+                      分组访问权限
+                    </Text>
+                  </View>
+                  <View style={styles.divider} />
+                  {subscriptions.map((sub, index) =>
+                    renderSubscriptionRow(sub, index === subscriptions.length - 1),
+                  )}
+                </>
+              )}
+            </GlassPanel>
+
+            {renderSectionTitle('PLATFORM SERVICE')}
             <GlassPanel style={styles.servicePanel}>
               <View style={styles.serviceHeader}>
                 <View style={styles.serviceCopy}>
@@ -344,38 +496,7 @@ export const SettingsScreen: React.FC = () => {
               />
             </View>
 
-            <Text
-              style={[
-                theme.typography.labelCaps,
-                { color: theme.colors.onSurfaceVariant },
-                styles.sectionTitle,
-              ]}>
-              USAGE DETAIL
-            </Text>
-            <GlassPanel style={styles.panel}>
-              {usageRows.map(([label, value], index) => (
-                <View key={label}>
-                  <View style={styles.settingRow}>
-                    <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                      {label}
-                    </Text>
-                    <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-                      {value}
-                    </Text>
-                  </View>
-                  {index < usageRows.length - 1 && <View style={styles.divider} />}
-                </View>
-              ))}
-            </GlassPanel>
-
-            <Text
-              style={[
-                theme.typography.labelCaps,
-                { color: theme.colors.onSurfaceVariant },
-                styles.sectionTitle,
-              ]}>
-              CAPACITY
-            </Text>
+            {renderSectionTitle('CAPACITY')}
             <View style={styles.capacityGrid}>
               <GlassPanel style={styles.capacityCard}>
                 <Text style={[theme.typography.headlineMd, { color: theme.colors.secondary }]}>
@@ -395,14 +516,7 @@ export const SettingsScreen: React.FC = () => {
               </GlassPanel>
             </View>
 
-            <Text
-              style={[
-                theme.typography.labelCaps,
-                { color: theme.colors.onSurfaceVariant },
-                styles.sectionTitle,
-              ]}>
-              INPUT MODE
-            </Text>
+            {renderSectionTitle('INPUT MODE')}
             <GlassPanel style={styles.panel}>
               <View style={styles.settingRow}>
                 <View>
@@ -433,14 +547,7 @@ export const SettingsScreen: React.FC = () => {
               </View>
             </GlassPanel>
 
-            <Text
-              style={[
-                theme.typography.labelCaps,
-                { color: theme.colors.onSurfaceVariant },
-                styles.sectionTitle,
-              ]}>
-              THEME
-            </Text>
+            {renderSectionTitle('THEME')}
             <GlassPanel style={styles.themePanel}>
               {themeOptions.map(option => (
                 <TouchableOpacity
@@ -450,7 +557,7 @@ export const SettingsScreen: React.FC = () => {
                     styles.themeOption,
                     mode === option.key && {
                       backgroundColor: isDark
-                        ? 'rgba(0, 209, 255, 0.1)'
+                        ? 'rgba(86, 156, 214, 0.1)'
                         : 'rgba(0, 81, 174, 0.08)',
                       borderLeftWidth: 3,
                       borderLeftColor: theme.colors.primary,
@@ -512,8 +619,20 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 14,
   },
+  avatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
   profileText: {
     flex: 1,
+  },
+  profileSub: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 2,
   },
   scanTile: {
     marginBottom: 14,
@@ -530,6 +649,69 @@ const styles = StyleSheet.create({
   },
   panel: {
     padding: 0,
+  },
+  planHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 12,
+    gap: 12,
+  },
+  planTitle: {
+    flex: 1,
+    gap: 2,
+  },
+  metricGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 6,
+    paddingBottom: 10,
+  },
+  metricCell: {
+    width: '50%',
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  usagePanel: {
+    padding: 16,
+  },
+  ringsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  ringCell: {
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  ringCaption: {
+    color: 'rgba(255,255,255,0.55)',
+  },
+  orderSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+  },
+  orderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    gap: 12,
+  },
+  orderMain: {
+    flex: 1,
+    gap: 2,
+  },
+  orderSide: {
+    alignItems: 'flex-end',
+    gap: 2,
   },
   servicePanel: {
     padding: 14,
@@ -584,9 +766,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 12,
-  },
-  actionButton: {
-    marginTop: 24,
   },
   logoutBtn: {
     marginTop: 10,

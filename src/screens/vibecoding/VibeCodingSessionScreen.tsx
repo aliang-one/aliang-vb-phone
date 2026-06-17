@@ -33,7 +33,14 @@ import {
   vibeStatusType,
 } from '../../components/vibecoding/status';
 import { RootStackParamList } from '../../app/navigation/types';
-import { useControlCenterStore } from '../../store/controlCenterStore';
+import {
+  useControlCenterStore,
+  useVibeRun,
+  useProject,
+  useDevice,
+  useSessionPreview,
+  useSessionApprovals,
+} from '../../store/controlCenterStore';
 import { IconBadge, IconName } from '../../components/visual/IconBadge';
 import type { AgentBudgetInfo } from '../../data/platformModels';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
@@ -72,13 +79,18 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
   const route = useRoute<SessionRoute>();
-  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
-  const projects = useControlCenterStore(state => state.projects);
-  const devices = useControlCenterStore(state => state.devices);
-  const previewLinks = useControlCenterStore(state => state.previewLinks);
+  // Fine-grained selectors: subscribe only to the specific session/project/
+  // device/preview the user is viewing, so streaming deltas on OTHER sessions
+  // don't trigger re-renders here.
+  const session = useVibeRun(route.params.sessionId);
+  const project = useProject(session?.projectId);
+  const device = useDevice(session?.deviceId);
+  const preview = useSessionPreview(session?.id);
+  const approvals = useSessionApprovals(session?.id);
   const loadAgentSessionDetail = useControlCenterStore(
     state => state.loadAgentSessionDetail,
   );
+  const resolveApproval = useControlCenterStore(state => state.resolveApproval);
   const appendAgentMessage = useControlCenterStore(
     state => state.appendAgentMessage,
   );
@@ -91,7 +103,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const terminateAgentSession = useControlCenterStore(
     state => state.terminateAgentSession,
   );
-  const session = vibeRuns.find(item => item.id === route.params.sessionId);
 
   const [mode, setMode] = useState<'voice' | 'text'>('voice');
   const [input, setInput] = useState('');
@@ -112,6 +123,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const scrollToEndTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendLockRef = useRef<string | null>(null);
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [resolvingApproval, setResolvingApproval] = useState<{
+    id: string;
+    decision: 'approved' | 'denied';
+  } | null>(null);
 
   const scheduleScrollToEnd = useCallback((animated = true) => {
     if (scrollToEndTimer.current) {
@@ -175,21 +190,24 @@ export const VibeCodingSessionScreen: React.FC = () => {
     from: 'end',
     resetKey: targetSessionId,
   });
+  // sessionApprovals now comes from the useSessionApprovals selector above;
+  // no need to re-derive here.
   const visibleTranscript = transcriptList.visibleItems;
   const visibleAgentEvents = agentEventList.visibleItems;
   const latestAgentEvent =
     visibleSessionEvents[visibleSessionEvents.length - 1];
   const latestTranscriptKey = useMemo(() => {
-    const latest = session?.transcript[session.transcript.length - 1];
+    if (!session) return `${targetSessionId}:empty`;
+    const latest = session.transcript[session.transcript.length - 1];
     if (!latest) return `${targetSessionId}:empty`;
     return [
       targetSessionId,
-      session?.transcript.length ?? 0,
+      session.transcript.length,
       latest.id,
       latest.role,
       latest.content.length,
     ].join(':');
-  }, [session?.transcript, targetSessionId]);
+  }, [session, targetSessionId]);
   const visibleTranscriptLayoutKey = useMemo(
     () => visibleTranscript.map(message => message.id).join('|'),
     [visibleTranscript],
@@ -385,6 +403,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
     sendLockRef.current = sendKey;
     pendingScrollToEndRef.current = true;
     setSendingMessage(true);
+    // Clear any previous detail load error so a successful send won't show
+    // a stale error banner alongside new messages.
+    if (detailError) setDetailError('');
     try {
       await appendAgentMessage(session.id, normalizedContent, messageMode);
       return true;
@@ -413,7 +434,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   };
 
   const handleConfirmVoice = () => {
-    if (!preparedPrompt || sendingMessage) {
+    if (deviceOffline || !preparedPrompt || sendingMessage) {
       return;
     }
     void appendUserMessage(preparedPrompt, 'voice')
@@ -429,6 +450,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   };
 
   const handleSendText = () => {
+    if (deviceOffline) return;
     const nextInput = input.trim();
     if (!nextInput || sendingMessage) {
       return;
@@ -438,6 +460,19 @@ export const VibeCodingSessionScreen: React.FC = () => {
       console.warn('[vibecoding] failed to send text prompt', error);
       setInput(current => current || nextInput);
     });
+  };
+
+  const handleResolveApproval = (
+    approvalId: string,
+    decision: 'approved' | 'denied',
+  ) => {
+    if (deviceOffline || resolvingApproval) return;
+    setResolvingApproval({ id: approvalId, decision });
+    void resolveApproval(approvalId, decision)
+      .catch(error => {
+        console.warn('[vibecoding] failed to resolve approval', error);
+      })
+      .finally(() => setResolvingApproval(null));
   };
 
   if (!session) {
@@ -463,9 +498,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
     );
   }
 
-  const project = projects.find(item => item.id === session.projectId);
-  const device = devices.find(item => item.id === session.deviceId);
-  const preview = previewLinks.find(item => item.id === session.previewId);
+  // project / device / preview are now subscribed via fine-grained selectors
+  // at the top of the component (useProject / useDevice / useSessionPreview).
+  const deviceOffline = device?.status === 'offline';
   const budgetLabel = formatBudget(session.projectBudget);
   const isCodexSession = session.model.toLowerCase().includes('codex');
   const displayTitle = formatVibeSessionTitle(session.title, {
@@ -500,7 +535,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
           setViewportHeight(height);
         }}
         onMomentumScrollEnd={handleScroll}
-        onContentSizeChange={(_, height) => {
+        onContentSizeChange={(_, _height) => {
           if (pendingScrollToEndRef.current || followTailRef.current) {
             pendingScrollToEndRef.current = false;
             scheduleScrollToEnd(true);
@@ -508,6 +543,39 @@ export const VibeCodingSessionScreen: React.FC = () => {
         }}
         onScroll={handleScroll}
       >
+        {deviceOffline ? (
+          <View
+            style={[
+              styles.offlineBanner,
+              {
+                backgroundColor: isDark
+                  ? 'rgba(248,113,113,0.14)'
+                  : 'rgba(248,113,113,0.1)',
+                borderColor: theme.colors.error,
+              },
+            ]}
+          >
+            <IconBadge name="device" tone="neutral" size={26} iconSize={14} />
+            <View style={styles.offlineBannerCopy}>
+              <Text
+                style={[
+                  theme.typography.labelMd,
+                  { color: theme.colors.error, fontWeight: '700' },
+                ]}
+              >
+                设备离线 · 只读模式
+              </Text>
+              <Text
+                style={[
+                  theme.typography.labelSm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
+                该设备不可达，发送 / 审批 / 控制已暂停，仍可查看历史。
+              </Text>
+            </View>
+          </View>
+        ) : null}
         <GlassPanel style={styles.sessionHeader}>
           <View style={styles.headerTop}>
             <IconBadge
@@ -579,7 +647,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 styles.budgetStrip,
                 {
                   backgroundColor: isDark
-                    ? 'rgba(55, 214, 145, 0.1)'
+                    ? 'rgba(106, 153, 85, 0.12)'
                     : 'rgba(0, 120, 84, 0.08)',
                 },
               ]}
@@ -594,7 +662,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 <Text
                   style={[
                     theme.typography.labelCaps,
-                    { color: theme.colors.secondary },
+                    { color: isDark ? '#6A9955' : theme.colors.secondary },
                   ]}
                 >
                   CODEX BUDGET
@@ -615,6 +683,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
         <View style={styles.quickActions}>
           <GlowButton
             title="FILES"
+            disabled={deviceOffline}
             onPress={() =>
               navigation.navigate('FileBrowser', {
                 projectId: session.projectId,
@@ -627,6 +696,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
           />
           <GlowButton
             title="TERMINAL"
+            disabled={deviceOffline}
             onPress={() =>
               navigation.navigate('DeviceTerminal', {
                 deviceId: session.deviceId,
@@ -707,6 +777,135 @@ export const VibeCodingSessionScreen: React.FC = () => {
             </View>
             <StatusChip label={mode.toUpperCase()} type="info" />
           </View>
+          {approvals.length ? (
+            <View style={styles.approvalStack}>
+              {approvals.map(approval => {
+                const pending = approval.status === 'pending';
+                const resolving = resolvingApproval?.id === approval.id;
+                return (
+                  <GlassPanel
+                    key={approval.id}
+                    glowColor={pending ? 'secondary' : 'none'}
+                    style={styles.approvalPanel}
+                  >
+                    <View style={styles.approvalHeader}>
+                      <IconBadge
+                        name="approval"
+                        tone={
+                          approval.status === 'denied'
+                            ? 'error'
+                            : pending
+                            ? 'tertiary'
+                            : 'secondary'
+                        }
+                        size={36}
+                        iconSize={18}
+                      />
+                      <View style={styles.approvalCopy}>
+                        <Text
+                          style={[
+                            theme.typography.labelCaps,
+                            { color: theme.colors.primary },
+                          ]}
+                        >
+                          APPROVAL REQUEST
+                        </Text>
+                        <Text
+                          numberOfLines={2}
+                          style={[
+                            theme.typography.titleMd,
+                            { color: theme.colors.onSurface },
+                          ]}
+                        >
+                          {approval.title}
+                        </Text>
+                      </View>
+                      <StatusChip
+                        label={approval.status.toUpperCase()}
+                        type={
+                          pending
+                            ? 'warning'
+                            : approval.status === 'approved'
+                            ? 'success'
+                            : 'error'
+                        }
+                      />
+                    </View>
+                    <Text
+                      style={[
+                        theme.typography.bodySm,
+                        { color: theme.colors.onSurfaceVariant },
+                      ]}
+                    >
+                      {approval.summary}
+                    </Text>
+                    {approval.command ? (
+                      <Text
+                        selectable
+                        style={[
+                          theme.typography.codeSm,
+                          { color: theme.colors.primary },
+                        ]}
+                      >
+                        {approval.command}
+                      </Text>
+                    ) : null}
+                    {approval.files?.length ? (
+                      <View style={styles.approvalFiles}>
+                        {approval.files.map(file => (
+                          <Text
+                            key={file}
+                            numberOfLines={1}
+                            style={[
+                              theme.typography.codeSm,
+                              { color: theme.colors.onSurfaceVariant },
+                            ]}
+                          >
+                            {file}
+                          </Text>
+                        ))}
+                      </View>
+                    ) : null}
+                    {pending ? (
+                      <View style={styles.approvalActions}>
+                        <GlowButton
+                          title="APPROVE"
+                          onPress={() =>
+                            handleResolveApproval(approval.id, 'approved')
+                          }
+                          variant="primary"
+                          loading={
+                            resolving &&
+                            resolvingApproval?.decision === 'approved'
+                          }
+                          disabled={deviceOffline || Boolean(
+                            resolvingApproval &&
+                              resolvingApproval.id !== approval.id,
+                          )}
+                          style={styles.approvalAction}
+                        />
+                        <GlowButton
+                          title="DENY"
+                          onPress={() =>
+                            handleResolveApproval(approval.id, 'denied')
+                          }
+                          variant="outline"
+                          loading={
+                            resolving && resolvingApproval?.decision === 'denied'
+                          }
+                          disabled={deviceOffline || Boolean(
+                            resolvingApproval &&
+                              resolvingApproval.id !== approval.id,
+                          )}
+                          style={styles.approvalAction}
+                        />
+                      </View>
+                    ) : null}
+                  </GlassPanel>
+                );
+              })}
+            </View>
+          ) : null}
           {transcript.length ? (
             <>
               {loadingDetail || detailError ? (
@@ -1001,7 +1200,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               {
                 borderRadius: theme.borderRadius.full,
                 backgroundColor:
-                  mode === 'voice' ? 'rgba(0, 209, 255, 0.12)' : 'transparent',
+                  mode === 'voice' ? 'rgba(86, 156, 214, 0.12)' : 'transparent',
               },
             ]}
           >
@@ -1026,7 +1225,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               {
                 borderRadius: theme.borderRadius.full,
                 backgroundColor:
-                  mode === 'text' ? 'rgba(0, 209, 255, 0.12)' : 'transparent',
+                  mode === 'text' ? 'rgba(86, 156, 214, 0.12)' : 'transparent',
               },
             ]}
           >
@@ -1046,6 +1245,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
           </TouchableOpacity>
           <View style={styles.sessionControls}>
             <TouchableOpacity
+              disabled={deviceOffline}
               onPress={() =>
                 session.status === 'paused'
                   ? resumeAgentSession(session.id)
@@ -1061,7 +1261,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 {session.status === 'paused' ? 'RESUME' : 'PAUSE'}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => terminateAgentSession(session.id)}>
+            <TouchableOpacity
+              disabled={deviceOffline}
+              onPress={() => terminateAgentSession(session.id)}>
               <Text
                 style={[theme.typography.codeSm, { color: theme.colors.error }]}
               >
@@ -1077,6 +1279,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               <View style={styles.voiceIdleArea}>
                 <TouchableOpacity
                   activeOpacity={0.82}
+                  disabled={deviceOffline}
                   accessibilityRole="button"
                   accessibilityLabel="Record voice"
                   hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}
@@ -1084,10 +1287,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
                     styles.recordButtonOuter,
                     {
                       borderColor: isDark
-                        ? 'rgba(0, 209, 255, 0.35)'
+                        ? 'rgba(86, 156, 214, 0.35)'
                         : theme.colors.outlineVariant,
                       backgroundColor: isDark
-                        ? 'rgba(0, 209, 255, 0.08)'
+                        ? 'rgba(86, 156, 214, 0.08)'
                         : theme.colors.surfaceContainerLow,
                     },
                   ]}
@@ -1150,7 +1353,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                       onPress={handleConfirmVoice}
                       variant="primary"
                       loading={sendingMessage}
-                      disabled={sendingMessage}
+                      disabled={deviceOffline || sendingMessage}
                       style={styles.voiceButton}
                     />
                   )}
@@ -1190,7 +1393,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
             />
             <TouchableOpacity
               activeOpacity={0.76}
-              disabled={!input.trim() || sendingMessage}
+              disabled={deviceOffline || !input.trim() || sendingMessage}
               onPress={handleSendText}
               style={[
                 styles.sendButton,
@@ -1236,6 +1439,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 268,
+  },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  offlineBannerCopy: {
+    flex: 1,
+    gap: 2,
   },
   loadingState: {
     flex: 1,
@@ -1307,6 +1524,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  approvalStack: {
+    gap: 10,
+  },
+  approvalPanel: {
+    padding: 12,
+    gap: 10,
+  },
+  approvalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  approvalCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  approvalFiles: {
+    gap: 4,
+  },
+  approvalActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  approvalAction: {
+    flex: 1,
   },
   chatSectionHeader: {
     minHeight: 46,

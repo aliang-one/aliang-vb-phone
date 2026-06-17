@@ -30,10 +30,12 @@ interface VibeSessionCardProps {
   device?: Device;
   onPress?: () => void;
   homeFocus?: boolean;
+  /** 设备离线时置灰并禁用点击/长按菜单。 */
+  disabled?: boolean;
 }
 
 export const VibeSessionCard = React.memo<VibeSessionCardProps>(
-  ({ session, project, device, onPress, homeFocus = false }) => {
+  ({ session, project, device, onPress, homeFocus = false, disabled = false }) => {
     const { theme, isDark } = useTheme();
     const [menuVisible, setMenuVisible] = useState(false);
     const [detailsVisible, setDetailsVisible] = useState(false);
@@ -182,6 +184,8 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
           }}
           delayLongPress={360}
           activeOpacity={0.75}
+          disabled={disabled}
+          style={{ opacity: disabled ? 0.5 : 1 }}
         >
           <GlassPanel
             glowColor={
@@ -256,6 +260,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                   >
                     {project?.name ?? session.projectId} /{' '}
                     {device?.name ?? session.deviceId}
+                    {disabled ? ' · 设备离线' : ''}
                   </Text>
                 )}
               </View>
@@ -518,7 +523,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                 StyleSheet.absoluteFill,
                 {
                   backgroundColor: isDark
-                    ? 'rgba(0, 209, 255, 0.05)'
+                    ? 'rgba(86, 156, 214, 0.05)'
                     : 'rgba(255, 255, 255, 0.2)',
                 },
               ]}
@@ -645,7 +650,8 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
     prev.session === next.session &&
     prev.project === next.project &&
     prev.device === next.device &&
-    prev.homeFocus === next.homeFocus,
+    prev.homeFocus === next.homeFocus &&
+    prev.disabled === next.disabled,
 );
 
 const styles = StyleSheet.create({

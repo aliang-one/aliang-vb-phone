@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -16,6 +16,10 @@ import { IconBadge, IconName } from '../../components/visual/IconBadge';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { newestFirst } from '../../utils/timeSort';
+import {
+  buildDeviceStatusIndex,
+  isDeviceStatusOffline,
+} from '../../utils/deviceStatus';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -48,6 +52,11 @@ export const NotificationCenterScreen: React.FC = () => {
   const navigation = useNavigation<Navigation>();
   const notifications = useControlCenterStore(state => state.notifications);
   const devices = useControlCenterStore(state => state.devices);
+  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
+  const deviceStatusIndex = useMemo(
+    () => buildDeviceStatusIndex(devices),
+    [devices],
+  );
   const markNotificationRead = useControlCenterStore(
     state => state.markNotificationRead,
   );
@@ -71,7 +80,7 @@ export const NotificationCenterScreen: React.FC = () => {
       console.warn('[notifications] failed to mark read', error);
     });
 
-    if (item.approvalId) {
+    if (item.type === 'approval' && item.approvalId) {
       navigation.navigate('ApprovalCenter');
       return;
     }
@@ -116,6 +125,12 @@ export const NotificationCenterScreen: React.FC = () => {
 
         {notificationList.visibleItems.map(item => {
           const device = devices.find(deviceItem => deviceItem.id === item.deviceId);
+          const itemDeviceId =
+            item.deviceId ??
+            vibeRuns.find(run => run.id === item.sessionId)?.deviceId;
+          const itemOffline = isDeviceStatusOffline(
+            deviceStatusIndex.get(itemDeviceId ?? ''),
+          );
           return (
             <TouchableOpacity
               key={item.id}
@@ -126,7 +141,7 @@ export const NotificationCenterScreen: React.FC = () => {
                 style={[
                   styles.notificationCard,
                   {
-                    opacity: item.read ? 0.72 : 1,
+                    opacity: itemOffline ? 0.5 : item.read ? 0.72 : 1,
                     backgroundColor:
                       !item.read && isDark
                         ? 'rgba(255,255,255,0.065)'
@@ -174,6 +189,7 @@ export const NotificationCenterScreen: React.FC = () => {
                     numberOfLines={1}
                     style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
                     {device?.name ?? item.deviceId ?? 'all devices'}
+                    {itemOffline ? ' · 离线' : ''}
                   </Text>
                   <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
                     {item.createdAt}

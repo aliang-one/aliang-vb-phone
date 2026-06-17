@@ -103,7 +103,6 @@ export const LoginScreen: React.FC = () => {
               </View>
             ) : null}
           </GlassPanel>
-
 	          <Text style={[theme.typography.codeSm, styles.endpointText, { color: theme.colors.onSurfaceVariant }]}>
 	            {ALIANG_ACCOUNT_BASE_URL}
 	          </Text>

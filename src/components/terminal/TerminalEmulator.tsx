@@ -12,11 +12,18 @@ interface TerminalEmulatorProps {
   enabled: boolean;
   /** Optional ref bridge for sending shortcut keys/commands into xterm.js. */
   terminalRef?: React.MutableRefObject<TerminalEmulatorHandle | null>;
+  /** Request the native hidden keyboard proxy to focus when xterm is touched. */
+  onFocusRequest?: () => void;
+  /** Fires after xterm reports its first render from inside the WebView. */
+  onRendered?: () => void;
+  /** Fires when the WebView reports a terminal resource/runtime load failure. */
+  onRenderError?: (message: string) => void;
 }
 
 export interface TerminalEmulatorHandle {
-  sendText: (data: string) => void;
+  sendText: (data: string, options?: { focus?: boolean }) => void;
   focus: () => void;
+  fit: () => void;
 }
 
 const MAX_PENDING_OUTPUT = 200;
@@ -68,19 +75,25 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
   sessionId,
   enabled,
   terminalRef,
+  onFocusRequest,
+  onRendered,
+  onRenderError,
 }) => {
   const { isDark } = useTheme();
   const webViewRef = useRef<WebView>(null);
   const readyRef = useRef(false);
+  const renderedRef = useRef(false);
   const pendingOutputRef = useRef<Array<{ data: string; encoding: string }>>([]);
   const html = useRef(getTerminalHtml(isDark)).current;
 
   const injectTerminalData = useCallback(
-    (type: string, payload = '', encoding = 'text') => {
+    (type: string, payload = '', encoding = 'text', focus = true) => {
       webViewRef.current?.injectJavaScript(
-        `window.injectTerminalData(${JSON.stringify(
+        `if (window.injectTerminalData) { window.injectTerminalData(${JSON.stringify(
           type,
-        )}, ${JSON.stringify(payload)}, ${JSON.stringify(encoding)}); true;`,
+        )}, ${JSON.stringify(payload)}, ${JSON.stringify(
+          encoding,
+        )}, ${JSON.stringify(focus)}); } true;`,
       );
     },
     [],
@@ -116,25 +129,22 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
     if (!terminalRef) return undefined;
 
     terminalRef.current = {
-      sendText: (data: string) => {
+      sendText: (data: string, options?: { focus?: boolean }) => {
         if (!enabled || !data) return;
-        platformTransport.send({
-          type: 'terminal.input',
-          session_id: sessionId,
-          encoding: 'text',
-          data,
-        });
+        injectTerminalData('input', data, 'text', options?.focus !== false);
       },
       focus: () => injectTerminalData('focus'),
+      fit: () => injectTerminalData('fit'),
     };
 
     return () => {
       terminalRef.current = null;
     };
-  }, [enabled, injectTerminalData, sessionId, terminalRef]);
+  }, [enabled, injectTerminalData, terminalRef]);
 
   useEffect(() => {
     readyRef.current = false;
+    renderedRef.current = false;
     pendingOutputRef.current = [];
   }, [sessionId]);
 
@@ -157,8 +167,10 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
       let payload: {
         type: string;
         data?: string;
+        encoding?: string;
         cols?: number;
         rows?: number;
+        message?: string;
       };
       try {
         payload = JSON.parse(event.nativeEvent.data);
@@ -168,13 +180,13 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
 
       switch (payload.type) {
         case 'input':
-        case 'binary':
           // Forward keystroke to server via WS
           if (enabled && payload.data) {
+            const encoding = payload.encoding === 'base64' ? 'base64' : 'text';
             platformTransport.send({
               type: 'terminal.input',
               session_id: sessionId,
-              encoding: 'base64',
+              encoding,
               data: payload.data,
             });
           }
@@ -204,18 +216,48 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
           }
           flushPendingOutput();
           break;
+
+        case 'rendered':
+          if (!renderedRef.current) {
+            renderedRef.current = true;
+            onRendered?.();
+          }
+          break;
+
+        case 'error':
+          onRenderError?.(payload.message ?? 'Terminal WebView failed to load.');
+          break;
+
+        case 'focusrequest':
+          if (enabled) {
+            onFocusRequest?.();
+          }
+          break;
       }
     },
-    [sessionId, enabled, flushPendingOutput],
+    [
+      sessionId,
+      enabled,
+      flushPendingOutput,
+      onFocusRequest,
+      onRenderError,
+      onRendered,
+    ],
   );
 
   return (
-    <View style={styles.container}>
+    <View
+      style={styles.container}
+      onLayout={() => {
+        injectTerminalData('fit');
+      }}
+    >
       <WebView
         ref={webViewRef}
         source={{ html }}
         onMessage={onMessage}
         style={styles.webview}
+        hideKeyboardAccessoryView
         originWhitelist={['*']}
         javaScriptEnabled
         domStorageEnabled={false}
@@ -225,7 +267,6 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
         bounces={false}
         cacheEnabled={false}
         incognito
-        keyboardDisplayRequiresUserAction={false}
         automaticallyAdjustContentInsets={false}
         contentMode="mobile"
       />

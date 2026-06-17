@@ -8,6 +8,8 @@ import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
+import { ActionGridCard } from '../../components/shared/ActionGridCard';
+import { CollapsiblePanel } from '../../components/shared/CollapsiblePanel';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { RootStackParamList } from '../../app/navigation/types';
@@ -73,7 +75,11 @@ export const DeviceDetailScreen: React.FC = () => {
   const devices = useControlCenterStore(state => state.devices);
   const projectsStore = useControlCenterStore(state => state.projects);
   const vibeRuns = useControlCenterStore(state => state.vibeRuns);
+  const events = useControlCenterStore(state => state.events);
+  const approvals = useControlCenterStore(state => state.approvals);
+  const scanResults = useControlCenterStore(state => state.scanResults);
   const device = devices.find(item => item.id === route.params.deviceId);
+  const deviceOffline = device?.status === 'offline';
 
   const projects = useMemo(
     () => {
@@ -106,6 +112,18 @@ export const DeviceDetailScreen: React.FC = () => {
   const activeSessions = useMemo(
     () => sessions.filter(session => activeSessionStatuses.includes(session.status)),
     [sessions],
+  );
+const recentEvents = useMemo(
+    () => events.filter(e => e.deviceId === device?.id).length,
+    [events, device?.id],
+  );
+  const pendingApprovals = useMemo(
+    () => approvals.filter(a => a.status === 'pending').length,
+    [approvals],
+  );
+  const scannedRepos = useMemo(
+    () => scanResults.filter(r => r.deviceId === device?.id).length,
+    [scanResults, device?.id],
   );
   const terminalDirectory =
     device?.authorizedDirectories[0] ?? projects[0]?.path ?? '~';
@@ -221,61 +239,199 @@ export const DeviceDetailScreen: React.FC = () => {
           </View>
         </GlassPanel>
 
-        <GlowButton
-          title="CREATE VIBECODING HERE"
-          onPress={() =>
-            navigation.navigate('CreateVibeCoding', { deviceId: device.id })
-          }
-          variant="primary"
-          style={styles.createButton}
-        />
-        <GlowButton
-          title="OPEN DEVICE TERMINAL"
-          onPress={() =>
-            navigation.navigate('DeviceTerminal', {
-              deviceId: device.id,
-              directory: terminalDirectory,
-            })
-          }
-          disabled={!device.remoteTerminalEnabled}
-          variant="secondary"
-          style={styles.secondaryAction}
-        />
-        <View style={styles.actionGrid}>
-          <GlowButton
-            title="SCAN PROJECTS"
-            onPress={() => navigation.navigate('ProjectScan', { deviceId: device.id })}
-            variant="outline"
-            style={styles.gridAction}
+        <View style={styles.actionGridRow}>
+          <ActionGridCard
+            icon="agent"
+            title="VibeCoding"
+            subtitle="Create AI session"
+            onPress={() =>
+              navigation.navigate('CreateVibeCoding', { deviceId: device.id })
+            }
+            accent
           />
-          <GlowButton
-            title="AGENT SESSIONS"
+          <ActionGridCard
+            icon="terminal"
+            title="Terminal"
+            subtitle={device.remoteTerminalEnabled ? 'Remote shell' : 'Disabled'}
+            onPress={() =>
+              navigation.navigate('DeviceTerminal', {
+                deviceId: device.id,
+                directory: terminalDirectory,
+              })
+            }
+            disabled={!device.remoteTerminalEnabled}
+          />
+          <ActionGridCard
+            icon="scan"
+            title="Scan"
+            subtitle={`${scannedRepos} repos found`}
+            onPress={() => navigation.navigate('ProjectScan', { deviceId: device.id })}
+          />
+        </View>
+        <View style={styles.actionGridRow}>
+          <ActionGridCard
+            icon="agent"
+            title="Sessions"
+            subtitle={`${activeSessions.length} active`}
             onPress={() =>
               navigation.navigate('AgentSessions', { deviceId: device.id })
             }
-            variant="outline"
-            style={styles.gridAction}
           />
-        </View>
-        <View style={styles.actionGrid}>
-          <GlowButton
-            title="EVENT STREAM"
+          <ActionGridCard
+            icon="event"
+            title="Events"
+            subtitle={`${recentEvents} events`}
             onPress={() =>
               navigation.navigate('EventStream', { deviceId: device.id })
             }
-            variant="outline"
-            style={styles.gridAction}
           />
-          <GlowButton
-            title="APPROVALS"
+          <ActionGridCard
+            icon="approval"
+            title="Approvals"
+            subtitle={pendingApprovals > 0 ? `${pendingApprovals} pending` : 'All clear'}
             onPress={() => navigation.navigate('ApprovalCenter')}
-            variant="outline"
-            style={styles.gridAction}
+            accent={pendingApprovals > 0}
           />
         </View>
 
-        <SectionTitle title="DEVICE DATA" />
-        <GlassPanel style={styles.factPanel}>
+        <SectionTitle title="PROJECTS ON DEVICE" />
+        {projects.length ? (
+          <>
+          {projectList.visibleItems.map(project => (
+            <GlassPanel
+              key={project.id}
+              style={[
+                styles.projectCard,
+                { opacity: deviceOffline ? 0.5 : 1 },
+              ]}>
+              <View style={styles.projectTop}>
+                <View style={styles.projectTitleBlock}>
+                  <Text
+                    numberOfLines={1}
+                    style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+                    {project.name}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+                    {project.path || 'path not reported'}
+                  </Text>
+                </View>
+                <StatusChip
+                  label={project.status.toUpperCase()}
+                  type={projectStatusType[project.status]}
+                />
+              </View>
+              {project.description ? (
+                <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+                  {project.description}
+                </Text>
+              ) : null}
+              <View style={styles.projectMetaRow}>
+                <MetaPill label={project.branch} />
+                <MetaPill label={project.language} />
+                <MetaPill label={project.packageManager ?? 'package unknown'} />
+                {(project.sourceTools ?? []).map(tool => (
+                  <MetaPill key={tool} label={`via ${workspaceToolLabel(tool)}`} />
+                ))}
+              </View>
+              <View style={styles.projectActionRow}>
+                <GlowButton
+                  title="DETAIL"
+                  disabled={deviceOffline}
+                  onPress={() =>
+                    navigation.navigate('ProjectDetail', {
+                      projectId: project.id,
+                      deviceId: device.id,
+                    })
+                  }
+                  variant="outline"
+                  style={styles.projectAction}
+                />
+                <GlowButton
+                  title="FILES"
+                  disabled={deviceOffline}
+                  onPress={() =>
+                    navigation.navigate('FileBrowser', {
+                      projectId: project.id,
+                      deviceId: device.id,
+                    })
+                  }
+                  variant="outline"
+                  style={styles.projectAction}
+                />
+                <GlowButton
+                  title="TERM"
+                  onPress={() =>
+                    navigation.navigate('DeviceTerminal', {
+                      deviceId: device.id,
+                      directory: project.path || terminalDirectory,
+                    })
+                  }
+                  disabled={!device.remoteTerminalEnabled || deviceOffline}
+                  variant="outline"
+                  style={styles.projectAction}
+                />
+              </View>
+            </GlassPanel>
+          ))}
+          <LoadMoreRow
+            visibleCount={projectList.visibleCount}
+            totalCount={projectList.totalCount}
+            onPress={projectList.showMore}
+          />
+          </>
+        ) : (
+          <EmptyPanel
+            title="No projects reported"
+            body="Run a device scan or wait for the Agent to publish its project list."
+            actionTitle="SCAN PROJECTS"
+            onAction={() => navigation.navigate('ProjectScan', { deviceId: device.id })}
+          />
+        )}
+
+        <View style={styles.sessionHeader}>
+          <SectionTitle title="VIBECODING SESSIONS" />
+          <View style={styles.sessionChips}>
+            <StatusChip label={`${sessions.length} TOTAL`} type="info" />
+            <StatusChip label={`${activeSessions.length} ACTIVE`} type="success" />
+          </View>
+        </View>
+        {sessions.length ? (
+          <>
+          {sessionList.visibleItems.map(session => (
+            <VibeSessionCard
+              key={session.id}
+              session={session}
+              project={projectsStore.find(project => project.id === session.projectId)}
+              device={device}
+              disabled={deviceOffline}
+              onPress={() =>
+                navigation.navigate('VibeCodingSession', { sessionId: session.id })
+              }
+            />
+          ))}
+          <LoadMoreRow
+            visibleCount={sessionList.visibleCount}
+            totalCount={sessionList.totalCount}
+            onPress={sessionList.showMore}
+          />
+          </>
+        ) : (
+          <EmptyPanel
+            title="No VibeCoding sessions"
+            body="Create a session from this device to start recording conversation and Agent events."
+            actionTitle="CREATE VIBECODING"
+            onAction={() =>
+              navigation.navigate('CreateVibeCoding', { deviceId: device.id })
+            }
+          />
+        )}
+
+        <CollapsiblePanel
+          title="DEVICE DATA"
+          icon="device"
+          defaultExpanded={false}>
           <Fact label="DEVICE ID" value={device.id} />
           <Fact label="UNIQUE CODE" value={device.uniqueCode ?? '-'} />
           <Fact label="AGENT" value={device.agentVersion ?? '-'} />
@@ -286,158 +442,166 @@ export const DeviceDetailScreen: React.FC = () => {
             value={device.capabilities.length ? device.capabilities.join(' / ') : '-'}
           />
           <Fact label="CREATED" value={device.createdAt ?? '-'} />
-        </GlassPanel>
+        </CollapsiblePanel>
 
-        <SectionTitle title="INSTALLED TOOLS" />
-        {device.tools.length ? (
-          <GlassPanel style={styles.listPanel}>
-            {toolList.visibleItems.map((tool, index) => (
-              <View key={tool.id}>
-                <View style={styles.toolRow}>
-                  <View style={styles.toolMain}>
-                    <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                      {tool.name ?? TOOL_LABELS[tool.id] ?? tool.id}
-                    </Text>
-                    {tool.command ? (
-                      <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-                        {tool.command}
+        <CollapsiblePanel
+          title="INSTALLED TOOLS"
+          icon="code"
+          badge={`${device.tools.length}`}
+          badgeType={device.tools.length > 0 ? 'success' : 'info'}
+          defaultExpanded={false}>
+          {device.tools.length ? (
+            <View style={styles.listPanel}>
+              {toolList.visibleItems.map((tool, index) => (
+                <View key={tool.id}>
+                  <View style={styles.toolRow}>
+                    <View style={styles.toolMain}>
+                      <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                        {tool.name ?? TOOL_LABELS[tool.id] ?? tool.id}
                       </Text>
-                    ) : null}
-                    {tool.description ? (
-                      <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                        {tool.description}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <StatusChip
-                    label={tool.available === false ? 'MISSING' : 'READY'}
-                    type={tool.available === false ? 'error' : 'success'}
-                  />
-                </View>
-                {index < toolList.visibleItems.length - 1 ? <View style={styles.divider} /> : null}
-              </View>
-            ))}
-            <LoadMoreRow
-              visibleCount={toolList.visibleCount}
-              totalCount={toolList.totalCount}
-              onPress={toolList.showMore}
-            />
-          </GlassPanel>
-        ) : (
-          <EmptyPanel
-            title="No tools reported"
-            body="Waiting for the desktop Agent to probe for installed AI tools like Claude Code and Codex."
-          />
-        )}
-
-        <SectionTitle title="DETECTED WORKSPACES" />
-        {device.history.length ? (
-          <GlassPanel style={styles.listPanel}>
-            {workspaceList.visibleItems.map((entry, index) => (
-              <View key={`${entry.tool}:${entry.path}:${index}`}>
-                <View style={styles.workspaceRow}>
-                  <View style={styles.workspaceMain}>
-                    <View style={styles.workspaceHead}>
-                      <StatusChip label={workspaceToolLabel(entry.tool)} type="info" />
-                      <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-                        {entry.file_count ?? 0} files
-                        {entry.total_size ? ` · ${formatBytes(entry.total_size)}` : ''}
-                      </Text>
+                      {tool.command ? (
+                        <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+                          {tool.command}
+                        </Text>
+                      ) : null}
+                      {tool.description ? (
+                        <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                          {tool.description}
+                        </Text>
+                      ) : null}
                     </View>
-                    <Text
-                      numberOfLines={2}
-                      style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
-                      {entry.path}
-                    </Text>
-                    {entry.updated_at ? (
-                      <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                        Updated {entry.updated_at}
-                      </Text>
-                    ) : null}
+                    <StatusChip
+                      label={tool.available === false ? 'MISSING' : 'READY'}
+                      type={tool.available === false ? 'error' : 'success'}
+                    />
                   </View>
+                  {index < toolList.visibleItems.length - 1 ? <View style={styles.divider} /> : null}
                 </View>
-                {index < workspaceList.visibleItems.length - 1 ? <View style={styles.divider} /> : null}
-              </View>
-            ))}
-            <LoadMoreRow
-              visibleCount={workspaceList.visibleCount}
-              totalCount={workspaceList.totalCount}
-              onPress={workspaceList.showMore}
-            />
-          </GlassPanel>
-        ) : (
-          <EmptyPanel
-            title="No workspaces detected"
-            body="Scan the device or wait for the Agent to publish Claude Code / Codex workspaces."
-            actionTitle="SCAN PROJECTS"
-            onAction={() => navigation.navigate('ProjectScan', { deviceId: device.id })}
-          />
-        )}
+              ))}
+              <LoadMoreRow
+                visibleCount={toolList.visibleCount}
+                totalCount={toolList.totalCount}
+                onPress={toolList.showMore}
+              />
+            </View>
+          ) : (
+            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+              Waiting for the desktop Agent to probe for installed AI tools.
+            </Text>
+          )}
+        </CollapsiblePanel>
 
-        <SectionTitle title="AUTHORIZED DIRECTORIES" />
-        {device.authorizedDirectories.length ? (
-          <GlassPanel style={styles.listPanel}>
-            {directoryList.visibleItems.map((directory, index) => (
-              <View key={directory}>
-                <View style={styles.directoryRow}>
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      theme.typography.codeSm,
-                      { color: theme.colors.onSurface },
-                      styles.directoryPath,
-                    ]}>
-                    {directory}
-                  </Text>
-                  <TouchableOpacity
-                    activeOpacity={0.75}
-                    onPress={() =>
-                      navigation.navigate('DeviceTerminal', {
-                        deviceId: device.id,
-                        directory,
-                      })
-                    }
-                    style={[
-                      styles.directoryTerminalButton,
-                      {
-                        borderColor: theme.colors.outlineVariant,
-                        borderRadius: theme.borderRadius.full,
-                      },
-                    ]}>
-                    <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-                      TERM
-                    </Text>
-                  </TouchableOpacity>
+        <CollapsiblePanel
+          title="DETECTED WORKSPACES"
+          icon="project"
+          badge={`${device.history.length}`}
+          badgeType={device.history.length > 0 ? 'success' : 'info'}
+          defaultExpanded={false}>
+          {device.history.length ? (
+            <View style={styles.listPanel}>
+              {workspaceList.visibleItems.map((entry, index) => (
+                <View key={`${entry.tool}:${entry.path}:${index}`}>
+                  <View style={styles.workspaceRow}>
+                    <View style={styles.workspaceMain}>
+                      <View style={styles.workspaceHead}>
+                        <StatusChip label={workspaceToolLabel(entry.tool)} type="info" />
+                        <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+                          {entry.file_count ?? 0} files
+                          {entry.total_size ? ` · ${formatBytes(entry.total_size)}` : ''}
+                        </Text>
+                      </View>
+                      <Text
+                        numberOfLines={2}
+                        style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
+                        {entry.path}
+                      </Text>
+                      {entry.updated_at ? (
+                        <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                          Updated {entry.updated_at}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </View>
+                  {index < workspaceList.visibleItems.length - 1 ? <View style={styles.divider} /> : null}
                 </View>
-                {index < directoryList.visibleItems.length - 1 && (
-                  <View style={styles.divider} />
-                )}
-              </View>
-            ))}
-            <LoadMoreRow
-              visibleCount={directoryList.visibleCount}
-              totalCount={directoryList.totalCount}
-              onPress={directoryList.showMore}
-            />
-          </GlassPanel>
-        ) : (
-          <EmptyPanel
-            title="No authorized directory reported"
-            body="Open a device terminal or wait for the desktop Agent to sync workspace paths."
-            actionTitle="OPEN TERMINAL"
-            onAction={() =>
-              navigation.navigate('DeviceTerminal', {
-                deviceId: device.id,
-                directory: terminalDirectory,
-              })
-            }
-          />
-        )}
+              ))}
+              <LoadMoreRow
+                visibleCount={workspaceList.visibleCount}
+                totalCount={workspaceList.totalCount}
+                onPress={workspaceList.showMore}
+              />
+            </View>
+          ) : (
+            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+              Scan the device or wait for the Agent to publish workspaces.
+            </Text>
+          )}
+        </CollapsiblePanel>
+
+        <CollapsiblePanel
+          title="AUTHORIZED DIRECTORIES"
+          icon="terminal"
+          badge={`${device.authorizedDirectories.length}`}
+          defaultExpanded={false}>
+          {device.authorizedDirectories.length ? (
+            <View style={styles.listPanel}>
+              {directoryList.visibleItems.map((directory, index) => (
+                <View key={directory}>
+                  <View style={styles.directoryRow}>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        theme.typography.codeSm,
+                        { color: theme.colors.onSurface },
+                        styles.directoryPath,
+                      ]}>
+                      {directory}
+                    </Text>
+                    <TouchableOpacity
+                      activeOpacity={0.75}
+                      onPress={() =>
+                        navigation.navigate('DeviceTerminal', {
+                          deviceId: device.id,
+                          directory,
+                        })
+                      }
+                      style={[
+                        styles.directoryTerminalButton,
+                        {
+                          borderColor: theme.colors.outlineVariant,
+                          borderRadius: theme.borderRadius.full,
+                        },
+                      ]}>
+                      <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+                        TERM
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  {index < directoryList.visibleItems.length - 1 && (
+                    <View style={styles.divider} />
+                  )}
+                </View>
+              ))}
+              <LoadMoreRow
+                visibleCount={directoryList.visibleCount}
+                totalCount={directoryList.totalCount}
+                onPress={directoryList.showMore}
+              />
+            </View>
+          ) : (
+            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+              Open a device terminal or wait for the Agent to sync workspace paths.
+            </Text>
+          )}
+        </CollapsiblePanel>
 
         {knownProjectPaths.length ? (
-          <>
-            <SectionTitle title="KNOWN PROJECT PATHS" />
-            <GlassPanel style={styles.listPanel}>
+          <CollapsiblePanel
+            title="KNOWN PROJECT PATHS"
+            icon="project"
+            badge={`${knownProjectPaths.length}`}
+            defaultExpanded={false}>
+            <View style={styles.listPanel}>
               {projectPathList.visibleItems.map((path, index) => (
                 <View key={path}>
                   <View style={styles.directoryRow}>
@@ -478,135 +642,9 @@ export const DeviceDetailScreen: React.FC = () => {
                 totalCount={projectPathList.totalCount}
                 onPress={projectPathList.showMore}
               />
-            </GlassPanel>
-          </>
+            </View>
+          </CollapsiblePanel>
         ) : null}
-
-        <SectionTitle title="PROJECTS ON DEVICE" />
-        {projects.length ? (
-          <>
-          {projectList.visibleItems.map(project => (
-            <GlassPanel key={project.id} style={styles.projectCard}>
-              <View style={styles.projectTop}>
-                <View style={styles.projectTitleBlock}>
-                  <Text
-                    numberOfLines={1}
-                    style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                    {project.name}
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-                    {project.path || 'path not reported'}
-                  </Text>
-                </View>
-                <StatusChip
-                  label={project.status.toUpperCase()}
-                  type={projectStatusType[project.status]}
-                />
-              </View>
-              {project.description ? (
-                <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-                  {project.description}
-                </Text>
-              ) : null}
-              <View style={styles.projectMetaRow}>
-                <MetaPill label={project.branch} />
-                <MetaPill label={project.language} />
-                <MetaPill label={project.packageManager ?? 'package unknown'} />
-                {(project.sourceTools ?? []).map(tool => (
-                  <MetaPill key={tool} label={`via ${workspaceToolLabel(tool)}`} />
-                ))}
-              </View>
-              <View style={styles.projectActionRow}>
-                <GlowButton
-                  title="DETAIL"
-                  onPress={() =>
-                    navigation.navigate('ProjectDetail', {
-                      projectId: project.id,
-                      deviceId: device.id,
-                    })
-                  }
-                  variant="outline"
-                  style={styles.projectAction}
-                />
-                <GlowButton
-                  title="FILES"
-                  onPress={() =>
-                    navigation.navigate('FileBrowser', {
-                      projectId: project.id,
-                      deviceId: device.id,
-                    })
-                  }
-                  variant="outline"
-                  style={styles.projectAction}
-                />
-                <GlowButton
-                  title="TERM"
-                  onPress={() =>
-                    navigation.navigate('DeviceTerminal', {
-                      deviceId: device.id,
-                      directory: project.path || terminalDirectory,
-                    })
-                  }
-                  disabled={!device.remoteTerminalEnabled}
-                  variant="outline"
-                  style={styles.projectAction}
-                />
-              </View>
-            </GlassPanel>
-          ))}
-          <LoadMoreRow
-            visibleCount={projectList.visibleCount}
-            totalCount={projectList.totalCount}
-            onPress={projectList.showMore}
-          />
-          </>
-        ) : (
-          <EmptyPanel
-            title="No projects reported"
-            body="Run a device scan or wait for the Agent to publish its project list."
-            actionTitle="SCAN PROJECTS"
-            onAction={() => navigation.navigate('ProjectScan', { deviceId: device.id })}
-          />
-        )}
-
-        <View style={styles.sessionHeader}>
-          <SectionTitle title="VIBECODING SESSIONS" />
-          <View style={styles.sessionChips}>
-            <StatusChip label={`${sessions.length} TOTAL`} type="info" />
-            <StatusChip label={`${activeSessions.length} ACTIVE`} type="success" />
-          </View>
-        </View>
-        {sessions.length ? (
-          <>
-          {sessionList.visibleItems.map(session => (
-            <VibeSessionCard
-              key={session.id}
-              session={session}
-              project={projectsStore.find(project => project.id === session.projectId)}
-              device={device}
-              onPress={() =>
-                navigation.navigate('VibeCodingSession', { sessionId: session.id })
-              }
-            />
-          ))}
-          <LoadMoreRow
-            visibleCount={sessionList.visibleCount}
-            totalCount={sessionList.totalCount}
-            onPress={sessionList.showMore}
-          />
-          </>
-        ) : (
-          <EmptyPanel
-            title="No VibeCoding sessions"
-            body="Create a session from this device to start recording conversation and Agent events."
-            actionTitle="CREATE VIBECODING"
-            onAction={() =>
-              navigation.navigate('CreateVibeCoding', { deviceId: device.id })
-            }
-          />
-        )}
       </ScrollView>
     </SafeAreaWrapper>
   );
@@ -781,6 +819,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
     flexWrap: 'wrap',
+  },
+  quickActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  actionGridRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
   },
   createButton: {
     marginTop: 12,

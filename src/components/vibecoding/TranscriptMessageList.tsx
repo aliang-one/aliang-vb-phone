@@ -135,7 +135,7 @@ export const TranscriptMessageList: React.FC<TranscriptMessageListProps> = ({
           {
             color: theme.colors.primary,
             backgroundColor: isDark
-              ? 'rgba(0, 209, 255, 0.14)'
+              ? 'rgba(86, 156, 214, 0.14)'
               : 'rgba(0, 81, 174, 0.08)',
           },
         ]}
@@ -435,7 +435,7 @@ export const TranscriptMessageList: React.FC<TranscriptMessageListProps> = ({
                   {
                     backgroundColor: isUser
                       ? isDark
-                        ? 'rgba(0, 209, 255, 0.14)'
+                        ? 'rgba(86, 156, 214, 0.14)'
                         : 'rgba(0, 81, 174, 0.08)'
                       : isDark
                       ? 'rgba(255,255,255,0.05)'

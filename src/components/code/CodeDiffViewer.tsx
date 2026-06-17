@@ -19,13 +19,13 @@ export const CodeDiffViewer: React.FC<CodeDiffViewerProps> = ({
       switch (type) {
         case 'add':
           return {
-            backgroundColor: 'rgba(47, 248, 1, 0.08)',
-            borderLeftColor: '#2FF801',
+            backgroundColor: 'rgba(106, 153, 85, 0.12)',
+            borderLeftColor: '#6A9955',
           };
         case 'remove':
           return {
-            backgroundColor: 'rgba(255, 107, 107, 0.08)',
-            borderLeftColor: '#FF6B6B',
+            backgroundColor: 'rgba(244, 135, 113, 0.12)',
+            borderLeftColor: '#F48771',
           };
         default:
           return {

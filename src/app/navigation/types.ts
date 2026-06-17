@@ -1,9 +1,11 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import type { DebugDeviceTerminalTarget } from '../debugInitialProps';
 
 export type RootStackParamList = {
   Login: undefined;
   MainTabs: undefined;
+  DebugDeviceTerminalBootstrap: { target: DebugDeviceTerminalTarget };
   DeviceBinding: undefined;
   DeviceCameraScanner: undefined;
   DeviceDetail: { deviceId: string };

@@ -1,4 +1,4 @@
-import { accountFetch, accountPost } from './accountClient';
+import { accountGet, accountPost } from './accountClient';
 
 export interface PlatformUser {
   id: string;
@@ -70,7 +70,7 @@ const extractToken = (payload: unknown): string => {
 };
 
 export const fetchCurrentUser = async (): Promise<PlatformUser> => {
-  const payload = await accountFetch<unknown>('/api/auth/me', { method: 'GET' });
+  const payload = await accountGet<unknown>('/api/auth/me');
   return extractUser(payload);
 };
 
@@ -83,5 +83,7 @@ export const login = (
     token: extractToken(payload),
   }));
 
+// The Aliang SaaS backend uses stateless JWT auth, so sign-out is purely local:
+// there is no server session to invalidate, and a network call would only 404.
 export const logout = (): Promise<{ status: string }> =>
-  accountFetch<{ status: string }>('/api/auth/logout', { method: 'POST' });
+  Promise.resolve({ status: 'ok' });

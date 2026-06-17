@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useMemo } from 'react';
 import type { PreviewLink, VibeStatus } from '../data/platformModels';
 import { routeTerminalOutputToEmulator } from '../components/terminal/TerminalEmulator';
 import { applyDeltasToRuns } from '../utils/deltaBatch';
@@ -18,6 +19,7 @@ import {
   activityNowMs,
   attachDeviceRelations,
   createId,
+  evictOverflowVibeRuns,
   event,
   formatActivityLabel,
   hasMeaningfulVibeRunUpdate,
@@ -34,6 +36,7 @@ import {
   serverProjectToClient,
   shortTime,
   tail,
+  trimTranscript,
   upsertNotification,
 } from './internals';
 import { createRealtimeSlice } from './slices/realtimeSlice';
@@ -42,9 +45,68 @@ import { createApprovalSlice } from './slices/approvalSlice';
 import { createAiSessionSlice } from './slices/aiSessionSlice';
 import { createDeviceProjectSlice } from './slices/deviceProjectSlice';
 
+const EMPTY_SESSION_APPROVALS: ControlCenterState['approvals'] = [];
+
 // Re-export the domain types so the 21 consumer files keep importing them from
 // this module — their import paths (`../store/controlCenterStore`) stay valid.
 export * from './types';
+
+// ============================================================
+// Fine-grained selectors
+// ------------------------------------------------------------
+// The store is a single tree, but that does NOT mean subscribers must
+// re-render on every field change. These selector helpers let screens
+// subscribe to ONLY the slice they render, so (for example) a streaming
+// ai.delta on session A no longer re-renders the screen viewing session B.
+// `find` returns a stable reference as long as that one run object's
+// identity is unchanged — merging logic in internals.ts keeps unchanged
+// runs referentially equal, so the selector bails out cheaply.
+// ============================================================
+
+/** Subscribe to a single AI session by id. Re-renders ONLY when that session's
+ *  object identity changes (not when other sessions stream deltas). */
+export const useVibeRun = (sessionId: string | undefined) =>
+  useControlCenterStore(state =>
+    sessionId ? state.vibeRuns.find(run => run.id === sessionId) : undefined,
+  );
+
+/** Subscribe to approvals for one session, sorted newest-first. */
+export const useSessionApprovals = (sessionId: string | undefined) => {
+  const approvals = useControlCenterStore(state => state.approvals);
+
+  return useMemo(
+    () =>
+      sessionId
+        ? approvals
+            .filter(item => item.sessionId === sessionId)
+            .sort(
+              (left, right) =>
+                Date.parse(right.createdAt) - Date.parse(left.createdAt),
+            )
+        : EMPTY_SESSION_APPROVALS,
+    [approvals, sessionId],
+  );
+};
+
+/** Subscribe to a single project by id. */
+export const useProject = (projectId: string | undefined) =>
+  useControlCenterStore(state =>
+    projectId ? state.projects.find(project => project.id === projectId) : undefined,
+  );
+
+/** Subscribe to a single device by id. */
+export const useDevice = (deviceId: string | undefined) =>
+  useControlCenterStore(state =>
+    deviceId ? state.devices.find(device => device.id === deviceId) : undefined,
+  );
+
+/** Subscribe to the preview link for a session. */
+export const useSessionPreview = (sessionId: string | undefined) =>
+  useControlCenterStore(state =>
+    sessionId
+      ? state.previewLinks.find(link => link.sessionId === sessionId)
+      : undefined,
+  );
 
 // ============================================================
 // Composition root
@@ -60,14 +122,22 @@ export const useControlCenterStore = create<ControlCenterState>()(
     // Let ./streaming flush buffered ai.delta tokens back into the store
     // without it having to depend on zustand.
     registerDeltaApplier(deltas =>
-      set(state => ({
-        vibeRuns: applyDeltasToRuns(
+      set(state => {
+        const vibeRuns = applyDeltasToRuns(
           state.vibeRuns,
           deltas,
           () => createId('msg'),
           shortTime,
-        ),
-      })),
+        );
+        return {
+          vibeRuns: evictOverflowVibeRuns(
+            vibeRuns.map(run => ({
+              ...run,
+              transcript: trimTranscript(run.transcript),
+            })),
+          ),
+        };
+      }),
     );
 
     return {
@@ -97,12 +167,22 @@ export const useControlCenterStore = create<ControlCenterState>()(
 
           switch (transportEvent.type) {
             case 'transport.status':
-              set({
-                wsConnected: transportEvent.status === 'connected',
-                ...(transportEvent.status !== 'connected'
-                  ? { stale: true }
-                  : {}),
-              });
+              // On (re)connect, pull a fresh snapshot to recover any state
+              // changes that were broadcast while the socket was down — WS has
+              // no replay buffer, so a full resync is the only way to not lose
+              // events during a network blip.
+              if (transportEvent.status === 'connected') {
+                set({ wsConnected: true });
+                if (get().serverMode) {
+                  get()
+                    .refreshFromServer()
+                    .catch(() => {
+                      set({ stale: true });
+                    });
+                }
+              } else {
+                set({ wsConnected: false, stale: true });
+              }
               return;
 
             case 'mobile.connected':
@@ -340,13 +420,20 @@ export const useControlCenterStore = create<ControlCenterState>()(
                   nextRun,
                 );
                 const exists = Boolean(previousRun);
-                const vibeRuns = exists
+                const rawVibeRuns = exists
                   ? state.vibeRuns.map(run =>
                       run.id === nextRun.id
                         ? mergeVibeRunSnapshot(run, nextRun)
                         : run,
                     )
                   : [nextRun, ...state.vibeRuns];
+                // Apply memory bounds: limit total sessions and trim transcripts
+                const vibeRuns = evictOverflowVibeRuns(
+                  rawVibeRuns.map(run => ({
+                    ...run,
+                    transcript: trimTranscript(run.transcript),
+                  })),
+                );
                 return {
                   vibeRuns,
                   devices: attachDeviceRelations(
@@ -538,11 +625,42 @@ export const useControlCenterStore = create<ControlCenterState>()(
 
             case 'approval.requested': {
               const approval = serverApprovalToClient(transportEvent.approval);
+              const approvalEvent = {
+                id: `approval-${approval.id}`,
+                type: 'approval' as const,
+                title: approval.title,
+                detail: approval.summary,
+                status: 'waiting' as const,
+                timestamp: approval.createdAt || shortTime(),
+              };
               set(state => ({
                 approvals: [
                   approval,
                   ...state.approvals.filter(item => item.id !== approval.id),
                 ],
+                vibeRuns: state.vibeRuns.map(run =>
+                  run.id === approval.sessionId
+                    ? {
+                        ...run,
+                        status: 'waiting_approval' as VibeStatus,
+                        currentStep: approval.title,
+                        lastActivityMs:
+                          Date.parse(approval.createdAt) || activityNowMs(),
+                        updatedAt: formatActivityLabel(
+                          Date.parse(approval.createdAt) || activityNowMs(),
+                        ),
+                        events: tail(
+                          [
+                            ...run.events.filter(
+                              item => item.id !== approvalEvent.id,
+                            ),
+                            approvalEvent,
+                          ],
+                          MAX_RUN_EVENTS,
+                        ),
+                      }
+                    : run,
+                ),
                 events: [
                   event(
                     'approval.requested',
@@ -567,35 +685,105 @@ export const useControlCenterStore = create<ControlCenterState>()(
               const nextNotification = serverNotificationToClient(
                 transportEvent.notification,
               );
+              const approvalDecision =
+                nextNotification.approvalId &&
+                nextNotification.type !== 'approval'
+                  ? nextNotification.type === 'completed'
+                    ? 'approved'
+                    : nextNotification.type === 'error'
+                    ? 'denied'
+                    : undefined
+                  : undefined;
               set(state => ({
                 notifications: upsertNotification(
                   state.notifications,
                   nextNotification,
                 ),
-                events: [
-                  event(
-                    nextNotification.type === 'completed'
-                      ? 'agent.session.completed'
-                      : nextNotification.type === 'error'
-                      ? 'agent.session.failed'
-                      : nextNotification.type === 'approval'
-                      ? 'approval.requested'
-                      : 'platform.event',
-                    nextNotification.title,
-                    nextNotification.body,
-                    nextNotification.type === 'error'
-                      ? 'failed'
-                      : nextNotification.type === 'approval'
-                      ? 'waiting'
-                      : 'done',
-                    {
-                      deviceId: nextNotification.deviceId,
-                      sessionId: nextNotification.sessionId,
-                      approvalId: nextNotification.approvalId,
-                    },
-                  ),
-                  ...state.events,
-                ].slice(0, 120),
+                approvals: approvalDecision
+                  ? state.approvals.map(item =>
+                      item.id === nextNotification.approvalId
+                        ? {
+                            ...item,
+                            status: approvalDecision,
+                            resolvedAt: nextNotification.createdAt,
+                          }
+                        : item,
+                    )
+                  : state.approvals,
+                vibeRuns: approvalDecision
+                  ? state.vibeRuns.map(run => {
+                      if (run.id !== nextNotification.sessionId) return run;
+                      const resolvedAtMs =
+                        Date.parse(nextNotification.createdAt) ||
+                        activityNowMs();
+                      const nextEvent = {
+                        id: `approval-${nextNotification.approvalId}`,
+                        type: 'approval' as const,
+                        title:
+                          approvalDecision === 'approved'
+                            ? 'Approval granted'
+                            : 'Approval denied',
+                        detail: nextNotification.body,
+                        status:
+                          approvalDecision === 'approved'
+                            ? ('done' as const)
+                            : ('failed' as const),
+                        timestamp: nextNotification.createdAt,
+                      };
+                      return {
+                        ...run,
+                        status:
+                          approvalDecision === 'approved'
+                            ? run.status === 'waiting_approval'
+                              ? ('running' as VibeStatus)
+                              : run.status
+                            : ('failed' as VibeStatus),
+                        currentStep:
+                          approvalDecision === 'approved'
+                            ? 'Approval granted. Waiting for agent to continue.'
+                            : 'Approval denied from mobile.',
+                        lastActivityMs: Math.max(
+                          run.lastActivityMs ?? 0,
+                          resolvedAtMs,
+                        ),
+                        updatedAt: formatActivityLabel(
+                          Math.max(run.lastActivityMs ?? 0, resolvedAtMs),
+                        ),
+                        events: tail(
+                          [
+                            ...run.events.filter(
+                              item => item.id !== nextEvent.id,
+                            ),
+                            nextEvent,
+                          ],
+                          MAX_RUN_EVENTS,
+                        ),
+                      };
+                    })
+                  : state.vibeRuns,
+                events:
+                  nextNotification.approvalId
+                    ? state.events
+                    : [
+                        event(
+                          nextNotification.type === 'completed'
+                            ? 'agent.session.completed'
+                            : nextNotification.type === 'error'
+                            ? 'agent.session.failed'
+                            : 'platform.event',
+                          nextNotification.title,
+                          nextNotification.body,
+                          nextNotification.type === 'error'
+                            ? 'failed'
+                            : 'done',
+                          {
+                            deviceId: nextNotification.deviceId,
+                            sessionId: nextNotification.sessionId,
+                            approvalId: nextNotification.approvalId,
+                          },
+                        ),
+                        ...state.events,
+                      ].slice(0, 120),
               }));
               return;
             }

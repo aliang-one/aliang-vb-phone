@@ -60,6 +60,23 @@ export interface ServerTerminalSession {
   closed_at?: string;
 }
 
+export interface ServerTerminalCommand {
+  id: string;
+  terminalSessionId: string;
+  userId: string;
+  deviceId: string;
+  command: string;
+  timestamp: string;
+  exitCode?: number | null;
+  createdAt: string;
+}
+
+export interface ServerTerminalCommandResult {
+  sessionId?: string;
+  deviceId?: string;
+  commands: ServerTerminalCommand[];
+}
+
 // AI Sessions
 
 export const fetchAiSessions = (): Promise<ServerAiSession[]> =>
@@ -133,3 +150,19 @@ export const createTerminalSession = (input: {
 
 export const closeTerminalSession = (sessionId: string): Promise<ServerTerminalSession> =>
   apiPost(`/api/terminal/sessions/${sessionId}/close`);
+
+export const fetchTerminalSessionCommands = (
+  sessionId: string,
+  limit = 20,
+): Promise<ServerTerminalCommandResult> =>
+  apiGet<ServerTerminalCommandResult>(
+    `/api/terminal-sessions/${encodeURIComponent(sessionId)}/commands?limit=${limit}`,
+  );
+
+export const fetchDeviceTerminalCommands = (
+  deviceId: string,
+  limit = 20,
+): Promise<ServerTerminalCommandResult> =>
+  apiGet<ServerTerminalCommandResult>(
+    `/api/devices/${encodeURIComponent(deviceId)}/terminal-commands?limit=${limit}`,
+  );

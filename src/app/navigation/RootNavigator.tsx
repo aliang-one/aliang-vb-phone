@@ -1,6 +1,10 @@
 import React, { useEffect, useRef } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import {
+  createNativeStackNavigator,
+  NativeStackNavigationProp,
+} from '@react-navigation/native-stack';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { RootStackParamList } from './types';
 import { MainTabNavigator } from './MainTabNavigator';
 import { LoginScreen } from '../../screens/auth/LoginScreen';
@@ -19,19 +23,153 @@ import { EventStreamScreen } from '../../screens/operations/EventStreamScreen';
 import { NotificationCenterScreen } from '../../screens/operations/NotificationCenterScreen';
 import { PreviewScreen } from '../../screens/preview/PreviewScreen';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import type { TerminalCommandHistoryItem, TerminalSession } from '../../store/types';
 import { useTheme } from '../../theme/useTheme';
 import { useSessionStore } from '../../../stores/useSettingsStore';
+import { isSessionInvalidError } from '../../api/sessionAuth';
+import {
+  FIRST_ONLINE_DEVICE_TARGET,
+  type DebugDeviceTerminalTarget,
+} from '../debugInitialProps';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+type Navigation = NativeStackNavigationProp<RootStackParamList>;
+type DebugDeviceTerminalRoute = RouteProp<
+  RootStackParamList,
+  'DebugDeviceTerminalBootstrap'
+>;
 
-export const RootNavigator = () => {
+type RootNavigatorProps = {
+  debugDeviceTerminal?: DebugDeviceTerminalTarget;
+};
+
+const directoryFromCommand = (command?: string) => {
+  const trimmed = command?.trim();
+  return trimmed?.startsWith('cd ') ? trimmed.slice(3).trim() : undefined;
+};
+
+const targetDirectory = ({
+  target,
+  terminal,
+  commandHint,
+  authorizedDirectories,
+}: {
+  target: DebugDeviceTerminalTarget;
+  terminal?: TerminalSession;
+  commandHint?: TerminalCommandHistoryItem;
+  authorizedDirectories: string[];
+}) =>
+  target.directory ??
+  terminal?.directory ??
+  directoryFromCommand(commandHint?.command) ??
+  authorizedDirectories[0] ??
+  '~';
+
+const DebugDeviceTerminalBootstrap: React.FC = () => {
+  const { theme } = useTheme();
+  const navigation = useNavigation<Navigation>();
+  const route = useRoute<DebugDeviceTerminalRoute>();
+  const devices = useControlCenterStore(state => state.devices);
+  const terminalSessions = useControlCenterStore(
+    state => state.terminalSessions,
+  );
+  const terminalCommandHistory = useControlCenterStore(
+    state => state.terminalCommandHistory,
+  );
+  const createTerminalSession = useControlCenterStore(
+    state => state.createTerminalSession,
+  );
+  const serverMode = useControlCenterStore(state => state.serverMode);
+  const target = route.params.target;
+  const hasNavigatedRef = useRef(false);
+
+  useEffect(() => {
+    if (hasNavigatedRef.current || !serverMode) return;
+
+    const device =
+      target.deviceId === FIRST_ONLINE_DEVICE_TARGET || !target.deviceId
+        ? devices.find(item => item.status === 'online') ?? devices[0]
+        : devices.find(item => item.id === target.deviceId);
+
+    if (!device) return;
+
+    const targetTerminal = target.terminalId
+      ? terminalSessions.find(
+          item => item.id === target.terminalId && item.deviceId === device.id,
+        )
+      : undefined;
+    const runningTerminal =
+      targetTerminal ??
+      terminalSessions.find(
+        item => item.deviceId === device.id && item.status === 'running',
+      );
+    const commandHint = terminalCommandHistory[`device:${device.id}`]?.[0];
+    const directory = targetDirectory({
+      target,
+      terminal: runningTerminal,
+      commandHint,
+      authorizedDirectories: device.authorizedDirectories,
+    });
+
+    if (!runningTerminal) {
+      hasNavigatedRef.current = true;
+      createTerminalSession(device.id, directory)
+        .then(terminalId => {
+          navigation.replace('DeviceTerminal', {
+            deviceId: device.id,
+            directory,
+            terminalId,
+          });
+        })
+        .catch(error => {
+          console.warn('[navigation] Debug terminal bootstrap failed:', error);
+          navigation.replace('DeviceDetail', { deviceId: device.id });
+        });
+      return;
+    }
+
+    hasNavigatedRef.current = true;
+    navigation.replace('DeviceTerminal', {
+      deviceId: device.id,
+      directory,
+      terminalId: runningTerminal.id,
+    });
+  }, [
+    devices,
+    createTerminalSession,
+    navigation,
+    terminalCommandHistory,
+    serverMode,
+    target,
+    target.deviceId,
+    target.directory,
+    target.terminalId,
+    terminalSessions,
+  ]);
+
+  return (
+    <View style={[styles.loading, { backgroundColor: theme.colors.background }]}>
+      <ActivityIndicator color={theme.colors.primary} />
+    </View>
+  );
+};
+
+export const RootNavigator = ({ debugDeviceTerminal }: RootNavigatorProps) => {
   const { theme } = useTheme();
   const hasHydrated = useSessionStore(state => state.hasHydrated);
   const token = useSessionStore(state => state.token);
   const restoreUser = useSessionStore(state => state.restoreUser);
   const serverMode = useControlCenterStore(state => state.serverMode);
-  const initializeFromServer = useControlCenterStore(state => state.initializeFromServer);
+  const initializeFromServer = useControlCenterStore(
+    state => state.initializeFromServer,
+  );
   const syncingRef = useRef(false);
+  const initialRouteName =
+    token && debugDeviceTerminal
+      ? 'DebugDeviceTerminalBootstrap'
+      : token
+      ? 'MainTabs'
+      : 'Login';
 
   useEffect(() => {
     if (!hasHydrated || !token || serverMode || syncingRef.current) return;
@@ -40,6 +178,12 @@ export const RootNavigator = () => {
     restoreUser()
       .then(() => initializeFromServer(token))
       .catch(error => {
+        // A dead/expired session is already torn down centrally (token cleared →
+        // this effect re-runs and renders Login). Don't log it as a scary
+        // failure. Only transient errors (network/server) are worth a warning.
+        if (isSessionInvalidError(error)) {
+          return;
+        }
         console.warn('[navigation] Platform auto-connect failed:', error);
       })
       .finally(() => {
@@ -58,11 +202,18 @@ export const RootNavigator = () => {
   return (
     <Stack.Navigator
       screenOptions={{ headerShown: false }}
-      initialRouteName={token ? 'MainTabs' : 'Login'}>
+      initialRouteName={initialRouteName}>
       {!token ? (
         <Stack.Screen name="Login" component={LoginScreen} />
       ) : (
         <>
+          {debugDeviceTerminal ? (
+            <Stack.Screen
+              name="DebugDeviceTerminalBootstrap"
+              component={DebugDeviceTerminalBootstrap}
+              initialParams={{ target: debugDeviceTerminal }}
+            />
+          ) : null}
           <Stack.Screen name="MainTabs" component={MainTabNavigator} />
           <Stack.Screen name="DeviceBinding" component={DeviceBindingScreen} />
           <Stack.Screen name="DeviceCameraScanner" component={DeviceCameraScannerScreen} />

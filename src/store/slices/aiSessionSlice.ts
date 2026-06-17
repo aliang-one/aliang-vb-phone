@@ -10,7 +10,6 @@ import {
   evictStaleSessionDetail,
   fileNameFromPath,
   formatActivityLabel,
-  mergeAgentMessages,
   mergeIds,
   mergeVibeRunSnapshot,
   nowTime,
@@ -272,10 +271,9 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       throw new Error('Platform connection is required before sending a VibeCoding message.');
     }
     // OPTIMISTIC UPDATE — render the user's message and flip the session to
-    // "running / waiting for AI" BEFORE the HTTP round trip. Previously the
-    // bubble and the thinking status only appeared after `sendAiMessage`
-    // resolved, so the send button felt sluggish and gave no "you're now in
-    // the conversation" feedback.
+    // "running / waiting for AI" BEFORE the HTTP round trip. The optimistic
+    // message is tagged with `pending: true` so the merge logic (internals.ts)
+    // can reconcile it with the server's copy even when IDs differ.
     const optimisticId = createId('msg');
     const optimisticMessage = {
       id: optimisticId,
@@ -315,57 +313,110 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     });
     try {
       const response = await platformTransport.sendAiMessage(sessionId, normalizedContent, mode);
-      // The server persists the user message under its own id. Rename the
-      // optimistic bubble to that id so the next server state sync (which
-      // carries the server's user message) merges into it instead of
-      // rendering a duplicate.
+      // The server persists the user message under its own id (e.g. `msg_abc123`).
+      // Reconcile: the optimistic bubble's id is replaced with the server's id
+      // so subsequent server state sync (WebSocket `ai.session.updated`) merges
+      // into it rather than rendering a duplicate.
+      // FIX: search by content as a fallback — if a WebSocket `ai.session.updated`
+      // already arrived and merged the server's copy (different id), the optimistic
+      // message may have been replaced. In that case the server copy is already
+      // present and `pending` is cleared by the merge, so this handler is a no-op.
       const serverMessageId = response.message_id;
       set(state => ({
         vibeRuns: state.vibeRuns.map(run => {
           if (run.id !== sessionId) return run;
+
+          // 1) Ideal path: optimistic message still present, rename to server id.
           const optimisticIndex = run.transcript.findIndex(
             item => item.id === optimisticId,
           );
-          if (optimisticIndex === -1) return run;
+          if (optimisticIndex >= 0) {
+            const optimistic = run.transcript[optimisticIndex];
+            if (optimistic.role !== 'user') return run;
 
-          const serverIndex = serverMessageId
-            ? run.transcript.findIndex(item => item.id === serverMessageId)
-            : -1;
-          const optimistic = run.transcript[optimisticIndex];
-          if (optimistic.role !== 'user') return run;
+            const serverIndex = serverMessageId
+              ? run.transcript.findIndex(item => item.id === serverMessageId)
+              : -1;
 
-          if (serverMessageId && serverIndex >= 0) {
-            const transcript = run.transcript
-              .filter(item => item.id !== optimisticId)
-              .map(item =>
-                item.id === serverMessageId ? { ...item, pending: false } : item,
-              );
+            if (serverMessageId && serverIndex >= 0) {
+              // Server copy already present (WebSocket arrived first). Drop
+              // optimistic, confirm the server copy.
+              const transcript = run.transcript
+                .filter(item => item.id !== optimisticId)
+                .map(item =>
+                  item.id === serverMessageId ? { ...item, pending: false } : item,
+                );
+              return {
+                ...run,
+                transcript,
+                transcriptCount: Math.max(run.transcriptCount ?? 0, transcript.length),
+                lastMessage:
+                  run.lastMessage?.id === optimisticId
+                    ? transcript[transcript.length - 1]
+                    : run.lastMessage,
+              };
+            }
+
+            // No server copy yet — just rename the optimistic message.
+            const confirmedMessage = {
+              ...optimistic,
+              id: serverMessageId || optimisticId,
+              pending: false,
+            };
+            const transcript = run.transcript.slice();
+            transcript[optimisticIndex] = confirmedMessage;
             return {
               ...run,
               transcript,
-              transcriptCount: Math.max(run.transcriptCount ?? 0, transcript.length),
               lastMessage:
                 run.lastMessage?.id === optimisticId
-                  ? transcript[transcript.length - 1]
+                  ? confirmedMessage
                   : run.lastMessage,
             };
           }
 
-          const confirmedMessage = {
-            ...optimistic,
-            id: serverMessageId || optimisticId,
-            pending: false,
-          };
-          const transcript = run.transcript.slice();
-          transcript[optimisticIndex] = confirmedMessage;
-          return {
-            ...run,
-            transcript,
-            lastMessage:
-              run.lastMessage?.id === optimisticId
-                ? confirmedMessage
-                : run.lastMessage,
-          };
+          // 2) Fallback: optimistic message already gone (WebSocket merged it
+          //    away). Find the server copy by id and confirm it.
+          if (serverMessageId) {
+            const serverIndex = run.transcript.findIndex(
+              item => item.id === serverMessageId,
+            );
+            if (serverIndex >= 0) {
+              const serverMsg = run.transcript[serverIndex];
+              if (serverMsg.role === 'user') {
+                const transcript = run.transcript.slice();
+                transcript[serverIndex] = { ...serverMsg, pending: false };
+                return { ...run, transcript };
+              }
+            }
+          }
+
+          // 3) Last resort: content-based match (handles edge-case where
+          //    server assigned a different id and WebSocket already merged).
+          const byContent = run.transcript.findIndex(
+            item =>
+              item.role === 'user' &&
+              item.mode === mode &&
+              item.content === normalizedContent &&
+              (item as { pending?: boolean }).pending !== false,
+          );
+          if (byContent >= 0 && serverMessageId) {
+            const existing = run.transcript[byContent];
+            // Already has the server id — just confirm.
+            if (existing.id === serverMessageId) {
+              const transcript = run.transcript.slice();
+              transcript[byContent] = { ...existing, pending: false };
+              return { ...run, transcript };
+            }
+            // Different id — rename to server id.
+            const transcript = run.transcript.slice();
+            transcript[byContent] = { ...existing, id: serverMessageId, pending: false };
+            return { ...run, transcript };
+          }
+
+          // 4) Nothing found — the server copy is already confirmed (or the
+          //    message was never created). Return unchanged.
+          return run;
         }),
       }));
     } catch (error) {

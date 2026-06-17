@@ -107,6 +107,7 @@ function applyDeltasToRun(
       transcript.push({
         id: messageId || makeId(),
         role: 'assistant',
+        mode: 'text', // FIX: Add default mode for streaming messages
         content: delta.delta,
         timestamp: nowLabel(),
       });

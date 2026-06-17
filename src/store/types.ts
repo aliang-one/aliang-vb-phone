@@ -70,6 +70,16 @@ export interface TerminalSession {
   updatedAt: string;
 }
 
+export interface TerminalCommandHistoryItem {
+  id: string;
+  terminalSessionId: string;
+  deviceId: string;
+  command: string;
+  timestamp: string;
+  exitCode?: number | null;
+  createdAt: string;
+}
+
 export interface ProjectScanResult {
   id: string;
   deviceId: string;
@@ -195,6 +205,7 @@ export interface ControlCenterState {
   vibeRuns: VibeCodingRun[];
   previewLinks: PreviewLink[];
   terminalSessions: TerminalSession[];
+  terminalCommandHistory: Record<string, TerminalCommandHistoryItem[]>;
   scanResults: ProjectScanResult[];
   approvals: ApprovalRequest[];
   notifications: PushNotificationItem[];
@@ -239,6 +250,10 @@ export interface ControlCenterState {
   clearTerminal: (terminalId: string) => void;
   stopTerminal: (terminalId: string) => Promise<void>;
   interruptTerminal: (terminalId: string) => void;
+  loadTerminalCommandHistory: (
+    terminalId: string,
+    deviceId?: string,
+  ) => Promise<void>;
   startAgentSession: (input: StartAgentInput) => Promise<string>;
   loadAgentSessionDetail: (sessionId: string) => Promise<void>;
   pauseAgentSession: (sessionId: string) => Promise<void>;

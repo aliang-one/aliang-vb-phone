@@ -11,7 +11,7 @@ export const GridBackground: React.FC<GridBackgroundProps> = ({
   spacing = 30,
 }) => {
   const { isDark } = useTheme();
-  const strokeColor = isDark ? 'rgba(0, 209, 255, 0.06)' : 'rgba(0, 81, 174, 0.04)';
+  const strokeColor = isDark ? 'rgba(86, 156, 214, 0.06)' : 'rgba(0, 81, 174, 0.04)';
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">

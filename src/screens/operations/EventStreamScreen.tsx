@@ -134,7 +134,7 @@ export const EventStreamScreen: React.FC = () => {
                       : theme.colors.outlineVariant,
                     backgroundColor: active
                       ? isDark
-                        ? 'rgba(0, 209, 255, 0.12)'
+                        ? 'rgba(86, 156, 214, 0.12)'
                         : 'rgba(0, 81, 174, 0.08)'
                       : 'transparent',
                   },

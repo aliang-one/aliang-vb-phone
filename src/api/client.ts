@@ -4,6 +4,10 @@ import {
   PLATFORM_SERVICE_CANDIDATES,
   rememberPlatformServiceBaseUrl,
 } from '../config/localService';
+import {
+  isSessionInvalidError,
+  notifySessionInvalidated,
+} from './sessionAuth';
 
 const REQUEST_TIMEOUT_MS = 8000;
 
@@ -134,6 +138,10 @@ export async function apiFetch<T = unknown>(
       return payload;
     } catch (error) {
       if (error instanceof ApiResponseError) {
+        // A 401 / invalid-token means our local session is dead: tear it down
+        // once (the hub de-dupes) so the app returns to Login instead of
+        // stranding the user in a workspace where every call fails.
+        if (isSessionInvalidError(error)) notifySessionInvalidated();
         throw error;
       }
       lastError = error;

@@ -7,6 +7,8 @@ jest.mock('../src/services/platformTransport', () => ({
     disconnect: jest.fn(),
     loadSnapshot: jest.fn(),
     connect: jest.fn(),
+    loadDeviceTerminalCommands: jest.fn(),
+    loadTerminalSessionCommands: jest.fn(),
     send: jest.fn(),
   },
 }));
@@ -56,7 +58,9 @@ describe('terminal output store handling', () => {
           updatedAt: '2026-06-16T10:00:00.000Z',
         },
       ],
+      terminalCommandHistory: {},
     });
+    jest.clearAllMocks();
   });
 
   it('replaces screen-repaint stdout frames instead of appending forever', () => {
@@ -219,6 +223,48 @@ describe('terminal output store handling', () => {
     ).toEqual([['command', 'watch date']]);
   });
 
+  it('defaults direct terminal input to text encoding', () => {
+    (platformTransport.send as jest.Mock).mockClear();
+    (platformTransport.send as jest.Mock).mockReturnValue(true);
+
+    useControlCenterStore.getState().sendTerminalInput('term-1', '\t');
+
+    expect(platformTransport.send).toHaveBeenCalledWith({
+      type: 'terminal.input',
+      session_id: 'term-1',
+      data: '\t',
+      encoding: 'text',
+    });
+  });
+
+  it('loads terminal command history for session and device suggestions', async () => {
+    (platformTransport.loadTerminalSessionCommands as jest.Mock).mockResolvedValue([
+      serverCommand('cmd-session', 'term-1', 'device-1', 'git status --short'),
+    ]);
+    (platformTransport.loadDeviceTerminalCommands as jest.Mock).mockResolvedValue([
+      serverCommand('cmd-device', 'term-2', 'device-1', 'npm test -- --runInBand'),
+    ]);
+
+    await useControlCenterStore
+      .getState()
+      .loadTerminalCommandHistory('term-1', 'device-1');
+
+    expect(platformTransport.loadTerminalSessionCommands).toHaveBeenCalledWith(
+      'term-1',
+      20,
+    );
+    expect(platformTransport.loadDeviceTerminalCommands).toHaveBeenCalledWith(
+      'device-1',
+      30,
+    );
+    expect(
+      useControlCenterStore.getState().terminalCommandHistory['session:term-1'],
+    ).toMatchObject([{ command: 'git status --short' }]);
+    expect(
+      useControlCenterStore.getState().terminalCommandHistory['device:device-1'],
+    ).toMatchObject([{ command: 'npm test -- --runInBand' }]);
+  });
+
   it('keeps local terminal output when a snapshot refresh arrives', () => {
     useControlCenterStore.setState(state => ({
       terminalSessions: state.terminalSessions.map(item =>
@@ -294,3 +340,21 @@ describe('terminal output store handling', () => {
     ]);
   });
 });
+
+function serverCommand(
+  id: string,
+  terminalSessionId: string,
+  deviceId: string,
+  command: string,
+) {
+  return {
+    id,
+    terminalSessionId,
+    userId: 'user-1',
+    deviceId,
+    command,
+    timestamp: '2026-06-17T10:00:00.000Z',
+    exitCode: null,
+    createdAt: '2026-06-17T10:00:00.000Z',
+  };
+}

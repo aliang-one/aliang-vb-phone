@@ -20,14 +20,17 @@ import {
   createAiSession as apiCreateAiSession,
   deleteAiSession as apiDeleteAiSession,
   createTerminalSession as apiCreateTerminalSession,
+  fetchDeviceTerminalCommands,
   fetchAiSession,
   fetchAiSessions,
+  fetchTerminalSessionCommands,
   pauseAiSession as apiPauseAiSession,
   resumeAiSession as apiResumeAiSession,
   sendAiMessage as apiSendAiMessage,
   terminateAiSession as apiTerminateAiSession,
   updateAiSession as apiUpdateAiSession,
   type ServerAiSession,
+  type ServerTerminalCommand,
   type ServerTerminalSession,
 } from '../api/sessions';
 import {
@@ -87,6 +90,7 @@ export type PlatformProjectFileContentSnapshot = ServerProjectFileContent;
 export type PlatformAiSessionSnapshot = ServerAiSession;
 export type PlatformApprovalSnapshot = ServerApproval;
 export type PlatformTerminalSessionSnapshot = ServerTerminalSession;
+export type PlatformTerminalCommandSnapshot = ServerTerminalCommand;
 export type PlatformRealtimeEventSnapshot = ServerRealtimeEvent;
 export type PlatformNotificationSnapshot = ServerNotification;
 
@@ -361,6 +365,22 @@ class PlatformTransport {
 
   closeTerminalSession(sessionId: string): Promise<ServerTerminalSession> {
     return apiCloseTerminalSession(sessionId);
+  }
+
+  async loadTerminalSessionCommands(
+    sessionId: string,
+    limit = 20,
+  ): Promise<PlatformTerminalCommandSnapshot[]> {
+    const result = await fetchTerminalSessionCommands(sessionId, limit);
+    return result.commands;
+  }
+
+  async loadDeviceTerminalCommands(
+    deviceId: string,
+    limit = 20,
+  ): Promise<PlatformTerminalCommandSnapshot[]> {
+    const result = await fetchDeviceTerminalCommands(deviceId, limit);
+    return result.commands;
   }
 
   private emit(event: PlatformTransportEvent): void {

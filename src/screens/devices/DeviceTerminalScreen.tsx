@@ -1,13 +1,20 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
-  KeyboardAvoidingView,
+  ActivityIndicator,
+  Keyboard,
   NativeScrollEvent,
   NativeSyntheticEvent,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  TextInputKeyPressEventData,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -29,6 +36,16 @@ import {
   getTerminalInteractionState,
   getTerminalStatusChip,
 } from '../../utils/terminalInteraction';
+import {
+  createTerminalKeyboardProxyState,
+  markTerminalKeyboardProxyInputReset,
+  resetTerminalKeyboardProxyInput,
+  TERMINAL_KEYBOARD_PROXY_SELECTION,
+  TERMINAL_KEYBOARD_PROXY_VALUE,
+  terminalKeyboardProxyChangeAction,
+  terminalKeyboardProxyKeyAction,
+} from '../../utils/terminalKeyboardProxy';
+import { buildTerminalSuggestions } from '../../utils/terminalSuggestions';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DeviceTerminalRoute = RouteProp<RootStackParamList, 'DeviceTerminal'>;
@@ -46,6 +63,8 @@ const shortDirectoryName = (path: string) => {
 const terminalKeyBytes: Record<string, string> = {
   Esc: '\x1b',
   Tab: '\x09',
+  Enter: '\r',
+  Backspace: '\x7f',
   'Ctrl+C': '\x03',
   'Ctrl+D': '\x04',
   Up: '\x1b[A',
@@ -139,6 +158,11 @@ export const DeviceTerminalScreen: React.FC = () => {
   const navigation = useNavigation<Navigation>();
   const route = useRoute<DeviceTerminalRoute>();
   const terminalBridgeRef = useRef<TerminalEmulatorHandle | null>(null);
+  const keyboardProxyRef = useRef<TextInput>(null);
+  const keyboardProxyStateRef = useRef(createTerminalKeyboardProxyState());
+  const keyboardProxyFocusRetryRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const directoryPathRef = useRef<ScrollView>(null);
   const devices = useControlCenterStore(state => state.devices);
   const terminalSessions = useControlCenterStore(
@@ -147,10 +171,23 @@ export const DeviceTerminalScreen: React.FC = () => {
   const createTerminalSession = useControlCenterStore(
     state => state.createTerminalSession,
   );
+  const terminalCommandHistory = useControlCenterStore(
+    state => state.terminalCommandHistory,
+  );
+  const loadTerminalCommandHistory = useControlCenterStore(
+    state => state.loadTerminalCommandHistory,
+  );
   const serverMode = useControlCenterStore(state => state.serverMode);
   const [terminalId, setTerminalId] = useState(route.params.terminalId);
-  const [command, setCommand] = useState('');
   const [terminalOpening, setTerminalOpening] = useState(false);
+  const [renderedTerminalId, setRenderedTerminalId] = useState('');
+  const [terminalRenderError, setTerminalRenderError] = useState<{
+    sessionId: string;
+    message: string;
+  } | null>(null);
+  const [keyboardProxyFocused, setKeyboardProxyFocused] = useState(false);
+  const [keyboardInset, setKeyboardInset] = useState(0);
+  const [floatingControlsHeight, setFloatingControlsHeight] = useState(0);
   const quickDirectoryInitializedRef = useRef(Boolean(route.params.directory));
   const [focusedDirectory, setFocusedDirectory] = useState(
     route.params.directory ?? '~',
@@ -165,7 +202,6 @@ export const DeviceTerminalScreen: React.FC = () => {
     terminalStatus: terminal?.status,
     deviceStatus: device?.status,
     terminalOpening,
-    command,
   });
   const terminalStatusChip = getTerminalStatusChip(terminal?.status);
   const availableDirectories = useMemo(() => {
@@ -177,18 +213,19 @@ export const DeviceTerminalScreen: React.FC = () => {
     ? focusedDirectory
     : directory;
   const aiSuggestions = useMemo(() => {
-    const suggestions = new Set<string>([
-      'pwd',
-      'ls -la',
-      'git status --short',
-      'git log --oneline -5',
-      'npm run lint',
-      'npm test -- --runInBand',
-    ]);
+    const sessionHistory = terminal
+      ? terminalCommandHistory[`session:${terminal.id}`] ?? []
+      : [];
+    const deviceHistory = device
+      ? terminalCommandHistory[`device:${device.id}`] ?? []
+      : [];
 
-    return Array.from(suggestions).slice(0, 4);
-  }, []);
-  const canExecute = terminalInteraction.canExecute;
+    return buildTerminalSuggestions({
+      directory,
+      history: [...sessionHistory, ...deviceHistory],
+      max: 4,
+    });
+  }, [device, directory, terminal, terminalCommandHistory]);
   const surfaceColor = isDark
     ? 'rgba(255,255,255,0.04)'
     : theme.colors.surfaceContainerLow;
@@ -214,13 +251,20 @@ export const DeviceTerminalScreen: React.FC = () => {
     ? 'rgba(0,209,255,0.12)'
     : 'rgba(0,81,174,0.08)';
   const currentDirectoryDotColor = isDark ? theme.colors.secondary : '#16A34A';
-  const disabledSurfaceColor = isDark
-    ? 'rgba(255,255,255,0.08)'
-    : theme.colors.surfaceContainerHigh;
+  const terminalViewportInset = terminal
+    ? Math.max(floatingControlsHeight + keyboardInset, 104)
+    : 0;
+  const terminalRendered = Boolean(terminal && renderedTerminalId === terminal.id);
+  const terminalRenderErrorMessage =
+    terminal && terminalRenderError?.sessionId === terminal.id
+      ? terminalRenderError.message
+      : '';
   const terminalInputEnabled =
     serverMode &&
     device?.status === 'online' &&
     terminal?.status === 'running' &&
+    terminalRendered &&
+    !terminalRenderErrorMessage &&
     !terminalOpening;
 
   useEffect(() => {
@@ -244,6 +288,62 @@ export const DeviceTerminalScreen: React.FC = () => {
     return undefined;
   }, [createTerminalSession, device, route.params.directory, terminalId]);
 
+  useEffect(
+    () => () => {
+      if (keyboardProxyFocusRetryRef.current) {
+        clearTimeout(keyboardProxyFocusRetryRef.current);
+      }
+    },
+    [],
+  );
+
+  const resetKeyboardProxyInput = useCallback(() => {
+    keyboardProxyStateRef.current = markTerminalKeyboardProxyInputReset(
+      keyboardProxyStateRef.current,
+    );
+    resetTerminalKeyboardProxyInput(keyboardProxyRef.current);
+  }, []);
+
+  useEffect(() => {
+    const syncKeyboardInset = (event: {
+      endCoordinates?: { height?: number };
+    }) => {
+      setKeyboardInset(Math.max(0, event.endCoordinates?.height ?? 0));
+    };
+    const clearKeyboardInset = () => {
+      setKeyboardInset(0);
+    };
+    const subscriptions = [
+      Keyboard.addListener('keyboardWillShow', syncKeyboardInset),
+      Keyboard.addListener('keyboardDidShow', syncKeyboardInset),
+      Keyboard.addListener('keyboardWillChangeFrame', syncKeyboardInset),
+      Keyboard.addListener('keyboardWillHide', clearKeyboardInset),
+      Keyboard.addListener('keyboardDidHide', clearKeyboardInset),
+    ];
+
+    return () => {
+      subscriptions.forEach(subscription => subscription.remove());
+    };
+  }, []);
+
+  useEffect(() => {
+    keyboardProxyStateRef.current = createTerminalKeyboardProxyState();
+    setKeyboardProxyFocused(false);
+    resetKeyboardProxyInput();
+  }, [resetKeyboardProxyInput, terminalId]);
+
+  useEffect(() => {
+    if (terminalInputEnabled) return;
+
+    keyboardProxyStateRef.current = createTerminalKeyboardProxyState();
+    setKeyboardProxyFocused(false);
+    if (keyboardProxyFocusRetryRef.current) {
+      clearTimeout(keyboardProxyFocusRetryRef.current);
+      keyboardProxyFocusRetryRef.current = null;
+    }
+    resetKeyboardProxyInput();
+  }, [resetKeyboardProxyInput, terminalInputEnabled]);
+
   useEffect(() => {
     setFocusedDirectory(directory);
     if (!quickDirectoryInitializedRef.current && terminal?.directory) {
@@ -260,6 +360,22 @@ export const DeviceTerminalScreen: React.FC = () => {
 
     return () => clearTimeout(timer);
   }, [visibleDirectory]);
+
+  useEffect(() => {
+    if (!terminal || !device || !serverMode) return;
+
+    loadTerminalCommandHistory(terminal.id, device.id).catch(() => {
+      // Suggestions are opportunistic; terminal input should never depend on them.
+    });
+  }, [device, loadTerminalCommandHistory, serverMode, terminal]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      terminalBridgeRef.current?.fit();
+    }, 40);
+
+    return () => clearTimeout(timer);
+  }, [keyboardInset, terminalViewportInset]);
 
   const handleBack = () => {
     if (navigation.canGoBack()) {
@@ -280,13 +396,12 @@ export const DeviceTerminalScreen: React.FC = () => {
       quickDirectoryInitializedRef.current = true;
       setCurrentQuickDirectory(nextDirectory);
       setFocusedDirectory(nextDirectory);
-      setCommand('');
     } finally {
       setTerminalOpening(false);
     }
   };
 
-  const handleDirectorySelect = async (nextDirectory: string) => {
+  const handleDirectorySelect = (nextDirectory: string) => {
     setFocusedDirectory(nextDirectory);
   };
 
@@ -297,10 +412,58 @@ export const DeviceTerminalScreen: React.FC = () => {
     await handleDirectoryChange(visibleDirectory);
   };
 
-  const sendToTerminal = (data: string) => {
+  const sendToTerminal = (data: string, options?: { focus?: boolean }) => {
     if (!terminalInputEnabled || !data) return;
-    terminalBridgeRef.current?.sendText(data);
-    terminalBridgeRef.current?.focus();
+    const shouldFocus = options?.focus !== false;
+    terminalBridgeRef.current?.sendText(data, { focus: shouldFocus });
+    if (shouldFocus) terminalBridgeRef.current?.focus();
+  };
+
+  const focusKeyboardProxyInput = () => {
+    if (!terminalInputEnabled) return;
+    if (keyboardProxyFocusRetryRef.current) {
+      clearTimeout(keyboardProxyFocusRetryRef.current);
+    }
+    setKeyboardProxyFocused(true);
+    keyboardProxyStateRef.current = createTerminalKeyboardProxyState();
+    resetKeyboardProxyInput();
+    keyboardProxyRef.current?.focus();
+    keyboardProxyFocusRetryRef.current = setTimeout(() => {
+      keyboardProxyFocusRetryRef.current = null;
+      resetKeyboardProxyInput();
+      keyboardProxyRef.current?.focus();
+    }, 40);
+  };
+
+  const focusTerminalInput = () => {
+    focusKeyboardProxyInput();
+  };
+
+  const handleKeyboardProxyFocus = () => {
+    setKeyboardProxyFocused(true);
+    resetKeyboardProxyInput();
+  };
+
+  const handleKeyboardProxyChange = (value: string) => {
+    const action = terminalKeyboardProxyChangeAction(
+      keyboardProxyStateRef.current,
+      value,
+    );
+    keyboardProxyStateRef.current = action.state;
+    if (action.input) sendToTerminal(action.input, { focus: false });
+    resetKeyboardProxyInput();
+  };
+
+  const handleKeyboardProxyKeyPress = ({
+    nativeEvent,
+  }: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+    const action = terminalKeyboardProxyKeyAction(
+      keyboardProxyStateRef.current,
+      nativeEvent.key,
+    );
+    keyboardProxyStateRef.current = action.state;
+    if (action.input) sendToTerminal(action.input, { focus: false });
+    resetKeyboardProxyInput();
   };
 
   const focusDirectoryFromScroll = (
@@ -327,17 +490,6 @@ export const DeviceTerminalScreen: React.FC = () => {
     focusDirectoryFromScroll(event);
   };
 
-  const handleExecute = () => {
-    const trimmed = command.trim();
-
-    if (!canExecute || !terminalInputEnabled || !trimmed) {
-      return;
-    }
-
-    sendToTerminal(`${trimmed}\r`);
-    setCommand('');
-  };
-
   if (!device) {
     return (
       <SafeAreaWrapper>
@@ -361,10 +513,7 @@ export const DeviceTerminalScreen: React.FC = () => {
     <SafeAreaWrapper
       style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
     >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.keyboard}
-      >
+      <View style={styles.keyboard}>
         <View
           style={[
             styles.consoleFrame,
@@ -576,7 +725,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                           key={item}
                           activeOpacity={0.78}
                           disabled={!terminalInteraction.canChangeDirectory}
-                          onPress={() => void handleDirectorySelect(item)}
+                          onPress={() => handleDirectorySelect(item)}
                           style={[
                             styles.folderTile,
                             {
@@ -586,12 +735,10 @@ export const DeviceTerminalScreen: React.FC = () => {
                               borderColor: active
                                 ? theme.colors.primary
                                 : outlineColor,
-                              opacity:
-                                !terminalInteraction.canChangeDirectory &&
-                                !active
-                                  ? 0.45
-                                  : 1,
                             },
+                            !terminalInteraction.canChangeDirectory &&
+                              !active &&
+                              styles.disabledDirectoryItem,
                           ]}
                         >
                           {current ? (
@@ -633,7 +780,9 @@ export const DeviceTerminalScreen: React.FC = () => {
                   </ScrollView>
                   <TouchableOpacity
                     activeOpacity={0.76}
-                    onPress={() => void handleDirectoryEnter()}
+                    onPress={() => {
+                      handleDirectoryEnter().catch(() => {});
+                    }}
                     disabled={
                       !terminalInteraction.canChangeDirectory ||
                       visibleDirectory === directory
@@ -643,12 +792,10 @@ export const DeviceTerminalScreen: React.FC = () => {
                       {
                         backgroundColor: recessedSurfaceColor,
                         borderColor: outlineColor,
-                        opacity:
-                          !terminalInteraction.canChangeDirectory ||
-                          visibleDirectory === directory
-                            ? 0.72
-                            : 1,
                       },
+                      (!terminalInteraction.canChangeDirectory ||
+                        visibleDirectory === directory) &&
+                        styles.disabledDirectoryPath,
                     ]}
                   >
                     <View
@@ -694,11 +841,68 @@ export const DeviceTerminalScreen: React.FC = () => {
             ]}
           >
             {terminal ? (
-              <TerminalEmulator
-                sessionId={terminal.id}
-                enabled={terminalInputEnabled}
-                terminalRef={terminalBridgeRef}
-              />
+              <View
+                testID="terminal-viewport"
+                style={[
+                  styles.terminalViewport,
+                  { paddingBottom: terminalViewportInset },
+                ]}
+              >
+                <TerminalEmulator
+                  sessionId={terminal.id}
+                  enabled={terminalInputEnabled}
+                  terminalRef={terminalBridgeRef}
+                  onFocusRequest={focusKeyboardProxyInput}
+                  onRendered={() => setRenderedTerminalId(terminal.id)}
+                  onRenderError={message =>
+                    setTerminalRenderError({ sessionId: terminal.id, message })
+                  }
+                />
+                {!terminalRendered && !terminalRenderErrorMessage ? (
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.terminalStatusOverlay,
+                      { backgroundColor: theme.colors.surfaceContainerLowest },
+                    ]}>
+                    <ActivityIndicator color={theme.colors.primary} />
+                    <Text
+                      style={[
+                        theme.typography.labelMd,
+                        { color: theme.colors.onSurfaceVariant },
+                        styles.terminalStatusText,
+                      ]}>
+                      Rendering terminal...
+                    </Text>
+                  </View>
+                ) : null}
+                {terminalRenderErrorMessage ? (
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.terminalStatusOverlay,
+                      { backgroundColor: theme.colors.surfaceContainerLowest },
+                    ]}>
+                    <Text
+                      style={[
+                        theme.typography.labelMd,
+                        { color: theme.colors.error },
+                        styles.terminalStatusText,
+                      ]}>
+                      Terminal failed to load
+                    </Text>
+                    <Text
+                      numberOfLines={3}
+                      style={[
+                        theme.typography.bodySm,
+                        { color: theme.colors.onSurfaceVariant },
+                        styles.terminalStatusDetail,
+                      ]}>
+                      {terminalRenderErrorMessage}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
             ) : (
               <View style={styles.terminalPlaceholder}>
                 <Text
@@ -713,178 +917,169 @@ export const DeviceTerminalScreen: React.FC = () => {
                 </Text>
               </View>
             )}
+
+            {terminal ? (
+              <View
+                testID="terminal-floating-controls"
+                pointerEvents="box-none"
+                onLayout={event =>
+                  setFloatingControlsHeight(event.nativeEvent.layout.height)
+                }
+                style={[styles.floatingControls, { bottom: keyboardInset }]}
+              >
+                <ScrollView
+                  testID="terminal-suggestion-row"
+                  horizontal
+                  keyboardShouldPersistTaps="handled"
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.suggestionRow}
+                >
+                  {aiSuggestions.map(item => (
+                    <TouchableOpacity
+                      key={item}
+                      activeOpacity={0.76}
+                      disabled={!terminalInputEnabled}
+                      onPress={() => sendToTerminal(`${item}\r`)}
+                      style={[
+                        styles.aiBubble,
+                        {
+                          backgroundColor: surfaceColor,
+                          borderColor: outlineColor,
+                        },
+                        !terminalInputEnabled && styles.disabledSuggestion,
+                      ]}
+                    >
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          theme.typography.codeSm,
+                          styles.aiBubbleText,
+                          { color: theme.colors.onSurfaceVariant },
+                        ]}
+                      >
+                        {item}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                <ScrollView
+                  horizontal
+                  keyboardShouldPersistTaps="handled"
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.keyRow}
+                >
+                  <TouchableOpacity
+                    testID="terminal-keyboard-focus"
+                    activeOpacity={0.74}
+                    onPressIn={focusTerminalInput}
+                    disabled={!terminalInputEnabled}
+                    style={[
+                      styles.keyButton,
+                      {
+                        backgroundColor: elevatedSurfaceColor,
+                        borderColor: keyboardProxyFocused
+                          ? theme.colors.primary
+                          : outlineColor,
+                      },
+                      !terminalInputEnabled && styles.disabledControl,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        theme.typography.labelCaps,
+                        styles.quickActionText,
+                        {
+                          color: keyboardProxyFocused
+                            ? theme.colors.primary
+                            : theme.colors.onSurfaceVariant,
+                        },
+                      ]}
+                    >
+                      KB
+                    </Text>
+                    <TextInput
+                      ref={keyboardProxyRef}
+                      testID="terminal-keyboard-proxy"
+                      defaultValue={TERMINAL_KEYBOARD_PROXY_VALUE}
+                      onChangeText={handleKeyboardProxyChange}
+                      onKeyPress={handleKeyboardProxyKeyPress}
+                      onFocus={handleKeyboardProxyFocus}
+                      onBlur={() => setKeyboardProxyFocused(false)}
+                      selection={TERMINAL_KEYBOARD_PROXY_SELECTION}
+                      editable={terminalInputEnabled}
+                      pointerEvents="none"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoComplete="off"
+                      keyboardType="ascii-capable"
+                      showSoftInputOnFocus
+                      multiline
+                      blurOnSubmit={false}
+                      caretHidden
+                      contextMenuHidden
+                      importantForAutofill="no"
+                      spellCheck={false}
+                      style={styles.keyboardProxy}
+                    />
+                  </TouchableOpacity>
+                  {Object.entries(terminalKeyBytes).map(([label, value]) => (
+                    <TouchableOpacity
+                      key={label}
+                      testID={`terminal-key-${label}`}
+                      activeOpacity={0.74}
+                      onPress={() => sendToTerminal(value)}
+                      disabled={!terminalInputEnabled}
+                      style={[
+                        styles.keyButton,
+                        {
+                          backgroundColor: elevatedSurfaceColor,
+                          borderColor: outlineColor,
+                        },
+                        !terminalInputEnabled && styles.disabledControl,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          theme.typography.labelCaps,
+                          styles.quickActionText,
+                          { color: theme.colors.onSurfaceVariant },
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            ) : null}
           </View>
 
-          <View
-            style={[styles.inputDivider, { backgroundColor: outlineColor }]}
-          />
-
-          <View
-            style={[
-              styles.bottomDock,
-              { backgroundColor: theme.colors.surfaceContainerLow },
-            ]}
-          >
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.suggestionRow}
-            >
-              {aiSuggestions.map(item => (
-                <TouchableOpacity
-                  key={item}
-                  activeOpacity={0.76}
-                  disabled={!terminalInputEnabled}
-                  onPress={() => sendToTerminal(`${item}\r`)}
-                  style={[
-                    styles.aiBubble,
-                    {
-                      backgroundColor: surfaceColor,
-                      borderColor: outlineColor,
-                      opacity: !terminalInputEnabled ? 0.48 : 1,
-                    },
-                  ]}
-                >
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      theme.typography.codeSm,
-                      styles.aiBubbleText,
-                      { color: theme.colors.onSurfaceVariant },
-                    ]}
-                  >
-                    {item}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.keyRow}
-            >
-              {Object.entries(terminalKeyBytes).map(([label, value]) => (
-                <TouchableOpacity
-                  key={label}
-                  activeOpacity={0.74}
-                  onPress={() => sendToTerminal(value)}
-                  disabled={!terminalInputEnabled}
-                  style={[
-                    styles.keyButton,
-                    {
-                      backgroundColor: elevatedSurfaceColor,
-                      borderColor: outlineColor,
-                      opacity: !terminalInputEnabled ? 0.45 : 1,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      theme.typography.labelCaps,
-                      styles.quickActionText,
-                      { color: theme.colors.onSurfaceVariant },
-                    ]}
-                  >
-                    {label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            <View
+          {terminal?.status === 'waiting_approval' ? (
+            <TouchableOpacity
+              activeOpacity={0.76}
+              onPress={() => navigation.navigate('ApprovalCenter')}
               style={[
-                styles.inputRow,
+                styles.approvalButton,
                 {
-                  backgroundColor: theme.colors.surfaceContainerLowest,
-                  borderColor: strongOutlineColor,
+                  backgroundColor: surfaceColor,
+                  borderColor: theme.colors.tertiary,
                 },
               ]}
             >
               <Text
                 style={[
-                  theme.typography.codeMd,
-                  styles.promptMarker,
-                  { color: theme.colors.primary },
+                  theme.typography.labelCaps,
+                  styles.approvalText,
+                  { color: theme.colors.tertiary },
                 ]}
               >
-                $
+                OPEN APPROVAL CENTER
               </Text>
-              <TextInput
-                value={command}
-                onChangeText={setCommand}
-                placeholder={
-                  terminalOpening
-                    ? 'Opening terminal session...'
-                    : device.status === 'offline'
-                    ? 'Device offline'
-                    : 'Send text to terminal...'
-                }
-                placeholderTextColor={theme.colors.onSurfaceVariant}
-                editable={terminalInputEnabled}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="send"
-                onSubmitEditing={handleExecute}
-                style={[
-                  theme.typography.codeSm,
-                  styles.commandInput,
-                  { color: theme.colors.onSurface },
-                ]}
-              />
-              <TouchableOpacity
-                activeOpacity={0.76}
-                onPress={handleExecute}
-                disabled={!canExecute || !terminalInputEnabled}
-                style={[
-                  styles.executeButton,
-                  {
-                    backgroundColor:
-                      canExecute && terminalInputEnabled
-                        ? theme.colors.primary
-                        : disabledSurfaceColor,
-                    opacity: canExecute && terminalInputEnabled ? 1 : 0.7,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    theme.typography.labelCaps,
-                    styles.executeText,
-                    { color: theme.colors.onPrimary },
-                  ]}
-                >
-                  {terminalInteraction.executeLabel}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {terminal?.status === 'waiting_approval' ? (
-              <TouchableOpacity
-                activeOpacity={0.76}
-                onPress={() => navigation.navigate('ApprovalCenter')}
-                style={[
-                  styles.approvalButton,
-                  {
-                    backgroundColor: surfaceColor,
-                    borderColor: theme.colors.tertiary,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    theme.typography.labelCaps,
-                    styles.approvalText,
-                    { color: theme.colors.tertiary },
-                  ]}
-                >
-                  OPEN APPROVAL CENTER
-                </Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
+            </TouchableOpacity>
+          ) : null}
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaWrapper>
   );
 };
@@ -1009,6 +1204,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 5,
   },
+  disabledDirectoryItem: {
+    opacity: 0.45,
+  },
   currentDirectoryDot: {
     position: 'absolute',
     top: 6,
@@ -1031,6 +1229,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingLeft: 6,
     paddingRight: 10,
+  },
+  disabledDirectoryPath: {
+    opacity: 0.72,
   },
   directoryEnterIcon: {
     width: 24,
@@ -1055,6 +1256,16 @@ const styles = StyleSheet.create({
   outputPane: {
     flex: 1,
     minHeight: 180,
+    position: 'relative',
+  },
+  keyboardProxy: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    opacity: 0,
+    color: 'transparent',
   },
   terminalPlaceholder: {
     flex: 1,
@@ -1062,13 +1273,37 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 16,
   },
-  inputDivider: {
-    height: 1,
+  terminalViewport: {
+    flex: 1,
+    minHeight: 0,
+    position: 'relative',
   },
-  bottomDock: {
+  terminalStatusOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    zIndex: 2,
+  },
+  terminalStatusText: {
+    letterSpacing: 0,
+  },
+  terminalStatusDetail: {
+    maxWidth: 220,
+    textAlign: 'center',
+  },
+  floatingControls: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 12,
+    paddingTop: 8,
+    paddingBottom: 8,
     gap: 10,
   },
   suggestionRow: {
@@ -1082,6 +1317,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderWidth: 1,
     borderRadius: 8,
+  },
+  disabledSuggestion: {
+    opacity: 0.48,
   },
   aiBubbleText: {
     letterSpacing: 0,
@@ -1103,36 +1341,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 8,
   },
-  inputRow: {
-    minHeight: 50,
-    borderWidth: 1,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingLeft: 12,
-    paddingRight: 6,
-  },
-  promptMarker: {
-    fontWeight: '700',
-    letterSpacing: 0,
-  },
-  commandInput: {
-    flex: 1,
-    minHeight: 40,
-    paddingVertical: 8,
-    letterSpacing: 0,
-  },
-  executeButton: {
-    minWidth: 88,
-    height: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    borderRadius: 8,
-  },
-  executeText: {
-    letterSpacing: 0,
+  disabledControl: {
+    opacity: 0.45,
   },
   approvalButton: {
     minHeight: 36,

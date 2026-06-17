@@ -10,12 +10,13 @@ interface StatusChipProps {
   style?: object;
 }
 
+// VSCode Dark+ inspired status colors
 const statusColorMap: Record<StatusType, { bg: string; text: string }> = {
-  success: { bg: 'rgba(47, 248, 1, 0.15)', text: '#2FF801' },
-  warning: { bg: 'rgba(254, 177, 39, 0.15)', text: '#FEB127' },
-  error: { bg: 'rgba(255, 180, 171, 0.15)', text: '#FF6B6B' },
-  neutral: { bg: 'rgba(255, 255, 255, 0.08)', text: '#BBC9CF' },
-  info: { bg: 'rgba(0, 209, 255, 0.15)', text: '#00D1FF' },
+  success: { bg: 'rgba(106, 153, 85, 0.18)', text: '#6A9955' },   // VSCode comment green
+  warning: { bg: 'rgba(206, 145, 120, 0.18)', text: '#CE9178' },   // VSCode string orange
+  error: { bg: 'rgba(244, 135, 113, 0.18)', text: '#F48771' },     // VSCode error red
+  neutral: { bg: 'rgba(204, 204, 204, 0.08)', text: '#9D9D9D' },   // muted gray
+  info: { bg: 'rgba(86, 156, 214, 0.18)', text: '#569CD6' },       // VSCode keyword blue
 };
 
 export const StatusChip: React.FC<StatusChipProps> = ({ label, type, style }) => {

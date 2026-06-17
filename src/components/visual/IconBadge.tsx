@@ -32,7 +32,9 @@ export type IconName =
   | 'pause'
   | 'stop'
   | 'quota'
-  | 'plus';
+  | 'plus'
+  | 'minus'
+  | 'chevron';
 
 type Tone = 'primary' | 'secondary' | 'tertiary' | 'error' | 'neutral';
 
@@ -259,6 +261,10 @@ const IconShape: React.FC<IconShapeProps> = ({ name, stroke }) => {
       );
     case 'plus':
       return <Path d="M12 6v12M6 12h12" stroke={stroke} {...common} />;
+    case 'minus':
+      return <Path d="M6 12h12" stroke={stroke} {...common} />;
+    case 'chevron':
+      return <Path d="M6 9l6 6 6-6" stroke={stroke} {...common} />;
   }
 };
 
