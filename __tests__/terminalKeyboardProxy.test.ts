@@ -259,6 +259,7 @@ describe('terminalKeyboardProxy', () => {
     expect(terminalKeyboardProxyKeyAction(state, 'PageDown', 1000).input).toBe(
       '\x1b[6~',
     );
+    expect(terminalKeyboardProxyKeyAction(state, 'l', 1000).input).toBe('');
   });
 
   it('ignores non-terminal keypress values', () => {

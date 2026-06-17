@@ -303,6 +303,33 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     });
   });
 
+  it('offers common terminal editing shortcuts in the floating key row', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-key-Ctrl+L' }),
+    ).toBeTruthy();
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-key-Ctrl+R' }),
+    ).toBeTruthy();
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-key-Ctrl+U' }),
+    ).toBeTruthy();
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-key-Ctrl+W' }),
+    ).toBeTruthy();
+
+    act(() => {
+      screen!.root.findByProps({ testID: 'terminal-key-Ctrl+U' }).props.onPress();
+    });
+
+    expect(mockTerminalSendText).toHaveBeenCalledWith('\x15', {
+      focus: false,
+    });
+  });
+
   it('shows focused keyboard state when the KB control requests soft keyboard focus', async () => {
     await act(async () => {
       screen = renderScreen();
