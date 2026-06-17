@@ -1,6 +1,7 @@
 import {
   getTerminalInteractionState,
   getTerminalStatusChip,
+  isActiveTerminalSessionStatus,
   isTerminalInputAvailable,
 } from '../src/utils/terminalInteraction';
 
@@ -60,5 +61,14 @@ describe('terminalInteraction', () => {
       inputEnabled: false,
       canExecute: false,
     });
+  });
+
+  it('identifies terminal sessions that should remain visible as active', () => {
+    expect(isActiveTerminalSessionStatus('running')).toBe(true);
+    expect(isActiveTerminalSessionStatus('idle')).toBe(true);
+    expect(isActiveTerminalSessionStatus('waiting_approval')).toBe(true);
+    expect(isActiveTerminalSessionStatus('completed')).toBe(false);
+    expect(isActiveTerminalSessionStatus('failed')).toBe(false);
+    expect(isActiveTerminalSessionStatus('stopped')).toBe(false);
   });
 });

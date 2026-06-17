@@ -22,6 +22,16 @@ const blockedInputStatuses = new Set<TerminalSessionStatus>([
   'waiting_approval',
 ]);
 
+const activeTerminalStatuses = new Set<TerminalSessionStatus>([
+  'running',
+  'idle',
+  'waiting_approval',
+]);
+
+export const isActiveTerminalSessionStatus = (
+  status: TerminalSessionStatus,
+) => activeTerminalStatuses.has(status);
+
 export const isTerminalInputAvailable = ({
   terminalStatus,
   deviceStatus,

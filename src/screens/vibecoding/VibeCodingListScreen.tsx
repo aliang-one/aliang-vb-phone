@@ -29,6 +29,7 @@ import {
   isDeviceStatusOffline,
   offlineLastComparator,
 } from '../../utils/deviceStatus';
+import { isActiveTerminalSessionStatus } from '../../utils/terminalInteraction';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -191,12 +192,7 @@ export const VibeCodingListScreen: React.FC = () => {
   const activeTerminals = useMemo(
     () =>
       terminalSessions
-        .filter(
-          t =>
-            t.status === 'running' ||
-            t.status === 'idle' ||
-            t.status === 'waiting_approval',
-        )
+        .filter(t => isActiveTerminalSessionStatus(t.status))
         .map(terminal => ({
           terminal,
           device: devices.find(item => item.id === terminal.deviceId),

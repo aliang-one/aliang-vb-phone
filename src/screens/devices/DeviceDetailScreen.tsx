@@ -20,6 +20,7 @@ import { Project, VibeStatus } from '../../data/platformModels';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { newestFirst } from '../../utils/timeSort';
+import { isActiveTerminalSessionStatus } from '../../utils/terminalInteraction';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DeviceRoute = RouteProp<RootStackParamList, 'DeviceDetail'>;
@@ -148,10 +149,7 @@ export const DeviceDetailScreen: React.FC = () => {
     return terminalSessions
       .filter(
         t =>
-          t.deviceId === device.id &&
-          (t.status === 'running' ||
-            t.status === 'idle' ||
-            t.status === 'waiting_approval'),
+          t.deviceId === device.id && isActiveTerminalSessionStatus(t.status),
       )
       .sort((a, b) => (b.updatedAt > a.updatedAt ? 1 : -1));
   }, [terminalSessions, device]);

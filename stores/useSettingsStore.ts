@@ -13,6 +13,7 @@ import {
 } from '../src/api/account';
 import { setApiAuthTokenProvider } from '../src/api/client';
 import { platformTransport } from '../src/services/platformTransport';
+import { isActiveTerminalSessionStatus } from '../src/utils/terminalInteraction';
 import {
   SessionExpiredError,
   decodeJwtExp,
@@ -93,11 +94,8 @@ export const useSessionStore = create<SessionState>()(
         try {
           const activeTerminals = useControlCenterStore
             .getState()
-            .terminalSessions.filter(
-              t =>
-                t.status === 'running' ||
-                t.status === 'idle' ||
-                t.status === 'waiting_approval',
+            .terminalSessions.filter(t =>
+              isActiveTerminalSessionStatus(t.status),
             );
           await Promise.all(
             activeTerminals.map(t =>
