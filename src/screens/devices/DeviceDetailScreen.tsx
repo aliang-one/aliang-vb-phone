@@ -272,7 +272,9 @@ const recentEvents = useMemo(
           <ActionGridCard
             icon="agent"
             title="Sessions"
-            subtitle={`${activeSessions.length} active`}
+            subtitle={`${sessions.length} session${
+              sessions.length === 1 ? '' : 's'
+            }${activeSessions.length ? ` · ${activeSessions.length} active` : ''}`}
             onPress={() =>
               navigation.navigate('AgentSessions', { deviceId: device.id })
             }
