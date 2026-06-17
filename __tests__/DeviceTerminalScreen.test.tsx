@@ -18,7 +18,11 @@ const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
 let mockAutoRenderTerminal = true;
 
-let mockRouteParams = {
+let mockRouteParams: {
+  deviceId: string;
+  directory?: string;
+  terminalId?: string;
+} = {
   deviceId: 'device-1',
   directory: '~/project',
   terminalId: 'term-1',
@@ -391,6 +395,88 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       );
     });
 
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
+        .disabled,
+    ).toBe(true);
+    expect(mockTerminalSendText).not.toHaveBeenCalled();
+  });
+
+  it('opens a fresh terminal when route directory changes without a terminal id', async () => {
+    const mockCreateTerminalSession = jest.fn().mockResolvedValueOnce('term-2');
+    useControlCenterStore.setState(state => ({
+      ...state,
+      createTerminalSession: mockCreateTerminalSession,
+      devices: state.devices.map(device =>
+        device.id === 'device-1'
+          ? {
+              ...device,
+              authorizedDirectories: ['~/project', '~/other'],
+            }
+          : device,
+      ),
+      terminalSessions: [
+        ...state.terminalSessions,
+        {
+          id: 'term-2',
+          deviceId: 'device-1',
+          directory: '~/other',
+          shell: 'zsh',
+          status: 'running',
+          lines: [],
+          createdAt: '2026-06-17T11:00:00.000Z',
+          updatedAt: '2026-06-17T11:00:00.000Z',
+        },
+      ],
+    }));
+
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    mockAutoRenderTerminal = false;
+    mockRouteParams = {
+      deviceId: 'device-1',
+      directory: '~/other',
+      terminalId: undefined,
+    };
+
+    await act(async () => {
+      screen!.update(
+        <ThemeContext.Provider
+          value={{
+            theme: utilityMinimalist,
+            mode: 'light',
+            setMode: jest.fn(),
+            isDark: false,
+          }}
+        >
+          <SafeAreaProvider
+            initialMetrics={{
+              frame: { x: 0, y: 0, width: 390, height: 844 },
+              insets: { top: 0, right: 0, bottom: 0, left: 0 },
+            }}
+          >
+            <DeviceTerminalScreen />
+          </SafeAreaProvider>
+        </ThemeContext.Provider>,
+      );
+    });
+
+    expect(mockCreateTerminalSession).toHaveBeenCalledWith(
+      'device-1',
+      '~/other',
+    );
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-directory-other' }).props
+        .style,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          borderColor: utilityMinimalist.colors.primary,
+        }),
+      ]),
+    );
     expect(
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
         .disabled,

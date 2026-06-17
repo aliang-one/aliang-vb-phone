@@ -177,7 +177,10 @@ export const DeviceTerminalScreen: React.FC = () => {
     null,
   );
   const keyboardInsetCacheRef = useRef(0);
-  const routeTerminalIdRef = useRef(route.params.terminalId);
+  const routeTerminalTargetRef = useRef({
+    terminalId: route.params.terminalId,
+    directory: route.params.directory,
+  });
   const directoryPathRef = useRef<ScrollView>(null);
   const devices = useControlCenterStore(state => state.devices);
   const terminalSessions = useControlCenterStore(
@@ -318,12 +321,21 @@ export const DeviceTerminalScreen: React.FC = () => {
   }, [createTerminalSession, device, route.params.directory, terminalId]);
 
   useEffect(() => {
-    if (routeTerminalIdRef.current === route.params.terminalId) return;
-    routeTerminalIdRef.current = route.params.terminalId;
+    const targetChanged =
+      routeTerminalTargetRef.current.terminalId !== route.params.terminalId ||
+      routeTerminalTargetRef.current.directory !== route.params.directory;
+    if (!targetChanged) return;
+
+    routeTerminalTargetRef.current = {
+      terminalId: route.params.terminalId,
+      directory: route.params.directory,
+    };
     setTerminalId(route.params.terminalId);
     setRenderedTerminalId('');
     setTerminalRenderError(null);
-  }, [route.params.terminalId]);
+    quickDirectoryInitializedRef.current = Boolean(route.params.directory);
+    setCurrentQuickDirectory(route.params.directory ?? '');
+  }, [route.params.directory, route.params.terminalId]);
 
   useEffect(
     () => () => {
