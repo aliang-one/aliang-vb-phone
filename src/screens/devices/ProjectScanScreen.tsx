@@ -36,6 +36,7 @@ export const ProjectScanScreen: React.FC = () => {
   const projects = useControlCenterStore(state => state.projects);
   const scanResults = useControlCenterStore(state => state.scanResults);
   const scanDeviceProjects = useControlCenterStore(state => state.scanDeviceProjects);
+  const refreshFromServer = useControlCenterStore(state => state.refreshFromServer);
   const [scanning, setScanning] = useState(false);
   const device = devices.find(item => item.id === route.params.deviceId);
   const results = scanResults
@@ -56,13 +57,36 @@ export const ProjectScanScreen: React.FC = () => {
   const handleScan = async () => {
     if (!device || scanning) return;
     setScanning(true);
+    const startCount = results.length;
+    const hadResultsAtStart = startCount > 0;
+    // The scan endpoint only ACKs ({ status, device_id }); the server emits
+    // `projects.updated` once its filesystem scan finishes. Trigger it, then
+    // poll the result count so the spinner reflects real result arrival.
     try {
       await scanDeviceProjects(device.id);
-    } finally {
-      // Keep spinner for a short while so the user sees feedback
-      // WS may deliver results asynchronously
-      setTimeout(() => setScanning(false), 1500);
+    } catch {
+      // ignore — WS / polling may still deliver results
     }
+    refreshFromServer().catch(() => {});
+    let polls = 0;
+    const MAX_POLLS = 4;
+    const POLL_MS = 1200;
+    const tick = () => {
+      polls += 1;
+      const current = useControlCenterStore.getState().scanResults.filter(
+        r => r.deviceId === route.params.deviceId,
+      ).length;
+      const grew = current > startCount;
+      // Stop when new results arrive, when we hit the max wait, or after the
+      // first poll if the device already had results (no growth expected).
+      if (grew || polls >= MAX_POLLS || (hadResultsAtStart && polls >= 1)) {
+        setScanning(false);
+        return;
+      }
+      refreshFromServer().catch(() => {});
+      setTimeout(tick, POLL_MS);
+    };
+    setTimeout(tick, POLL_MS);
   };
 
   const handleProjectPress = (item: ProjectScanResult) => {

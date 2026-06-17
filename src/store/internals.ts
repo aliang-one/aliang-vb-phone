@@ -23,6 +23,7 @@ import type {
   ApprovalKind,
   ApprovalRequest,
   ProjectFileEntry,
+  ProjectScanResult,
   PushNotificationItem,
   TerminalLine,
   TerminalLineKind,
@@ -258,6 +259,37 @@ export function serverProjectToClient(sp: PlatformProjectSnapshot): Project {
     isGitRepo: sp.is_git_repo,
     detectedPorts: sp.detected_ports ?? [],
     sourceTools: sp.source_tools ?? [],
+  };
+}
+
+/**
+ * Map a client Project into the ProjectScanResult shape used by the scan UI.
+ * Discovered projects are stored server-side as Project records (the scan
+ * endpoint registers them and the server emits `projects.updated`), so the
+ * "Discovered Projects" list is derived from the projects collection.
+ */
+const PROJECT_STATUS_TO_SCAN: Record<Project['status'], ProjectScanResult['status']> = {
+  active: 'active',
+  idle: 'stale',
+  error: 'warning',
+};
+
+export function projectToScanResult(project: Project): ProjectScanResult {
+  return {
+    id: project.id,
+    deviceId: project.deviceId ?? '',
+    projectId: project.id,
+    name: project.name,
+    path: project.path,
+    isGitRepo: project.isGitRepo ?? false,
+    branch: project.branch ?? 'main',
+    language: project.language,
+    packageManager:
+      (project.packageManager as ProjectScanResult['packageManager']) ?? 'none',
+    packageName: project.name,
+    detectedPorts: project.detectedPorts ?? [],
+    lastActiveAt: project.lastDeploy ?? '',
+    status: PROJECT_STATUS_TO_SCAN[project.status] ?? 'stale',
   };
 }
 
@@ -961,6 +993,7 @@ export function stateFromSnapshot(
     })),
   );
   const devices = attachDeviceRelations(baseDevices, projects, mergedVibeRuns);
+  const scanResults = projects.map(projectToScanResult);
   const approvals = snapshot.approvals
     .filter(approval => knownDeviceIds.has(approval.device_id))
     .map(serverApprovalToClient)
@@ -997,6 +1030,7 @@ export function stateFromSnapshot(
   return {
     devices,
     projects,
+    scanResults,
     vibeRuns: mergedVibeRuns,
     terminalSessions,
     approvals,
