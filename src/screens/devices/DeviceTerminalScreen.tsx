@@ -254,7 +254,7 @@ export const DeviceTerminalScreen: React.FC = () => {
     ? 'rgba(0,209,255,0.12)'
     : 'rgba(0,81,174,0.08)';
   const currentDirectoryDotColor = isDark ? theme.colors.secondary : '#16A34A';
-  const topPanelCollapsed = keyboardInset > 0;
+  const topPanelCollapsed = keyboardInset > 0 || keyboardProxyFocused;
   const terminalViewportInset = terminal
     ? Math.max(floatingControlsHeight + keyboardInset, 104)
     : 0;
