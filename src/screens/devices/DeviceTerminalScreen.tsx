@@ -1087,6 +1087,8 @@ export const DeviceTerminalScreen: React.FC = () => {
                       keyboardType={TERMINAL_PROXY_KEYBOARD_TYPE}
                       showSoftInputOnFocus
                       disableFullscreenUI
+                      returnKeyType="done"
+                      submitBehavior="newline"
                       multiline
                       blurOnSubmit={false}
                       caretHidden

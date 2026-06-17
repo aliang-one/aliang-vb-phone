@@ -194,6 +194,8 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(keyboardProxy.props.autoComplete).toBe('off');
     expect(keyboardProxy.props.textContentType).toBe('none');
     expect(keyboardProxy.props.disableFullscreenUI).toBe(true);
+    expect(keyboardProxy.props.returnKeyType).toBe('done');
+    expect(keyboardProxy.props.submitBehavior).toBe('newline');
     expect(
       screen!.root
         .findByProps({ testID: 'terminal-keyboard-focus' })
