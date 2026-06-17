@@ -28,6 +28,10 @@ describe('terminalHtml', () => {
     );
     expect(html).toContain("terminalRoot.addEventListener('touchend', function(event)");
     expect(html).toContain('at: Date.now()');
+    expect(html).toContain('var TOUCH_END_MAX_OFFSET = 8');
+    expect(html).toContain('event.changedTouches && event.changedTouches[0]');
+    expect(html).toContain('dx > TOUCH_END_MAX_OFFSET');
+    expect(html).toContain('dy > TOUCH_END_MAX_OFFSET');
     expect(html).toContain('if (elapsed > 450) return');
     expect(html).toContain('event.preventDefault()');
     expect(html).toContain('event.stopPropagation()');

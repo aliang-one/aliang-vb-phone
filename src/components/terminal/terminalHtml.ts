@@ -95,6 +95,7 @@ export function getTerminalHtml(isDark: boolean): string {
       var container = document.getElementById('terminal-container');
       var terminalRoot = document.getElementById('terminal-root');
       var pendingTouchStart = null;
+      var TOUCH_END_MAX_OFFSET = 8;
 
       function configureHelperTextarea() {
         var textarea = terminalRoot.querySelector('.xterm-helper-textarea');
@@ -175,6 +176,15 @@ export function getTerminalHtml(isDark: boolean): string {
       });
       terminalRoot.addEventListener('touchend', function(event) {
         if (!pendingTouchStart) return;
+        var touch = event.changedTouches && event.changedTouches[0];
+        if (touch) {
+          var dx = Math.abs(touch.clientX - pendingTouchStart.x);
+          var dy = Math.abs(touch.clientY - pendingTouchStart.y);
+          if (dx > TOUCH_END_MAX_OFFSET || dy > TOUCH_END_MAX_OFFSET) {
+            clearPendingTouchKeyboard();
+            return;
+          }
+        }
         var elapsed = Date.now() - pendingTouchStart.at;
         clearPendingTouchKeyboard();
         if (elapsed > 450) return;
