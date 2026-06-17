@@ -6,15 +6,18 @@ import React, {
   useState,
 } from 'react';
 import {
+  LayoutAnimation,
   ActivityIndicator,
   Keyboard,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TextInputKeyPressEventData,
+  UIManager,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -251,6 +254,7 @@ export const DeviceTerminalScreen: React.FC = () => {
     ? 'rgba(0,209,255,0.12)'
     : 'rgba(0,81,174,0.08)';
   const currentDirectoryDotColor = isDark ? theme.colors.secondary : '#16A34A';
+  const topPanelCollapsed = keyboardInset > 0;
   const terminalViewportInset = terminal
     ? Math.max(floatingControlsHeight + keyboardInset, 104)
     : 0;
@@ -305,12 +309,23 @@ export const DeviceTerminalScreen: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (
+      Platform.OS === 'android' &&
+      UIManager.setLayoutAnimationEnabledExperimental
+    ) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
+
+  useEffect(() => {
     const syncKeyboardInset = (event: {
       endCoordinates?: { height?: number };
     }) => {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setKeyboardInset(Math.max(0, event.endCoordinates?.height ?? 0));
     };
     const clearKeyboardInset = () => {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setKeyboardInset(0);
     };
     const subscriptions = [
@@ -523,22 +538,29 @@ export const DeviceTerminalScreen: React.FC = () => {
             },
           ]}
         >
-          <View
-            style={[
-              styles.consoleTop,
-              {
-                backgroundColor: theme.colors.surfaceContainerLowest,
-                borderBottomColor: outlineColor,
-              },
-            ]}
-          >
+        <View
+          testID="terminal-console-top"
+          style={[
+            styles.consoleTop,
+            topPanelCollapsed && styles.consoleTopCollapsed,
+            {
+              backgroundColor: theme.colors.surfaceContainerLowest,
+              borderBottomColor: outlineColor,
+            },
+          ]}
+        >
             <TopStatusShape
               fill={elevatedSurfaceColor}
               stroke={strongOutlineColor}
               accent={theme.colors.primary}
               muted={mutedLineColor}
             />
-            <View style={styles.consoleTopContent}>
+            <View
+              style={[
+                styles.consoleTopContent,
+                topPanelCollapsed && styles.consoleTopContentCollapsed,
+              ]}
+            >
               <View style={styles.headerRow}>
                 <TouchableOpacity
                   activeOpacity={0.74}
@@ -614,8 +636,9 @@ export const DeviceTerminalScreen: React.FC = () => {
                 </View>
               </View>
 
-              <View style={styles.topGrid}>
-                <View style={styles.metaRail}>
+              {!topPanelCollapsed ? (
+                <View testID="terminal-top-grid" style={styles.topGrid}>
+                  <View style={styles.metaRail}>
                   <View
                     style={[
                       styles.metaTile,
@@ -830,7 +853,8 @@ export const DeviceTerminalScreen: React.FC = () => {
                     </ScrollView>
                   </TouchableOpacity>
                 </View>
-              </View>
+                </View>
+              ) : null}
             </View>
           </View>
 
@@ -1102,11 +1126,19 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     overflow: 'hidden',
   },
+  consoleTopCollapsed: {
+    minHeight: 76,
+  },
   consoleTopContent: {
     paddingHorizontal: 14,
     paddingTop: 12,
     paddingBottom: 12,
     gap: 14,
+  },
+  consoleTopContentCollapsed: {
+    paddingTop: 9,
+    paddingBottom: 9,
+    gap: 0,
   },
   headerRow: {
     flexDirection: 'row',

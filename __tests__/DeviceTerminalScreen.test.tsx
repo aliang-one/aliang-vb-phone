@@ -290,4 +290,39 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       expect.arrayContaining([expect.objectContaining({ bottom: 0 })]),
     );
   });
+
+  it('collapses the terminal top project controls while the keyboard is open', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    expect(
+      screen!.root.findAllByProps({ testID: 'terminal-top-grid' }).length,
+    ).toBeGreaterThan(0);
+
+    act(() => {
+      keyboardListeners.keyboardWillShow?.forEach(listener =>
+        listener({
+          endCoordinates: { height: 300 },
+        } as KeyboardEvent),
+      );
+    });
+
+    expect(
+      screen!.root.findAllByProps({ testID: 'terminal-top-grid' }).length,
+    ).toBe(0);
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-console-top' }).props.style,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ minHeight: 76 })]),
+    );
+
+    act(() => {
+      keyboardListeners.keyboardDidHide?.forEach(listener => listener());
+    });
+
+    expect(
+      screen!.root.findAllByProps({ testID: 'terminal-top-grid' }).length,
+    ).toBeGreaterThan(0);
+  });
 });
