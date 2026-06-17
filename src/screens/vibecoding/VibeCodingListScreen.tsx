@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard
 import { VibeStatus } from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { ACTIVE_RUN_STATUS } from '../../store/internals';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
@@ -57,94 +58,113 @@ export const VibeCodingListScreen: React.FC = () => {
   );
 
   const normalizedQuery = query.trim().toLowerCase();
-  const matchesQuery = (values: Array<string | undefined>) =>
-    !normalizedQuery ||
-    values
-      .filter((value): value is string => Boolean(value))
-      .some(value => value.toLowerCase().includes(normalizedQuery));
-  const filteredDevices = devices.filter(device => {
-    return matchesQuery([
-      device.id,
-      device.name,
-      device.host,
-      device.location,
-      device.os,
-      device.status,
-      device.uniqueCode,
-      device.agentVersion,
-      ...device.capabilities,
-      ...device.authorizedDirectories,
-      ...device.activePorts.map(String),
-      ...device.tools.flatMap(tool => [
-        tool.id,
-        tool.name,
-        tool.command,
-        tool.path,
-        tool.description,
-      ]),
-      ...device.history.flatMap(entry => [
-        entry.tool,
-        entry.path,
-        entry.updated_at,
-      ]),
-    ]);
-  });
-  const filtered = vibeRuns
-    .filter(session => {
-      const project = projects.find(item => item.id === session.projectId);
-      const device = devices.find(item => item.id === session.deviceId);
-      const displayTitle = formatVibeSessionTitle(session.title, {
-        directory: session.directory,
-        projectName: project?.name,
-      });
-      const sessionMatchesQuery = matchesQuery([
-        session.id,
-        session.title,
-        displayTitle,
-        session.objective,
-        session.model,
-        session.status,
-        session.directory,
-        session.branch,
-        session.currentStep,
-        session.risk,
-        session.previewId,
-        session.lastMessage?.content,
-        project?.id,
-        project?.name,
-        project?.path,
-        project?.branch,
-        project?.language,
-        project?.description,
-        project?.packageManager,
-        ...(project?.detectedPorts ?? []).map(String),
-        ...(project?.sourceTools ?? []),
-        device?.id,
-        device?.name,
-        device?.host,
-        device?.location,
-        device?.os,
-        device?.agentVersion,
-        ...(device?.authorizedDirectories ?? []),
-        ...(device?.tools ?? []).flatMap(tool => [
-          tool.id,
-          tool.name,
-          tool.command,
-          tool.path,
-          tool.description,
-        ]),
-      ]);
-      const matchesFilter = filter === 'all' || session.status === filter;
-      return sessionMatchesQuery && matchesFilter;
-    })
-    .sort(
-      offlineLastComparator(
-        deviceStatusIndex,
-        session => session.deviceId,
-        (left, right) =>
-          (right.lastActivityMs ?? 0) - (left.lastActivityMs ?? 0),
-      ),
-    );
+  const matchesQuery = useCallback(
+    (values: Array<string | undefined>) =>
+      !normalizedQuery ||
+      values
+        .filter((value): value is string => Boolean(value))
+        .some(value => value.toLowerCase().includes(normalizedQuery)),
+    [normalizedQuery],
+  );
+  const filteredDevices = useMemo(
+    () =>
+      devices.filter(device => {
+        return matchesQuery([
+          device.id,
+          device.name,
+          device.host,
+          device.location,
+          device.os,
+          device.status,
+          device.uniqueCode,
+          device.agentVersion,
+          ...device.capabilities,
+          ...device.authorizedDirectories,
+          ...device.activePorts.map(String),
+          ...device.tools.flatMap(tool => [
+            tool.id,
+            tool.name,
+            tool.command,
+            tool.path,
+            tool.description,
+          ]),
+          ...device.history.flatMap(entry => [
+            entry.tool,
+            entry.path,
+            entry.updated_at,
+          ]),
+        ]);
+      }),
+    [devices, matchesQuery],
+  );
+  const filtered = useMemo(
+    () =>
+      vibeRuns
+        .filter(session => {
+          const project = projects.find(item => item.id === session.projectId);
+          const device = devices.find(item => item.id === session.deviceId);
+          const displayTitle = formatVibeSessionTitle(session.title, {
+            directory: session.directory,
+            projectName: project?.name,
+          });
+          const sessionMatchesQuery = matchesQuery([
+            session.id,
+            session.title,
+            displayTitle,
+            session.objective,
+            session.model,
+            session.status,
+            session.directory,
+            session.branch,
+            session.currentStep,
+            session.risk,
+            session.previewId,
+            session.lastMessage?.content,
+            project?.id,
+            project?.name,
+            project?.path,
+            project?.branch,
+            project?.language,
+            project?.description,
+            project?.packageManager,
+            ...(project?.detectedPorts ?? []).map(String),
+            ...(project?.sourceTools ?? []),
+            device?.id,
+            device?.name,
+            device?.host,
+            device?.location,
+            device?.os,
+            device?.agentVersion,
+            ...(device?.authorizedDirectories ?? []),
+            ...(device?.tools ?? []).flatMap(tool => [
+              tool.id,
+              tool.name,
+              tool.command,
+              tool.path,
+              tool.description,
+            ]),
+          ]);
+          const matchesFilter = filter === 'all' || session.status === filter;
+          return sessionMatchesQuery && matchesFilter;
+        })
+        .sort(
+          offlineLastComparator(
+            deviceStatusIndex,
+            session => session.deviceId,
+            (left, right) => {
+              // Active (streaming / waiting) sessions stay pinned above idle
+              // ones even when lastActivityMs goes stale during a long silent
+              // tool run; only within the same activity tier do we fall back
+              // to recency.
+              const leftActive = ACTIVE_RUN_STATUS.has(left.status) ? 1 : 0;
+              const rightActive = ACTIVE_RUN_STATUS.has(right.status) ? 1 : 0;
+              if (leftActive !== rightActive) return rightActive - leftActive;
+              return (right.lastActivityMs ?? 0) - (left.lastActivityMs ?? 0);
+            },
+          ),
+        ),
+    [vibeRuns, projects, devices, filter, matchesQuery, deviceStatusIndex],
+  );
   const sortedDevices = [...filteredDevices].sort(
     offlineLastComparator(deviceStatusIndex, device => device.id, () => 0),
   );

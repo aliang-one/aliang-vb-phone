@@ -14,6 +14,8 @@ import { ProgressBar } from '../shared/ProgressBar';
 import { StatusChip } from '../shared/StatusChip';
 import { vibeStatusLabel, vibeStatusType } from './status';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { formatActivityLabel } from '../../store/internals';
+import { useNowTick } from '../../hooks/useNowTick';
 import { IconBadge } from '../visual/IconBadge';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 
@@ -50,6 +52,10 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
     const deleteAgentSession = useControlCenterStore(
       state => state.deleteAgentSession,
     );
+    // Re-render on a shared 30s cadence so the relative "上次激活" label below
+    // stays fresh instead of freezing at the value from when activity happened.
+    useNowTick();
+    const activityLabel = formatActivityLabel(session.lastActivityMs ?? 0);
     const budgetLabel = formatBudget(session.projectBudget);
     const displayTitle = formatVibeSessionTitle(session.title, {
       directory: session.directory,
@@ -247,7 +253,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                       ]}
                       numberOfLines={1}
                     >
-                      上次激活 {session.updatedAt}
+                      上次激活 {activityLabel}
                     </Text>
                   </View>
                 ) : (
@@ -492,7 +498,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                     { color: theme.colors.onSurfaceVariant },
                   ]}
                 >
-                  {session.updatedAt}
+                  {activityLabel}
                 </Text>
               </View>
             )}
