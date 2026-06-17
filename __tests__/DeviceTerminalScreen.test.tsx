@@ -387,6 +387,46 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(mockTerminalFocus).not.toHaveBeenCalled();
   });
 
+  it('clears the focused keyboard state when the proxy input blurs', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    const keyboardButton = screen!.root.findByProps({
+      testID: 'terminal-keyboard-focus',
+    });
+    act(() => {
+      keyboardButton.props.onPressIn();
+    });
+
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props.style,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          borderColor: utilityMinimalist.colors.primary,
+        }),
+      ]),
+    );
+
+    const proxyInput = screen!.root.findByProps({
+      testID: 'terminal-keyboard-proxy',
+    });
+    act(() => {
+      proxyInput.props.onBlur();
+    });
+
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props.style,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          borderColor: utilityMinimalist.colors.outlineVariant,
+        }),
+      ]),
+    );
+  });
+
   it('collapses the terminal top project controls while the keyboard is open', async () => {
     await act(async () => {
       screen = renderScreen();

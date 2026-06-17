@@ -473,6 +473,14 @@ export const DeviceTerminalScreen: React.FC = () => {
     resetKeyboardProxyInput();
   };
 
+  const handleKeyboardProxyBlur = () => {
+    setKeyboardProxyFocused(false);
+    if (keyboardProxyFocusRetryRef.current) {
+      clearTimeout(keyboardProxyFocusRetryRef.current);
+      keyboardProxyFocusRetryRef.current = null;
+    }
+  };
+
   const handleKeyboardProxyChange = (value: string) => {
     const action = terminalKeyboardProxyChangeAction(
       keyboardProxyStateRef.current,
@@ -1046,7 +1054,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                       onChangeText={handleKeyboardProxyChange}
                       onKeyPress={handleKeyboardProxyKeyPress}
                       onFocus={handleKeyboardProxyFocus}
-                      onBlur={() => setKeyboardProxyFocused(false)}
+                      onBlur={handleKeyboardProxyBlur}
                       selection={TERMINAL_KEYBOARD_PROXY_SELECTION}
                       editable={terminalInputEnabled}
                       pointerEvents="none"
