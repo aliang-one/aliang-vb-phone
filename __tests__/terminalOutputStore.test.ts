@@ -9,6 +9,7 @@ jest.mock('../src/services/platformTransport', () => ({
     connect: jest.fn(),
     loadDeviceTerminalCommands: jest.fn(),
     loadTerminalSessionCommands: jest.fn(),
+    closeTerminalSession: jest.fn(),
     send: jest.fn(),
   },
 }));
@@ -56,6 +57,8 @@ describe('terminal output store handling', () => {
           ],
           createdAt: '2026-06-16T10:00:00.000Z',
           updatedAt: '2026-06-16T10:00:00.000Z',
+          lastCommand: 'git status --short',
+          lastCommandAt: '2026-06-16T09:59:00.000Z',
         },
       ],
       terminalCommandHistory: {},
@@ -247,12 +250,41 @@ describe('terminal output store handling', () => {
 
     const state = useControlCenterStore.getState();
     expect(state.terminalSessions[0].status).toBe('completed');
+    expect(state.terminalSessions[0]).toMatchObject({
+      lastCommand: 'git status --short',
+      lastCommandAt: '2026-06-16T09:59:00.000Z',
+    });
     expect(state.events[0]).toMatchObject({
       type: 'command.completed',
       title: 'Terminal session closed',
       detail: 'term-1',
       status: 'done',
       terminalId: 'term-1',
+    });
+  });
+
+  it('preserves the last command metadata when mobile closes a terminal', async () => {
+    (platformTransport.closeTerminalSession as jest.Mock).mockResolvedValue({
+      session_id: 'term-1',
+      kind: 'terminal',
+      user_id: 'user-1',
+      device_id: 'device-1',
+      status: 'closed',
+      cwd: '~/project',
+      shell: 'zsh',
+      cols: 80,
+      rows: 24,
+      created_at: '2026-06-16T10:00:00.000Z',
+      last_active_at: '2026-06-16T10:00:03.000Z',
+      closed_at: '2026-06-16T10:00:03.000Z',
+    });
+
+    await useControlCenterStore.getState().stopTerminal('term-1');
+
+    expect(useControlCenterStore.getState().terminalSessions[0]).toMatchObject({
+      status: 'stopped',
+      lastCommand: 'git status --short',
+      lastCommandAt: '2026-06-16T09:59:00.000Z',
     });
   });
 
