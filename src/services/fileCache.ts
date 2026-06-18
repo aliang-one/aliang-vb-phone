@@ -139,7 +139,6 @@ export function createFileCache(deps: FileCacheDeps): FileCache {
       inflight.set(key, p);
       return p;
     },
-    // noteContentLoaded: writing overwrites any prior entry (a re-load refreshes the TTL window).
     noteContentLoaded(projectId, path, bytes, etag) {
       const key = readKey(projectId, path);
       const t = now();

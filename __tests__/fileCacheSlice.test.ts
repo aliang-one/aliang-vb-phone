@@ -84,3 +84,43 @@ describe('dropFileContent', () => {
     expect(f.name).toBe('a.ts');
   });
 });
+
+describe('loadProjectFileContent eviction wiring', () => {
+  it('drops content of the LRU victim when the content cache exceeds its cap', async () => {
+    // 17 distinct files; loading all 17 fills fileCache (cap 16) and the 17th
+    // noteContentLoaded evicts the LRU victim (/p/0.ts, oldest) via dropFileContent.
+    const files = Array.from({ length: 17 }, (_, i) =>
+      seededFile({
+        id: `pj:/p/${i}.ts`,
+        path: `/p/${i}.ts`,
+        name: `${i}.ts`,
+        sizeBytes: 2,
+        size: '2 B',
+        content: undefined,
+      }),
+    );
+    useControlCenterStore.setState({ projectFiles: files });
+    (platformTransport.loadProjectFileContent as jest.Mock).mockImplementation(
+      async (_projectId: string, path: string) => ({
+        project_id: 'pj',
+        device_id: 'd',
+        path,
+        content: `body-${path}`,
+        encoding: 'utf8',
+        size_bytes: 2,
+        modified_at: 'm',
+        truncated: false,
+      }),
+    );
+
+    for (let i = 0; i < 17; i++) {
+      await useControlCenterStore.getState().loadProjectFileContent('pj', `/p/${i}.ts`);
+    }
+
+    const victim = useControlCenterStore.getState().projectFiles.find(f => f.path === '/p/0.ts')!;
+    expect(victim.content).toBeUndefined(); // evicted via dropFileContent
+    // a non-victim still holds its content
+    const survivor = useControlCenterStore.getState().projectFiles.find(f => f.path === '/p/16.ts')!;
+    expect(survivor.content).toBe('body-/p/16.ts');
+  });
+});

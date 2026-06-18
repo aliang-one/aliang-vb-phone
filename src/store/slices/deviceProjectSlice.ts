@@ -295,6 +295,7 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
 
       const result = outcome.content;
       const etag = `${result.size_bytes ?? ''}:${result.modified_at ?? ''}`;
+      // UTF-16 code units, not bytes — intentional: LRU is an approximate safety bound, not exact memory accounting.
       const bytes = result.content.length;
 
       set(state => {
