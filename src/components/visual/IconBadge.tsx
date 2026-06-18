@@ -35,7 +35,8 @@ export type IconName =
   | 'plus'
   | 'minus'
   | 'refresh'
-  | 'chevron';
+  | 'chevron'
+  | 'settings';
 
 type Tone = 'primary' | 'secondary' | 'tertiary' | 'error' | 'neutral';
 
@@ -273,6 +274,24 @@ const IconShape: React.FC<IconShapeProps> = ({ name, stroke }) => {
       );
     case 'chevron':
       return <Path d="M6 9l6 6 6-6" stroke={stroke} {...common} />;
+    case 'settings':
+      // Clean 8-tooth gear: body ring + 8 radial teeth + center hole. Drawn
+      // with Lines/Circles (not a complex filled cog path) so it stays crisp at
+      // the small header size instead of collapsing into a blob.
+      return (
+        <>
+          <Circle cx="12" cy="12" r="6.4" stroke={stroke} {...common} />
+          <Circle cx="12" cy="12" r="2.6" stroke={stroke} {...common} />
+          <Line x1="18.3" y1="12" x2="21" y2="12" stroke={stroke} {...common} />
+          <Line x1="16.5" y1="16.5" x2="18.4" y2="18.4" stroke={stroke} {...common} />
+          <Line x1="12" y1="18.3" x2="12" y2="21" stroke={stroke} {...common} />
+          <Line x1="7.5" y1="16.5" x2="5.6" y2="18.4" stroke={stroke} {...common} />
+          <Line x1="5.7" y1="12" x2="3" y2="12" stroke={stroke} {...common} />
+          <Line x1="7.5" y1="7.5" x2="5.6" y2="5.6" stroke={stroke} {...common} />
+          <Line x1="12" y1="5.7" x2="12" y2="3" stroke={stroke} {...common} />
+          <Line x1="16.5" y1="7.5" x2="18.4" y2="5.6" stroke={stroke} {...common} />
+        </>
+      );
   }
 };
 

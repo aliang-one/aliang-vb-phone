@@ -10,6 +10,10 @@ export interface Project {
   deviceId?: string;
   packageManager?: string;
   isGitRepo?: boolean;
+  /** Tracked file count for the project (git ls-files), reported by the agent. */
+  fileCount?: number;
+  /** Current git working-tree change count, reported by the agent ~1/min. */
+  gitChangedCount?: number;
   detectedPorts: number[];
   sourceTools?: string[];
 }
@@ -124,8 +128,6 @@ export interface VibeCodingRun {
   objective: string;
   model: string;
   projectBudget?: AgentBudgetInfo;
-  timeLimitMinutes: number;
-  elapsedMinutes: number;
   risk: 'low' | 'medium' | 'high';
   currentStep: string;
   branch: string;
@@ -141,6 +143,10 @@ export interface VibeCodingRun {
   previewId?: string;
   transcriptCount?: number;
   eventCount?: number;
+  /** Distinct files the agent wrote/edited during the current/most-recent run. */
+  filesTouchedCount?: number;
+  /** git working-tree change count for the project dir during the current/most-recent run. */
+  gitChangedCount?: number;
   lastMessage?: AgentMessage;
   detailLoadedAt?: string;
   /**

@@ -35,8 +35,16 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
   previewLinks: [],
 
   startAgentSession: async (input) => {
-    const model = input.provider === 'claude_code' ? 'Claude Code' : 'GPT-5 Codex';
     const provider = input.provider === 'claude_code' ? 'claudecode' : 'codex';
+    // Concrete model name forwarded to the agent CLI as `--model` (e.g.
+    // "glm-5.2-xhigh"). Empty/omitted => the CLI's own default model is used.
+    // Do NOT send a display label — the gateway forwards `model` verbatim, so a
+    // label like "Claude Code" would pollute the CLI's model selection.
+    const sentModel = input.model?.trim() || undefined;
+    // Presentation label for VibeCodingRun.model / UI copy only (falls back to
+    // the provider name when no concrete model is set). NOT sent to the agent.
+    const modelLabel =
+      sentModel ?? (input.provider === 'claude_code' ? 'Claude Code' : 'GPT-5 Codex');
 
     if (get().serverMode) {
       try {
@@ -56,7 +64,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
           mode: 'vibe',
           title: input.objective.slice(0, 44) || 'New VibeCoding session',
           objective: input.objective,
-          model,
+          model: sentModel,
           provider,
           tool: provider,
           risk: input.provider === 'claude_code' ? 'medium' : 'low',
@@ -73,11 +81,9 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
           directory: input.directory,
           status: 'running',
           objective: input.objective,
-          model,
-          timeLimitMinutes: input.timeLimitMinutes,
-          elapsedMinutes: 1,
+          model: modelLabel,
           risk: input.provider === 'claude_code' ? 'medium' : 'low',
-          currentStep: `${model} is reading the project and preparing a plan.`,
+          currentStep: `${modelLabel} is reading the project and preparing a plan.`,
           branch: `agent/${sessionId}`,
           lastActivityMs: activityNowMs(),
           updatedAt: formatActivityLabel(activityNowMs()),
@@ -96,7 +102,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
               id: createId('agent-event'),
               type: 'status',
               title: 'Agent session started',
-              detail: `${model} started on ${project?.name ?? input.projectId}`,
+              detail: `${modelLabel} started on ${project?.name ?? input.projectId}`,
               status: 'running',
               timestamp: shortTime(),
             },
@@ -111,7 +117,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
               : device
           ),
           events: [
-            event('agent.session.started', 'Agent session started', `${model} started in ${input.directory}.`, 'running', {
+            event('agent.session.started', 'Agent session started', `${modelLabel} started in ${input.directory}.`, 'running', {
               deviceId: input.deviceId,
               projectId,
               sessionId,
@@ -142,9 +148,27 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       refresh: options?.refresh,
     });
     set(state => {
+      const mapped = serverAiSessionToVibeRun(
+        serverSession,
+        state.devices,
+        state.projects,
+      );
+      // Only mark the session as "detail loaded" when we actually received
+      // transcript content OR a definitive (non-transient) answer from the
+      // agent. A `skipped_offline` / `failed` result with no transcript must
+      // stay "not loaded" so the chat screen re-attempts on reopen / recovery
+      // instead of freezing on a blank conversation whose top bar already reads
+      // DONE — the run snapshot that flips `status` to completed never carries
+      // the transcript (refreshFromServer / mergeVibeRunSnapshot skip it when the
+      // snapshot has no detail), so a transient-empty fetch is the ONLY thing
+      // that can fill it, and it must remain retryable.
+      const transientEmpty =
+        mapped.transcript.length === 0 &&
+        (mapped.detailRefreshStatus === 'skipped_offline' ||
+          mapped.detailRefreshStatus === 'failed');
       const nextRun = {
-        ...serverAiSessionToVibeRun(serverSession, state.devices, state.projects),
-        detailLoadedAt: nowTime(),
+        ...mapped,
+        detailLoadedAt: transientEmpty ? undefined : nowTime(),
       };
       const exists = state.vibeRuns.some(run => run.id === nextRun.id);
       const vibeRuns = evictStaleSessionDetail(exists ? state.vibeRuns.map(run => run.id === nextRun.id ? mergeVibeRunSnapshot(run, nextRun) : run) : [nextRun, ...state.vibeRuns]);
@@ -239,6 +263,10 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       objective: input.objective,
       status: input.status,
       current_step: input.currentStep,
+      // Forwarded verbatim. "" clears (revert to CLI default), undefined = omit
+      // (unchanged). The new model applies on the next user message — the server
+      // re-emits ai.session.create before each ai.message (see server index.ts).
+      model: input.model,
       risk: input.risk,
     });
     set(state => {

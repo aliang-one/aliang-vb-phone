@@ -25,7 +25,6 @@ import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
-import { ProgressBar } from '../../components/shared/ProgressBar';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { SuggestionActionBar } from '../../components/vibecoding/SuggestionActionBar';
 import { TranscriptMessageList } from '../../components/vibecoding/TranscriptMessageList';
@@ -57,7 +56,12 @@ type SessionRoute = RouteProp<RootStackParamList, 'VibeCodingSession'>;
 // frame. Throttle the scroll→state bridge so the rail only recomputes a few
 // times per second (leading edge) plus one trailing update when scrolling stops.
 const SCROLL_THROTTLE_MS = 80;
-const DETAIL_LOAD_TIMEOUT_MS = 10000;
+// Kept slightly above the server's agent round-trip ceiling
+// (AGENT_REQUEST_TIMEOUT_MS = 12s) so the in-band detail response — which may
+// wait for the desktop Agent to answer ai.session.detail — isn't pre-empted by
+// the screen race. The underlying HTTP request uses its own 15s timeout too
+// (fetchAiSession); this race is the safety net on top.
+const DETAIL_LOAD_TIMEOUT_MS = 15000;
 const SCROLL_FOLLOW_THRESHOLD = 180;
 
 const eventIcon: Record<string, IconName> = {
@@ -88,6 +92,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const device = useDevice(session?.deviceId);
   const preview = useSessionPreview(session?.id);
   const approvals = useSessionApprovals(session?.id);
+  const wsConnected = useControlCenterStore(state => state.wsConnected);
   const loadAgentSessionDetail = useControlCenterStore(
     state => state.loadAgentSessionDetail,
   );
@@ -127,6 +132,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
   );
   const scrollToEndTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendLockRef = useRef<string | null>(null);
+  // Guards the mount auto-fetch against re-firing when a transient-empty
+  // (skipped_offline / failed) detail result leaves `hasDetail` false. Without
+  // it the fetch effect would loop on every render once the store no longer
+  // stamps detailLoadedAt for transient-empty results. Reset on session change.
+  const autoFetchRef = useRef(false);
+  // Tracks the false→true edge of the "recoverable blank conversation" state so
+  // the agent-online recovery refresh fires once per transition, not per render.
+  const prevRecoverableRef = useRef(false);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [resolvingApproval, setResolvingApproval] = useState<{
     id: string;
@@ -295,6 +308,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
 
   useEffect(() => {
     if (!targetSessionId || hasDetail || loadingDetail || detailError) return;
+    // A transient-empty result no longer stamps detailLoadedAt, so hasDetail
+    // stays false after such a fetch — without this guard the effect would
+    // re-fire immediately and loop. One auto-attempt per mount is enough; live
+    // recovery is handled by the recoverable-conversation effect below.
+    if (autoFetchRef.current) return;
+    autoFetchRef.current = true;
 
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -379,7 +398,37 @@ export const VibeCodingSessionScreen: React.FC = () => {
     scrollYRef.current = 0;
     followTailRef.current = true;
     pendingScrollToEndRef.current = true;
+    autoFetchRef.current = false;
+    prevRecoverableRef.current = false;
   }, [targetSessionId]);
+
+  // Self-heal for the "top bar DONE, conversation blank" case. The run snapshot
+  // that flips session.status to completed never carries the transcript, so a
+  // session whose last detail fetch was skipped_offline / failed stays empty
+  // until something re-asks the agent. When the agent comes back online (device
+  // offline→online, or a WS reconnect) while such a blank session is on screen,
+  // fire one forced refresh. Edge-triggered so it runs once per recovery, not
+  // every render; prevRecoverableRef is reset on session change above.
+  const recoverableConversation =
+    wsConnected &&
+    device?.status !== 'offline' &&
+    (session?.transcript.length ?? 0) === 0 &&
+    (session?.detailRefreshStatus === 'skipped_offline' ||
+      session?.detailRefreshStatus === 'failed');
+  useEffect(() => {
+    if (!recoverableConversation || prevRecoverableRef.current) return;
+    if (!targetSessionId || refreshing || loadingDetail) return;
+    prevRecoverableRef.current = true;
+    void loadAgentSessionDetail(targetSessionId, { refresh: true }).catch(
+      () => {},
+    );
+  }, [
+    recoverableConversation,
+    targetSessionId,
+    refreshing,
+    loadingDetail,
+    loadAgentSessionDetail,
+  ]);
 
   useEffect(() => {
     if (!latestTranscriptKey) return;
@@ -542,23 +591,24 @@ export const VibeCodingSessionScreen: React.FC = () => {
   } = (() => {
     if (deviceOffline || session?.detailRefreshStatus === 'skipped_offline') {
       return {
-        title: '桌面 Agent 未连接',
+        title: '桌面 Agent 未连接，暂无法同步历史',
         detail:
-          '该会话的历史保存在电脑端 Agent,当前 Agent 不在线,暂时无法加载。请确认 Agent 已运行并联网,然后下拉刷新。',
+          '该会话的完整历史保存在电脑端 Agent 上，需要 Agent 在线才能拉取。请确认 Agent 已运行并联网后，下拉刷新重试。',
         tone: 'offline' as const,
       };
     }
     if (session?.detailRefreshStatus === 'failed') {
       return {
         title: '历史拉取失败',
-        detail: '从桌面 Agent 拉取历史时出错,请稍后下拉刷新重试。',
+        detail:
+          '从桌面 Agent 拉取历史时出错，可能是网络抖动或数据格式异常。请下拉刷新重试；若持续失败，可稍后再试。',
         tone: 'error' as const,
       };
     }
     return {
       title: '暂无会话记录',
       detail:
-        '这个会话还没有消息。下拉可刷新同步历史,或在下方发送消息开始对话。',
+        '该会话目前没有消息。下拉可同步历史；若这是新会话，可在下方发送消息开始对话。',
       tone: 'neutral' as const,
     };
   })();
@@ -568,10 +618,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
     directory: session.directory,
     projectName: project?.name,
   });
-  const progress = Math.min(
-    100,
-    (session.elapsedMinutes / session.timeLimitMinutes) * 100,
-  );
 
   return (
     <SafeAreaWrapper>
@@ -580,10 +626,23 @@ export const VibeCodingSessionScreen: React.FC = () => {
         subtitle={device?.name ?? 'VIBECODING SESSION'}
         onBack={navigation.goBack}
         rightAction={
-          <StatusChip
-            label={vibeStatusLabel[session.status]}
-            type={vibeStatusType[session.status]}
-          />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              accessibilityLabel="会话设置"
+              accessibilityRole="button"
+              onPress={() =>
+                navigation.navigate('SessionSettings', {
+                  sessionId: session.id,
+                })
+              }>
+              <IconBadge name="settings" tone="neutral" size={34} iconSize={17} />
+            </TouchableOpacity>
+            <StatusChip
+              label={vibeStatusLabel[session.status]}
+              type={vibeStatusType[session.status]}
+            />
+          </View>
         }
       />
       <ScrollView
@@ -696,22 +755,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
           >
             {session.objective}
           </Text>
-          <View style={styles.progressMeta}>
-            <Text
-              style={[theme.typography.codeSm, { color: theme.colors.primary }]}
-            >
-              Runtime
-            </Text>
-            <Text
-              style={[
-                theme.typography.codeSm,
-                { color: theme.colors.onSurfaceVariant },
-              ]}
-            >
-              {session.elapsedMinutes}m / {session.timeLimitMinutes}m
-            </Text>
-          </View>
-          <ProgressBar progress={progress} color={theme.colors.primary} />
           {session.projectBudget ? (
             <View
               style={[
@@ -1603,10 +1646,6 @@ const styles = StyleSheet.create({
   headerTitle: {
     flex: 1,
     gap: 3,
-  },
-  progressMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
   },
   budgetStrip: {
     minHeight: 46,

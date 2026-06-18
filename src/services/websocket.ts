@@ -2,6 +2,7 @@ import { getPlatformServiceBaseUrl, toWebSocketUrl } from '../config/localServic
 import {
   isAuthRejectionClose,
   notifySessionInvalidated,
+  refreshSession,
 } from '../api/sessionAuth';
 
 export type WsMessageHandler = (message: Record<string, unknown>) => void;
@@ -28,6 +29,11 @@ export class MobileWebSocket {
   // reconnect forever — and fires the session-invalidation hub so the app
   // returns to Login.
   private authRejected = false;
+  // True once we've already spent our one refresh for the current open cycle.
+  // Allows exactly one refresh→reconnect after an auth-rejected close; if the
+  // server STILL rejects the (refreshed) token, it's genuinely dead and we tear
+  // down instead of looping refresh→reconnect→reject.
+  private refreshedSinceLastOpen = false;
   private _connected = false;
   private onStateChange?: (state: WsConnectionState) => void;
   private token?: string;
@@ -81,6 +87,9 @@ export class MobileWebSocket {
     ws.onopen = () => {
       this._connected = true;
       this.reconnectAttempts = 0;
+      // A successful open starts a fresh open cycle: we may refresh once more
+      // if the server rejects us again later.
+      this.refreshedSinceLastOpen = false;
       this.startHeartbeat();
       this.onStateChange?.('connected');
     };
@@ -100,12 +109,12 @@ export class MobileWebSocket {
       this._connected = false;
       this.stopHeartbeat();
       this.onStateChange?.('disconnected');
-      // The server rejected our token (1008 + auth reason): stop retrying with
-      // the same dead token and tear the session down. Network blips use other
-      // close codes (1006/1011/1000) and still reconnect normally.
+      // The server rejected our token (1008 + auth reason). Before tearing the
+      // session down (which logs the user out), try one refresh: a token that
+      // expired while the phone was offline can be renewed without re-login.
+      // Network blips use other close codes (1006/1011/1000) and reconnect below.
       if (isAuthRejectionClose(event.code ?? 0, event.reason)) {
-        this.authRejected = true;
-        notifySessionInvalidated();
+        void this.handleAuthRejectionClose();
         return;
       }
       if (!this.intentionalClose && !this.authRejected) {
@@ -131,6 +140,29 @@ export class MobileWebSocket {
       this.reconnectTimer = null;
       this.connectAsync();
     }, delay);
+  }
+
+  // Called from onclose when the server rejected our token. Allows exactly one
+  // refresh per open cycle: refresh → reconnect with the same (now-extended)
+  // token. If we already refreshed this cycle and the server STILL rejects, the
+  // token is genuinely dead → tear down so the app returns to Login.
+  private async handleAuthRejectionClose(): Promise<void> {
+    if (this.refreshedSinceLastOpen) {
+      this.authRejected = true;
+      notifySessionInvalidated();
+      return;
+    }
+    const ok = await refreshSession();
+    if (!ok) {
+      // refreshSession already fired notifySessionInvalidated.
+      this.authRejected = true;
+      return;
+    }
+    // Refresh extended the session server-side. The local-session token value
+    // is stable across refresh, so reconnecting with this.token works. Mark our
+    // one refresh spent so a still-rejected reconnect tears down instead of loop.
+    this.refreshedSinceLastOpen = true;
+    this.connectAsync();
   }
 
   private connectAsync(): void {

@@ -10,7 +10,6 @@ import {
 import { Device, Project, VibeCodingRun } from '../../data/platformModels';
 import { useTheme } from '../../theme/useTheme';
 import { GlassPanel } from '../shared/GlassPanel';
-import { ProgressBar } from '../shared/ProgressBar';
 import { StatusChip } from '../shared/StatusChip';
 import { vibeStatusLabel, vibeStatusType } from './status';
 import { useControlCenterStore } from '../../store/controlCenterStore';
@@ -61,10 +60,6 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
       directory: session.directory,
       projectName: project?.name,
     });
-    const progress = Math.min(
-      100,
-      (session.elapsedMinutes / session.timeLimitMinutes) * 100,
-    );
     const statusColor =
       session.status === 'waiting_approval'
         ? theme.colors.tertiary
@@ -333,31 +328,6 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                       {session.branch}
                     </Text>
                   </View>
-                  <View
-                    style={[
-                      styles.visualPill,
-                      {
-                        backgroundColor: isDark
-                          ? 'rgba(255,255,255,0.05)'
-                          : theme.colors.surfaceContainer,
-                      },
-                    ]}
-                  >
-                    <IconBadge
-                      name="play"
-                      tone="primary"
-                      size={26}
-                      iconSize={14}
-                    />
-                    <Text
-                      style={[
-                        theme.typography.labelSm,
-                        { color: theme.colors.onSurfaceVariant },
-                      ]}
-                    >
-                      {session.elapsedMinutes}m / {session.timeLimitMinutes}m
-                    </Text>
-                  </View>
                   {session.projectBudget ? (
                     <View
                       style={[
@@ -397,33 +367,6 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                   {session.currentStep}
                 </Text>
               </>
-            )}
-            {homeFocus ? (
-              <View style={styles.homeProgressBlock}>
-                <ProgressBar progress={progress} color={theme.colors.primary} />
-              </View>
-            ) : (
-              <View style={styles.progressBlock}>
-                <View style={styles.progressMeta}>
-                  <Text
-                    style={[
-                      theme.typography.codeSm,
-                      { color: theme.colors.primary },
-                    ]}
-                  >
-                    Runtime
-                  </Text>
-                  <Text
-                    style={[
-                      theme.typography.codeSm,
-                      { color: theme.colors.onSurfaceVariant },
-                    ]}
-                  >
-                    {session.elapsedMinutes}m / {session.timeLimitMinutes}m
-                  </Text>
-                </View>
-                <ProgressBar progress={progress} color={theme.colors.primary} />
-              </View>
             )}
             {homeFocus ? (
               <View style={styles.homeFooter}>
@@ -635,10 +578,6 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                   {session.projectBudget
                     ? renderInfoRow('BUDGET', budgetLabel)
                     : null}
-                  {renderInfoRow(
-                    'TIME',
-                    `${session.elapsedMinutes}m / ${session.timeLimitMinutes}m`,
-                  )}
                   {renderInfoRow('RISK', session.risk.toUpperCase())}
                   {renderMenuAction(
                     session.status === 'paused' ? '恢复运行' : '暂停运行',
@@ -715,16 +654,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
-  },
-  progressBlock: {
-    gap: 6,
-  },
-  homeProgressBlock: {
-    opacity: 0.74,
-  },
-  progressMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
   },
   footer: {
     flexDirection: 'row',

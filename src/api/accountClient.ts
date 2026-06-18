@@ -9,7 +9,7 @@ import {
 } from '../config/accountService';
 import {
   isSessionInvalidError,
-  notifySessionInvalidated,
+  refreshSession,
 } from './sessionAuth';
 
 const REQUEST_TIMEOUT_MS = 10000;
@@ -47,7 +47,7 @@ export async function accountFetch<T = unknown>(
   path: string,
   options: ApiFetchOptions = {},
 ): Promise<T> {
-  const { headers: optionHeaders, ...fetchOptions } = options;
+  const { headers: optionHeaders, skipRefreshRetry, ...fetchOptions } = options;
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'Content-Type': 'application/json',
@@ -59,52 +59,64 @@ export async function accountFetch<T = unknown>(
   }
   let lastError: unknown;
 
-  for (const baseUrl of ACCOUNT_BASE_URL_CANDIDATES) {
-    try {
-      const url = `${baseUrl}${path}`;
-      const response = await Promise.race([
-        fetch(url, { ...fetchOptions, headers }),
-        timeout(REQUEST_TIMEOUT_MS),
-      ]);
+  // Try each candidate base URL. An ApiResponseError propagates immediately to
+  // the retry wrapper; a network error falls through to the next candidate.
+  const runCandidates = async (): Promise<T> => {
+    for (const baseUrl of ACCOUNT_BASE_URL_CANDIDATES) {
+      try {
+        const url = `${baseUrl}${path}`;
+        const response = await Promise.race([
+          fetch(url, { ...fetchOptions, headers }),
+          timeout(REQUEST_TIMEOUT_MS),
+        ]);
 
-      if (!response.ok) {
-        let errorMessage = `${fetchOptions.method ?? 'GET'} ${url} failed with HTTP ${response.status}`;
-        let errorCode: string | undefined;
-        try {
-          const payload = await response.json();
-          if (typeof payload?.error === 'string') {
-            errorMessage = `${fetchOptions.method ?? 'GET'} ${url}: ${payload.error}`;
-            errorCode = payload.error;
-          } else if (typeof payload?.message === 'string') {
-            errorMessage = `${fetchOptions.method ?? 'GET'} ${url}: ${payload.message}`;
+        if (!response.ok) {
+          let errorMessage = `${fetchOptions.method ?? 'GET'} ${url} failed with HTTP ${response.status}`;
+          let errorCode: string | undefined;
+          try {
+            const payload = await response.json();
+            if (typeof payload?.error === 'string') {
+              errorMessage = `${fetchOptions.method ?? 'GET'} ${url}: ${payload.error}`;
+              errorCode = payload.error;
+            } else if (typeof payload?.message === 'string') {
+              errorMessage = `${fetchOptions.method ?? 'GET'} ${url}: ${payload.message}`;
+            }
+          } catch {
+            // Keep the generic HTTP error for non-JSON responses.
           }
-        } catch {
-          // Keep the generic HTTP error for non-JSON responses.
+          throw new ApiResponseError(errorMessage, response.status, errorCode);
         }
-        throw new ApiResponseError(errorMessage, response.status, errorCode);
-      }
 
-      if (response.status === 204) {
-        return undefined as T;
-      }
+        if (response.status === 204) {
+          return undefined as T;
+        }
 
-      const text = await response.text();
-      return (text ? JSON.parse(text) : undefined) as T;
-    } catch (error) {
-      if (error instanceof ApiResponseError) {
-        // /api/auth/me returning "Invalid token" (expired JWT) is the canonical
-        // session-dead signal for the account service. Tear down locally.
-        if (isSessionInvalidError(error)) notifySessionInvalidated();
-        throw error;
+        const text = await response.text();
+        return (text ? JSON.parse(text) : undefined) as T;
+      } catch (error) {
+        if (error instanceof ApiResponseError) throw error;
+        lastError = error;
       }
-      lastError = error;
     }
-  }
 
-  const detail = lastError instanceof Error ? lastError.message : 'unknown error';
-  throw new Error(
-    `Unable to reach aliang.one. Tried ${ACCOUNT_BASE_URL_CANDIDATES.join(', ')}. ${detail}`,
-  );
+    const detail = lastError instanceof Error ? lastError.message : 'unknown error';
+    throw new Error(
+      `Unable to reach aliang.one. Tried ${ACCOUNT_BASE_URL_CANDIDATES.join(', ')}. ${detail}`,
+    );
+  };
+
+  try {
+    return await runCandidates();
+  } catch (error) {
+    // Recoverable session expiry: rotate the refresh_token once (extends the
+    // session server-side) then retry. The token value is stable across refresh,
+    // so the retry re-reads the same token. `refreshSession` tears down itself on
+    // failure; `skipRefreshRetry` (set by the refresh request) prevents recursion.
+    if (skipRefreshRetry || !isSessionInvalidError(error)) throw error;
+    const refreshed = await refreshSession();
+    if (!refreshed) throw error;
+    return runCandidates();
+  }
 }
 
 export const accountGet = <T = unknown>(path: string, options: ApiFetchOptions = {}) =>

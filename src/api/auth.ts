@@ -11,6 +11,13 @@ export interface PlatformUser {
 export interface AuthSession {
   user: PlatformUser;
   token: string;
+  /**
+   * The sub2api refresh_token returned with the access/session token. The phone
+   * rotates it via `/api/auth/refresh` to extend the local session past its
+   * 24h TTL instead of forcing re-login. `null` when the server omits it
+   * (degrades to the old no-refresh behavior).
+   */
+  refreshToken: string | null;
 }
 
 const asRecord = (value: unknown): Record<string, unknown> | undefined =>
@@ -69,6 +76,13 @@ const extractToken = (payload: unknown): string => {
   return token;
 };
 
+// Lenient: the refresh_token is optional for forward-compat (its absence just
+// disables refresh and falls back to the legacy re-login-on-expiry behavior).
+const extractRefreshToken = (payload: unknown): string | null =>
+  asString((asRecord(payload) ?? {}).refresh_token) ??
+  asString(unwrapData(payload).refresh_token) ??
+  null;
+
 export const fetchCurrentUser = async (): Promise<PlatformUser> => {
   const payload = await accountGet<unknown>('/api/auth/me');
   return extractUser(payload);
@@ -81,7 +95,31 @@ export const login = (
   accountPost<unknown>('/api/auth/login', { email, password }).then(payload => ({
     user: extractUser(payload),
     token: extractToken(payload),
+    refreshToken: extractRefreshToken(payload),
   }));
+
+/**
+ * Rotate the session via the multi-device-safe refresh arbiter. The local
+ * session token value is stable across refresh (the server extends its
+ * server-side expiry); only the sub2api `refresh_token` rotates, so this
+ * returns the NEW refresh_token to persist. Carries `skipRefreshRetry` so the
+ * refresh request itself can't recurse into another refresh. Throws on a
+ * non-2xx / malformed response — the caller treats that as a failed refresh.
+ */
+export const refreshAuthToken = (refreshToken: string): Promise<string> =>
+  accountPost<unknown>(
+    '/api/auth/refresh',
+    { refresh_token: refreshToken },
+    { skipRefreshRetry: true },
+  ).then(payload => {
+    const rotated =
+      asString((asRecord(payload) ?? {}).refresh_token) ??
+      asString(unwrapData(payload).refresh_token);
+    if (!rotated) {
+      throw new Error('Refresh succeeded but no refresh_token was returned.');
+    }
+    return rotated;
+  });
 
 // The Aliang SaaS backend uses stateless JWT auth, so sign-out is purely local:
 // there is no server session to invalidate, and a network call would only 404.

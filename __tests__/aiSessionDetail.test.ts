@@ -86,13 +86,16 @@ describe('fetchAiSession refresh option', () => {
 
   it('omits the query string by default', async () => {
     await fetchAiSession('sess-1');
-    expect(mockedApiGet).toHaveBeenCalledWith('/api/ai/sessions/sess-1');
+    expect(mockedApiGet).toHaveBeenCalledWith('/api/ai/sessions/sess-1', {
+      timeoutMs: 15000,
+    });
   });
 
   it('appends ?refresh=true when refresh is requested', async () => {
     await fetchAiSession('sess-1', { refresh: true });
     expect(mockedApiGet).toHaveBeenCalledWith(
       '/api/ai/sessions/sess-1?refresh=true',
+      { timeoutMs: 15000 },
     );
   });
 });

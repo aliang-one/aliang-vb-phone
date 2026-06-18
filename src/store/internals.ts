@@ -259,6 +259,8 @@ export function serverProjectToClient(sp: PlatformProjectSnapshot): Project {
     deviceId: sp.device_id,
     packageManager: sp.package_manager,
     isGitRepo: sp.is_git_repo,
+    fileCount: sp.file_count,
+    gitChangedCount: sp.git_changed_count,
     detectedPorts: sp.detected_ports ?? [],
     sourceTools: sp.source_tools ?? [],
   };
@@ -356,8 +358,6 @@ export function serverAiSessionToVibeRun(
     status: mapSessionStatus(session.status),
     objective: session.objective ?? '',
     model,
-    timeLimitMinutes: 60,
-    elapsedMinutes: 0,
     risk: session.risk ?? 'medium',
     currentStep: session.current_step ?? '',
     branch: session.branch ?? `agent/${session.session_id}`,
@@ -367,6 +367,8 @@ export function serverAiSessionToVibeRun(
     ),
     transcriptCount: session.transcript_count ?? transcript.length,
     eventCount: session.event_count ?? events.length,
+    filesTouchedCount: session.files_touched_count,
+    gitChangedCount: session.git_changed_count,
     lastMessage,
     // Only mark detail-loaded when there is actual content. An empty array is
     // truthy in JS, so the old `session.transcript || session.events` form
@@ -551,6 +553,8 @@ export function hasMeaningfulVibeRunUpdate(
     existing.branch !== incoming.branch ||
     existing.transcriptCount !== incoming.transcriptCount ||
     existing.eventCount !== incoming.eventCount ||
+    existing.filesTouchedCount !== incoming.filesTouchedCount ||
+    existing.gitChangedCount !== incoming.gitChangedCount ||
     messageFingerprint(existing.lastMessage) !==
       messageFingerprint(incoming.lastMessage)
   );

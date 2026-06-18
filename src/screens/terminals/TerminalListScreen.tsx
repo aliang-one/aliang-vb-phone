@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -10,16 +10,10 @@ import { GlassPanel } from '../../components/shared/GlassPanel';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard';
 import { IconBadge } from '../../components/visual/IconBadge';
-import { TerminalCard } from '../../components/terminals/TerminalCard';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
-import {
-  buildDeviceStatusIndex,
-  isDeviceStatusOffline,
-} from '../../utils/deviceStatus';
-import { isActiveTerminalSessionStatus } from '../../utils/terminalInteraction';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -27,8 +21,6 @@ export const TerminalListScreen: React.FC = () => {
   const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
   const devices = useControlCenterStore(state => state.devices);
-  const terminalSessions = useControlCenterStore(state => state.terminalSessions);
-  const stopTerminal = useControlCenterStore(state => state.stopTerminal);
   const refreshFromServer = useControlCenterStore(state => state.refreshFromServer);
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -74,24 +66,6 @@ export const TerminalListScreen: React.FC = () => {
     step: 12,
     resetKey: normalizedSearch,
   });
-  const deviceStatusIndex = useMemo(() => buildDeviceStatusIndex(devices), [
-    devices,
-  ]);
-  const activeTerminals = useMemo(
-    () =>
-      terminalSessions
-        .filter(terminal => isActiveTerminalSessionStatus(terminal.status))
-        .map(terminal => ({
-          terminal,
-          device: devices.find(device => device.id === terminal.deviceId),
-        }))
-        .sort(
-          (left, right) =>
-            Date.parse(right.terminal.updatedAt) -
-            Date.parse(left.terminal.updatedAt),
-        ),
-    [devices, terminalSessions],
-  );
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
@@ -146,37 +120,6 @@ export const TerminalListScreen: React.FC = () => {
             type="warning"
           />
         </View>
-
-        <View style={styles.sectionHeader}>
-          <Text
-            style={[
-              theme.typography.labelCaps,
-              { color: theme.colors.onSurfaceVariant },
-            ]}>
-            ACTIVE TERMINALS
-          </Text>
-          <StatusChip label={`${activeTerminals.length} ACTIVE`} type="info" />
-        </View>
-        {activeTerminals.map(({ terminal, device }) => (
-          <TerminalCard
-            key={terminal.id}
-            terminal={terminal}
-            deviceName={device?.name}
-            disabled={isDeviceStatusOffline(
-              deviceStatusIndex.get(terminal.deviceId),
-            )}
-            onPress={() =>
-              navigation.navigate('DeviceTerminal', {
-                deviceId: terminal.deviceId,
-                terminalId: terminal.id,
-                directory: terminal.directory,
-              })
-            }
-            onClose={() => {
-              stopTerminal(terminal.id).catch(() => {});
-            }}
-          />
-        ))}
 
         <Text
           style={[
@@ -237,13 +180,6 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     marginBottom: 8,
-  },
-  sectionHeader: {
-    marginBottom: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
   },
   addButton: {
     width: 32,

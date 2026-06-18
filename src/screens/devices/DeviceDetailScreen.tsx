@@ -12,6 +12,7 @@ import { ActionGridCard } from '../../components/shared/ActionGridCard';
 import { CollapsiblePanel } from '../../components/shared/CollapsiblePanel';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
+import { TerminalCard } from '../../components/terminals/TerminalCard';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import { IconBadge } from '../../components/visual/IconBadge';
@@ -325,59 +326,22 @@ export const DeviceDetailScreen: React.FC = () => {
         <SectionTitle title="ACTIVE TERMINALS" />
         {activeTerminals.length ? (
           activeTerminals.map(terminal => (
-            <GlassPanel key={terminal.id} style={styles.projectCard}>
-              <View style={styles.projectTop}>
-                <View style={styles.projectTitleBlock}>
-                  <Text
-                    numberOfLines={1}
-                    style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                    {terminal.shell || 'shell'} · {terminal.directory || '~'}
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-                    {terminal.id}
-                  </Text>
-                  {terminal.lastCommand ? (
-                    <Text
-                      numberOfLines={1}
-                      style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-                      LAST {terminal.lastCommand}
-                    </Text>
-                  ) : null}
-                </View>
-                <StatusChip
-                  label={terminal.status.toUpperCase()}
-                  type={
-                    terminal.status === 'running'
-                      ? 'success'
-                      : terminal.status === 'waiting_approval'
-                      ? 'warning'
-                      : 'neutral'
-                  }
-                />
-              </View>
-              <View style={styles.projectActionRow}>
-                <GlowButton
-                  title="RESUME"
-                  disabled={deviceOffline}
-                  onPress={() =>
-                    navigation.navigate('DeviceTerminal', {
-                      deviceId: device!.id,
-                      terminalId: terminal.id,
-                      directory: terminal.directory,
-                    })
-                  }
-                />
-                <GlowButton
-                  title="CLOSE"
-                  disabled={deviceOffline}
-                  onPress={() => {
-                    stopTerminal(terminal.id).catch(() => {});
-                  }}
-                />
-              </View>
-            </GlassPanel>
+            <TerminalCard
+              key={terminal.id}
+              terminal={terminal}
+              deviceName={device.name}
+              disabled={deviceOffline}
+              onPress={() =>
+                navigation.navigate('DeviceTerminal', {
+                  deviceId: device.id,
+                  terminalId: terminal.id,
+                  directory: terminal.directory,
+                })
+              }
+              onClose={() => {
+                stopTerminal(terminal.id).catch(() => {});
+              }}
+            />
           ))
         ) : (
           <GlassPanel style={styles.emptyTerminalCard}>

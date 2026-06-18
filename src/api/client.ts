@@ -6,7 +6,7 @@ import {
 } from '../config/localService';
 import {
   isSessionInvalidError,
-  notifySessionInvalidated,
+  refreshSession,
 } from './sessionAuth';
 
 const REQUEST_TIMEOUT_MS = 8000;
@@ -23,7 +23,14 @@ export class ApiResponseError extends Error {
   }
 }
 
-export type ApiFetchOptions = RequestInit;
+export type ApiFetchOptions = RequestInit & {
+  timeoutMs?: number;
+  /**
+   * Internal: skip the refresh-then-retry path. Set on the refresh request
+   * itself so a 401 from `/api/auth/refresh` can't recurse into another refresh.
+   */
+  skipRefreshRetry?: boolean;
+};
 
 // React Native's type definitions expose `Headers` but not the `HeadersInit`
 // alias from the DOM lib, so declare a compatible union locally.
@@ -47,6 +54,7 @@ async function requestJson<T>(
   baseUrl: string,
   path: string,
   options: RequestInit,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): Promise<T> {
   const url = `${baseUrl}${path}`;
   const controller = new AbortController();
@@ -55,7 +63,7 @@ async function requestJson<T>(
   const timeoutId = setTimeout(() => {
     didTimeout = true;
     controller.abort();
-  }, REQUEST_TIMEOUT_MS);
+  }, timeoutMs);
   const abortFromCaller = () => controller.abort();
 
   if (inputSignal) {
@@ -74,7 +82,7 @@ async function requestJson<T>(
     });
   } catch (error) {
     if (didTimeout) {
-      throw new Error(`Timed out after ${REQUEST_TIMEOUT_MS}ms`);
+      throw new Error(`Timed out after ${timeoutMs}ms`);
     }
     throw error;
   } finally {
@@ -111,7 +119,7 @@ export async function apiFetch<T = unknown>(
   path: string,
   options: ApiFetchOptions = {}
 ): Promise<T> {
-  const { headers: optionHeaders, ...fetchOptions } = options;
+  const { headers: optionHeaders, timeoutMs, skipRefreshRetry, ...fetchOptions } = options;
   const headers: Record<string, string> = {
     'Accept': 'application/json',
     'Content-Type': 'application/json',
@@ -131,27 +139,41 @@ export async function apiFetch<T = unknown>(
   );
   let lastError: unknown;
 
-  for (const baseUrl of candidates) {
-    try {
-      const payload = await requestJson<T>(baseUrl, path, requestOptions);
-      await rememberPlatformServiceBaseUrl(baseUrl);
-      return payload;
-    } catch (error) {
-      if (error instanceof ApiResponseError) {
-        // A 401 / invalid-token means our local session is dead: tear it down
-        // once (the hub de-dupes) so the app returns to Login instead of
-        // stranding the user in a workspace where every call fails.
-        if (isSessionInvalidError(error)) notifySessionInvalidated();
-        throw error;
+  // Try every candidate base URL. An ApiResponseError (an HTTP status)
+  // propagates immediately to the retry wrapper below; a network error falls
+  // through to the next candidate and only surfaces if all are unreachable.
+  const runCandidates = async (): Promise<T> => {
+    for (const baseUrl of candidates) {
+      try {
+        const payload = await requestJson<T>(baseUrl, path, requestOptions, timeoutMs);
+        await rememberPlatformServiceBaseUrl(baseUrl);
+        return payload;
+      } catch (error) {
+        if (error instanceof ApiResponseError) throw error;
+        lastError = error;
       }
-      lastError = error;
     }
-  }
+    const detail = lastError instanceof Error ? lastError.message : 'unknown error';
+    throw new Error(
+      `Unable to reach platform service. Tried ${candidates.join(', ')}. ${detail}`,
+    );
+  };
 
-  const detail = lastError instanceof Error ? lastError.message : 'unknown error';
-  throw new Error(
-    `Unable to reach platform service. Tried ${candidates.join(', ')}. ${detail}`,
-  );
+  try {
+    return await runCandidates();
+  } catch (error) {
+    // A session-invalid response (expired local session — e.g. the phone was
+    // offline past the session TTL) is recoverable: rotate the refresh_token
+    // once, which extends the session server-side, then retry the whole
+    // request. The token value is stable across refresh, so the retry re-reads
+    // the same (now-valid) token from the provider. `refreshSession` fires the
+    // teardown itself when refresh fails, so here we just rethrow. The refresh
+    // request sets `skipRefreshRetry` so a 401 from it can't recurse.
+    if (skipRefreshRetry || !isSessionInvalidError(error)) throw error;
+    const refreshed = await refreshSession();
+    if (!refreshed) throw error;
+    return runCandidates();
+  }
 }
 
 export async function apiGet<T = unknown>(path: string, options: ApiFetchOptions = {}): Promise<T> {

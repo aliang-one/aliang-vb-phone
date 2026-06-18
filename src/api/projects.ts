@@ -14,6 +14,8 @@ export interface ServerProject {
   status: 'active' | 'idle' | 'error' | 'fresh';
   package_manager?: string;
   is_git_repo?: boolean;
+  file_count?: number;
+  git_changed_count?: number;
   detected_ports?: number[];
   source_tools?: string[];
   last_active_at?: string;

@@ -22,7 +22,6 @@ import { IconBadge, IconName } from '../../components/visual/IconBadge';
 import { Device, Project, VibeCodingRun } from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
 import {
-  ProjectFileEntry,
   ProjectScanResult,
   useControlCenterStore,
 } from '../../store/controlCenterStore';
@@ -120,7 +119,6 @@ export const CommandCenterScreen: React.FC = () => {
   const approvals = useControlCenterStore(state => state.approvals);
   const notifications = useControlCenterStore(state => state.notifications);
   const events = useControlCenterStore(state => state.events);
-  const projectFiles = useControlCenterStore(state => state.projectFiles);
   const scanResults = useControlCenterStore(state => state.scanResults);
   const wsConnected = useControlCenterStore(state => state.wsConnected);
   const serverMode = useControlCenterStore(state => state.serverMode);
@@ -647,9 +645,6 @@ export const CommandCenterScreen: React.FC = () => {
                   project={project}
                   device={device}
                   sessions={sessions}
-                  files={projectFiles.filter(
-                    item => item.projectId === project.id,
-                  )}
                   scan={scan}
                   activeProject
                   disabled={device?.status === 'offline'}
@@ -927,9 +922,6 @@ export const CommandCenterScreen: React.FC = () => {
           const sessions = vibeRuns.filter(
             item => item.projectId === project.id,
           );
-          const files = projectFiles.filter(
-            item => item.projectId === project.id,
-          );
           const scan = scanResults.find(
             item =>
               item.projectId === project.id &&
@@ -942,7 +934,6 @@ export const CommandCenterScreen: React.FC = () => {
               project={project}
               device={device}
               sessions={sessions}
-              files={files}
               scan={scan}
               disabled={device?.status === 'offline'}
               onOpen={() =>
@@ -1019,29 +1010,6 @@ export const CommandCenterScreen: React.FC = () => {
         </View>
         <UsageSummaryCard summary={platformSummary} />
       </ScrollView>
-
-      <TouchableOpacity
-        activeOpacity={0.8}
-        onPress={() => navigation.navigate('CreateVibeCoding', {})}
-        style={[
-          styles.fab,
-          styles.fabCluster,
-          {
-            backgroundColor: theme.colors.primary,
-            borderRadius: theme.borderRadius.full,
-            ...(isDark ? theme.glow.primary : {}),
-          },
-        ]}
-      >
-        <Text
-          style={[
-            theme.typography.headlineMd,
-            { color: theme.colors.onPrimary },
-          ]}
-        >
-          +
-        </Text>
-      </TouchableOpacity>
     </SafeAreaWrapper>
   );
 };
@@ -1050,7 +1018,6 @@ interface ProjectWorkspaceCardProps {
   project: Project;
   device?: Device;
   sessions: VibeCodingRun[];
-  files: ProjectFileEntry[];
   scan?: ProjectScanResult;
   onOpen: () => void;
   onFiles: () => void;
@@ -1066,7 +1033,6 @@ const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
     project,
     device,
     sessions,
-    files,
     scan,
     onOpen,
     onFiles,
@@ -1081,9 +1047,13 @@ const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
         item.status,
       ),
     );
-    const modifiedFiles = files.filter(item =>
-      ['modified', 'added', 'deleted'].includes(item.status),
-    );
+    // Project-level live metrics (agent-driven): the agent reports the project's
+    // tracked file count (Files) and git working-tree change count (Changed) on
+    // every ~1/min inventory snapshot, so the card reflects the real current
+    // project state — independent of whether a vibe run is active. Agents stays
+    // the count of active sessions for this project.
+    const fileCount = project.fileCount ?? 0;
+    const gitChanged = project.gitChangedCount ?? 0;
     const deviceOnline = device?.status === 'online';
 
     if (activeProject) {
@@ -1132,7 +1102,7 @@ const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
                     { color: theme.colors.onSurfaceVariant },
                   ]}
                 >
-                  {modifiedFiles.length} changed
+                  {gitChanged} changed
                 </Text>
               </View>
             </View>
@@ -1245,7 +1215,7 @@ const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
           <View style={styles.projectVisualRow}>
             <ProjectMetric
               icon="code"
-              value={`${files.length}`}
+              value={`${fileCount}`}
               label="Files"
             />
             <ProjectMetric
@@ -1255,7 +1225,7 @@ const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
             />
             <ProjectMetric
               icon="git"
-              value={`${modifiedFiles.length}`}
+              value={`${gitChanged}`}
               label="Changed"
             />
           </View>
@@ -1314,7 +1284,7 @@ const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
               disabled={!device || disabled}
             />
             <ProjectAction
-              label="+ 新对话"
+              label="新对话"
               icon="plus"
               onPress={onAgent}
               emphasize
@@ -1329,7 +1299,6 @@ const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
     prev.project === next.project &&
     prev.device === next.device &&
     prev.sessions === next.sessions &&
-    prev.files === next.files &&
     prev.scan === next.scan &&
     prev.activeProject === next.activeProject &&
     prev.disabled === next.disabled,
@@ -1736,32 +1705,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 12,
-  },
-  fab: {
-    width: 52,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fabCluster: {
-    position: 'absolute',
-    right: 20,
-    bottom: 20,
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: 12,
-  },
-  fabSecondary: {
-    borderWidth: 1.5,
-  },
-  fabListBars: {
-    height: 18,
-    justifyContent: 'space-between',
-  },
-  fabListBar: {
-    width: 20,
-    height: 3,
-    borderRadius: 2,
   },
   eventFeedCard: {
     minHeight: 64,

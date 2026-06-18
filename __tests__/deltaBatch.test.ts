@@ -14,8 +14,6 @@ const run = (
   status: 'running',
   objective: '',
   model: 'Claude Code',
-  timeLimitMinutes: 60,
-  elapsedMinutes: 0,
   risk: 'medium',
   currentStep: '',
   branch: 'main',

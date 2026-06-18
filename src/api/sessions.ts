@@ -33,6 +33,10 @@ export interface ServerAiSession {
   }>;
   transcript_count?: number;
   event_count?: number;
+  /** Distinct files the agent wrote/edited during the current/most-recent run. */
+  files_touched_count?: number;
+  /** git working-tree change count for the project dir during the current/most-recent run. */
+  git_changed_count?: number;
   last_message?: {
     id: string;
     role: 'user' | 'assistant' | 'system';
@@ -111,6 +115,13 @@ export const fetchAiSession = (
     `/api/ai/sessions/${sessionId}${
       options?.refresh ? '?refresh=true' : ''
     }`,
+    // The detail GET may trigger a server→agent round trip: the server waits up
+    // to AGENT_REQUEST_TIMEOUT_MS (12s) for the agent to answer ai.session.detail.
+    // The default 8s request timeout would abort BEFORE the agent responds,
+    // stranding the chat on a timeout even though the server eventually got the
+    // history. Allow ~15s so the in-band response (not just the WS push) can
+    // carry the freshly-fetched transcript.
+    { timeoutMs: 15_000 },
   );
 
 export const createAiSession = (input: {
@@ -154,6 +165,8 @@ export const updateAiSession = (
     objective: string;
     status: 'idle' | 'running' | 'paused' | 'error' | 'closed';
     current_step: string;
+    /** Concrete model name; "" clears (revert to CLI default), omit = unchanged. */
+    model: string;
     risk: 'low' | 'medium' | 'high';
   }>,
 ): Promise<ServerAiSession> =>

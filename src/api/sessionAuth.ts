@@ -174,6 +174,66 @@ export function notifySessionInvalidated(): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Session-refresh hub
+// ---------------------------------------------------------------------------
+//
+// The HTTP clients (`client.ts`, `accountClient.ts`) and the WebSocket
+// (`websocket.ts`) call `refreshSession()` on a 401 / auth rejection INSTEAD of
+// immediately tearing the session down. The registered refresher (the session
+// store) rotates the persisted `refresh_token` and extends the local session
+// server-side; on success callers retry the request / reconnect, so a
+// transiently-expired session (e.g. the phone was offline long enough for the
+// local session to lapse) recovers instead of logging the user out. Only a
+// refresh that itself fails falls back to `notifySessionInvalidated()`
+// (genuinely unrecoverable — offline across ≥2 token rotations).
+//
+// Depends on nothing in `api/` (the store registers the handler), so the
+// clients can import it without a cycle.
+
+type SessionRefresher = () => Promise<boolean>;
+
+let sessionRefresher: SessionRefresher | null = null;
+// Single in-flight refresh: a burst of concurrent 401s collapses into one
+// rotation. Mirrors `refreshInFlight` in `realtimeSlice.ts`.
+let refreshInFlight: Promise<boolean> | null = null;
+
+/** Register the store action that performs a refresh + refresh_token rotation. */
+export function setSessionRefresher(handler: SessionRefresher | null): void {
+  sessionRefresher = handler;
+}
+
+/**
+ * Perform a single, de-duplicated session refresh. Concurrent callers (a burst
+ * of failing requests) share one in-flight refresh and observe the same result.
+ *
+ * Returns `true` when the session is fresh and the caller should retry the
+ * request / reconnect. Returns `false` — and fires `notifySessionInvalidated`
+ * (the existing teardown → app returns to Login) — when refresh is impossible
+ * (no handler / no refresh token) or the refresh itself failed. Callers
+ * propagate the original error in the `false` case.
+ */
+export async function refreshSession(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight;
+  if (!sessionRefresher) {
+    notifySessionInvalidated();
+    return false;
+  }
+  refreshInFlight = (async (): Promise<boolean> => {
+    try {
+      const ok = await sessionRefresher();
+      if (!ok) notifySessionInvalidated();
+      return ok;
+    } catch {
+      notifySessionInvalidated();
+      return false;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
+}
+
 /** Test-only: reset hub state between cases. */
 export function __resetSessionAuthHubForTest(): void {
   invalidationHandler = null;
@@ -182,4 +242,6 @@ export function __resetSessionAuthHubForTest(): void {
     clearTimeout(invalidationResetTimer);
     invalidationResetTimer = null;
   }
+  sessionRefresher = null;
+  refreshInFlight = null;
 }

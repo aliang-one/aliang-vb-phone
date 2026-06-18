@@ -40,6 +40,17 @@ const providerLabels: Record<AgentProvider, string> = {
   codex: 'Codex',
 };
 
+// Optional model presets. "默认" (value '') leaves it to the agent CLI's own
+// default; the rest are concrete names forwarded as --model. Free text in the
+// input overrides the chips.
+const MODEL_PRESETS: Array<{ label: string; value: string }> = [
+  { label: '默认', value: '' },
+  { label: 'glm-5.2', value: 'glm-5.2' },
+  { label: 'gpt-5.2', value: 'gpt-5.2' },
+  { label: 'gpt-5.5', value: 'gpt-5.5' },
+  { label: 'claude-sonnet-4-6', value: 'claude-sonnet-4-6' },
+];
+
 const uniqueStrings = (items: Array<string | undefined>) =>
   Array.from(new Set(items.filter(Boolean))) as string[];
 
@@ -61,6 +72,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
   const [deviceId, setDeviceId] = useState(initialDeviceId);
   const [projectId, setProjectId] = useState(initialProjectId);
   const [provider, setProvider] = useState<AgentProvider>('codex');
+  const [model, setModel] = useState('');
   const device = devices.find(item => item.id === deviceId) ?? devices[0];
   const project = projects.find(item => item.id === projectId) ?? projects[0];
   const [directory, setDirectory] = useState(
@@ -69,7 +81,6 @@ export const CreateVibeCodingScreen: React.FC = () => {
   const [objective, setObjective] = useState(
     'Polish the mobile command center UI and make active VibeCoding sessions easier to control.',
   );
-  const [minutes, setMinutes] = useState(60);
   const [selectedPermissions, setSelectedPermissions] = useState(permissions);
 
   const availableProjects = useMemo(
@@ -116,7 +127,8 @@ export const CreateVibeCodingScreen: React.FC = () => {
       directory: directory || project?.path || device.authorizedDirectories[0] || '~',
       provider,
       objective: objective.trim(),
-      timeLimitMinutes: minutes,
+      // '' => omit so the agent uses its own default model (never send a label).
+      model: model.trim() || undefined,
     });
     navigation.replace('VibeCodingSession', { sessionId });
   };
@@ -154,7 +166,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
     <SafeAreaWrapper>
       <TopAppBar
         title="Create VibeCoding"
-        subtitle="DEVICE / DIRECTORY / RUNTIME"
+        subtitle="DEVICE / DIRECTORY / AGENT"
         onBack={navigation.goBack}
       />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
@@ -359,7 +371,86 @@ export const CreateVibeCodingScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
           ]}>
-          5. OBJECTIVE
+          5. MODEL
+        </Text>
+        <TextInput
+          value={model}
+          onChangeText={setModel}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="留空使用 Agent 默认模型"
+          placeholderTextColor={theme.colors.onSurfaceVariant}
+          style={[
+            theme.typography.bodyMd,
+            styles.modelInput,
+            {
+              color: theme.colors.onSurface,
+              borderRadius: theme.borderRadius.md,
+              borderColor: isDark
+                ? 'rgba(255,255,255,0.08)'
+                : theme.colors.outlineVariant,
+              backgroundColor: isDark
+                ? 'rgba(255,255,255,0.04)'
+                : theme.colors.surfaceContainerLow,
+            },
+          ]}
+        />
+        <View style={styles.chipRow}>
+          {MODEL_PRESETS.map(preset => {
+            const active =
+              preset.value === ''
+                ? model.trim() === ''
+                : model.trim() === preset.value;
+            return (
+              <TouchableOpacity
+                key={preset.label}
+                activeOpacity={0.75}
+                onPress={() => setModel(preset.value)}
+                style={[
+                  styles.chip,
+                  {
+                    borderRadius: theme.borderRadius.full,
+                    borderColor: active
+                      ? theme.colors.primary
+                      : theme.colors.outlineVariant,
+                    backgroundColor: active
+                      ? isDark
+                        ? 'rgba(86, 156, 214, 0.12)'
+                        : 'rgba(0, 81, 174, 0.08)'
+                      : 'transparent',
+                  },
+                ]}>
+                <Text
+                  style={[
+                    theme.typography.labelSm,
+                    {
+                      color: active
+                        ? theme.colors.primary
+                        : theme.colors.onSurfaceVariant,
+                    },
+                  ]}>
+                  {preset.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        <Text
+          style={[
+            theme.typography.bodySm,
+            { color: theme.colors.onSurfaceVariant },
+            styles.modelHint,
+          ]}>
+          指定模型名后会作为 --model 传给 codex / claude;留空则用 CLI 默认模型。
+        </Text>
+
+        <Text
+          style={[
+            theme.typography.labelCaps,
+            { color: theme.colors.onSurfaceVariant },
+            styles.sectionTitle,
+          ]}>
+          6. OBJECTIVE
         </Text>
         <TextInput
           value={objective}
@@ -381,21 +472,6 @@ export const CreateVibeCodingScreen: React.FC = () => {
                 : theme.colors.surfaceContainerLow,
             },
           ]}
-        />
-
-        <Text
-          style={[
-            theme.typography.labelCaps,
-            { color: theme.colors.onSurfaceVariant },
-            styles.sectionTitle,
-          ]}>
-          6. RUNTIME
-        </Text>
-        <LimitStepper
-          label="Runtime"
-          value={`${minutes}m`}
-          onMinus={() => setMinutes(Math.max(15, minutes - 15))}
-          onPlus={() => setMinutes(minutes + 15)}
         />
 
         <Text
@@ -448,41 +524,6 @@ export const CreateVibeCodingScreen: React.FC = () => {
   );
 };
 
-interface LimitStepperProps {
-  label: string;
-  value: string;
-  onMinus: () => void;
-  onPlus: () => void;
-}
-
-const LimitStepper: React.FC<LimitStepperProps> = ({
-  label,
-  value,
-  onMinus,
-  onPlus,
-}) => {
-  const { theme } = useTheme();
-
-  return (
-    <GlassPanel style={styles.limitCard}>
-      <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-        {label.toUpperCase()}
-      </Text>
-      <View style={styles.stepperRow}>
-        <TouchableOpacity onPress={onMinus} style={styles.stepperButton}>
-          <Text style={[theme.typography.titleMd, { color: theme.colors.primary }]}>-</Text>
-        </TouchableOpacity>
-        <Text style={[theme.typography.titleLg, { color: theme.colors.onSurface }]}>
-          {value}
-        </Text>
-        <TouchableOpacity onPress={onPlus} style={styles.stepperButton}>
-          <Text style={[theme.typography.titleMd, { color: theme.colors.primary }]}>+</Text>
-        </TouchableOpacity>
-      </View>
-    </GlassPanel>
-  );
-};
-
 const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
@@ -532,6 +573,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 12,
   },
+  modelInput: {
+    minHeight: 48,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
+  },
+  chip: {
+    borderWidth: 1,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  modelHint: {
+    marginTop: 10,
+  },
   providerRow: {
     flexDirection: 'row',
     gap: 8,
@@ -545,21 +605,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
-  },
-  limitCard: {
-    padding: 12,
-    gap: 12,
-  },
-  stepperRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  stepperButton: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   reviewCard: {
     marginTop: 18,

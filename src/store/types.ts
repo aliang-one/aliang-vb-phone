@@ -178,7 +178,13 @@ interface StartAgentInput {
   directory: string;
   provider: AgentProvider;
   objective: string;
-  timeLimitMinutes: number;
+  /**
+   * Optional concrete model name forwarded to the agent CLI as `--model`
+   * (e.g. "glm-5.2-xhigh"). When omitted/empty the agent's own default model is
+   * used — do NOT send a display label like "Claude Code", the gateway would
+   * forward it verbatim and pollute the CLI's model selection.
+   */
+  model?: string;
 }
 
 interface BindDeviceInput {
@@ -274,6 +280,8 @@ export interface ControlCenterState {
       objective: string;
       status: 'idle' | 'running' | 'paused' | 'error' | 'closed';
       currentStep: string;
+      /** Concrete model name; "" clears it (revert to CLI default), omit = unchanged. */
+      model: string;
       risk: 'low' | 'medium' | 'high';
     }>,
   ) => Promise<void>;
