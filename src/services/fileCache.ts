@@ -1,0 +1,127 @@
+import { platformTransport } from './platformTransport';
+import type {
+  PlatformProjectFileContentSnapshot,
+  PlatformProjectFileListSnapshot,
+} from './platformTransport'; // these aliases are defined in platformTransport.ts, NOT api/projects.ts
+
+// --- Tunable knobs (module-level, easy to adjust) ---
+const LIST_TTL_MS = 15_000;
+const CONTENT_TTL_MS = 60_000;
+const MAX_CONTENT_ENTRIES = 16;
+const MAX_CONTENT_BYTES = 6 * 1024 * 1024; // 6 MB
+const LARGE_FILE_BYTES = 1 * 1024 * 1024; // 1 MB
+
+const BINARY_EXTS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp', 'svgz',
+  'mp4', 'mov', 'avi', 'mkv', 'webm', 'mp3', 'wav', 'flac', 'ogg', 'aac',
+  'zip', 'tar', 'gz', 'tgz', 'bz2', 'rar', '7z',
+  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+  'woff', 'woff2', 'ttf', 'otf',
+  'exe', 'dll', 'so', 'dylib', 'class', 'jar', 'wasm', 'o', 'pdb', 'db', 'sqlite',
+]);
+
+export interface FileCacheTransport {
+  loadProjectFiles(projectId: string, path?: string): Promise<PlatformProjectFileListSnapshot>;
+  loadProjectFileContent(projectId: string, path: string): Promise<PlatformProjectFileContentSnapshot>;
+}
+
+export interface FileCacheDeps {
+  transport: FileCacheTransport;
+  now: () => number;
+}
+
+export interface ReadMeta {
+  name: string;
+  sizeBytes?: number;
+}
+
+export type ReadOutcome =
+  | { kind: 'blocked'; reason: 'too_large' | 'binary'; sizeBytes?: number }
+  | { kind: 'cache_hit' }
+  | { kind: 'fetched'; content: PlatformProjectFileContentSnapshot };
+
+interface ListCacheEntry {
+  result: PlatformProjectFileListSnapshot;
+  fetchedAt: number;
+}
+
+interface ContentCacheEntry {
+  etag: string;
+  loadedAt: number;
+  lastAccess: number;
+  bytes: number;
+}
+
+const listKey = (projectId: string, path: string) => `list:${projectId}:${path}`;
+const readKey = (projectId: string, path: string) => `read:${projectId}:${path}`;
+
+export const extOf = (name: string): string => {
+  const i = name.lastIndexOf('.');
+  return i < 0 ? '' : name.slice(i + 1).toLowerCase();
+};
+
+export const isBinaryByName = (name: string): boolean => BINARY_EXTS.has(extOf(name));
+
+export interface FileCache {
+  listFiles(projectId: string, path: string, opts?: { force?: boolean }): Promise<PlatformProjectFileListSnapshot>;
+  readFile(
+    projectId: string,
+    path: string,
+    meta: ReadMeta,
+    opts?: { force?: boolean; hasCachedContent?: boolean },
+  ): Promise<ReadOutcome>;
+  noteContentLoaded(projectId: string, path: string, bytes: number, etag: string): string[];
+  touch(projectId: string, path: string): void;
+  invalidateContent(projectId: string, path: string): void;
+  clear(): void;
+}
+
+export function createFileCache(deps: FileCacheDeps): FileCache {
+  const { transport, now } = deps;
+  const listCache = new Map<string, ListCacheEntry>();
+  const contentCache = new Map<string, ContentCacheEntry>();
+  const inflight = new Map<string, Promise<unknown>>();
+
+  return {
+    async listFiles(projectId, path, opts) {
+      const key = listKey(projectId, path);
+      const force = opts?.force ?? false;
+      const cached = listCache.get(key);
+      if (!force && cached && now() - cached.fetchedAt < LIST_TTL_MS) {
+        return cached.result;
+      }
+      const existing = inflight.get(key);
+      if (existing) return existing as Promise<PlatformProjectFileListSnapshot>;
+      const p = (async () => {
+        try {
+          const result = await transport.loadProjectFiles(projectId, path);
+          listCache.set(key, { result, fetchedAt: now() });
+          return result;
+        } finally {
+          inflight.delete(key);
+        }
+      })();
+      inflight.set(key, p);
+      return p;
+    },
+
+    // readFile implemented in Task 2.
+    async readFile(): Promise<ReadOutcome> {
+      throw new Error('not implemented');
+    },
+    // noteContentLoaded/touch/invalidateContent/clear implemented in later tasks.
+    noteContentLoaded: () => [],
+    touch: () => {},
+    invalidateContent: () => {},
+    clear: () => {
+      listCache.clear();
+      contentCache.clear();
+      inflight.clear();
+    },
+  };
+}
+
+export const fileCache = createFileCache({
+  transport: platformTransport,
+  now: () => Date.now(),
+});
