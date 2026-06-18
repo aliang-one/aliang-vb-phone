@@ -25,6 +25,7 @@ import {
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { describeDeviceError } from '../../utils/deviceError';
+import { formatBytes } from '../../utils/format';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type FileRoute = RouteProp<RootStackParamList, 'FileBrowser'>;
@@ -192,7 +193,7 @@ export const FileBrowserScreen: React.FC = () => {
     setLoading(true);
     setError('');
     try {
-      await loadProjectFiles(project.id, effectivePath);
+      await loadProjectFiles(project.id, effectivePath, { force: true });
     } catch (nextError) {
       setError(
         nextError instanceof Error
@@ -211,6 +212,10 @@ export const FileBrowserScreen: React.FC = () => {
       return;
     }
 
+    if (file.previewBlocked) {
+      setSelectedPath(file.path);
+      return;
+    }
     setSelectedPath(file.path);
     if (file.content !== undefined) return;
     setReadingPath(file.path);
@@ -545,6 +550,49 @@ export const FileBrowserScreen: React.FC = () => {
         </GlassPanel>
 
         {/* File content preview */}
+        {selectedFile?.previewBlocked ? (
+          <GlassPanel style={styles.previewPanel}>
+            <View style={styles.previewHeader}>
+              <IconBadge
+                name="warning"
+                tone={selectedFile.previewBlocked.reason === 'binary' ? 'tertiary' : 'error'}
+                size={36}
+                iconSize={18}
+              />
+              <View style={styles.previewTitle}>
+                <Text numberOfLines={1} style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+                  {selectedFile.previewBlocked.reason === 'binary'
+                    ? '二进制文件，无法预览'
+                    : '文件过大，未自动打开'}
+                </Text>
+                <Text numberOfLines={1} style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+                  {selectedFile.path}
+                  {selectedFile.previewBlocked.sizeBytes !== undefined
+                    ? ` · ${formatBytes(selectedFile.previewBlocked.sizeBytes)}`
+                    : ''}
+                </Text>
+              </View>
+            </View>
+            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+              {selectedFile.previewBlocked.reason === 'binary'
+                ? '该文件是二进制内容，不适合在手机端预览。'
+                : '该文件超过 1 MB，预览会截断且占用大量内存。'}
+            </Text>
+            <GlowButton
+              title="在终端打开"
+              onPress={() =>
+                device &&
+                navigation.navigate('DeviceTerminal', {
+                  deviceId: device.id,
+                  directory: parentPathOf(selectedFile.path),
+                })
+              }
+              disabled={!device}
+              variant="primary"
+              style={styles.stateAction}
+            />
+          </GlassPanel>
+        ) : null}
         {selectedFile?.content !== undefined ? (
           <GlassPanel style={styles.previewPanel}>
             <View style={styles.previewHeader}>
