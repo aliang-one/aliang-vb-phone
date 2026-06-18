@@ -50,6 +50,7 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
         snapshot,
         get().vibeRuns,
         get().terminalSessions,
+        get().terminalCommandHistory,
       );
 
       set({
@@ -88,7 +89,12 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
       try {
         const snapshot = await loadSnapshotWithTimeout();
         set(state => ({
-          ...stateFromSnapshot(snapshot, state.vibeRuns, state.terminalSessions),
+          ...stateFromSnapshot(
+            snapshot,
+            state.vibeRuns,
+            state.terminalSessions,
+            state.terminalCommandHistory,
+          ),
           lastSyncedAt: Date.now(),
           stale: false,
         }));

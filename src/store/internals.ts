@@ -25,6 +25,7 @@ import type {
   ProjectFileEntry,
   ProjectScanResult,
   PushNotificationItem,
+  TerminalCommandHistoryItem,
   TerminalLine,
   TerminalLineKind,
   TerminalSession,
@@ -33,6 +34,7 @@ import type {
   UnifiedEventStatus,
   UnifiedEventType,
 } from './types';
+import { mergeCommandHistory } from './slices/terminalSlice';
 
 // --- Helpers ---
 
@@ -978,6 +980,7 @@ export function stateFromSnapshot(
   snapshot: Awaited<ReturnType<typeof platformTransport.loadSnapshot>>,
   previousRuns: VibeCodingRun[],
   previousTerminalSessions: TerminalSession[] = [],
+  previousTerminalCommandHistory: Record<string, TerminalCommandHistoryItem[]> = {},
 ) {
   const baseDevices = snapshot.devices.map(platformDeviceToClient);
   const knownDeviceIds = new Set(baseDevices.map(device => device.id));
@@ -989,10 +992,18 @@ export function stateFromSnapshot(
     .map(session => serverAiSessionToVibeRun(session, baseDevices, projects));
   const previousRunsById = new Map(previousRuns.map(run => [run.id, run]));
   const mergedVibeRuns = evictOverflowVibeRuns(
-    vibeRuns.map(run => ({
-      ...mergeVibeRunSnapshot(previousRunsById.get(run.id), run),
-      transcript: trimTranscript(run.transcript),
-    })),
+    vibeRuns.map(run => {
+      // Preserve the non-destructive merge: keep the locally-held transcript
+      // AND incorporate the snapshot's, then bound memory with trim. Previously
+      // this overwrote the merged transcript with the snapshot's own
+      // (trimTranscript(run.transcript)), so a snapshot whose hot window was
+      // empty for a session wiped whatever the client already had — turning a
+      // reconnect-driven refresh into "正在拉取完整会话内容…" then a blank
+      // screen. mergeVibeRunSnapshot already guards against a stale snapshot
+      // demoting content; honour that instead of clobbering it.
+      const merged = mergeVibeRunSnapshot(previousRunsById.get(run.id), run);
+      return { ...merged, transcript: trimTranscript(merged.transcript) };
+    }),
   );
   const devices = attachDeviceRelations(baseDevices, projects, mergedVibeRuns);
   const scanResults = projects.map(projectToScanResult);
@@ -1011,6 +1022,27 @@ export function stateFromSnapshot(
         serverTerminalSessionToClient(session),
       ),
     );
+  const terminalCommandHistory: Record<string, TerminalCommandHistoryItem[]> = {
+    ...previousTerminalCommandHistory,
+  };
+  for (const session of snapshot.terminalSessions) {
+    if (!knownDeviceIds.has(session.device_id)) continue;
+    const recent = session.recent_commands ?? [];
+    if (!recent.length) continue;
+    const items: TerminalCommandHistoryItem[] = recent
+      .filter(cmd => (cmd.command ?? '').trim())
+      .map(cmd => ({
+        id: cmd.id,
+        terminalSessionId: session.session_id,
+        deviceId: session.device_id,
+        command: cmd.command,
+        timestamp: cmd.timestamp,
+        exitCode: cmd.exit_code ?? null,
+        createdAt: cmd.created_at,
+      }));
+    const key = `session:${session.session_id}`;
+    terminalCommandHistory[key] = mergeCommandHistory(items, previousTerminalCommandHistory[key] ?? []);
+  }
   const knownSessionIds = new Set(vibeRuns.map(session => session.id));
   const previewLinks = snapshot.previewLinks
     .filter(preview => knownSessionIds.has(preview.sessionId))
@@ -1035,6 +1067,7 @@ export function stateFromSnapshot(
     scanResults,
     vibeRuns: mergedVibeRuns,
     terminalSessions,
+    terminalCommandHistory,
     approvals,
     previewLinks,
     notifications,
