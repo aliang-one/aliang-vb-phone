@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand';
 import { platformTransport } from '../../services/platformTransport';
-import { fileCache } from '../../services/fileCache';
+import { fileCache, shouldBlockPreview } from '../../services/fileCache';
 import type { ControlCenterState } from '../types';
 import {
   attachDeviceRelations,
@@ -220,7 +220,11 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
             loadedAt: existing.loadedAt,
             truncated: existing.truncated,
             etag: entry.etag,
-            previewBlocked: existing.previewBlocked,
+            // Re-evaluate the block against the FRESH metadata: a too_large file
+            // that shrank recovers; a binary file stays blocked (extension is
+            // authoritative). Carrying the stale flag would stick a shrunk file
+            // on the "too large" panel forever (handleOpenFile short-circuits on it).
+            previewBlocked: shouldBlockPreview(entry.name, entry.sizeBytes),
           };
         });
 

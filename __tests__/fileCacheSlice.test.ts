@@ -45,18 +45,47 @@ describe('loadProjectFiles etag invalidation', () => {
     expect(f.etag).toBe('99:m');
   });
 
-  it('preserves content + etag + previewBlocked when etag matches', async () => {
+  it('preserves content + previewBlocked when etag matches and the file still qualifies as blocked', async () => {
     useControlCenterStore.setState({
-      projectFiles: [seededFile({ content: 'keep', etag: '2:m', previewBlocked: { reason: 'binary', sizeBytes: 2 } })],
+      projectFiles: [seededFile({ name: 'a.png', path: '/p/a.png', id: 'pj:/p/a.png', content: 'keep', etag: '2:m', previewBlocked: { reason: 'binary', sizeBytes: 2 } })],
     });
     (platformTransport.loadProjectFiles as jest.Mock).mockResolvedValue({
       project_id: 'pj', device_id: 'd', path: '/p', truncated: false, generated_at: 't',
-      entries: [{ name: 'a.ts', path: '/p/a.ts', kind: 'file', size_bytes: 2, modified_at: 'm', language: 'TypeScript', summary: 'x' }],
+      entries: [{ name: 'a.png', path: '/p/a.png', kind: 'file', size_bytes: 2, modified_at: 'm', language: 'TypeScript', summary: 'x' }],
     });
     await useControlCenterStore.getState().loadProjectFiles('pj', '/p', { force: true });
-    const f = useControlCenterStore.getState().projectFiles.find(x => x.path === '/p/a.ts')!;
+    const f = useControlCenterStore.getState().projectFiles.find(x => x.path === '/p/a.png')!;
     expect(f.content).toBe('keep');
     expect(f.previewBlocked).toEqual({ reason: 'binary', sizeBytes: 2 });
+  });
+});
+
+describe('loadProjectFiles previewBlocked recovery', () => {
+  it('clears previewBlocked when a previously too-large file is now small enough', async () => {
+    useControlCenterStore.setState({
+      projectFiles: [seededFile({ name: 'big.ts', path: '/p/big.ts', id: 'pj:/p/big.ts', sizeBytes: 2_000_000, size: '2 MB', etag: '2000000:m', content: undefined, previewBlocked: { reason: 'too_large', sizeBytes: 2_000_000 } })],
+    });
+    (platformTransport.loadProjectFiles as jest.Mock).mockResolvedValue({
+      project_id: 'pj', device_id: 'd', path: '/p', truncated: false, generated_at: 't',
+      entries: [{ name: 'big.ts', path: '/p/big.ts', kind: 'file', size_bytes: 500_000, modified_at: 'm', language: 'TypeScript', summary: 'x' }],
+    });
+    await useControlCenterStore.getState().loadProjectFiles('pj', '/p', { force: true });
+    const f = useControlCenterStore.getState().projectFiles.find(x => x.path === '/p/big.ts')!;
+    expect(f.previewBlocked).toBeUndefined();
+    expect(f.sizeBytes).toBe(500_000);
+  });
+
+  it('keeps previewBlocked (with fresh size) when a too-large file is still too large', async () => {
+    useControlCenterStore.setState({
+      projectFiles: [seededFile({ name: 'big.ts', path: '/p/big.ts', id: 'pj:/p/big.ts', sizeBytes: 2_000_000, size: '2 MB', etag: '2000000:m', content: undefined, previewBlocked: { reason: 'too_large', sizeBytes: 2_000_000 } })],
+    });
+    (platformTransport.loadProjectFiles as jest.Mock).mockResolvedValue({
+      project_id: 'pj', device_id: 'd', path: '/p', truncated: false, generated_at: 't',
+      entries: [{ name: 'big.ts', path: '/p/big.ts', kind: 'file', size_bytes: 3_000_000, modified_at: 'm', language: 'TypeScript', summary: 'x' }],
+    });
+    await useControlCenterStore.getState().loadProjectFiles('pj', '/p', { force: true });
+    const f = useControlCenterStore.getState().projectFiles.find(x => x.path === '/p/big.ts')!;
+    expect(f.previewBlocked).toEqual({ reason: 'too_large', sizeBytes: 3_000_000 });
   });
 });
 

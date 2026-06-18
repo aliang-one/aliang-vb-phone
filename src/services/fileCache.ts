@@ -62,6 +62,25 @@ export const extOf = (name: string): string => {
 
 export const isBinaryByName = (name: string): boolean => BINARY_EXTS.has(extOf(name));
 
+/**
+ * Pure block decision, shared by `readFile` (open time) and the store's
+ * list-merge (refresh time). Centralizing it lets a refresh re-evaluate whether
+ * a previously-blocked file still qualifies: a `too_large` file that shrank
+ * below LARGE_FILE_BYTES recovers (returns undefined); a binary file stays
+ * blocked because its extension is authoritative. Returns the block descriptor
+ * the store writes into `previewBlocked`, or undefined when previewable.
+ */
+export const shouldBlockPreview = (
+  name: string,
+  sizeBytes?: number,
+): { reason: 'too_large' | 'binary'; sizeBytes?: number } | undefined => {
+  if (isBinaryByName(name)) return { reason: 'binary', sizeBytes };
+  if (sizeBytes !== undefined && sizeBytes > LARGE_FILE_BYTES) {
+    return { reason: 'too_large', sizeBytes };
+  }
+  return undefined;
+};
+
 export interface FileCache {
   listFiles(projectId: string, path: string, opts?: { force?: boolean }): Promise<PlatformProjectFileListSnapshot>;
   readFile(
@@ -110,11 +129,9 @@ export function createFileCache(deps: FileCacheDeps): FileCache {
       const force = opts?.force ?? false;
       const hasCachedContent = opts?.hasCachedContent ?? false;
 
-      if (isBinaryByName(meta.name)) {
-        return { kind: 'blocked', reason: 'binary', sizeBytes: meta.sizeBytes };
-      }
-      if (meta.sizeBytes !== undefined && meta.sizeBytes > LARGE_FILE_BYTES) {
-        return { kind: 'blocked', reason: 'too_large', sizeBytes: meta.sizeBytes };
+      const block = shouldBlockPreview(meta.name, meta.sizeBytes);
+      if (block) {
+        return { kind: 'blocked', ...block };
       }
 
       const key = readKey(projectId, path);
