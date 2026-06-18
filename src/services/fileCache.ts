@@ -80,6 +80,7 @@ export function createFileCache(deps: FileCacheDeps): FileCache {
   const { transport, now } = deps;
   const listCache = new Map<string, ListCacheEntry>();
   const contentCache = new Map<string, ContentCacheEntry>();
+  // Safe to share across list/read keys: keys are namespaced (`list:` vs `read:`) so type-correctness holds.
   const inflight = new Map<string, Promise<unknown>>();
 
   return {
@@ -105,12 +106,46 @@ export function createFileCache(deps: FileCacheDeps): FileCache {
       return p;
     },
 
-    // readFile implemented in Task 2.
-    async readFile(): Promise<ReadOutcome> {
-      throw new Error('not implemented');
+    async readFile(projectId, path, meta, opts) {
+      const force = opts?.force ?? false;
+      const hasCachedContent = opts?.hasCachedContent ?? false;
+
+      if (isBinaryByName(meta.name)) {
+        return { kind: 'blocked', reason: 'binary', sizeBytes: meta.sizeBytes };
+      }
+      if (meta.sizeBytes !== undefined && meta.sizeBytes > LARGE_FILE_BYTES) {
+        return { kind: 'blocked', reason: 'too_large', sizeBytes: meta.sizeBytes };
+      }
+
+      const key = readKey(projectId, path);
+      const entry = contentCache.get(key);
+      if (!force && hasCachedContent && entry && now() - entry.loadedAt < CONTENT_TTL_MS) {
+        entry.lastAccess = now();
+        return { kind: 'cache_hit' };
+      }
+
+      // In-flight dedup: `force` still reuses an in-flight fetch (the result is fresh) — it bypasses the TTL cache, not an in-progress fetch.
+      const existing = inflight.get(key) as Promise<ReadOutcome> | undefined;
+      if (existing) return existing;
+
+      const p = (async (): Promise<ReadOutcome> => {
+        try {
+          const fetched = await transport.loadProjectFileContent(projectId, path);
+          return { kind: 'fetched', content: fetched };
+        } finally {
+          inflight.delete(key);
+        }
+      })();
+      inflight.set(key, p);
+      return p;
     },
-    // noteContentLoaded/touch/invalidateContent/clear implemented in later tasks.
-    noteContentLoaded: () => [],
+    // noteContentLoaded eviction logic is T3; here we only write the entry so cache_hit works.
+    noteContentLoaded: (projectId, path, bytes, etag) => {
+      const key = readKey(projectId, path);
+      const t = now();
+      contentCache.set(key, { etag, loadedAt: t, lastAccess: t, bytes });
+      return [];
+    },
     touch: () => {},
     invalidateContent: () => {},
     clear: () => {
