@@ -350,7 +350,7 @@ function serverTerminalCommandToClient(
   };
 }
 
-function mergeCommandHistory(
+export function mergeCommandHistory(
   incoming: TerminalCommandHistoryItem[],
   existing: TerminalCommandHistoryItem[] = [],
 ) {

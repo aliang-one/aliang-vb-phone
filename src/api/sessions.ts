@@ -60,6 +60,13 @@ export interface ServerTerminalSession {
   closed_at?: string;
   last_command?: string;
   last_command_at?: string;
+  recent_commands?: Array<{
+    id: string;
+    command: string;
+    timestamp: string;
+    created_at: string;
+    exit_code?: number | null;
+  }>;
 }
 
 export interface ServerTerminalCommand {
