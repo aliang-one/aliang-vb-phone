@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand';
 import { platformTransport } from '../../services/platformTransport';
+import { fileCache } from '../../services/fileCache';
 import type { ControlCenterState } from '../types';
 import {
   attachDeviceRelations,
@@ -17,7 +18,7 @@ type DeviceProjectSlice = Pick<
   | 'devices' | 'projects' | 'projectFiles' | 'scanResults'
   | 'bindDevice' | 'renameDevice' | 'scanDeviceProjects'
   | 'createProject' | 'updateProject' | 'deleteProject'
-  | 'loadProjectFiles' | 'loadProjectFileContent'
+  | 'loadProjectFiles' | 'loadProjectFileContent' | 'dropFileContent'
 >;
 
 export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], DeviceProjectSlice> = (set, get) => ({
@@ -188,13 +189,13 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
     });
   },
 
-  loadProjectFiles: async (projectId, path) => {
+  loadProjectFiles: async (projectId, path, opts) => {
     if (!get().serverMode) {
       throw new Error('Platform connection is required before loading project files.');
     }
 
     try {
-      const result = await platformTransport.loadProjectFiles(projectId, path);
+      const result = await fileCache.listFiles(projectId, path ?? '', { force: opts?.force });
       const nextEntries = result.entries.map(entry =>
         serverProjectFileToClient(result.project_id, result.path, entry),
       );
@@ -207,15 +208,20 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
         );
         const mergedEntries = nextEntries.map(entry => {
           const existing = existingByPath.get(entry.path);
-          return existing
-            ? {
-                ...entry,
-                content: existing.content,
-                encoding: existing.encoding,
-                loadedAt: existing.loadedAt,
-                truncated: existing.truncated,
-              }
-            : entry;
+          if (!existing) return entry;
+          if (existing.content !== undefined && existing.etag !== entry.etag) {
+            fileCache.invalidateContent(result.project_id, entry.path);
+            return entry;
+          }
+          return {
+            ...entry,
+            content: existing.content,
+            encoding: existing.encoding,
+            loadedAt: existing.loadedAt,
+            truncated: existing.truncated,
+            etag: entry.etag,
+            previewBlocked: existing.previewBlocked,
+          };
         });
 
         return {
@@ -253,14 +259,43 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
     }
   },
 
-  loadProjectFileContent: async (projectId, path) => {
+  loadProjectFileContent: async (projectId, path, opts) => {
     if (!get().serverMode) {
       throw new Error('Platform connection is required before reading project files.');
     }
 
+    const existing = get().projectFiles.find(
+      item => item.projectId === projectId && item.path === path,
+    );
+    const meta = {
+      name: existing?.name ?? path.split('/').pop() ?? path,
+      sizeBytes: existing?.sizeBytes,
+    };
+
     try {
-      const result = await platformTransport.loadProjectFileContent(projectId, path);
-      const loadedEntry = serverProjectContentToFileEntry(result.project_id, result);
+      const outcome = await fileCache.readFile(projectId, path, meta, {
+        force: opts?.force,
+        hasCachedContent: existing?.content !== undefined,
+      });
+
+      if (outcome.kind === 'blocked') {
+        set(state => ({
+          projectFiles: state.projectFiles.map(item =>
+            item.projectId === projectId && item.path === path
+              ? { ...item, content: undefined, previewBlocked: { reason: outcome.reason, sizeBytes: outcome.sizeBytes } }
+              : item,
+          ),
+        }));
+        return;
+      }
+      if (outcome.kind === 'cache_hit') {
+        fileCache.touch(projectId, path);
+        return;
+      }
+
+      const result = outcome.content;
+      const etag = `${result.size_bytes ?? ''}:${result.modified_at ?? ''}`;
+      const bytes = result.content.length;
 
       set(state => {
         const hasExisting = state.projectFiles.some(
@@ -279,11 +314,13 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
                     size: result.size_bytes !== undefined ? formatBytes(result.size_bytes) : item.size,
                     modifiedAt: result.modified_at ?? item.modifiedAt,
                     lastTouched: result.modified_at ?? item.lastTouched,
+                    etag,
+                    previewBlocked: undefined,
                     error: undefined,
                   }
                 : item,
             )
-          : [...state.projectFiles, loadedEntry];
+          : [...state.projectFiles, serverProjectContentToFileEntry(result.project_id, result)];
 
         return {
           projectFiles: nextFiles,
@@ -296,6 +333,17 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
           ].slice(0, 120),
         };
       });
+
+      const evicted = fileCache.noteContentLoaded(projectId, path, bytes, etag);
+      for (const key of evicted) {
+        // key format: `read:<projectId>:<path>`; projectIds are UUIDs (no colon),
+        // so the first ':' after the `read:` prefix splits projectId from path.
+        const rest = key.slice('read:'.length);
+        const sep = rest.indexOf(':');
+        const evProjectId = rest.slice(0, sep);
+        const evPath = rest.slice(sep + 1);
+        get().dropFileContent(evProjectId, evPath);
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Project file read failed';
       set(state => ({
@@ -313,5 +361,22 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
       }));
       throw error;
     }
+  },
+
+  dropFileContent: (projectId, path) => {
+    set(state => ({
+      projectFiles: state.projectFiles.map(item =>
+        item.projectId === projectId && item.path === path
+          ? {
+              ...item,
+              content: undefined,
+              encoding: undefined,
+              loadedAt: undefined,
+              etag: undefined,
+              error: undefined,
+            }
+          : item,
+      ),
+    }));
   },
 });

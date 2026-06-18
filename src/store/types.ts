@@ -153,6 +153,8 @@ export interface ProjectFileEntry {
   loadedAt?: string;
   truncated?: boolean;
   error?: string;
+  etag?: string;
+  previewBlocked?: { reason: 'too_large' | 'binary'; sizeBytes?: number };
 }
 
 export interface UnifiedEvent {
@@ -242,8 +244,9 @@ export interface ControlCenterState {
     }>,
   ) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
-  loadProjectFiles: (projectId: string, path?: string) => Promise<void>;
-  loadProjectFileContent: (projectId: string, path: string) => Promise<void>;
+  loadProjectFiles: (projectId: string, path?: string, opts?: { force?: boolean }) => Promise<void>;
+  loadProjectFileContent: (projectId: string, path: string, opts?: { force?: boolean }) => Promise<void>;
+  dropFileContent: (projectId: string, path: string) => void;
   createTerminalSession: (
     deviceId: string,
     directory?: string,

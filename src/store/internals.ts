@@ -897,6 +897,7 @@ export function serverProjectFileToClient(
     sizeBytes: file.size_bytes,
     lastTouched: file.modified_at ?? 'unknown',
     modifiedAt: file.modified_at,
+    etag: `${file.size_bytes ?? ''}:${file.modified_at ?? ''}`,
     summary:
       file.summary ?? (isFolder ? 'Directory' : 'Synced from desktop Agent.'),
   };
@@ -927,6 +928,7 @@ export function serverProjectContentToFileEntry(
     encoding: content.encoding,
     loadedAt: nowTime(),
     truncated: content.truncated,
+    etag: `${content.size_bytes ?? ''}:${content.modified_at ?? ''}`,
   };
 }
 
