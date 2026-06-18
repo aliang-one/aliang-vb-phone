@@ -255,8 +255,11 @@ class PlatformTransport {
     return fetchAiSessions();
   }
 
-  async loadAiSession(sessionId: string): Promise<PlatformAiSessionSnapshot> {
-    return fetchAiSession(sessionId);
+  async loadAiSession(
+    sessionId: string,
+    options?: { refresh?: boolean },
+  ): Promise<PlatformAiSessionSnapshot> {
+    return fetchAiSession(sessionId, options);
   }
 
   createProject(input: Parameters<typeof apiCreateProject>[0]): Promise<PlatformProjectSnapshot> {

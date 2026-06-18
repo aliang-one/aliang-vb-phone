@@ -257,7 +257,10 @@ export interface ControlCenterState {
     deviceId?: string,
   ) => Promise<void>;
   startAgentSession: (input: StartAgentInput) => Promise<string>;
-  loadAgentSessionDetail: (sessionId: string) => Promise<void>;
+  loadAgentSessionDetail: (
+    sessionId: string,
+    options?: { refresh?: boolean },
+  ) => Promise<void>;
   pauseAgentSession: (sessionId: string) => Promise<void>;
   resumeAgentSession: (sessionId: string) => Promise<void>;
   terminateAgentSession: (sessionId: string) => Promise<void>;

@@ -143,6 +143,13 @@ export interface VibeCodingRun {
   eventCount?: number;
   lastMessage?: AgentMessage;
   detailLoadedAt?: string;
+  /**
+   * Server `detail_refresh.status` from the last single-session fetch — lets the
+   * chat screen distinguish "genuinely no messages" from "agent offline /
+   * fetch failed, history unreachable". Undefined for list-snapshot sessions
+   * (the summary payload omits it). See ServerAiSession.detail_refresh.
+   */
+  detailRefreshStatus?: string;
   suggestions: string[];
   transcript: AgentMessage[];
   events: AgentEvent[];

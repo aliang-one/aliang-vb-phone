@@ -130,11 +130,17 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     throw new Error('Platform connection is required to start a VibeCoding session.');
   },
 
-  loadAgentSessionDetail: async sessionId => {
+  loadAgentSessionDetail: async (sessionId, options) => {
     if (!get().serverMode) {
       throw new Error('Platform connection is required before loading a VibeCoding session.');
     }
-    const serverSession = await platformTransport.loadAiSession(sessionId);
+    // `refresh: true` -> server-side `?refresh=true` forces `loadAiMessagePageForSession`
+    // to bypass the page cache and re-ask the agent (see shouldAskAgent in the server
+    // handler). Used by the chat screen's pull-to-refresh / retry so an empty/offline
+    // result can actually recover instead of being stuck on the cached empty page.
+    const serverSession = await platformTransport.loadAiSession(sessionId, {
+      refresh: options?.refresh,
+    });
     set(state => {
       const nextRun = {
         ...serverAiSessionToVibeRun(serverSession, state.devices, state.projects),

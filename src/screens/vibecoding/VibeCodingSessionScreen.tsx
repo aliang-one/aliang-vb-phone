@@ -10,6 +10,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  RefreshControl,
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
@@ -110,6 +111,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const [preparedPrompt, setPreparedPrompt] = useState('');
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState('');
+  // Drives the ScrollView's RefreshControl. Pull-to-refresh forces a server
+  // re-fetch (`refresh: true`) so an empty / offline result can recover — the
+  // auto-load on mount only fires once and respects the cache.
+  const [refreshing, setRefreshing] = useState(false);
   const [scrollY, setScrollY] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
   const scrollViewRef = useRef<ScrollView | null>(null);
@@ -279,10 +284,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
       });
   }, [activeRailMessageId, transcript, visibleTranscriptIds]);
 
+  // First-fetch guard: skip the auto-load only when we already hold the
+  // transcript detail (a prior fetch set detailLoadedAt, or a hot window
+  // delivered messages). DO NOT count events — a session can carry lifecycle
+  // events while its hot transcript is empty (status-only WS updates), and
+  // counting those would suppress the fetch and leave the chat blank.
   const hasDetail = Boolean(
-    session?.detailLoadedAt ||
-      session?.transcript.length ||
-      session?.events.length,
+    session?.detailLoadedAt || session?.transcript.length,
   );
 
   useEffect(() => {
@@ -327,6 +335,27 @@ export const VibeCodingSessionScreen: React.FC = () => {
     loadingDetail,
     targetSessionId,
   ]);
+
+  // Pull-to-refresh + retry entry point. Unlike the mount auto-load (which runs
+  // once and respects the server's page cache), this forces `refresh: true` so
+  // the server re-asks the agent — the only way to recover from an earlier
+  // empty/offline result. Always fires regardless of hasDetail/detailError.
+  const handleRefresh = useCallback(async () => {
+    if (!targetSessionId) return;
+    setRefreshing(true);
+    setDetailError('');
+    try {
+      await loadAgentSessionDetail(targetSessionId, { refresh: true });
+    } catch (error) {
+      setDetailError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to load session detail.',
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadAgentSessionDetail, targetSessionId]);
 
   useEffect(() => {
     const visibleIds = new Set(visibleTranscript.map(message => message.id));
@@ -501,6 +530,38 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // project / device / preview are now subscribed via fine-grained selectors
   // at the top of the component (useProject / useDevice / useSessionPreview).
   const deviceOffline = device?.status === 'offline';
+  // When the transcript is empty, explain WHY using the server's detail_refresh
+  // status (+ proactive device-offline guard) instead of a flat "暂无会话记录".
+  // Native sessions keep their history on the agent; if it's offline the server
+  // returns skipped_offline + an empty transcript, which must read as "agent
+  // offline, pull to retry", not "this conversation is empty".
+  const emptyTranscriptState: {
+    title: string;
+    detail: string;
+    tone: 'offline' | 'error' | 'neutral';
+  } = (() => {
+    if (deviceOffline || session?.detailRefreshStatus === 'skipped_offline') {
+      return {
+        title: '桌面 Agent 未连接',
+        detail:
+          '该会话的历史保存在电脑端 Agent,当前 Agent 不在线,暂时无法加载。请确认 Agent 已运行并联网,然后下拉刷新。',
+        tone: 'offline' as const,
+      };
+    }
+    if (session?.detailRefreshStatus === 'failed') {
+      return {
+        title: '历史拉取失败',
+        detail: '从桌面 Agent 拉取历史时出错,请稍后下拉刷新重试。',
+        tone: 'error' as const,
+      };
+    }
+    return {
+      title: '暂无会话记录',
+      detail:
+        '这个会话还没有消息。下拉可刷新同步历史,或在下方发送消息开始对话。',
+      tone: 'neutral' as const,
+    };
+  })();
   const budgetLabel = formatBudget(session.projectBudget);
   const isCodexSession = session.model.toLowerCase().includes('codex');
   const displayTitle = formatVibeSessionTitle(session.title, {
@@ -529,6 +590,16 @@ export const VibeCodingSessionScreen: React.FC = () => {
         ref={scrollViewRef}
         style={styles.scrollView}
         contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+            title="同步会话历史..."
+            titleColor={theme.colors.onSurfaceVariant}
+          />
+        }
         scrollEventThrottle={16}
         onLayout={event => {
           const height = event.nativeEvent.layout.height;
@@ -941,7 +1012,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 onMessageLayout={handleTranscriptMessageLayout}
               />
             </>
-          ) : loadingDetail ? (
+          ) : loadingDetail || refreshing ? (
             <GlassPanel style={styles.detailStatePanel}>
               <ActivityIndicator color={theme.colors.primary} />
               <Text
@@ -950,7 +1021,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                   { color: theme.colors.onSurfaceVariant },
                 ]}
               >
-                正在拉取完整会话内容...
+                {refreshing ? '正在同步会话历史...' : '正在拉取完整会话内容...'}
               </Text>
             </GlassPanel>
           ) : detailError ? (
@@ -960,17 +1031,76 @@ export const VibeCodingSessionScreen: React.FC = () => {
               >
                 {detailError}
               </Text>
+              <TouchableOpacity
+                activeOpacity={0.75}
+                onPress={handleRefresh}
+                style={[
+                  styles.detailRetryButton,
+                  { borderColor: theme.colors.primary },
+                ]}
+              >
+                <Text
+                  style={[
+                    theme.typography.codeSm,
+                    { color: theme.colors.primary },
+                  ]}
+                >
+                  重试
+                </Text>
+              </TouchableOpacity>
             </GlassPanel>
           ) : (
             <GlassPanel style={styles.detailStatePanel}>
+              <Text
+                style={[
+                  theme.typography.labelMd,
+                  {
+                    color:
+                      emptyTranscriptState.tone === 'neutral'
+                        ? theme.colors.onSurface
+                        : emptyTranscriptState.tone === 'error'
+                          ? theme.colors.error
+                          : theme.colors.tertiary,
+                  },
+                ]}
+              >
+                {emptyTranscriptState.title}
+              </Text>
               <Text
                 style={[
                   theme.typography.bodySm,
                   { color: theme.colors.onSurfaceVariant },
                 ]}
               >
-                暂无会话记录
+                {emptyTranscriptState.detail}
               </Text>
+              <TouchableOpacity
+                activeOpacity={0.75}
+                onPress={handleRefresh}
+                style={[
+                  styles.detailRetryButton,
+                  {
+                    borderColor:
+                      emptyTranscriptState.tone === 'offline'
+                        ? theme.colors.tertiary
+                        : theme.colors.primary,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    theme.typography.codeSm,
+                    {
+                      color:
+                        emptyTranscriptState.tone === 'offline'
+                          ? theme.colors.tertiary
+                          : theme.colors.primary,
+                    },
+                  ]}
+                >
+                  下拉或点击刷新
+                </Text>
+              </TouchableOpacity>
             </GlassPanel>
           )}
           {latestAgentEvent ? (
@@ -1516,6 +1646,14 @@ const styles = StyleSheet.create({
   detailStatePanel: {
     padding: 14,
     gap: 10,
+  },
+  detailRetryButton: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
   },
   detailInlinePanel: {
     minHeight: 40,

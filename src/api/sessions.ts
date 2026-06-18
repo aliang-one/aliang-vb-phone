@@ -40,6 +40,18 @@ export interface ServerAiSession {
     content: string;
     timestamp: string;
   };
+  /**
+   * Server-side diagnostic for the latest message-page resolution. The single
+   * session GET runs `loadAiMessagePageForSession`, which reports WHY the
+   * returned transcript is what it is — crucially `skipped_offline` (agent not
+   * connected, so native-session history couldn't be fetched) and `failed`
+   * (agent request errored). Without this the client can't tell an empty
+   * conversation apart from "agent offline, history unreachable".
+   *
+   * status values: cached | cached_partial | cache_miss | fresh | failed |
+   * skipped_offline.
+   */
+  detail_refresh?: { status: string; error?: string };
   created_at: string;
   last_active_at: string;
   closed_at?: string;
@@ -91,8 +103,15 @@ export interface ServerTerminalCommandResult {
 export const fetchAiSessions = (): Promise<ServerAiSession[]> =>
   apiGet<ServerAiSession[]>('/api/ai/sessions');
 
-export const fetchAiSession = (sessionId: string): Promise<ServerAiSession> =>
-  apiGet<ServerAiSession>(`/api/ai/sessions/${sessionId}`);
+export const fetchAiSession = (
+  sessionId: string,
+  options?: { refresh?: boolean },
+): Promise<ServerAiSession> =>
+  apiGet<ServerAiSession>(
+    `/api/ai/sessions/${sessionId}${
+      options?.refresh ? '?refresh=true' : ''
+    }`,
+  );
 
 export const createAiSession = (input: {
   device_id: string;

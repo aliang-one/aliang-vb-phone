@@ -368,8 +368,19 @@ export function serverAiSessionToVibeRun(
     transcriptCount: session.transcript_count ?? transcript.length,
     eventCount: session.event_count ?? events.length,
     lastMessage,
+    // Only mark detail-loaded when there is actual content. An empty array is
+    // truthy in JS, so the old `session.transcript || session.events` form
+    // marked a snapshot whose arrays were `[]` as "loaded" and suppressed the
+    // chat screen's first-fetch. (In the load path detailLoadedAt is set
+    // explicitly in loadAgentSessionDetail regardless; this governs the
+    // list-snapshot shape — kept correct defensively.) Use the mapped lengths,
+    // not the raw fields, so an empty `[]` never counts as content.
     detailLoadedAt:
-      session.transcript || session.events ? nowTime() : undefined,
+      transcript.length > 0 || events.length > 0 ? nowTime() : undefined,
+    // Surface why the last page resolved the way it did (skipped_offline /
+    // failed / cache_miss / fresh) so the chat screen can tell an empty
+    // conversation apart from "agent offline, history unreachable".
+    detailRefreshStatus: session.detail_refresh?.status,
     suggestions: ['Ask for plan', 'Open terminal', 'Pause session'],
     transcript,
     events,
