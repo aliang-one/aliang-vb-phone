@@ -139,15 +139,40 @@ export function createFileCache(deps: FileCacheDeps): FileCache {
       inflight.set(key, p);
       return p;
     },
-    // noteContentLoaded eviction logic is T3; here we only write the entry so cache_hit works.
-    noteContentLoaded: (projectId, path, bytes, etag) => {
+    // noteContentLoaded: writing overwrites any prior entry (a re-load refreshes the TTL window).
+    noteContentLoaded(projectId, path, bytes, etag) {
       const key = readKey(projectId, path);
       const t = now();
+      // Overwrites any prior entry — a re-load refreshes the TTL window.
       contentCache.set(key, { etag, loadedAt: t, lastAccess: t, bytes });
-      return [];
+      const evicted: string[] = [];
+      const totalBytes = () => [...contentCache.values()].reduce((s, e) => s + e.bytes, 0);
+      while (contentCache.size > MAX_CONTENT_ENTRIES || totalBytes() > MAX_CONTENT_BYTES) {
+        // find LRU entry (min lastAccess), never the just-inserted key
+        let lruKey: string | null = null;
+        let lruAccess = Infinity;
+        for (const [k, e] of contentCache) {
+          if (k === key) continue;
+          if (e.lastAccess < lruAccess) {
+            lruAccess = e.lastAccess;
+            lruKey = k;
+          }
+        }
+        if (lruKey === null) break;
+        contentCache.delete(lruKey);
+        evicted.push(lruKey);
+      }
+      return evicted;
     },
-    touch: () => {},
-    invalidateContent: () => {},
+
+    touch(projectId, path) {
+      const entry = contentCache.get(readKey(projectId, path));
+      if (entry) entry.lastAccess = now();
+    },
+
+    invalidateContent(projectId, path) {
+      contentCache.delete(readKey(projectId, path));
+    },
     clear: () => {
       listCache.clear();
       contentCache.clear();

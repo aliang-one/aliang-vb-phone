@@ -127,3 +127,56 @@ describe('fileCache.readFile', () => {
     expect(r.kind).toBe('fetched');
   });
 });
+
+describe('fileCache LRU + invalidation', () => {
+  it('evicts oldest entries past MAX_CONTENT_ENTRIES (16)', () => {
+    const transport = mkTransport();
+    const cache = createFileCache({ transport: transport as any, now: () => 1000 });
+    for (let i = 0; i < 16; i++) {
+      cache.noteContentLoaded('pj', `/p/${i}.ts`, 10, `e${i}`);
+    }
+    // adding the 17th evicts the LRU (/p/0.ts)
+    const evicted = cache.noteContentLoaded('pj', '/p/16.ts', 10, 'e16');
+    expect(evicted).toEqual([expect.stringMatching(/\/p\/0\.ts$/)]);
+  });
+
+  it('evicts by total bytes budget', () => {
+    const transport = mkTransport();
+    const cache = createFileCache({ transport: transport as any, now: () => 1000 });
+    // two 4MB entries -> 8MB > 6MB budget; second insert evicts the first
+    const evicted = cache.noteContentLoaded('pj', '/p/a.ts', 4 * 1024 * 1024, 'ea');
+    expect(evicted).toEqual([]);
+    const evicted2 = cache.noteContentLoaded('pj', '/p/b.ts', 4 * 1024 * 1024, 'eb');
+    expect(evicted2.length).toBe(1);
+  });
+
+  it('touch bumps lastAccess so a newer entry survives over an older touched one', () => {
+    const transport = mkTransport();
+    let t = 1000;
+    const now = jest.fn(() => t);
+    const cache = createFileCache({ transport: transport as any, now });
+    cache.noteContentLoaded('pj', '/p/old.ts', 10, 'o');
+    t = 2000;
+    cache.noteContentLoaded('pj', '/p/mid.ts', 10, 'm');
+    t = 3000;
+    cache.touch('pj', '/p/old.ts'); // old is now most-recent
+    // fill to 16 + 1 to force one eviction; 'mid' should be the LRU victim.
+    // old + mid already occupy 2 slots, so 14 more reach the 16 cap.
+    for (let i = 0; i < 14; i++) cache.noteContentLoaded('pj', `/p/${i}.ts`, 10, `e${i}`);
+    const evicted = cache.noteContentLoaded('pj', '/p/x.ts', 10, 'ex');
+    expect(evicted.some(k => k.endsWith('/p/mid.ts'))).toBe(true);
+    expect(evicted.some(k => k.endsWith('/p/old.ts'))).toBe(false);
+  });
+
+  it('invalidateContent removes a single entry', () => {
+    const transport = mkTransport();
+    const cache = createFileCache({ transport: transport as any, now: () => 1000 });
+    cache.noteContentLoaded('pj', '/p/a.ts', 10, 'ea');
+    cache.invalidateContent('pj', '/p/a.ts');
+    // after invalidate, a read with cached content no longer hits TTL
+    transport.loadProjectFileContent.mockResolvedValue({ project_id: 'pj', device_id: 'd', path: '/p/a.ts', content: 'x', encoding: 'utf8', size_bytes: 1, modified_at: 'm', truncated: false });
+    return cache.readFile('pj', '/p/a.ts', { name: 'a.ts', sizeBytes: 1 }, { hasCachedContent: true }).then(r => {
+      expect(r.kind).toBe('fetched'); // not cache_hit
+    });
+  });
+});
