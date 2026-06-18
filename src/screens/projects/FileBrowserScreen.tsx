@@ -1,5 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -8,7 +15,7 @@ import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
-import { IconBadge } from '../../components/visual/IconBadge';
+import { IconBadge, IconName } from '../../components/visual/IconBadge';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useTheme } from '../../theme/useTheme';
 import {
@@ -29,16 +36,6 @@ const filters: Array<{ label: string; value: FileFilter }> = [
   { label: 'ADDED', value: 'added' },
   { label: 'CLEAN', value: 'clean' },
 ];
-
-const statusType: Record<
-  ProjectFileEntry['status'],
-  'success' | 'warning' | 'error' | 'neutral' | 'info'
-> = {
-  clean: 'neutral',
-  modified: 'warning',
-  added: 'success',
-  deleted: 'error',
-};
 
 const parentPathOf = (pathValue: string) => {
   const normalized = pathValue.replace(/\\/g, '/');
@@ -147,6 +144,7 @@ export const FileBrowserScreen: React.FC = () => {
     item => item.projectId === route.params.projectId && item.path === selectedPath,
   );
   const canReadDevice = Boolean(device && device.status === 'online');
+  const inSubfolder = effectivePath !== terminalDirectory;
 
   useEffect(() => {
     if (!currentPath && terminalDirectory !== '~') {
@@ -230,20 +228,31 @@ export const FileBrowserScreen: React.FC = () => {
     }
   };
 
+  const goUp = () => {
+    setSelectedPath('');
+    setCurrentPath(parentPathOf(effectivePath));
+  };
+
   return (
     <SafeAreaWrapper>
       <TopAppBar
         title="Files"
         subtitle={project.name}
         onBack={navigation.goBack}
-        rightAction={<StatusChip label={loading ? 'LOADING' : `${projectFiles.length} FILES`} type="info" />}
+        rightAction={
+          <StatusChip
+            label={loading ? 'LOADING' : deviceOnline ? 'ONLINE' : 'OFFLINE'}
+            type={loading ? 'info' : deviceOnline ? 'success' : 'neutral'}
+          />
+        }
       />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+        {/* Project identity + device status + action toolbar */}
         <GlassPanel style={styles.hero}>
           <View style={styles.heroTop}>
-            <IconBadge name="project" tone="primary" size={50} iconSize={25} filled />
+            <IconBadge name="project" tone="primary" size={48} iconSize={24} filled />
             <View style={styles.heroCopy}>
-              <Text style={[theme.typography.titleLg, { color: theme.colors.onSurface }]}>
+              <Text style={[theme.typography.titleLg, { color: theme.colors.onSurface }]} numberOfLines={1}>
                 {project.name}
               </Text>
               <Text
@@ -254,6 +263,7 @@ export const FileBrowserScreen: React.FC = () => {
             </View>
             <StatusChip label={project.branch} type="info" />
           </View>
+
           <View
             style={[
               styles.deviceStatusRow,
@@ -266,8 +276,8 @@ export const FileBrowserScreen: React.FC = () => {
             <IconBadge
               name="device"
               tone={deviceOnline ? 'secondary' : 'neutral'}
-              size={28}
-              iconSize={15}
+              size={26}
+              iconSize={14}
             />
             <Text
               numberOfLines={1}
@@ -279,35 +289,21 @@ export const FileBrowserScreen: React.FC = () => {
               type={deviceOnline ? 'success' : 'neutral'}
             />
           </View>
-          <View style={styles.pathRow}>
-            <Text
-              numberOfLines={1}
-              style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-              {effectivePath}
-            </Text>
-            {effectivePath !== terminalDirectory ? (
-              <TouchableOpacity
-                activeOpacity={0.75}
-                onPress={() => {
-                  setSelectedPath('');
-                  setCurrentPath(parentPathOf(effectivePath));
-                }}
-                style={[
-                  styles.upButton,
-                  {
-                    borderColor: theme.colors.outlineVariant,
-                    borderRadius: theme.borderRadius.full,
-                  },
-                ]}>
-                <Text style={[theme.typography.labelSm, { color: theme.colors.primary }]}>
-                  UP
-                </Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-          <View style={styles.actionRow}>
-            <GlowButton
-              title="OPEN TERMINAL"
+
+          <View
+            style={[
+              styles.toolbar,
+              {
+                borderColor: isDark ? 'rgba(255,255,255,0.08)' : theme.colors.outlineVariant,
+              },
+            ]}>
+            <ToolCell
+              icon="terminal"
+              label="TERMINAL"
+              tone="primary"
+              filled
+              highlight
+              disabled={!device}
               onPress={() =>
                 device &&
                 navigation.navigate('DeviceTerminal', {
@@ -315,173 +311,240 @@ export const FileBrowserScreen: React.FC = () => {
                   directory: terminalDirectory,
                 })
               }
-              disabled={!device}
-              variant="primary"
-              style={styles.primaryAction}
             />
-            <GlowButton
-              title={loading ? 'LOADING' : 'REFRESH'}
-              onPress={handleRefresh}
+            <ToolCell
+              icon="refresh"
+              label="REFRESH"
+              tone="primary"
+              divider
+              loading={loading}
               disabled={!device || !canReadDevice || loading}
-              variant="outline"
-              style={styles.secondaryAction}
+              onPress={handleRefresh}
             />
             {device ? (
-              <GlowButton
-                title="SCAN"
+              <ToolCell
+                icon="scan"
+                label="SCAN"
+                tone="primary"
+                divider
                 onPress={() => navigation.navigate('ProjectScan', { deviceId: device.id })}
-                variant="outline"
-                style={styles.secondaryAction}
               />
             ) : null}
-            <GlowButton
-              title="AGENT"
+            <ToolCell
+              icon="agent"
+              label="AGENT"
+              tone="primary"
+              divider
               onPress={() =>
                 navigation.navigate('AgentSessions', {
                   deviceId: device?.id,
                   projectId: project.id,
                 })
               }
-              variant="outline"
-              style={styles.secondaryAction}
             />
           </View>
         </GlassPanel>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filters}>
-          {filters.map(item => {
-            const active = item.value === filter;
-            return (
+        {/* File browser window */}
+        <GlassPanel style={styles.browserWindow}>
+          {/* Title bar: up navigation + breadcrumb path + item count */}
+          <View
+            style={[
+              styles.windowTitlebar,
+              {
+                borderBottomColor: isDark
+                  ? 'rgba(255,255,255,0.08)'
+                  : theme.colors.outlineVariant,
+                backgroundColor: isDark
+                  ? 'rgba(255,255,255,0.03)'
+                  : theme.colors.surfaceContainerHigh,
+              },
+            ]}>
+            {inSubfolder ? (
               <TouchableOpacity
-                key={item.value}
-                activeOpacity={0.75}
-                onPress={() => setFilter(item.value)}
-                style={[
-                  styles.filterChip,
-                  {
-                    borderRadius: theme.borderRadius.full,
-                    borderColor: active
-                      ? theme.colors.primary
-                      : theme.colors.outlineVariant,
-                    backgroundColor: active
-                      ? isDark
-                        ? 'rgba(86, 156, 214, 0.12)'
-                        : 'rgba(0, 81, 174, 0.08)'
-                      : 'transparent',
-                  },
-                ]}>
+                activeOpacity={0.6}
+                onPress={goUp}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={styles.upButton}>
+                <IconBadge
+                  name="chevron"
+                  tone="primary"
+                  size={24}
+                  iconSize={15}
+                  style={{ transform: [{ rotate: '90deg' }] }}
+                />
+              </TouchableOpacity>
+            ) : null}
+            <IconBadge name="project" tone="primary" size={24} iconSize={13} />
+            <Text
+              numberOfLines={1}
+              style={[theme.typography.codeSm, { color: theme.colors.primary, flex: 1 }]}>
+              {effectivePath}
+            </Text>
+            <View
+              style={[
+                styles.countPill,
+                {
+                  backgroundColor: isDark
+                    ? 'rgba(86,156,214,0.14)'
+                    : 'rgba(0,81,174,0.08)',
+                },
+              ]}>
+              <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
+                {projectFiles.length}
+              </Text>
+            </View>
+          </View>
+
+          {/* Body: error / empty / list */}
+          <View style={styles.windowBody}>
+            {fileError ? (
+              <View style={styles.bodyState}>
+                <IconBadge
+                  name="warning"
+                  tone={fileError.offline ? 'neutral' : 'error'}
+                  size={36}
+                  iconSize={18}
+                />
                 <Text
                   style={[
-                    theme.typography.labelSm,
+                    theme.typography.titleMd,
                     {
-                      color: active
-                        ? theme.colors.primary
-                        : theme.colors.onSurfaceVariant,
+                      color: fileError.offline ? theme.colors.tertiary : theme.colors.error,
+                      textAlign: 'center',
                     },
                   ]}>
-                  {item.label}
+                  {fileError.title}
                 </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
-        {fileError ? (
-          <GlassPanel style={styles.errorPanel}>
-            <Text
-              style={[
-                theme.typography.titleMd,
-                { color: fileError.offline ? theme.colors.tertiary : theme.colors.error },
-              ]}>
-              {fileError.title}
-            </Text>
-            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-              {fileError.detail}
-            </Text>
-            <View style={styles.errorActions}>
-              <GlowButton
-                title={loading ? '加载中' : '重新加载'}
-                onPress={handleRefresh}
-                disabled={!device || !deviceOnline || loading}
-                variant="primary"
-                style={styles.emptyAction}
-              />
-              {device ? (
-                <GlowButton
-                  title="扫描设备"
-                  onPress={() => navigation.navigate('ProjectScan', { deviceId: device.id })}
-                  variant="outline"
-                  style={styles.emptyAction}
+                <Text
+                  style={[
+                    theme.typography.bodySm,
+                    { color: theme.colors.onSurfaceVariant, textAlign: 'center' },
+                  ]}>
+                  {fileError.detail}
+                </Text>
+                <View style={styles.stateActions}>
+                  <GlowButton
+                    title={loading ? '加载中' : '重新加载'}
+                    onPress={handleRefresh}
+                    disabled={!device || !deviceOnline || loading}
+                    variant="primary"
+                    style={styles.stateAction}
+                  />
+                  {device ? (
+                    <GlowButton
+                      title="扫描设备"
+                      onPress={() => navigation.navigate('ProjectScan', { deviceId: device.id })}
+                      variant="outline"
+                      style={styles.stateAction}
+                    />
+                  ) : null}
+                </View>
+              </View>
+            ) : !projectFiles.length ? (
+              <View style={styles.bodyState}>
+                <IconBadge
+                  name="device"
+                  tone={deviceOnline ? 'neutral' : 'error'}
+                  size={36}
+                  iconSize={18}
                 />
-              ) : null}
-            </View>
-          </GlassPanel>
-        ) : null}
-
-        {fileList.visibleItems.map(file => (
-          <TouchableOpacity
-            key={file.id}
-            activeOpacity={0.78}
-            onPress={() => handleOpenFile(file)}>
-            <GlassPanel style={styles.fileCard}>
-            <View style={styles.fileTop}>
-              <IconBadge
-                name={file.kind === 'folder' ? 'project' : file.status === 'deleted' ? 'warning' : 'code'}
-                tone={
-                  file.status === 'modified'
-                    ? 'tertiary'
-                    : file.status === 'added'
-                    ? 'secondary'
-                    : file.status === 'deleted'
-                    ? 'error'
-                    : 'neutral'
-                }
-                size={40}
-                iconSize={20}
-              />
-              <View style={styles.fileCopy}>
                 <Text
-                  numberOfLines={1}
-                  style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                  {file.kind === 'folder' ? `${file.name}/` : file.name}
+                  style={[
+                    theme.typography.titleMd,
+                    { color: theme.colors.onSurface, textAlign: 'center' },
+                  ]}>
+                  {loading
+                    ? '正在从桌面 Agent 加载文件…'
+                    : !device
+                    ? '该任务尚未绑定设备'
+                    : !deviceOnline
+                    ? '桌面 Agent 当前离线'
+                    : '暂无文件'}
                 </Text>
                 <Text
-                  numberOfLines={1}
-                  style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-                  {file.path}
+                  style={[
+                    theme.typography.bodySm,
+                    { color: theme.colors.onSurfaceVariant, textAlign: 'center' },
+                  ]}>
+                  {!device
+                    ? '请返回设备页，先绑定设备并为该项目选择设备。'
+                    : !deviceOnline
+                    ? 'Agent 未保持连接，请确认 Agent 在线后用上方工具条刷新，或打开终端 / 扫描设备。'
+                    : '点击上方工具条的 REFRESH 可向桌面 Agent 请求文件列表。'}
                 </Text>
               </View>
-              <StatusChip
-                label={
-                  readingPath === file.path
-                    ? 'READING'
-                    : file.kind === 'folder'
-                    ? 'DIR'
-                    : file.status.toUpperCase()
-                }
-                type={file.kind === 'folder' ? 'info' : statusType[file.status]}
-              />
-            </View>
-            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-              {file.summary}
-            </Text>
-            <View style={styles.fileFacts}>
-              <Fact label="LANG" value={file.language} />
-              <Fact label="SIZE" value={file.size} />
-              <Fact label="TOUCHED" value={file.lastTouched} />
-            </View>
-            </GlassPanel>
-          </TouchableOpacity>
-        ))}
-        <LoadMoreRow
-          visibleCount={fileList.visibleCount}
-          totalCount={fileList.totalCount}
-          onPress={fileList.showMore}
-          label="LOAD MORE FILES"
-        />
+            ) : (
+              <>
+                {fileList.visibleItems.map((file, index) => (
+                  <FileRow
+                    key={file.id}
+                    file={file}
+                    reading={readingPath === file.path}
+                    onPress={() => handleOpenFile(file)}
+                    isLast={index === fileList.visibleItems.length - 1}
+                  />
+                ))}
+                <LoadMoreRow
+                  visibleCount={fileList.visibleCount}
+                  totalCount={fileList.totalCount}
+                  onPress={fileList.showMore}
+                  label="LOAD MORE FILES"
+                />
+              </>
+            )}
+          </View>
+
+          {/* Footer: status filters */}
+          <View
+            style={[
+              styles.windowFooter,
+              {
+                borderTopColor: isDark
+                  ? 'rgba(255,255,255,0.08)'
+                  : theme.colors.outlineVariant,
+              },
+            ]}>
+            {filters.map(item => {
+              const active = item.value === filter;
+              return (
+                <TouchableOpacity
+                  key={item.value}
+                  activeOpacity={0.7}
+                  onPress={() => setFilter(item.value)}
+                  style={[
+                    styles.filterChip,
+                    {
+                      borderColor: active
+                        ? theme.colors.primary
+                        : isDark
+                        ? 'rgba(255,255,255,0.12)'
+                        : theme.colors.outlineVariant,
+                      backgroundColor: active
+                        ? isDark
+                          ? 'rgba(86,156,214,0.14)'
+                          : 'rgba(0,81,174,0.08)'
+                        : 'transparent',
+                    },
+                  ]}>
+                  <Text
+                    style={[
+                      theme.typography.labelCaps,
+                      {
+                        color: active
+                          ? theme.colors.primary
+                          : theme.colors.onSurfaceVariant,
+                      },
+                    ]}>
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </GlassPanel>
+
+        {/* File content preview */}
         {selectedFile?.content !== undefined ? (
           <GlassPanel style={styles.previewPanel}>
             <View style={styles.previewHeader}>
@@ -511,91 +574,166 @@ export const FileBrowserScreen: React.FC = () => {
             </ScrollView>
           </GlassPanel>
         ) : null}
-        {!projectFiles.length ? (
-          <GlassPanel style={styles.emptyPanel}>
-            <IconBadge
-              name="device"
-              tone={deviceOnline ? 'neutral' : 'error'}
-              size={42}
-              iconSize={21}
-            />
-            <View style={styles.emptyCopy}>
-              <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                {loading
-                  ? '正在从桌面 Agent 加载文件…'
-                  : !device
-                  ? '该任务尚未绑定设备'
-                  : !deviceOnline
-                  ? '桌面 Agent 当前离线'
-                  : '暂无文件，点击下方刷新从 Agent 获取'}
-              </Text>
-              <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-                {!device
-                  ? '请返回设备页，先绑定设备并为该项目选择设备。'
-                  : !deviceOnline
-                  ? '平台已知该项目路径，但电脑端 Agent 未保持连接。请确认 Agent 正在运行并在线后重试，或在此打开终端 / 扫描设备。'
-                  : '平台已知该项目路径。点击刷新可向桌面 Agent 请求文件列表，也可以在此打开终端或运行扫描以刷新项目元数据。'}
-              </Text>
-              <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-                {effectivePath}
-              </Text>
-            </View>
-            <View style={styles.emptyActions}>
-              <GlowButton
-                title={loading ? 'LOADING' : 'REFRESH FILES'}
-                onPress={handleRefresh}
-                disabled={!device || !canReadDevice || loading}
-                variant="primary"
-                style={styles.emptyAction}
-              />
-              <GlowButton
-                title="OPEN TERMINAL"
-                onPress={() =>
-                  device &&
-                  navigation.navigate('DeviceTerminal', {
-                    deviceId: device.id,
-                    directory: terminalDirectory,
-                  })
-                }
-                disabled={!device}
-                variant="outline"
-                style={styles.emptyAction}
-              />
-              {device ? (
-                <GlowButton
-                  title="SCAN DEVICE"
-                  onPress={() => navigation.navigate('ProjectScan', { deviceId: device.id })}
-                  variant="outline"
-                  style={styles.emptyAction}
-                />
-              ) : null}
-            </View>
-          </GlassPanel>
-        ) : null}
       </ScrollView>
     </SafeAreaWrapper>
   );
 };
 
-interface FactProps {
+/** Single cell in the hero action toolbar. */
+interface ToolCellProps {
+  icon: IconName;
   label: string;
-  value: string;
+  tone: 'primary' | 'neutral';
+  filled?: boolean;
+  highlight?: boolean;
+  divider?: boolean;
+  loading?: boolean;
+  disabled?: boolean;
+  onPress: () => void;
 }
 
-const Fact: React.FC<FactProps> = ({ label, value }) => {
-  const { theme } = useTheme();
-
+const ToolCell: React.FC<ToolCellProps> = ({
+  icon,
+  label,
+  tone,
+  filled,
+  highlight,
+  divider,
+  loading,
+  disabled,
+  onPress,
+}) => {
+  const { theme, isDark } = useTheme();
   return (
-    <View style={styles.fact}>
-      <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-        {label}
-      </Text>
+    <TouchableOpacity
+      activeOpacity={0.6}
+      onPress={onPress}
+      disabled={disabled || loading}
+      style={[
+        styles.toolCell,
+        {
+          borderLeftWidth: divider ? StyleSheet.hairlineWidth : 0,
+          borderLeftColor: isDark ? 'rgba(255,255,255,0.08)' : theme.colors.outlineVariant,
+          backgroundColor: highlight
+            ? isDark
+              ? 'rgba(86,156,214,0.12)'
+              : 'rgba(0,81,174,0.06)'
+            : 'transparent',
+        },
+      ]}>
+      {loading ? (
+        <ActivityIndicator size="small" color={theme.colors.primary} />
+      ) : (
+        <IconBadge
+          name={icon}
+          tone={disabled ? 'neutral' : tone}
+          size={32}
+          iconSize={16}
+          filled={filled && !disabled}
+        />
+      )}
       <Text
         numberOfLines={1}
-        style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
-        {value}
+        style={[
+          theme.typography.labelCaps,
+          {
+            marginTop: 6,
+            color: disabled
+              ? theme.colors.onSurfaceVariant
+              : highlight
+              ? theme.colors.primary
+              : theme.colors.onSurface,
+          },
+        ]}>
+        {label}
       </Text>
-    </View>
+    </TouchableOpacity>
+  );
+};
+
+/** One compact Finder-style row. */
+interface FileRowProps {
+  file: ProjectFileEntry;
+  reading: boolean;
+  isLast?: boolean;
+  onPress: () => void;
+}
+
+const FileRow: React.FC<FileRowProps> = ({ file, reading, isLast, onPress }) => {
+  const { theme, isDark } = useTheme();
+  const isFolder = file.kind === 'folder';
+  const tone: 'primary' | 'secondary' | 'tertiary' | 'error' | 'neutral' = isFolder
+    ? 'secondary'
+    : file.status === 'modified'
+    ? 'tertiary'
+    : file.status === 'added'
+    ? 'secondary'
+    : file.status === 'deleted'
+    ? 'error'
+    : 'neutral';
+  const statusColor = isFolder
+    ? theme.colors.secondary
+    : file.status === 'modified'
+    ? theme.colors.tertiary
+    : file.status === 'added'
+    ? theme.colors.secondary
+    : file.status === 'deleted'
+    ? theme.colors.error
+    : theme.colors.onSurfaceVariant;
+  const statusLetter =
+    file.status === 'modified' ? 'M' : file.status === 'added' ? 'A' : file.status === 'deleted' ? 'D' : '';
+  const meta = [file.size, file.lastTouched, file.language].filter(Boolean).join(' · ');
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.65}
+      onPress={onPress}
+      style={[
+        styles.fileRow,
+        !isLast && {
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : theme.colors.outlineVariant,
+        },
+      ]}>
+      <IconBadge
+        name={isFolder ? 'project' : 'code'}
+        tone={tone}
+        size={isFolder ? 30 : 28}
+        iconSize={isFolder ? 15 : 14}
+      />
+      <View style={styles.fileRowCopy}>
+        <Text
+          numberOfLines={1}
+          style={[
+            theme.typography.labelMd,
+            {
+              color: theme.colors.onSurface,
+              fontWeight: isFolder ? '700' : '500',
+            },
+          ]}>
+          {isFolder ? `${file.name}/` : file.name}
+        </Text>
+        {!isFolder && meta ? (
+          <Text numberOfLines={1} style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+            {meta}
+          </Text>
+        ) : null}
+      </View>
+      {reading ? (
+        <ActivityIndicator size="small" color={theme.colors.primary} />
+      ) : isFolder ? (
+        <IconBadge name="chevron" tone="neutral" size={22} iconSize={14} />
+      ) : (
+        <View style={styles.statusBadge}>
+          <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+          {statusLetter ? (
+            <Text style={[theme.typography.labelCaps, { color: statusColor, fontSize: 10 }]}>
+              {statusLetter}
+            </Text>
+          ) : null}
+        </View>
+      )}
+    </TouchableOpacity>
   );
 };
 
@@ -629,70 +767,101 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 12,
   },
-  errorActions: {
+  toolbar: {
     flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
-    marginTop: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    overflow: 'hidden',
   },
-  actionRow: {
-    flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
+  toolCell: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
   },
-  pathRow: {
+  browserWindow: {
+    padding: 0,
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  windowTitlebar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   upButton: {
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    padding: 2,
+    marginRight: 2,
   },
-  primaryAction: {
-    flex: 1,
-    minWidth: 136,
+  countPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 9999,
   },
-  secondaryAction: {
-    minWidth: 94,
+  windowBody: {
+    paddingHorizontal: 4,
+    paddingVertical: 6,
+    minHeight: 120,
   },
-  filters: {
-    gap: 8,
-    paddingTop: 12,
-    paddingBottom: 10,
-  },
-  filterChip: {
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  fileCard: {
-    padding: 12,
-    marginBottom: 10,
-    gap: 10,
-  },
-  fileTop: {
+  fileRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
   },
-  fileCopy: {
+  fileRowCopy: {
     flex: 1,
-    gap: 3,
+    gap: 2,
   },
-  fileFacts: {
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  windowFooter: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  filterChip: {
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 9999,
+  },
+  bodyState: {
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 28,
+  },
+  stateActions: {
     flexDirection: 'row',
     gap: 8,
+    flexWrap: 'wrap',
+    marginTop: 6,
+    alignSelf: 'stretch',
   },
-  errorPanel: {
-    padding: 12,
-    marginBottom: 10,
-    gap: 6,
+  stateAction: {
+    flex: 1,
+    minWidth: 120,
+    paddingHorizontal: 12,
   },
   previewPanel: {
     padding: 12,
-    marginBottom: 12,
+    marginTop: 12,
     gap: 10,
   },
   previewHeader: {
@@ -706,26 +875,5 @@ const styles = StyleSheet.create({
   },
   fileContent: {
     minWidth: 280,
-  },
-  fact: {
-    flex: 1,
-    gap: 3,
-  },
-  emptyPanel: {
-    padding: 14,
-    gap: 12,
-  },
-  emptyCopy: {
-    gap: 6,
-  },
-  emptyActions: {
-    flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  emptyAction: {
-    flex: 1,
-    minWidth: 132,
-    paddingHorizontal: 12,
   },
 });
