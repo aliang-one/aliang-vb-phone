@@ -24,6 +24,7 @@ import {
 import { IconBadge } from '../../components/visual/IconBadge';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { EFFORT_PRESETS } from '../../utils/modelIntensity';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type CreateRoute = RouteProp<RootStackParamList, 'CreateVibeCoding'>;
@@ -71,10 +72,17 @@ export const CreateVibeCodingScreen: React.FC = () => {
 
   const [deviceId, setDeviceId] = useState(initialDeviceId);
   const [projectId, setProjectId] = useState(initialProjectId);
+  // When true the user opted out of the project list and is typing a custom
+  // path. A project being selected (projectId !== '' && !useCustomPath) means
+  // the session runs inside that project's path — no directory picker shown.
+  const [useCustomPath, setUseCustomPath] = useState(false);
   const [provider, setProvider] = useState<AgentProvider>('codex');
   const [model, setModel] = useState('');
+  const [effort, setEffort] = useState('');
   const device = devices.find(item => item.id === deviceId) ?? devices[0];
-  const project = projects.find(item => item.id === projectId) ?? projects[0];
+  const project = useCustomPath
+    ? undefined
+    : projects.find(item => item.id === projectId);
   const [directory, setDirectory] = useState(
     project?.path ?? device?.authorizedDirectories[0] ?? '~',
   );
@@ -91,7 +99,6 @@ export const CreateVibeCodingScreen: React.FC = () => {
     [device?.id, device?.projectIds, projects],
   );
   const directoryOptions = uniqueStrings([
-    project?.path,
     ...((device?.authorizedDirectories ?? []) as string[]),
   ]);
   const deviceList = useIncrementalList(devices, {
@@ -120,15 +127,22 @@ export const CreateVibeCodingScreen: React.FC = () => {
 
   const handleCreate = async () => {
     if (!device || !objective.trim()) return;
+    // Project selected → run inside its path (no separate directory). Custom
+    // path → use the typed value, falling back to the device's first
+    // authorized directory.
+    const effectiveDirectory =
+      project?.path ?? directory?.trim() ?? device.authorizedDirectories[0] ?? '~';
 
     const sessionId = await startAgentSession({
       deviceId: device.id,
       projectId: project?.id ?? '',
-      directory: directory || project?.path || device.authorizedDirectories[0] || '~',
+      directory: effectiveDirectory,
       provider,
       objective: objective.trim(),
       // '' => omit so the agent uses its own default model (never send a label).
       model: model.trim() || undefined,
+      // '' => omit so the agent/gateway use their default reasoning effort.
+      effort: effort.trim() || undefined,
     });
     navigation.replace('VibeCodingSession', { sessionId });
   };
@@ -189,8 +203,17 @@ export const CreateVibeCodingScreen: React.FC = () => {
 	                  const nextProject =
 	                    projects.find(projectItem => projectItem.deviceId === item.id) ??
 	                    projects.find(projectItem => item.projectIds.includes(projectItem.id));
-	                  setProjectId(nextProject?.id ?? projectId);
-	                  setDirectory(nextProject?.path ?? item.authorizedDirectories[0] ?? '~');
+	                  if (nextProject) {
+                    setProjectId(nextProject.id);
+                    setUseCustomPath(false);
+                    setDirectory(nextProject.path);
+                  } else {
+                    // No project for this device → drop into custom-path mode
+                    // seeded with the device's first authorized directory.
+                    setProjectId('');
+                    setUseCustomPath(true);
+                    setDirectory(item.authorizedDirectories[0] ?? '~');
+                  }
 	                }}
                 style={[
                   styles.selectCard,
@@ -236,14 +259,38 @@ export const CreateVibeCodingScreen: React.FC = () => {
           2. PROJECT
         </Text>
         <GlassPanel style={styles.optionPanel}>
+          {/* Always offer "no project / custom path": selecting it hides the
+              directory picker and shows a free-text path input below. Picking a
+              real project locks the directory to that project's path. */}
+          <TouchableOpacity
+            onPress={() => {
+              setProjectId('');
+              setUseCustomPath(true);
+            }}>
+            <View style={styles.optionRow}>
+              <View style={styles.optionText}>
+                <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+                  自定义路径（不选项目）
+                </Text>
+                <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                  手动输入工作目录，不绑定已有项目
+                </Text>
+              </View>
+              <StatusChip label={useCustomPath ? 'SELECTED' : 'CUSTOM'} type={useCustomPath ? 'info' : 'neutral'} />
+            </View>
+            {availableProjects.length > 0 && <View style={styles.divider} />}
+          </TouchableOpacity>
           {availableProjects.length ? (
             <>
-          {projectList.visibleItems.map((item, index) => (
+          {projectList.visibleItems.map((item, index) => {
+            const selected = !useCustomPath && item.id === projectId;
+            return (
             <TouchableOpacity
               key={item.id}
               onPress={() => {
                 setProjectId(item.id);
-                setDirectory(item.path || directory);
+                setUseCustomPath(false);
+                setDirectory(item.path);
               }}>
               <View style={styles.optionRow}>
                 <View style={styles.optionText}>
@@ -255,34 +302,27 @@ export const CreateVibeCodingScreen: React.FC = () => {
                   </Text>
                 </View>
                 <StatusChip
-                  label={item.id === project?.id ? 'SELECTED' : item.status.toUpperCase()}
-                  type={item.id === project?.id ? 'info' : 'neutral'}
+                  label={selected ? 'SELECTED' : item.status.toUpperCase()}
+                  type={selected ? 'info' : 'neutral'}
                 />
               </View>
               {index < projectList.visibleItems.length - 1 && <View style={styles.divider} />}
             </TouchableOpacity>
-          ))}
+            );
+          })}
           <LoadMoreRow
             visibleCount={projectList.visibleCount}
             totalCount={projectList.totalCount}
             onPress={projectList.showMore}
           />
           </>
-          ) : (
-            <View style={styles.optionRow}>
-              <View style={styles.optionText}>
-                <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                  No project reported
-                </Text>
-                <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                  Use a device directory or scan this computer for projects.
-                </Text>
-              </View>
-              <StatusChip label="DEVICE" type="neutral" />
-            </View>
-          )}
+          ) : null}
         </GlassPanel>
 
+        {/* DIRECTORY: hidden when a project is selected (its path is used).
+             Shown as a free-text input only in custom-path mode. */}
+        {useCustomPath ? (
+          <>
         <Text
           style={[
             theme.typography.labelCaps,
@@ -291,26 +331,54 @@ export const CreateVibeCodingScreen: React.FC = () => {
           ]}>
           3. DIRECTORY
         </Text>
-        <GlassPanel style={styles.optionPanel}>
-          {directoryList.visibleItems.map((item, index) => (
-            <TouchableOpacity key={item} onPress={() => setDirectory(item)}>
-              <View style={styles.optionRow}>
-                <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
-                  {item}
-                </Text>
-                {directory === item && <StatusChip label="SELECTED" type="info" />}
-              </View>
-              {index < directoryList.visibleItems.length - 1 && (
-                <View style={styles.divider} />
-              )}
-            </TouchableOpacity>
-          ))}
-          <LoadMoreRow
-            visibleCount={directoryList.visibleCount}
-            totalCount={directoryList.totalCount}
-            onPress={directoryList.showMore}
-          />
-        </GlassPanel>
+        <TextInput
+          value={directory}
+          onChangeText={setDirectory}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="输入项目绝对路径，如 ~/code/my-app"
+          placeholderTextColor={theme.colors.onSurfaceVariant}
+          style={[
+            theme.typography.bodyMd,
+            styles.modelInput,
+            {
+              color: theme.colors.onSurface,
+              borderRadius: theme.borderRadius.md,
+              borderColor: isDark
+                ? 'rgba(255,255,255,0.08)'
+                : theme.colors.outlineVariant,
+              backgroundColor: isDark
+                ? 'rgba(255,255,255,0.04)'
+                : theme.colors.surfaceContainerLow,
+            },
+          ]}
+        />
+        {directoryOptions.length > 0 ? (
+          <GlassPanel style={[styles.optionPanel, { marginTop: 10 }]}>
+            {directoryOptions.slice(0, directoryList.visibleCount).map((item, index) => (
+              <TouchableOpacity
+                key={item}
+                onPress={() => setDirectory(item)}>
+                <View style={styles.optionRow}>
+                  <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
+                    {item}
+                  </Text>
+                  {directory === item && <StatusChip label="SELECTED" type="info" />}
+                </View>
+                {index < Math.min(directoryOptions.length, directoryList.visibleCount) - 1 && (
+                  <View style={styles.divider} />
+                )}
+              </TouchableOpacity>
+            ))}
+            <LoadMoreRow
+              visibleCount={directoryList.visibleCount}
+              totalCount={directoryList.totalCount}
+              onPress={directoryList.showMore}
+            />
+          </GlassPanel>
+        ) : null}
+          </>
+        ) : null}
 
         <Text
           style={[
@@ -327,7 +395,13 @@ export const CreateVibeCodingScreen: React.FC = () => {
               <TouchableOpacity
                 key={item}
                 activeOpacity={0.75}
-                onPress={() => setProvider(item)}
+                onPress={() => {
+                  setProvider(item);
+                  // Effort levels differ per provider (codex: …/xhigh, claude:
+                  // …/max). Reset to "默认" so we never forward a level the
+                  // newly-selected agent doesn't support.
+                  setEffort('');
+                }}
                 style={[
                   styles.providerButton,
                   {
@@ -450,7 +524,63 @@ export const CreateVibeCodingScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
           ]}>
-          6. OBJECTIVE
+          6. EFFORT
+        </Text>
+        <View style={styles.chipRow}>
+          {EFFORT_PRESETS[provider].map(preset => {
+            const active = effort.trim() === preset.value;
+            return (
+              <TouchableOpacity
+                key={preset.label}
+                activeOpacity={0.75}
+                onPress={() => setEffort(preset.value)}
+                style={[
+                  styles.chip,
+                  {
+                    borderRadius: theme.borderRadius.full,
+                    borderColor: active
+                      ? theme.colors.primary
+                      : theme.colors.outlineVariant,
+                    backgroundColor: active
+                      ? isDark
+                        ? 'rgba(86, 156, 214, 0.12)'
+                        : 'rgba(0, 81, 174, 0.08)'
+                      : 'transparent',
+                  },
+                ]}>
+                <Text
+                  style={[
+                    theme.typography.labelSm,
+                    {
+                      color: active
+                        ? theme.colors.primary
+                        : theme.colors.onSurfaceVariant,
+                    },
+                  ]}>
+                  {preset.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        <Text
+          style={[
+            theme.typography.bodySm,
+            { color: theme.colors.onSurfaceVariant },
+            styles.modelHint,
+          ]}>
+          {provider === 'codex'
+            ? 'Codex 推理强度：codex 用 xhigh；留空用默认。会作为模型名后缀传给网关。'
+            : 'Claude 推理强度：claude 用 max；留空用默认。'}
+        </Text>
+
+        <Text
+          style={[
+            theme.typography.labelCaps,
+            { color: theme.colors.onSurfaceVariant },
+            styles.sectionTitle,
+          ]}>
+          7. OBJECTIVE
         </Text>
         <TextInput
           value={objective}
@@ -480,7 +610,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
           ]}>
-          7. PERMISSIONS
+          8. PERMISSIONS
         </Text>
         <GlassPanel style={styles.optionPanel}>
           {permissions.map((permission, index) => {

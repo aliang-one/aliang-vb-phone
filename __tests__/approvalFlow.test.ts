@@ -2,6 +2,7 @@ import { useControlCenterStore } from '../src/store/controlCenterStore';
 import { platformTransport } from '../src/services/platformTransport';
 import type { VibeCodingRun } from '../src/data/platformModels';
 import type { ApprovalRequest } from '../src/store/controlCenterStore';
+import type { ServerApproval } from '../src/api/approvals';
 
 jest.mock('../src/services/platformTransport', () => ({
   platformTransport: {
@@ -31,7 +32,10 @@ const run = (events: VibeCodingRun['events'] = []): VibeCodingRun => ({
   events,
 });
 
-const serverApproval = (status: ApprovalRequest['status'] = 'pending') => ({
+const serverApproval = (
+  status: ApprovalRequest['status'] = 'pending',
+  overrides: Partial<ServerApproval> = {},
+): ServerApproval => ({
   id: 'approval-1',
   approval_id: 'approval-1',
   user_id: 'user-1',
@@ -49,6 +53,7 @@ const serverApproval = (status: ApprovalRequest['status'] = 'pending') => ({
   created_at: '2026-06-16T10:00:00.000Z',
   resolved_at:
     status === 'pending' ? undefined : '2026-06-16T10:01:00.000Z',
+  ...overrides,
 });
 
 const seed = () => {
@@ -187,6 +192,66 @@ describe('approval realtime flow', () => {
         status: 'done',
       }),
     ]);
+  });
+
+  it('passes option choices through when resolving assistant response approvals', async () => {
+    const options: NonNullable<ApprovalRequest['options']> = [
+      {
+        id: 'pod-detail',
+        label: 'Fix PodDetail',
+        description: 'Wire the missing detail-page actions.',
+        response: 'Fix PodDetail: Wire the missing detail-page actions.',
+      },
+      {
+        id: 'namespace-mgmt',
+        label: 'Namespace management',
+        response: 'Namespace management',
+      },
+    ];
+    useControlCenterStore.setState({
+      approvals: [
+        {
+          id: 'approval-1',
+          kind: 'client_response',
+          title: 'Which work should I do next?',
+          summary: 'The assistant is waiting for a plan choice.',
+          deviceId: 'device-1',
+          projectId: 'project-1',
+          sessionId: 'session-1',
+          options,
+          risk: 'low',
+          status: 'pending',
+          createdAt: '2026-06-16T10:00:00.000Z',
+        },
+      ],
+      vibeRuns: [run()],
+    });
+    (platformTransport.respondApproval as jest.Mock).mockResolvedValue(
+      serverApproval('approved', {
+        kind: 'client_response',
+        command: undefined,
+        options,
+      }),
+    );
+
+    await useControlCenterStore.getState().resolveApproval('approval-1', 'approved', {
+      selectedOptionId: 'pod-detail',
+      message: 'Fix PodDetail: Wire the missing detail-page actions.',
+    });
+
+    expect(platformTransport.respondApproval).toHaveBeenCalledWith(
+      'approval-1',
+      'approved',
+      {
+        selectedOptionId: 'pod-detail',
+        message: 'Fix PodDetail: Wire the missing detail-page actions.',
+      },
+    );
+    expect(useControlCenterStore.getState().approvals[0]).toMatchObject({
+      kind: 'client_response',
+      status: 'approved',
+      options,
+    });
   });
 
   it('updates local approval state when another client resolves it', () => {

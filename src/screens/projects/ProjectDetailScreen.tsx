@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Text,
   StyleSheet,
   ScrollView,
   View,
   TouchableOpacity,
+  RefreshControl,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -19,9 +20,11 @@ import { IconBadge } from '../../components/visual/IconBadge';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
-import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
-import { useIncrementalList } from '../../hooks/useIncrementalList';
-import { newestFirst } from '../../utils/timeSort';
+import { useProjectSessions } from '../../hooks/useProjectSessions';
+
+// How many recent sessions the project page previews; the full history lives
+// behind the "view all" entry (→ AgentSessions, project-scoped).
+const PROJECT_SESSION_PREVIEW_COUNT = 5;
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type ProjectRoute = RouteProp<RootStackParamList, 'ProjectDetail'>;
@@ -32,7 +35,6 @@ export const ProjectDetailScreen: React.FC = () => {
   const route = useRoute<ProjectRoute>();
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
-  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
   const project = projects.find(item => item.id === route.params.projectId);
   const device =
     devices.find(item => item.id === route.params.deviceId) ||
@@ -40,22 +42,26 @@ export const ProjectDetailScreen: React.FC = () => {
     devices.find(item => item.projectIds.includes(route.params.projectId));
   const terminalDirectory =
     project?.path || device?.authorizedDirectories[0] || '~';
-  const sessions = project
-    ? vibeRuns
-        .filter(
-          session =>
-            session.projectId === project.id ||
-            (Boolean(project.path) &&
-              session.deviceId === device?.id &&
-              session.directory === project.path),
-        )
-        .sort((left, right) => newestFirst(left.updatedAt, right.updatedAt))
-    : [];
-  const sessionList = useIncrementalList(sessions, {
-    initialCount: 6,
-    step: 10,
-    resetKey: project?.id ?? 'missing',
+  const refreshFromServer = useControlCenterStore(
+    state => state.refreshFromServer,
+  );
+  // Project-scoped preview. The global vibeRuns store is capped
+  // (MAX_VIBE_RUNS), so the project page fetches its own list directly; only
+  // the newest PROJECT_SESSION_PREVIEW_COUNT are shown here, with a "view all"
+  // entry into the full project-scoped list (AgentSessions). See
+  // hooks/useProjectSessions.
+  const { sessions, totalCount, reload } = useProjectSessions(project?.id, {
+    limit: PROJECT_SESSION_PREVIEW_COUNT,
   });
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([refreshFromServer(), reload()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshFromServer, reload]);
 
   if (!project) {
     return (
@@ -85,7 +91,18 @@ export const ProjectDetailScreen: React.FC = () => {
         subtitle={device?.name ?? 'PROJECT DETAIL'}
         onBack={navigation.goBack}
       />
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+          />
+        }
+      >
         {/* ── HERO · project spec sheet ─────────────────────────────── */}
         <GlassPanel style={styles.hero}>
           <View style={styles.heroRow}>
@@ -232,10 +249,10 @@ export const ProjectDetailScreen: React.FC = () => {
         </View>
 
         {/* ── HISTORY ───────────────────────────────────────────────── */}
-        <SectionLabel label="VIBECODING HISTORY" count={sessions.length} />
+        <SectionLabel label="VIBECODING HISTORY" count={totalCount} />
         {sessions.length ? (
           <>
-            {sessionList.visibleItems.map(session => (
+            {sessions.map(session => (
               <VibeSessionCard
                 key={session.id}
                 session={session}
@@ -246,11 +263,38 @@ export const ProjectDetailScreen: React.FC = () => {
                 }
               />
             ))}
-            <LoadMoreRow
-              visibleCount={sessionList.visibleCount}
-              totalCount={sessionList.totalCount}
-              onPress={sessionList.showMore}
-            />
+            {totalCount > sessions.length ? (
+              <TouchableOpacity
+                activeOpacity={0.75}
+                onPress={() =>
+                  navigation.navigate('AgentSessions', {
+                    deviceId: device?.id,
+                    projectId: project.id,
+                  })
+                }
+                style={[
+                  styles.viewAllRow,
+                  {
+                    borderRadius: theme.borderRadius.md,
+                    borderColor: theme.colors.outlineVariant,
+                    backgroundColor: isDark
+                      ? 'rgba(255,255,255,0.03)'
+                      : theme.colors.surfaceContainerLow,
+                  },
+                ]}>
+                <Text
+                  style={[
+                    theme.typography.labelCaps,
+                    { color: theme.colors.primary },
+                  ]}>
+                  VIEW ALL SESSIONS · {totalCount}
+                </Text>
+                <Text
+                  style={[styles.viewAllArrow, { color: theme.colors.primary }]}>
+                  →
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </>
         ) : (
           <GlassPanel style={styles.emptyPanel}>
@@ -478,5 +522,18 @@ const styles = StyleSheet.create({
     padding: 18,
     gap: 8,
     alignItems: 'center',
+  },
+  viewAllRow: {
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+  },
+  viewAllArrow: {
+    fontSize: 18,
+    fontWeight: '600',
   },
 });

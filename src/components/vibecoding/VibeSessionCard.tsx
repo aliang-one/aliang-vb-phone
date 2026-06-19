@@ -4,6 +4,7 @@ import {
   Pressable,
   View,
   Text,
+  TextInput,
   StyleSheet,
   TouchableOpacity,
 } from 'react-native';
@@ -42,14 +43,18 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
     const [detailsVisible, setDetailsVisible] = useState(false);
     const [notice, setNotice] = useState('');
     const [hidden, setHidden] = useState(false);
-    const pauseAgentSession = useControlCenterStore(
-      state => state.pauseAgentSession,
-    );
-    const resumeAgentSession = useControlCenterStore(
-      state => state.resumeAgentSession,
-    );
+    // Two-tap confirm guard for the destructive 结束 (terminate) action.
+    const [confirmTerminate, setConfirmTerminate] = useState(false);
+    const [renaming, setRenaming] = useState(false);
+    const [renameValue, setRenameValue] = useState('');
     const deleteAgentSession = useControlCenterStore(
       state => state.deleteAgentSession,
+    );
+    const terminateAgentSession = useControlCenterStore(
+      state => state.terminateAgentSession,
+    );
+    const updateAgentSession = useControlCenterStore(
+      state => state.updateAgentSession,
     );
     // Re-render on a shared 30s cadence so the relative "上次激活" label below
     // stays fresh instead of freezing at the value from when activity happened.
@@ -81,25 +86,62 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
       );
     };
 
-    const handleRefresh = () => {
-      setNotice('刷新请求已发送，等待设备同步最新状态。');
-    };
-
-    const handlePauseToggle = () => {
-      if (session.status === 'paused') {
-        resumeAgentSession(session.id);
-        setNotice('已请求恢复运行。');
-        return;
-      }
-
-      pauseAgentSession(session.id);
-      setNotice('已请求暂停该 VibeCoding。');
-    };
-
     const handleDelete = () => {
       setMenuVisible(false);
       deleteAgentSession(session.id);
       setHidden(true);
+    };
+
+    // Terminate the running agent (sends ai.stop terminate). First tap arms a
+    // confirm; the second tap fires it. Unlike delete the session record stays
+    // (just flips to closed), so we don't hide the card.
+    const handleTerminate = () => {
+      if (!confirmTerminate) {
+        setConfirmTerminate(true);
+        setNotice('再次点击「确认结束」以终止该会话。');
+        return;
+      }
+      setConfirmTerminate(false);
+      setMenuVisible(false);
+      void terminateAgentSession(session.id).catch(() => {
+        setNotice('结束失败，设备可能离线。');
+      });
+    };
+
+    const handleRenameStart = () => {
+      setRenameValue(session.title || displayTitle);
+      setDetailsVisible(false);
+      setConfirmTerminate(false);
+      setNotice('');
+      setRenaming(true);
+    };
+
+    const handleRenameCancel = () => {
+      setRenaming(false);
+      setNotice('');
+    };
+
+    const handleRenameSave = async () => {
+      const trimmed = renameValue.trim();
+      if (!trimmed) {
+        setNotice('标题不能为空。');
+        return;
+      }
+      if (trimmed === (session.title || displayTitle)) {
+        setRenaming(false);
+        setNotice('');
+        return;
+      }
+      setNotice('正在重命名…');
+      try {
+        // PATCH /api/ai/sessions/:id (title) → server stores, publishes to
+        // phone, and emits ai.session.rename to the agent. See server index.ts.
+        await updateAgentSession(session.id, { title: trimmed });
+        setNotice('已重命名');
+        setRenaming(false);
+      } catch {
+        setNotice('重命名失败，请重试。');
+      }
     };
 
     const renderInfoRow = (label: string, value: string) => (
@@ -180,7 +222,9 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
           onPress={onPress}
           onLongPress={() => {
             setNotice('');
+            setConfirmTerminate(false);
             setDetailsVisible(false);
+            setRenaming(false);
             setMenuVisible(true);
           }}
           delayLongPress={360}
@@ -300,73 +344,15 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                 </Text>
               </View>
             ) : (
-              <>
-                <View style={styles.visualRow}>
-                  <View
-                    style={[
-                      styles.visualPill,
-                      {
-                        backgroundColor: isDark
-                          ? 'rgba(255,255,255,0.05)'
-                          : theme.colors.surfaceContainer,
-                      },
-                    ]}
-                  >
-                    <IconBadge
-                      name="git"
-                      tone="neutral"
-                      size={26}
-                      iconSize={14}
-                    />
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        theme.typography.labelSm,
-                        { color: theme.colors.onSurfaceVariant },
-                      ]}
-                    >
-                      {session.branch}
-                    </Text>
-                  </View>
-                  {session.projectBudget ? (
-                    <View
-                      style={[
-                        styles.visualPill,
-                        {
-                          backgroundColor: isDark
-                            ? 'rgba(255,255,255,0.05)'
-                            : theme.colors.surfaceContainer,
-                        },
-                      ]}
-                    >
-                      <IconBadge
-                        name="quota"
-                        tone="secondary"
-                        size={26}
-                        iconSize={14}
-                      />
-                      <Text
-                        numberOfLines={1}
-                        style={[
-                          theme.typography.labelSm,
-                          { color: theme.colors.onSurfaceVariant },
-                        ]}
-                      >
-                        {budgetLabel}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-                <Text
-                  style={[
-                    theme.typography.bodySm,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}
-                  numberOfLines={2}
-                >
-                  {session.currentStep}
-                </Text>
-              </>
+              <Text
+                style={[
+                  theme.typography.bodySm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+                numberOfLines={1}
+              >
+                {session.currentStep}
+              </Text>
             )}
             {homeFocus ? (
               <View style={styles.homeFooter}>
@@ -426,24 +412,51 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                 </View>
               </View>
             ) : (
-              <View style={styles.footer}>
-                <Text
+              <>
+                <View
                   style={[
-                    theme.typography.labelSm,
-                    { color: theme.colors.onSurfaceVariant },
+                    styles.divider,
+                    { backgroundColor: theme.colors.outlineVariant },
                   ]}
-                >
-                  {session.model}
-                </Text>
-                <Text
-                  style={[
-                    theme.typography.labelSm,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}
-                >
-                  {activityLabel}
-                </Text>
-              </View>
+                />
+                <View style={styles.metaRow}>
+                  <View style={styles.metaCluster}>
+                    <IconBadge
+                      name="git"
+                      tone="neutral"
+                      size={20}
+                      iconSize={11}
+                    />
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        theme.typography.labelSm,
+                        { color: theme.colors.onSurfaceVariant },
+                      ]}
+                    >
+                      {session.branch}
+                    </Text>
+                  </View>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      theme.typography.labelSm,
+                      { color: theme.colors.onSurfaceVariant },
+                    ]}
+                  >
+                    {session.model}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      theme.typography.labelSm,
+                      { color: theme.colors.onSurfaceVariant },
+                    ]}
+                  >
+                    {activityLabel}
+                  </Text>
+                </View>
+              </>
             )}
           </GlassPanel>
         </TouchableOpacity>
@@ -480,73 +493,113 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
             <GlassPanel glowColor="primary" style={styles.menuPanel}>
               <View style={styles.menuHeader}>
                 <View style={styles.menuTitleBlock}>
-                  <Text
-                    style={[
-                      theme.typography.labelCaps,
-                      { color: theme.colors.primary },
-                    ]}
-                  >
-                    VIBECODING
-                  </Text>
-                  <Text
-                    numberOfLines={2}
-                    style={[
-                      theme.typography.titleLg,
-                      { color: theme.colors.onSurface },
-                    ]}
-                  >
-                    {displayTitle}
-                  </Text>
+                  {renaming ? (
+                    <>
+                      <Text
+                        style={[
+                          theme.typography.labelCaps,
+                          { color: theme.colors.primary },
+                        ]}
+                      >
+                        重命名
+                      </Text>
+                      <TextInput
+                        value={renameValue}
+                        onChangeText={setRenameValue}
+                        placeholder="输入新的会话标题"
+                        placeholderTextColor={theme.colors.onSurfaceVariant}
+                        autoFocus
+                        selectTextOnFocus
+                        maxLength={200}
+                        returnKeyType="done"
+                        onSubmitEditing={handleRenameSave}
+                        style={[
+                          theme.typography.titleLg,
+                          styles.renameInput,
+                          {
+                            color: theme.colors.onSurface,
+                            borderColor: theme.colors.outlineVariant,
+                          },
+                        ]}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <Text
+                        style={[
+                          theme.typography.labelCaps,
+                          { color: theme.colors.primary },
+                        ]}
+                      >
+                        VIBECODING
+                      </Text>
+                      <Text
+                        numberOfLines={2}
+                        style={[
+                          theme.typography.titleLg,
+                          { color: theme.colors.onSurface },
+                        ]}
+                      >
+                        {displayTitle}
+                      </Text>
+                    </>
+                  )}
                 </View>
-                <StatusChip
-                  label={vibeStatusLabel[session.status]}
-                  type={vibeStatusType[session.status]}
-                />
+                {renaming ? null : (
+                  <StatusChip
+                    label={vibeStatusLabel[session.status]}
+                    type={vibeStatusType[session.status]}
+                  />
+                )}
               </View>
-              <View style={styles.summaryPanel}>
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    theme.typography.codeSm,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}
-                >
-                  {project?.name ?? session.projectId} /{' '}
-                  {device?.name ?? session.deviceId}
-                </Text>
-                <Text
-                  numberOfLines={2}
-                  style={[
-                    theme.typography.bodySm,
-                    { color: theme.colors.onSurface },
-                  ]}
-                >
-                  {session.currentStep}
-                </Text>
-              </View>
-              <View style={styles.reportButtonWrap}>
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={handleReport}
-                  style={[
-                    styles.reportButton,
-                    {
-                      backgroundColor: theme.colors.primary,
-                      ...(isDark ? theme.glow.primary : {}),
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      theme.typography.titleMd,
-                      styles.reportButtonText,
-                      { color: theme.colors.onPrimary },
-                    ]}
-                  >
-                    汇报
-                  </Text>
-                </TouchableOpacity>
-              </View>
+              {renaming ? null : (
+                <>
+                  <View style={styles.summaryPanel}>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        theme.typography.codeSm,
+                        { color: theme.colors.onSurfaceVariant },
+                      ]}
+                    >
+                      {project?.name ?? session.projectId} /{' '}
+                      {device?.name ?? session.deviceId}
+                    </Text>
+                    <Text
+                      numberOfLines={2}
+                      style={[
+                        theme.typography.bodySm,
+                        { color: theme.colors.onSurface },
+                      ]}
+                    >
+                      {session.currentStep}
+                    </Text>
+                  </View>
+                  <View style={styles.reportButtonWrap}>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={handleReport}
+                      style={[
+                        styles.reportButton,
+                        {
+                          backgroundColor: theme.colors.primary,
+                          ...(isDark ? theme.glow.primary : {}),
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          theme.typography.titleMd,
+                          styles.reportButtonText,
+                          { color: theme.colors.onPrimary },
+                        ]}
+                      >
+                        汇报
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
               {notice ? (
                 <Text
                   style={[
@@ -558,33 +611,59 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                   {notice}
                 </Text>
               ) : null}
-              <View style={styles.actionStack}>
+              {renaming ? (
                 <View style={styles.actionGrid}>
-                  {renderMenuAction('刷新', handleRefresh)}
-                  {renderMenuAction('删除', handleDelete, 'danger')}
+                  {renderMenuAction('取消', handleRenameCancel)}
+                  {renderMenuAction('保存', handleRenameSave, 'primary')}
                 </View>
-                <View style={styles.actionGrid}>
-                  {renderMenuAction(detailsVisible ? '收起' : '更多', () =>
-                    setDetailsVisible(current => !current),
-                  )}
-                  {renderMenuAction('关闭', () => setMenuVisible(false))}
+              ) : (
+                <View style={styles.actionStack}>
+                  <View style={styles.actionGrid}>
+                    {renderMenuAction('重命名', handleRenameStart)}
+                    {renderMenuAction(
+                      detailsVisible ? '收起' : '更多',
+                      () => setDetailsVisible(current => !current),
+                    )}
+                  </View>
+                  {detailsVisible ? (
+                    <View style={styles.morePanel}>
+                      <View style={styles.fullTitleBlock}>
+                        <Text
+                          style={[
+                            theme.typography.labelCaps,
+                            { color: theme.colors.onSurfaceVariant },
+                          ]}
+                        >
+                          完整标题
+                        </Text>
+                        <Text
+                          style={[
+                            theme.typography.bodySm,
+                            { color: theme.colors.onSurface },
+                          ]}
+                        >
+                          {session.title || displayTitle}
+                        </Text>
+                      </View>
+                      {renderInfoRow('DIRECTORY', session.directory)}
+                      {renderInfoRow('BRANCH', session.branch)}
+                      {renderInfoRow('MODEL', session.model)}
+                      {session.projectBudget
+                        ? renderInfoRow('BUDGET', budgetLabel)
+                        : null}
+                      {renderInfoRow('RISK', session.risk.toUpperCase())}
+                    </View>
+                  ) : null}
+                  <View style={styles.actionGrid}>
+                    {renderMenuAction(
+                      confirmTerminate ? '确认结束' : '结束',
+                      handleTerminate,
+                      'danger',
+                    )}
+                    {renderMenuAction('删除', handleDelete, 'danger')}
+                  </View>
                 </View>
-              </View>
-              {detailsVisible ? (
-                <View style={styles.morePanel}>
-                  {renderInfoRow('DIRECTORY', session.directory)}
-                  {renderInfoRow('BRANCH', session.branch)}
-                  {renderInfoRow('MODEL', session.model)}
-                  {session.projectBudget
-                    ? renderInfoRow('BUDGET', budgetLabel)
-                    : null}
-                  {renderInfoRow('RISK', session.risk.toUpperCase())}
-                  {renderMenuAction(
-                    session.status === 'paused' ? '恢复运行' : '暂停运行',
-                    handlePauseToggle,
-                  )}
-                </View>
-              ) : null}
+              )}
             </GlassPanel>
           </View>
         </Modal>
@@ -603,7 +682,7 @@ const styles = StyleSheet.create({
   card: {
     padding: 12,
     marginBottom: 10,
-    gap: 10,
+    gap: 9,
   },
   homeCard: {
     padding: 14,
@@ -641,24 +720,20 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     gap: 5,
   },
-  visualRow: {
-    flexDirection: 'row',
-    gap: 8,
+  divider: {
+    height: StyleSheet.hairlineWidth,
   },
-  visualPill: {
-    flex: 1,
-    minHeight: 36,
-    borderRadius: 999,
-    paddingLeft: 5,
-    paddingRight: 10,
+  metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
-  },
-  footer: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: 12,
+    gap: 10,
+  },
+  metaCluster: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 1,
   },
   homeFooter: {
     flexDirection: 'row',
@@ -713,6 +788,12 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 5,
   },
+  renameInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
   summaryPanel: {
     gap: 7,
   },
@@ -733,6 +814,12 @@ const styles = StyleSheet.create({
   morePanel: {
     gap: 8,
     paddingTop: 4,
+  },
+  fullTitleBlock: {
+    gap: 4,
+    paddingBottom: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(128,128,128,0.18)',
   },
   infoRow: {
     flexDirection: 'row',

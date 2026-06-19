@@ -1,4 +1,5 @@
 import type {
+  AgentCommandScope,
   AgentEvent,
   Device,
   PreviewLink,
@@ -6,6 +7,8 @@ import type {
   VibeCodingRun,
   VibeStatus,
 } from '../data/platformModels';
+import { normalizeProvider } from '../utils/modelIntensity';
+import { sameRemotePath } from '../utils/remotePath';
 import {
   platformTransport,
   type PlatformAiSessionSnapshot,
@@ -167,6 +170,23 @@ export function trimTranscript(transcript: VibeCodingRun['transcript']): VibeCod
   return tail(transcript, MAX_TRANSCRIPT_LENGTH);
 }
 
+export function mergeEarlierAgentMessages(
+  existing: VibeCodingRun['transcript'],
+  earlier: VibeCodingRun['transcript'],
+): VibeCodingRun['transcript'] {
+  if (!earlier.length) return existing;
+  const byId = new Map<string, VibeCodingRun['transcript'][number]>();
+  for (const message of [...earlier, ...existing]) {
+    byId.set(message.id, { ...byId.get(message.id), ...message });
+  }
+  const merged = Array.from(byId.values());
+  const allHaveIndex = merged.every(message => typeof message.index === 'number');
+  if (allHaveIndex) {
+    return merged.sort((left, right) => (left.index ?? 0) - (right.index ?? 0));
+  }
+  return merged;
+}
+
 export const line = (
   kind: TerminalLineKind,
   content: string,
@@ -228,6 +248,12 @@ export function platformDeviceToClient(sd: PlatformDeviceSnapshot): Device {
       path: tool.path,
       available: tool.available,
       description: tool.description,
+      commands: tool.commands?.map(cmd => ({
+        name: cmd.name,
+        description: cmd.description,
+        argHint: cmd.argHint,
+        scope: (cmd.scope as AgentCommandScope | undefined) ?? undefined,
+      })),
     })),
     history: sd.history.map(entry => ({
       tool: entry.tool,
@@ -263,6 +289,7 @@ export function serverProjectToClient(sp: PlatformProjectSnapshot): Project {
     gitChangedCount: sp.git_changed_count,
     detectedPorts: sp.detected_ports ?? [],
     sourceTools: sp.source_tools ?? [],
+    availableCommands: sp.available_commands ?? [],
   };
 }
 
@@ -312,9 +339,11 @@ export function serverAiSessionToVibeRun(
 ): VibeCodingRun {
   const project =
     projects.find(
-      p => p.path === session.project_path && p.deviceId === session.device_id,
+      p =>
+        sameRemotePath(p.path, session.project_path) &&
+        p.deviceId === session.device_id,
     ) ??
-    projects.find(p => p.path === session.project_path) ??
+    projects.find(p => sameRemotePath(p.path, session.project_path)) ??
     projects.find(p => p.id === session.project_path);
   const model = aiSessionModelLabel(session);
   const transcript = (session.transcript ?? []).map(t => ({
@@ -323,6 +352,7 @@ export function serverAiSessionToVibeRun(
     mode: t.mode as 'voice' | 'text' | 'action' | undefined,
     content: t.content,
     timestamp: t.timestamp,
+    index: t.index,
   }));
   const events = (session.events ?? []).map(e => ({
     id: e.id,
@@ -358,6 +388,8 @@ export function serverAiSessionToVibeRun(
     status: mapSessionStatus(session.status),
     objective: session.objective ?? '',
     model,
+    effort: session.effort || undefined,
+    provider: normalizeProvider(session.provider, session.tool),
     risk: session.risk ?? 'medium',
     currentStep: session.current_step ?? '',
     branch: session.branch ?? `agent/${session.session_id}`,
@@ -366,6 +398,18 @@ export function serverAiSessionToVibeRun(
       Date.parse(session.last_active_at ?? '') || activityNowMs(),
     ),
     transcriptCount: session.transcript_count ?? transcript.length,
+    transcriptPage: session.transcript_page
+      ? {
+          limit: session.transcript_page.limit,
+          count: session.transcript_page.count,
+          totalCount: session.transcript_page.total_count,
+          hasMore: session.transcript_page.has_more,
+          nextBeforeCursor: session.transcript_page.next_before_cursor,
+          nextBeforeMessageId: session.transcript_page.next_before_message_id,
+          cacheStatus: session.transcript_page.cache_status,
+          fetchedAt: session.transcript_page.fetched_at,
+        }
+      : undefined,
     eventCount: session.event_count ?? events.length,
     filesTouchedCount: session.files_touched_count,
     gitChangedCount: session.git_changed_count,
@@ -382,7 +426,8 @@ export function serverAiSessionToVibeRun(
     // Surface why the last page resolved the way it did (skipped_offline /
     // failed / cache_miss / fresh) so the chat screen can tell an empty
     // conversation apart from "agent offline, history unreachable".
-    detailRefreshStatus: session.detail_refresh?.status,
+    detailRefreshStatus:
+      session.detail_refresh?.status ?? session.last_detail_fetch_status,
     suggestions: ['Ask for plan', 'Open terminal', 'Pause session'],
     transcript,
     events,
@@ -509,6 +554,23 @@ export function mergeVibeRunSnapshot(
     existing.lastActivityMs ?? 0,
     incoming.lastActivityMs ?? 0,
   );
+  // ...and don't let a stale/older snapshot demote an actively-running session's
+  // STATUS either. A snapshot whose lastActivityMs is NOT newer than what we
+  // hold locally (a reconnect refresh, a stray ai.session.updated, or the
+  // stale-run sweeper) must not flip a session we know is running — because
+  // deltas are still arriving — back to idle/completed. A genuinely-fresh
+  // settle publish from the server carries a newer lastActivityMs (the settle
+  // fires ~ALIANG_AI_IDLE_SETTLE_MS after the last activity), so it still
+  // applies. This honors the comment above, which previously only protected the
+  // timestamp, not the status. Caveat: significant server/client clock skew
+  // (> the settle window) could over-retain "running"; the stale-run sweeper
+  // and the next refresh eventually correct it.
+  const existingActive = ACTIVE_RUN_STATUS.has(existing.status);
+  const incomingDemotes =
+    existingActive && !ACTIVE_RUN_STATUS.has(incoming.status);
+  const staleDemotion =
+    incomingDemotes &&
+    (incoming.lastActivityMs ?? 0) <= (existing.lastActivityMs ?? 0);
   const transcript = incomingHasDetail
     ? mergeAgentMessages(existing.transcript, incoming.transcript)
     : existing.transcript;
@@ -518,11 +580,13 @@ export function mergeVibeRunSnapshot(
   return {
     ...existing,
     ...incoming,
+    status: staleDemotion ? existing.status : incoming.status,
     lastActivityMs,
     updatedAt: formatActivityLabel(lastActivityMs),
     transcript,
     events,
     detailLoadedAt: incoming.detailLoadedAt ?? existing.detailLoadedAt,
+    transcriptPage: incoming.transcriptPage ?? existing.transcriptPage,
     lastMessage:
       (incomingHasDetail
         ? transcript[transcript.length - 1] ?? incoming.lastMessage
@@ -595,6 +659,7 @@ export function serverApprovalToClient(
     terminalId: sa.terminal_id,
     command: sa.command,
     files: sa.files,
+    options: sa.options,
     risk: sa.risk,
     status: sa.status as ApprovalRequest['status'],
     createdAt: sa.created_at,

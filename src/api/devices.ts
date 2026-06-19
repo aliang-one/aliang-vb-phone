@@ -24,6 +24,12 @@ export interface ServerDevice {
     path?: string;
     available?: boolean;
     description?: string;
+    commands?: Array<{
+      name: string;
+      description?: string;
+      argHint?: string;
+      scope?: string;
+    }>;
   }>;
   history: Array<{
     tool: string;

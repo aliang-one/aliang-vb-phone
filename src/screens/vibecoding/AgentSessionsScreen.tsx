@@ -24,6 +24,7 @@ import { useControlCenterStore } from '../../store/controlCenterStore';
 import { IconBadge } from '../../components/visual/IconBadge';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { useProjectSessions } from '../../hooks/useProjectSessions';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -56,16 +57,20 @@ export const AgentSessionsScreen: React.FC = () => {
     state => state.terminateAgentSession,
   );
 
-  const sessions = vibeRuns
-    .filter(run =>
-      route.params?.deviceId ? run.deviceId === route.params.deviceId : true,
-    )
-    .filter(run =>
-      route.params?.projectId ? run.projectId === route.params.projectId : true,
-    )
-    .sort(
-      (left, right) => (right.lastActivityMs ?? 0) - (left.lastActivityMs ?? 0),
-    );
+  // When opened for a specific project, use the project-scoped fetch (full
+  // history, decoupled from the globally-capped vibeRuns store). Otherwise
+  // fall back to the store (global / per-device views).
+  const projectScoped = useProjectSessions(route.params?.projectId);
+  const sessions = route.params?.projectId
+    ? projectScoped.sessions
+    : vibeRuns
+        .filter(run =>
+          route.params?.deviceId ? run.deviceId === route.params.deviceId : true,
+        )
+        .sort(
+          (left, right) =>
+            (right.lastActivityMs ?? 0) - (left.lastActivityMs ?? 0),
+        );
 
   const activeSessions = useMemo(
     () => sessions.filter(s => activeSessionStatuses.includes(s.status)),

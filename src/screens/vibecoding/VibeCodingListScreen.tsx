@@ -477,7 +477,9 @@ export const VibeCodingListScreen: React.FC = () => {
                   { color: theme.colors.onSurfaceVariant },
                   styles.emptyText,
                 ]}>
-                没有匹配的 Vibecoding 会话。
+                {normalizedQuery
+                  ? `没有匹配「${query}」的 Vibecoding 会话，换个关键词或清空搜索看看。`
+                  : '还没有 Vibecoding 会话，点右上角 NEW TASK 创建一个。'}
               </Text>
             ) : null}
           </ScrollView>
@@ -529,7 +531,9 @@ export const VibeCodingListScreen: React.FC = () => {
                   { color: theme.colors.onSurfaceVariant },
                   styles.emptyText,
                 ]}>
-                没有进行中的远程终端。在设备页打开 Terminal 即可开始。
+                {normalizedQuery
+                  ? `没有匹配「${query}」的终端，换个关键词或清空搜索看看。`
+                  : '没有进行中的远程终端。在设备页打开 Terminal 即可开始。'}
               </Text>
             ) : null}
           </ScrollView>

@@ -36,7 +36,8 @@ export type IconName =
   | 'minus'
   | 'refresh'
   | 'chevron'
-  | 'settings';
+  | 'settings'
+  | 'close';
 
 type Tone = 'primary' | 'secondary' | 'tertiary' | 'error' | 'neutral';
 
@@ -265,6 +266,8 @@ const IconShape: React.FC<IconShapeProps> = ({ name, stroke }) => {
       return <Path d="M12 6v12M6 12h12" stroke={stroke} {...common} />;
     case 'minus':
       return <Path d="M6 12h12" stroke={stroke} {...common} />;
+    case 'close':
+      return <Path d="M6 6L18 18M18 6L6 18" stroke={stroke} {...common} />;
     case 'refresh':
       return (
         <>

@@ -1,5 +1,6 @@
 import { apiFetch, apiGet, apiPost, apiPatch } from './client';
 import type { ServerAiSession } from './sessions';
+import type { AgentCommandInfo } from '../data/platformModels';
 
 export interface ServerProject {
   id: string;
@@ -18,6 +19,8 @@ export interface ServerProject {
   git_changed_count?: number;
   detected_ports?: number[];
   source_tools?: string[];
+  /** Effective `/`-command surface (project > user > builtin), server-computed. */
+  available_commands?: AgentCommandInfo[];
   last_active_at?: string;
   created_at: string;
   updated_at: string;
@@ -113,8 +116,20 @@ export const deleteProject = (projectId: string): Promise<{ status: string; proj
 export const fetchDeviceProjects = (deviceId: string): Promise<ServerProject[]> =>
   apiGet<ServerProject[]>(`/api/devices/${deviceId}/projects`);
 
-export const fetchProjectAiSessions = (projectId: string): Promise<ServerAiSession[]> =>
-  apiGet<ServerAiSession[]>(`/api/projects/${projectId}/ai-sessions`);
+export interface ProjectAiSessionList {
+  sessions: ServerAiSession[];
+  total_count: number;
+}
+
+export const fetchProjectAiSessions = (
+  projectId: string,
+  limit?: number,
+): Promise<ProjectAiSessionList> =>
+  apiGet<ProjectAiSessionList>(
+    `/api/projects/${projectId}/ai-sessions${
+      limit && limit > 0 ? `?limit=${limit}` : ''
+    }`,
+  );
 
 export const fetchProjectFiles = (
   projectId: string,

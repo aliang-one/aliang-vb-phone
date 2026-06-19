@@ -13,6 +13,12 @@ export interface ServerApproval {
   summary: string;
   command?: string;
   files?: string[];
+  options?: Array<{
+    id: string;
+    label: string;
+    description?: string;
+    response?: string;
+  }>;
   risk: 'low' | 'medium' | 'high';
   status: 'pending' | 'approved' | 'denied';
   created_at: string;
@@ -24,6 +30,11 @@ export const fetchApprovals = (): Promise<ServerApproval[]> =>
 
 export const respondApproval = (
   approvalId: string,
-  decision: 'approved' | 'denied'
+  decision: 'approved' | 'denied',
+  input: { selectedOptionId?: string; message?: string } = {},
 ): Promise<ServerApproval> =>
-  apiPost(`/api/approvals/${approvalId}/respond`, { decision });
+  apiPost(`/api/approvals/${approvalId}/respond`, {
+    decision,
+    selected_option_id: input.selectedOptionId,
+    message: input.message,
+  });

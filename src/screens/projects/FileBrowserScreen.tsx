@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -23,9 +23,10 @@ import {
   useControlCenterStore,
 } from '../../store/controlCenterStore';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
+import { BottomSheet } from '../../components/shared/BottomSheet';
+import { CodeHighlight } from '../../components/shared/CodeHighlight';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { describeDeviceError } from '../../utils/deviceError';
-import { formatBytes } from '../../utils/format';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type FileRoute = RouteProp<RootStackParamList, 'FileBrowser'>;
@@ -108,6 +109,12 @@ export const FileBrowserScreen: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [readingPath, setReadingPath] = useState('');
   const [error, setError] = useState('');
+  // Inline folder expansion (tree-style unfold). A folder row still navigates
+  // into the folder when tapped; its right-side chevron toggles expansion so
+  // the folder's children render indented beneath it without leaving the page.
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
+  const [loadedDirs, setLoadedDirs] = useState<Set<string>>(new Set());
   const project = projects.find(item => item.id === route.params.projectId);
   const device =
     (project?.deviceId ? devices.find(item => item.id === project.deviceId) : undefined) ??
@@ -141,9 +148,66 @@ export const FileBrowserScreen: React.FC = () => {
     step: 60,
     resetKey: `${route.params.projectId}:${effectivePath}:${filter}`,
   });
+  // Flatten the visible directory into a depth-tagged row list, interleaving
+  // inline-expanded children beneath their folder. Top-level pagination
+  // (fileList) is preserved; an expanded folder's children render fully.
+  const flatRows = useMemo(() => {
+    const projectId = route.params.projectId;
+    const matchesFilter = (item: ProjectFileEntry) =>
+      filter === 'all' || item.status === filter;
+    const sortEntries = (items: ProjectFileEntry[]) =>
+      items
+        .slice()
+        .sort((left, right) =>
+          left.kind !== right.kind
+            ? left.kind === 'folder'
+              ? -1
+              : 1
+            : left.name.localeCompare(right.name),
+        );
+    const childrenOf = (dirPath: string) =>
+      files.filter(
+        item => item.projectId === projectId && item.directoryPath === dirPath,
+      );
+    type FlatRow =
+      | { kind: 'entry'; file: ProjectFileEntry; depth: number }
+      | { kind: 'empty'; depth: number; key: string };
+    const rows: FlatRow[] = [];
+    const walk = (dirPath: string, depth: number) => {
+      const kids = childrenOf(dirPath);
+      if (!kids.length && loadedDirs.has(dirPath)) {
+        rows.push({ kind: 'empty', depth, key: `empty:${dirPath}` });
+        return;
+      }
+      sortEntries(kids)
+        .filter(matchesFilter)
+        .forEach(child => {
+          rows.push({ kind: 'entry', file: child, depth });
+          if (child.kind === 'folder' && expandedPaths.has(child.path)) {
+            walk(child.path, depth + 1);
+          }
+        });
+    };
+    sortEntries(fileList.visibleItems).forEach(top => {
+      rows.push({ kind: 'entry', file: top, depth: 0 });
+      if (top.kind === 'folder' && expandedPaths.has(top.path)) {
+        walk(top.path, 1);
+      }
+    });
+    return rows;
+  }, [fileList.visibleItems, files, filter, expandedPaths, loadedDirs, route.params.projectId]);
   const selectedFile = files.find(
     item => item.projectId === route.params.projectId && item.path === selectedPath,
   );
+  // The file content sheet reads from the most recently opened file so its
+  // body stays visible while the dismiss animation runs — selectedPath clears
+  // the instant the user closes, which would otherwise blank the sheet before
+  // it finishes sliding down.
+  const lastFileRef = useRef<ProjectFileEntry | undefined>(undefined);
+  if (selectedFile) {
+    lastFileRef.current = selectedFile;
+  }
+  const sheetFile = selectedFile ?? lastFileRef.current;
   const canReadDevice = Boolean(device && device.status === 'online');
   const inSubfolder = effectivePath !== terminalDirectory;
 
@@ -152,6 +216,14 @@ export const FileBrowserScreen: React.FC = () => {
       setCurrentPath(terminalDirectory);
     }
   }, [currentPath, terminalDirectory]);
+
+  // Navigating into/out of a directory starts from a collapsed tree — stale
+  // expanded paths would reference folders no longer in the current view.
+  useEffect(() => {
+    setExpandedPaths(new Set());
+    setLoadingDirs(new Set());
+    setLoadedDirs(new Set());
+  }, [effectivePath]);
 
   useEffect(() => {
     if (!project || !canReadDevice || !effectivePath || effectivePath === '~') return;
@@ -233,9 +305,150 @@ export const FileBrowserScreen: React.FC = () => {
     }
   };
 
+  const toggleExpand = async (folder: ProjectFileEntry) => {
+    const dirPath = folder.path;
+    if (expandedPaths.has(dirPath)) {
+      setExpandedPaths(prev => {
+        const next = new Set(prev);
+        next.delete(dirPath);
+        return next;
+      });
+      return;
+    }
+    setExpandedPaths(prev => {
+      const next = new Set(prev);
+      next.add(dirPath);
+      return next;
+    });
+    // Skip the network round-trip when offline or when this folder's children
+    // are already resident in the store (cache hit from a prior navigation).
+    if (!canReadDevice || loadedDirs.has(dirPath)) return;
+    setLoadingDirs(prev => {
+      const next = new Set(prev);
+      next.add(dirPath);
+      return next;
+    });
+    try {
+      await loadProjectFiles(project.id, dirPath);
+      setLoadedDirs(prev => {
+        const next = new Set(prev);
+        next.add(dirPath);
+        return next;
+      });
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : 'Unable to load folder contents.',
+      );
+      // Roll back the expansion so a failed fetch doesn't leave a stuck-open
+      // empty branch.
+      setExpandedPaths(prev => {
+        const next = new Set(prev);
+        next.delete(dirPath);
+        return next;
+      });
+    } finally {
+      setLoadingDirs(prev => {
+        const next = new Set(prev);
+        next.delete(dirPath);
+        return next;
+      });
+    }
+  };
+
   const goUp = () => {
     setSelectedPath('');
     setCurrentPath(parentPathOf(effectivePath));
+  };
+
+  // Body of the file-content bottom sheet: loading spinner, blocked-file
+  // notice, or the scrollable text. Reads from sheetFile so the content
+  // persists during the close animation.
+  const renderSheetBody = () => {
+    const file = sheetFile;
+    if (!file) {
+      return null;
+    }
+    if (readingPath === file.path) {
+      return (
+        <View style={styles.sheetLoading}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text
+            style={[
+              theme.typography.bodySm,
+              { color: theme.colors.onSurfaceVariant, marginTop: 10 },
+            ]}>
+            正在读取文件…
+          </Text>
+        </View>
+      );
+    }
+    if (file.previewBlocked) {
+      return (
+        <View style={styles.sheetBlocked}>
+          <IconBadge
+            name="warning"
+            tone={file.previewBlocked.reason === 'binary' ? 'tertiary' : 'error'}
+            size={40}
+            iconSize={20}
+          />
+          <Text
+            style={[
+              theme.typography.titleMd,
+              { color: theme.colors.onSurface, textAlign: 'center', marginTop: 10 },
+            ]}>
+            {file.previewBlocked.reason === 'binary'
+              ? '二进制文件，无法预览'
+              : '文件过大，未自动打开'}
+          </Text>
+          <Text
+            style={[
+              theme.typography.bodySm,
+              { color: theme.colors.onSurfaceVariant, textAlign: 'center', marginTop: 6 },
+            ]}>
+            {file.previewBlocked.reason === 'binary'
+              ? '该文件是二进制内容，不适合在手机端预览。'
+              : '该文件超过 1 MB，预览会截断且占用大量内存。'}
+          </Text>
+          <GlowButton
+            title="在终端打开"
+            onPress={() =>
+              device &&
+              navigation.navigate('DeviceTerminal', {
+                deviceId: device.id,
+                directory: parentPathOf(file.path),
+              })
+            }
+            disabled={!device}
+            variant="primary"
+            style={styles.sheetBlockedAction}
+          />
+        </View>
+      );
+    }
+    if (file.content !== undefined) {
+      return (
+        <ScrollView
+          style={styles.sheetContentScroll}
+          contentContainerStyle={styles.sheetContent}
+          showsVerticalScrollIndicator>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <CodeHighlight
+              style={theme.typography.codeSm}
+              code={
+                file.encoding === 'base64'
+                  ? '[base64 content returned by Agent]'
+                  : file.content
+              }
+              language={file.encoding === 'base64' ? undefined : file.language}
+              filename={file.encoding === 'base64' ? undefined : file.name}
+            />
+          </ScrollView>
+        </ScrollView>
+      );
+    }
+    return null;
   };
 
   return (
@@ -481,15 +694,33 @@ export const FileBrowserScreen: React.FC = () => {
               </View>
             ) : (
               <>
-                {fileList.visibleItems.map((file, index) => (
-                  <FileRow
-                    key={file.id}
-                    file={file}
-                    reading={readingPath === file.path}
-                    onPress={() => handleOpenFile(file)}
-                    isLast={index === fileList.visibleItems.length - 1}
-                  />
-                ))}
+                {flatRows.map((row, index) =>
+                  row.kind === 'empty' ? (
+                    <View
+                      key={row.key}
+                      style={[styles.emptyChildRow, { paddingLeft: 48 + row.depth * 18 }]}>
+                      <Text
+                        style={[
+                          theme.typography.codeSm,
+                          { color: theme.colors.onSurfaceVariant },
+                        ]}>
+                        空文件夹
+                      </Text>
+                    </View>
+                  ) : (
+                    <FileRow
+                      key={`entry:${row.depth}:${row.file.id}`}
+                      file={row.file}
+                      depth={row.depth}
+                      reading={readingPath === row.file.path}
+                      expanded={expandedPaths.has(row.file.path)}
+                      expanding={loadingDirs.has(row.file.path)}
+                      onPress={() => handleOpenFile(row.file)}
+                      onToggleExpand={() => toggleExpand(row.file)}
+                      isLast={index === flatRows.length - 1}
+                    />
+                  ),
+                )}
                 <LoadMoreRow
                   visibleCount={fileList.visibleCount}
                   totalCount={fileList.totalCount}
@@ -549,79 +780,22 @@ export const FileBrowserScreen: React.FC = () => {
           </View>
         </GlassPanel>
 
-        {/* File content preview */}
-        {selectedFile?.previewBlocked ? (
-          <GlassPanel style={styles.previewPanel}>
-            <View style={styles.previewHeader}>
-              <IconBadge
-                name="warning"
-                tone={selectedFile.previewBlocked.reason === 'binary' ? 'tertiary' : 'error'}
-                size={36}
-                iconSize={18}
-              />
-              <View style={styles.previewTitle}>
-                <Text numberOfLines={1} style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                  {selectedFile.previewBlocked.reason === 'binary'
-                    ? '二进制文件，无法预览'
-                    : '文件过大，未自动打开'}
-                </Text>
-                <Text numberOfLines={1} style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-                  {selectedFile.path}
-                  {selectedFile.previewBlocked.sizeBytes !== undefined
-                    ? ` · ${formatBytes(selectedFile.previewBlocked.sizeBytes)}`
-                    : ''}
-                </Text>
-              </View>
-            </View>
-            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-              {selectedFile.previewBlocked.reason === 'binary'
-                ? '该文件是二进制内容，不适合在手机端预览。'
-                : '该文件超过 1 MB，预览会截断且占用大量内存。'}
-            </Text>
-            <GlowButton
-              title="在终端打开"
-              onPress={() =>
-                device &&
-                navigation.navigate('DeviceTerminal', {
-                  deviceId: device.id,
-                  directory: parentPathOf(selectedFile.path),
-                })
-              }
-              disabled={!device}
-              variant="primary"
-              style={styles.stateAction}
-            />
-          </GlassPanel>
-        ) : null}
-        {selectedFile?.content !== undefined ? (
-          <GlassPanel style={styles.previewPanel}>
-            <View style={styles.previewHeader}>
-              <View style={styles.previewTitle}>
-                <Text
-                  numberOfLines={1}
-                  style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                  {selectedFile.name}
-                </Text>
-                <Text
-                  numberOfLines={1}
-                  style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-                  {selectedFile.path}
-                </Text>
-              </View>
-              <StatusChip
-                label={selectedFile.truncated ? 'TRUNCATED' : selectedFile.encoding ?? 'utf8'}
-                type={selectedFile.truncated ? 'warning' : 'neutral'}
-              />
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <Text style={[theme.typography.codeSm, styles.fileContent, { color: theme.colors.onSurface }]}>
-                {selectedFile.encoding === 'base64'
-                  ? '[base64 content returned by Agent]'
-                  : selectedFile.content}
-              </Text>
-            </ScrollView>
-          </GlassPanel>
-        ) : null}
+        {/* File content — opens in a bottom sheet that slides up from below */}
+        <BottomSheet
+          open={Boolean(selectedFile)}
+          onClose={() => setSelectedPath('')}
+          title={sheetFile?.name}
+          subtitle={sheetFile?.path}
+          badge={
+            sheetFile && sheetFile.content !== undefined
+              ? {
+                  label: sheetFile.truncated ? 'TRUNCATED' : sheetFile.encoding ?? 'utf8',
+                  tone: sheetFile.truncated ? 'warning' : 'neutral',
+                }
+              : undefined
+          }>
+          {renderSheetBody()}
+        </BottomSheet>
       </ScrollView>
     </SafeAreaWrapper>
   );
@@ -705,9 +879,24 @@ interface FileRowProps {
   reading: boolean;
   isLast?: boolean;
   onPress: () => void;
+  /** Nesting depth for inline-expanded children (0 = top level). */
+  depth?: number;
+  /** Inline-expansion affordance for folders: chevron toggles unfold. */
+  expanded?: boolean;
+  expanding?: boolean;
+  onToggleExpand?: () => void;
 }
 
-const FileRow: React.FC<FileRowProps> = ({ file, reading, isLast, onPress }) => {
+const FileRow: React.FC<FileRowProps> = ({
+  file,
+  reading,
+  isLast,
+  onPress,
+  depth = 0,
+  expanded = false,
+  expanding = false,
+  onToggleExpand,
+}) => {
   const { theme, isDark } = useTheme();
   const isFolder = file.kind === 'folder';
   const tone: 'primary' | 'secondary' | 'tertiary' | 'error' | 'neutral' = isFolder
@@ -732,36 +921,79 @@ const FileRow: React.FC<FileRowProps> = ({ file, reading, isLast, onPress }) => 
     file.status === 'modified' ? 'M' : file.status === 'added' ? 'A' : file.status === 'deleted' ? 'D' : '';
   const meta = [file.size, file.lastTouched, file.language].filter(Boolean).join(' · ');
 
+  // Shared row chrome: horizontal layout, depth indent for inline-expanded
+  // descendants, and the bottom hairline divider between siblings.
+  const baseStyle = [
+    styles.fileRow,
+    { paddingLeft: 10 + depth * 18 },
+    !isLast && {
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : theme.colors.outlineVariant,
+    },
+  ];
+
+  if (isFolder) {
+    // Folder: the name area and the chevron are SIBLING pressables, not nested.
+    // Nesting a TouchableOpacity inside the row's TouchableOpacity can silently
+    // swallow the parent's press in some React Native setups, so the folder
+    // stops responding to taps. Siblings give each gesture a clean owner:
+    // tapping the name navigates into the folder; tapping the chevron unfolds
+    // its children inline.
+    return (
+      <View style={baseStyle}>
+        <TouchableOpacity
+          activeOpacity={0.65}
+          onPress={onPress}
+          style={styles.rowMain}>
+          <IconBadge name="project" tone={tone} size={30} iconSize={15} />
+          <View style={styles.fileRowCopy}>
+            <Text
+              numberOfLines={1}
+              style={[
+                theme.typography.labelMd,
+                { color: theme.colors.onSurface, fontWeight: '700' },
+              ]}>
+              {`${file.name}/`}
+            </Text>
+          </View>
+        </TouchableOpacity>
+        <TouchableOpacity
+          activeOpacity={0.5}
+          onPress={onToggleExpand}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 6 }}
+          style={styles.chevronButton}>
+          {expanding ? (
+            <ActivityIndicator size="small" color={theme.colors.primary} />
+          ) : (
+            <IconBadge
+              name="chevron"
+              tone="neutral"
+              size={22}
+              iconSize={14}
+              // Base chevron points down (v) = expanded; rotate -90deg to a
+              // right-pointing caret (>) for the collapsed resting state.
+              style={{ transform: [{ rotate: expanded ? '0deg' : '-90deg' }] }}
+            />
+          )}
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // File: the whole row is a single pressable that opens the file preview.
   return (
-    <TouchableOpacity
-      activeOpacity={0.65}
-      onPress={onPress}
-      style={[
-        styles.fileRow,
-        !isLast && {
-          borderBottomWidth: StyleSheet.hairlineWidth,
-          borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : theme.colors.outlineVariant,
-        },
-      ]}>
-      <IconBadge
-        name={isFolder ? 'project' : 'code'}
-        tone={tone}
-        size={isFolder ? 30 : 28}
-        iconSize={isFolder ? 15 : 14}
-      />
+    <TouchableOpacity activeOpacity={0.65} onPress={onPress} style={baseStyle}>
+      <IconBadge name="code" tone={tone} size={28} iconSize={14} />
       <View style={styles.fileRowCopy}>
         <Text
           numberOfLines={1}
           style={[
             theme.typography.labelMd,
-            {
-              color: theme.colors.onSurface,
-              fontWeight: isFolder ? '700' : '500',
-            },
+            { color: theme.colors.onSurface, fontWeight: '500' },
           ]}>
-          {isFolder ? `${file.name}/` : file.name}
+          {file.name}
         </Text>
-        {!isFolder && meta ? (
+        {meta ? (
           <Text numberOfLines={1} style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
             {meta}
           </Text>
@@ -769,8 +1001,6 @@ const FileRow: React.FC<FileRowProps> = ({ file, reading, isLast, onPress }) => 
       </View>
       {reading ? (
         <ActivityIndicator size="small" color={theme.colors.primary} />
-      ) : isFolder ? (
-        <IconBadge name="chevron" tone="neutral" size={22} iconSize={14} />
       ) : (
         <View style={styles.statusBadge}>
           <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
@@ -865,6 +1095,12 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
+  rowMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -874,6 +1110,15 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
+  },
+  chevronButton: {
+    padding: 4,
+    marginRight: -2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyChildRow: {
+    paddingVertical: 8,
   },
   windowFooter: {
     flexDirection: 'row',
@@ -907,21 +1152,28 @@ const styles = StyleSheet.create({
     minWidth: 120,
     paddingHorizontal: 12,
   },
-  previewPanel: {
-    padding: 12,
-    marginTop: 12,
-    gap: 10,
-  },
-  previewHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  previewTitle: {
+  sheetLoading: {
     flex: 1,
-    gap: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
   },
-  fileContent: {
-    minWidth: 280,
+  sheetBlocked: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+  },
+  sheetBlockedAction: {
+    marginTop: 18,
+    alignSelf: 'stretch',
+  },
+  sheetContentScroll: {
+    flex: 1,
+  },
+  sheetContent: {
+    padding: 14,
+    paddingBottom: 28,
   },
 });

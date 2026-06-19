@@ -20,7 +20,7 @@ export const createApprovalSlice: StateCreator<ControlCenterState, [], [], Appro
   approvals: [],
   notifications: [],
 
-  resolveApproval: async (approvalId, decision) => {
+  resolveApproval: async (approvalId, decision, options) => {
     const approval = get().approvals.find(item => item.id === approvalId);
     if (!approval) return;
 
@@ -29,7 +29,7 @@ export const createApprovalSlice: StateCreator<ControlCenterState, [], [], Appro
     }
 
     const resolved = serverApprovalToClient(
-      await platformTransport.respondApproval(approvalId, decision),
+      await platformTransport.respondApproval(approvalId, decision, options),
     );
     set(state => ({
       approvals: state.approvals.map(item =>

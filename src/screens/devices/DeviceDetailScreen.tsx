@@ -7,6 +7,7 @@ import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
+import { ProjectWorkspaceCard } from '../../components/cards/ProjectWorkspaceCard';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { ActionGridCard } from '../../components/shared/ActionGridCard';
 import { CollapsiblePanel } from '../../components/shared/CollapsiblePanel';
@@ -17,7 +18,7 @@ import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import { IconBadge } from '../../components/visual/IconBadge';
 import { RingMeter } from '../../components/visual/RingMeter';
-import { Project, VibeStatus } from '../../data/platformModels';
+import { VibeStatus } from '../../data/platformModels';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { newestFirst } from '../../utils/timeSort';
@@ -25,19 +26,12 @@ import { isActiveTerminalSessionStatus } from '../../utils/terminalInteraction';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DeviceRoute = RouteProp<RootStackParamList, 'DeviceDetail'>;
-type ChipType = 'success' | 'warning' | 'error' | 'neutral' | 'info';
 
 const statusType = {
   online: 'success',
   warning: 'warning',
   offline: 'neutral',
 } as const;
-
-const projectStatusType: Record<Project['status'], ChipType> = {
-  active: 'success',
-  idle: 'neutral',
-  error: 'error',
-};
 
 const activeSessionStatuses: VibeStatus[] = [
   'running',
@@ -354,84 +348,43 @@ export const DeviceDetailScreen: React.FC = () => {
         <SectionTitle title="PROJECTS ON DEVICE" />
         {projects.length ? (
           <>
-          {projectList.visibleItems.map(project => (
-            <GlassPanel
-              key={project.id}
-              style={[
-                styles.projectCard,
-                deviceOffline && styles.disabledCard,
-              ]}>
-              <View style={styles.projectTop}>
-                <View style={styles.projectTitleBlock}>
-                  <Text
-                    numberOfLines={1}
-                    style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                    {project.name}
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-                    {project.path || 'path not reported'}
-                  </Text>
-                </View>
-                <StatusChip
-                  label={project.status.toUpperCase()}
-                  type={projectStatusType[project.status]}
-                />
-              </View>
-              {project.description ? (
-                <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-                  {project.description}
-                </Text>
-              ) : null}
-              <View style={styles.projectMetaRow}>
-                <MetaPill label={project.branch} />
-                <MetaPill label={project.language} />
-                <MetaPill label={project.packageManager ?? 'package unknown'} />
-                {(project.sourceTools ?? []).map(tool => (
-                  <MetaPill key={tool} label={`via ${workspaceToolLabel(tool)}`} />
-                ))}
-              </View>
-              <View style={styles.projectActionRow}>
-                <GlowButton
-                  title="DETAIL"
-                  disabled={deviceOffline}
-                  onPress={() =>
-                    navigation.navigate('ProjectDetail', {
-                      projectId: project.id,
-                      deviceId: device.id,
-                    })
-                  }
-                  variant="outline"
-                  style={styles.projectAction}
-                />
-                <GlowButton
-                  title="FILES"
-                  disabled={deviceOffline}
-                  onPress={() =>
-                    navigation.navigate('FileBrowser', {
-                      projectId: project.id,
-                      deviceId: device.id,
-                    })
-                  }
-                  variant="outline"
-                  style={styles.projectAction}
-                />
-                <GlowButton
-                  title="TERM"
-                  onPress={() =>
-                    navigation.navigate('DeviceTerminal', {
-                      deviceId: device.id,
-                      directory: project.path || terminalDirectory,
-                    })
-                  }
-                  disabled={!device.remoteTerminalEnabled || deviceOffline}
-                  variant="outline"
-                  style={styles.projectAction}
-                />
-              </View>
-            </GlassPanel>
-          ))}
+          {projectList.visibleItems.map(project => {
+            const projectSessions = sessions.filter(
+              session => session.projectId === project.id,
+            );
+            const scan = scanResults.find(
+              item =>
+                item.projectId === project.id && item.deviceId === device.id,
+            );
+            return (
+              <ProjectWorkspaceCard
+                key={project.id}
+                project={project}
+                device={device}
+                sessions={projectSessions}
+                scan={scan}
+                disabled={deviceOffline}
+                onOpen={() =>
+                  navigation.navigate('ProjectDetail', {
+                    projectId: project.id,
+                    deviceId: device.id,
+                  })
+                }
+                onFiles={() =>
+                  navigation.navigate('FileBrowser', {
+                    projectId: project.id,
+                    deviceId: device.id,
+                  })
+                }
+                onTerminal={() =>
+                  navigation.navigate('DeviceTerminal', {
+                    deviceId: device.id,
+                    directory: scan?.path ?? project.path ?? terminalDirectory,
+                  })
+                }
+              />
+            );
+          })}
           <LoadMoreRow
             visibleCount={projectList.visibleCount}
             totalCount={projectList.totalCount}
@@ -762,24 +715,6 @@ const Fact: React.FC<{ label: string; value: string }> = ({ label, value }) => {
   );
 };
 
-const MetaPill: React.FC<{ label: string }> = ({ label }) => {
-  const { theme, isDark } = useTheme();
-
-  return (
-    <View
-      style={[
-        styles.metaPill,
-        activePanelStyle(isDark, theme.colors.surfaceContainer),
-      ]}>
-      <Text
-        numberOfLines={1}
-        style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-        {label}
-      </Text>
-    </View>
-  );
-};
-
 interface EmptyPanelProps {
   title: string;
   body: string;
@@ -957,46 +892,9 @@ const styles = StyleSheet.create({
     gap: 8,
     flexWrap: 'wrap',
   },
-  projectCard: {
-    padding: 12,
-    gap: 9,
-    marginBottom: 10,
-  },
-  disabledCard: {
-    opacity: 0.5,
-  },
   emptyTerminalCard: {
     padding: 12,
     marginBottom: 10,
-  },
-  projectTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  projectTitleBlock: {
-    flex: 1,
-    gap: 3,
-  },
-  projectMetaRow: {
-    flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  metaPill: {
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    maxWidth: '100%',
-  },
-  projectActionRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  projectAction: {
-    flex: 1,
-    paddingHorizontal: 6,
   },
   sessionHeader: {
     marginTop: 2,

@@ -25,6 +25,7 @@ import { NotificationCenterScreen } from '../../screens/operations/NotificationC
 import { PreviewScreen } from '../../screens/preview/PreviewScreen';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import type { TerminalCommandHistoryItem, TerminalSession } from '../../store/types';
+import { usePresenceHeartbeat } from '../../hooks/usePresenceHeartbeat';
 import { useTheme } from '../../theme/useTheme';
 import { useSessionStore } from '../../../stores/useSettingsStore';
 import { isSessionInvalidError } from '../../api/sessionAuth';
@@ -191,6 +192,10 @@ export const RootNavigator = ({ debugDeviceTerminal }: RootNavigatorProps) => {
         syncingRef.current = false;
       });
   }, [hasHydrated, initializeFromServer, restoreUser, serverMode, token]);
+
+  // App-lifecycle: presence heartbeat + foreground snapshot re-sync (recovers
+  // state published while the app was backgrounded; WS has no replay buffer).
+  usePresenceHeartbeat();
 
   if (!hasHydrated) {
     return (

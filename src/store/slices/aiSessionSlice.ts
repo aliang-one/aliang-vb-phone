@@ -10,6 +10,7 @@ import {
   evictStaleSessionDetail,
   fileNameFromPath,
   formatActivityLabel,
+  mergeEarlierAgentMessages,
   mergeIds,
   mergeVibeRunSnapshot,
   nowTime,
@@ -22,7 +23,7 @@ type AiSessionSlice = Pick<
   | 'vibeRuns' | 'previewLinks'
   | 'startAgentSession' | 'loadAgentSessionDetail' | 'pauseAgentSession'
   | 'resumeAgentSession' | 'terminateAgentSession' | 'updateAgentSession'
-  | 'deleteAgentSession' | 'appendAgentMessage'
+  | 'deleteAgentSession' | 'appendAgentMessage' | 'loadEarlierAgentMessages'
 >;
 
 const pendingMessageSends = new Set<string>();
@@ -41,6 +42,8 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     // Do NOT send a display label — the gateway forwards `model` verbatim, so a
     // label like "Claude Code" would pollute the CLI's model selection.
     const sentModel = input.model?.trim() || undefined;
+    // Reasoning effort. '' => omit so the agent/gateway use their own default.
+    const sentEffort = input.effort?.trim() || undefined;
     // Presentation label for VibeCodingRun.model / UI copy only (falls back to
     // the provider name when no concrete model is set). NOT sent to the agent.
     const modelLabel =
@@ -68,6 +71,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
           provider,
           tool: provider,
           risk: input.provider === 'claude_code' ? 'medium' : 'low',
+          effort: sentEffort,
         });
 
         const sessionId = session.session_id;
@@ -82,6 +86,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
           status: 'running',
           objective: input.objective,
           model: modelLabel,
+          effort: sentEffort,
           risk: input.provider === 'claude_code' ? 'medium' : 'low',
           currentStep: `${modelLabel} is reading the project and preparing a plan.`,
           branch: `agent/${sessionId}`,
@@ -179,6 +184,64 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     });
   },
 
+  loadEarlierAgentMessages: async sessionId => {
+    if (!get().serverMode) {
+      throw new Error('Platform connection is required before loading VibeCoding history.');
+    }
+    const current = get().vibeRuns.find(run => run.id === sessionId);
+    const before = current?.transcriptPage?.nextBeforeCursor;
+    if (!before || current?.transcriptPage?.hasMore === false) return;
+
+    const response = await platformTransport.loadAiSessionMessages(sessionId, {
+      limit: current.transcriptPage?.limit || 40,
+      before,
+    });
+    const earlierMessages = response.messages.map(message => ({
+      id: message.id,
+      role: message.role,
+      mode: message.mode as 'voice' | 'text' | 'action' | undefined,
+      content: message.content,
+      timestamp: message.timestamp,
+      index: message.index,
+    }));
+
+    set(state => {
+      const vibeRuns = state.vibeRuns.map(run => {
+        if (run.id !== sessionId) return run;
+        const transcript = mergeEarlierAgentMessages(
+          run.transcript,
+          earlierMessages,
+        );
+        return {
+          ...run,
+          transcript,
+          transcriptPage: {
+            limit: response.page.limit,
+            count: response.page.count,
+            totalCount: response.page.total_count,
+            hasMore: response.page.has_more,
+            nextBeforeCursor: response.page.next_before_cursor,
+            nextBeforeMessageId: response.page.next_before_message_id,
+            cacheStatus: response.page.cache_status,
+            fetchedAt: response.page.fetched_at,
+          },
+          transcriptCount: Math.max(
+            run.transcriptCount ?? 0,
+            response.page.total_count ?? 0,
+            transcript.length,
+          ),
+          detailRefreshStatus:
+            response.detail_refresh?.status ?? run.detailRefreshStatus,
+          detailLoadedAt: nowTime(),
+        };
+      });
+      return {
+        vibeRuns,
+        devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
+      };
+    });
+  },
+
   pauseAgentSession: async sessionId => {
     if (!get().serverMode) {
       throw new Error('Platform connection is required before pausing a VibeCoding session.');
@@ -268,6 +331,9 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       // re-emits ai.session.create before each ai.message (see server index.ts).
       model: input.model,
       risk: input.risk,
+      // Separate field. "" clears, undefined = unchanged. Gateway derives the
+      // codex reasoning level from it; never bake it into the model name.
+      effort: input.effort,
     });
     set(state => {
       const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);

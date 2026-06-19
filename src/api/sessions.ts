@@ -1,5 +1,26 @@
 import { apiFetch, apiGet, apiPatch, apiPost } from './client';
 
+export interface ServerAiTranscriptPage {
+  limit: number;
+  count: number;
+  total_count?: number;
+  has_more: boolean;
+  next_before_cursor?: string;
+  next_before_message_id?: string;
+  order?: 'asc';
+  cache_status?: string;
+  fetched_at?: string;
+}
+
+export interface ServerAiMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  mode?: 'voice' | 'text' | 'action';
+  content: string;
+  timestamp: string;
+  index?: number;
+}
+
 export interface ServerAiSession {
   session_id: string;
   kind: 'ai';
@@ -14,15 +35,18 @@ export interface ServerAiSession {
   provider?: 'auto' | 'codex' | 'claude' | 'claudecode';
   tool?: 'auto' | 'codex' | 'claude' | 'claudecode';
   risk?: 'low' | 'medium' | 'high';
+  /**
+   * Reasoning effort. Provider-specific:
+   *   codex  → none | minimal | low | medium | high | xhigh
+   *   claude → none | low | medium | high | max
+   * Forwarded to the agent; codex applies it as a `<base>-<effort>` model
+   * suffix. Empty/omit = no effort override (CLI/gateway default).
+   */
+  effort?: string;
   current_step?: string;
   branch?: string;
-  transcript?: Array<{
-    id: string;
-    role: 'user' | 'assistant' | 'system';
-    mode?: 'voice' | 'text' | 'action';
-    content: string;
-    timestamp: string;
-  }>;
+  transcript?: ServerAiMessage[];
+  transcript_page?: ServerAiTranscriptPage;
   events?: Array<{
     id: string;
     type: 'command' | 'file' | 'test' | 'preview' | 'approval' | 'status';
@@ -56,9 +80,19 @@ export interface ServerAiSession {
    * skipped_offline.
    */
   detail_refresh?: { status: string; error?: string };
+  last_detail_fetch_status?: string;
+  last_detail_fetch_at?: string;
+  last_detail_error?: string;
   created_at: string;
   last_active_at: string;
   closed_at?: string;
+}
+
+export interface ServerAiMessagesPageResponse {
+  session_id: string;
+  messages: ServerAiMessage[];
+  page: ServerAiTranscriptPage;
+  detail_refresh?: { status: string; error?: string };
 }
 
 export interface ServerTerminalSession {
@@ -124,6 +158,21 @@ export const fetchAiSession = (
     { timeoutMs: 15_000 },
   );
 
+export const fetchAiSessionMessages = (
+  sessionId: string,
+  options?: { limit?: number; before?: string; refresh?: boolean },
+): Promise<ServerAiMessagesPageResponse> => {
+  const query = new URLSearchParams();
+  if (options?.limit) query.set('limit', String(options.limit));
+  if (options?.before) query.set('before', options.before);
+  if (options?.refresh) query.set('refresh', 'true');
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return apiGet<ServerAiMessagesPageResponse>(
+    `/api/ai/sessions/${sessionId}/messages${suffix}`,
+    { timeoutMs: 15_000 },
+  );
+};
+
 export const createAiSession = (input: {
   device_id: string;
   project_id?: string;
@@ -135,6 +184,7 @@ export const createAiSession = (input: {
   provider?: 'auto' | 'codex' | 'claude' | 'claudecode';
   tool?: 'auto' | 'codex' | 'claude' | 'claudecode';
   risk?: 'low' | 'medium' | 'high';
+  effort?: string;
 }): Promise<ServerAiSession> =>
   apiPost<ServerAiSession>('/api/ai/sessions', input);
 
@@ -168,6 +218,12 @@ export const updateAiSession = (
     /** Concrete model name; "" clears (revert to CLI default), omit = unchanged. */
     model: string;
     risk: 'low' | 'medium' | 'high';
+    /**
+     * Reasoning effort (provider-specific). "" clears it (revert to default),
+     * omit = unchanged. Sent as a separate field — the gateway derives the
+     * codex reasoning level from it (NOT from the model name).
+     */
+    effort: string;
   }>,
 ): Promise<ServerAiSession> =>
   apiPatch<ServerAiSession>(`/api/ai/sessions/${sessionId}`, input);

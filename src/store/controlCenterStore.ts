@@ -289,62 +289,18 @@ export const useControlCenterStore = create<ControlCenterState>()(
             }
 
             case 'ai.done':
-              set(state => {
-                const run = state.vibeRuns.find(
-                  item => item.id === transportEvent.sessionId,
-                );
-                const detail =
-                  transportEvent.detail || 'VibeCoding session completed.';
-                const doneMs = activityNowMs();
-
-                return {
-                  vibeRuns: state.vibeRuns.map(item =>
-                    item.id === transportEvent.sessionId
-                      ? {
-                          ...item,
-                          status: 'idle' as VibeStatus,
-                          currentStep: detail,
-                          lastActivityMs: doneMs,
-                          updatedAt: formatActivityLabel(doneMs),
-                          events: tail(
-                            [
-                              ...item.events,
-                              {
-                                id: createId('evt'),
-                                type: 'status' as const,
-                                title: 'Session completed',
-                                detail,
-                                status: 'done' as const,
-                                timestamp: shortTime(),
-                              },
-                            ],
-                            MAX_RUN_EVENTS,
-                          ),
-                        }
-                      : item,
-                  ),
-                  devices: state.devices.map(device => ({
-                    ...device,
-                    activeSessionIds: device.activeSessionIds.filter(
-                      id => id !== transportEvent.sessionId,
-                    ),
-                  })),
-                  events: [
-                    event(
-                      'agent.session.completed',
-                      'VibeCoding completed',
-                      run?.title ?? detail,
-                      'done',
-                      {
-                        deviceId: run?.deviceId,
-                        projectId: run?.projectId,
-                        sessionId: transportEvent.sessionId,
-                      },
-                    ),
-                    ...state.events,
-                  ].slice(0, 120),
-                };
-              });
+              // Status-neutral. ai.done ends ONE streaming turn, not the whole
+              // run — for a tool-using agent it often lands mid-task (the model
+              // just emitted a tool_use and will start a new turn when the tool
+              // returns). The server is the status authority: it arms a soft
+              // idle-settle (ALIANG_AI_IDLE_SETTLE_MS) and only publishes
+              // idle/completed when no further activity follows, which arrives
+              // here as 'ai.session.updated' and is merged via
+              // mergeVibeRunSnapshot. Buffered deltas were already flushed above
+              // (flushDeltas runs before the switch), so there's nothing to do.
+              // Flipping to idle + a "Session completed" event on every turn
+              // would make a tool-using run flash done/idle during every tool
+              // gap.
               return;
 
             case 'ai.error':

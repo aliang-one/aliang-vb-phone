@@ -102,7 +102,16 @@ export type ApprovalKind =
   | 'dangerous_command'
   | 'file_write'
   | 'file_delete'
-  | 'git_push';
+  | 'git_push'
+  | 'tool'
+  | 'client_response';
+
+export interface ApprovalOption {
+  id: string;
+  label: string;
+  description?: string;
+  response?: string;
+}
 
 export interface ApprovalRequest {
   id: string;
@@ -115,6 +124,7 @@ export interface ApprovalRequest {
   terminalId?: string;
   command?: string;
   files?: string[];
+  options?: ApprovalOption[];
   risk: 'low' | 'medium' | 'high';
   status: 'pending' | 'approved' | 'denied';
   createdAt: string;
@@ -185,6 +195,13 @@ interface StartAgentInput {
    * forward it verbatim and pollute the CLI's model selection.
    */
   model?: string;
+  /**
+   * Optional reasoning effort. Provider-specific (codex:
+   * none/minimal/low/medium/high/xhigh; claude_code: none/low/medium/high/max).
+   * The agent applies it — codex as a `<base>-<effort>` model suffix. Empty
+   * string means "no override"; omit entirely is equivalent.
+   */
+  effort?: string;
 }
 
 interface BindDeviceInput {
@@ -270,6 +287,7 @@ export interface ControlCenterState {
     sessionId: string,
     options?: { refresh?: boolean },
   ) => Promise<void>;
+  loadEarlierAgentMessages: (sessionId: string) => Promise<void>;
   pauseAgentSession: (sessionId: string) => Promise<void>;
   resumeAgentSession: (sessionId: string) => Promise<void>;
   terminateAgentSession: (sessionId: string) => Promise<void>;
@@ -283,6 +301,8 @@ export interface ControlCenterState {
       /** Concrete model name; "" clears it (revert to CLI default), omit = unchanged. */
       model: string;
       risk: 'low' | 'medium' | 'high';
+      /** Reasoning effort (provider-specific); "" clears, omit = unchanged. */
+      effort: string;
     }>,
   ) => Promise<void>;
   deleteAgentSession: (sessionId: string) => Promise<void>;
@@ -294,6 +314,7 @@ export interface ControlCenterState {
   resolveApproval: (
     approvalId: string,
     decision: 'approved' | 'denied',
+    options?: { selectedOptionId?: string; message?: string },
   ) => Promise<void>;
   markNotificationRead: (notificationId: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;

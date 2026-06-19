@@ -146,10 +146,12 @@ export const TerminalListScreen: React.FC = () => {
             <IconBadge name="device" tone="neutral" size={44} iconSize={22} />
             <View style={styles.emptyCopy}>
               <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                还没有注册设备
+                {normalizedSearch ? `没有匹配「${search}」的设备` : '还没有注册设备'}
               </Text>
               <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-                在电脑端启动桌面 Agent 完成注册，或用右上角扫码绑定已有设备。
+                {normalizedSearch
+                  ? '换个关键词试试，或点搜索栏右侧的 ✕ 清空查看全部设备。'
+                  : '在电脑端启动桌面 Agent 完成注册，或用右上角扫码绑定已有设备。'}
               </Text>
             </View>
           </GlassPanel>

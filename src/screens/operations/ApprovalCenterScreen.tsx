@@ -30,6 +30,8 @@ const approvalKindLabel: Record<ApprovalRequest['kind'], string> = {
   file_write: 'File write',
   file_delete: 'Delete',
   git_push: 'Git push',
+  tool: 'Tool',
+  client_response: 'Response',
 };
 
 const approvalIcon: Record<ApprovalRequest['kind'], IconName> = {
@@ -37,6 +39,8 @@ const approvalIcon: Record<ApprovalRequest['kind'], IconName> = {
   file_write: 'code',
   file_delete: 'warning',
   git_push: 'git',
+  tool: 'agent',
+  client_response: 'approval',
 };
 
 export const ApprovalCenterScreen: React.FC = () => {
@@ -137,6 +141,9 @@ export const ApprovalCenterScreen: React.FC = () => {
           const device = devices.find(deviceItem => deviceItem.id === item.deviceId);
           const project = projects.find(projectItem => projectItem.id === item.projectId);
           const pending = item.status === 'pending';
+          const kindLabel = approvalKindLabel[item.kind] ?? 'Request';
+          const iconName = approvalIcon[item.kind] ?? 'approval';
+          const optionChoices = item.options ?? [];
           return (
             <GlassPanel
               key={item.id}
@@ -144,14 +151,14 @@ export const ApprovalCenterScreen: React.FC = () => {
               style={styles.approvalCard}>
               <View style={styles.cardHeader}>
                 <IconBadge
-                  name={approvalIcon[item.kind]}
+                  name={iconName}
                   tone={item.risk === 'high' ? 'error' : 'tertiary'}
                   size={42}
                   iconSize={21}
                 />
                 <View style={styles.titleBlock}>
                   <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
-                    {approvalKindLabel[item.kind].toUpperCase()}
+                    {kindLabel.toUpperCase()}
                   </Text>
                   <Text
                     numberOfLines={2}
@@ -203,7 +210,27 @@ export const ApprovalCenterScreen: React.FC = () => {
                 <Meta label="RISK" value={item.risk.toUpperCase()} />
                 <Meta label="TIME" value={item.createdAt} />
               </View>
-              {pending ? (
+              {pending && optionChoices.length ? (
+                <View style={styles.optionActionStack}>
+                  {optionChoices.map(option => {
+                    const decision = option.id === 'deny' ? 'denied' : 'approved';
+                    return (
+                      <GlowButton
+                        key={option.id}
+                        title={option.label.toUpperCase()}
+                        onPress={() =>
+                          resolveApproval(item.id, decision, {
+                            selectedOptionId: option.id,
+                            message: option.response,
+                          })
+                        }
+                        disabled={device?.status === 'offline'}
+                        variant={decision === 'denied' ? 'outline' : 'primary'}
+                      />
+                    );
+                  })}
+                </View>
+              ) : pending ? (
                 <View style={styles.actionRow}>
                   <GlowButton
                     title="APPROVE"
@@ -329,6 +356,9 @@ const styles = StyleSheet.create({
   },
   secondaryAction: {
     minWidth: 96,
+  },
+  optionActionStack: {
+    gap: 8,
   },
   openButton: {
     borderWidth: 1,

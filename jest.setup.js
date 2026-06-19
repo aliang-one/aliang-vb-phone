@@ -43,3 +43,14 @@ jest.mock('react-native-webview', () => {
     WebView: React.forwardRef((props, ref) => React.createElement(View, { ...props, ref })),
   };
 });
+
+jest.mock('react-native-live-audio-stream', () => ({
+  __esModule: true,
+  default: {
+    init: jest.fn(),
+    start: jest.fn(),
+    stop: jest.fn(),
+    on: jest.fn(),
+    removeListener: jest.fn(),
+  },
+}));

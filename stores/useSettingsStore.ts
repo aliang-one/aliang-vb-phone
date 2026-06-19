@@ -5,6 +5,7 @@ import {
   fetchCurrentUser,
   login as apiLogin,
   logout as apiLogout,
+  refreshAuthToken,
   type PlatformUser,
 } from '../src/api/auth';
 import {
@@ -20,6 +21,7 @@ import {
   isJwtExpired,
   notifySessionInvalidated,
   setSessionInvalidationHandler,
+  setSessionRefresher,
 } from '../src/api/sessionAuth';
 import { useControlCenterStore } from '../src/store/controlCenterStore';
 
@@ -27,11 +29,20 @@ interface SessionState {
   hasHydrated: boolean;
   user: PlatformUser | null;
   token: string | null;
+  /** sub2api refresh_token (rotated on each refresh); null = refresh unavailable. */
+  refreshToken: string | null;
   operatorName: string;
   accountData: AccountPortalData | null;
   restoreUser: () => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /**
+   * Rotate the refresh_token and extend the local session server-side. Returns
+   * true on success (caller retries/reconnects), false when refresh is
+   * impossible or failed (caller tears down). Registered with the sessionAuth
+   * hub so the HTTP clients and WebSocket can trigger it transparently.
+   */
+  refreshSession: () => Promise<boolean>;
   refreshAccountData: () => Promise<void>;
   setOperatorName: (operatorName: string) => void;
 }
@@ -42,6 +53,7 @@ export const useSessionStore = create<SessionState>()(
       hasHydrated: false,
       user: null,
       token: null,
+      refreshToken: null,
       operatorName: 'Aliang',
       accountData: null,
       restoreUser: async () => {
@@ -77,6 +89,7 @@ export const useSessionStore = create<SessionState>()(
         set({
           user: session.user,
           token: session.token,
+          refreshToken: session.refreshToken,
           operatorName: session.user.name || session.user.email,
         });
         try {
@@ -113,9 +126,29 @@ export const useSessionStore = create<SessionState>()(
         set({
           user: null,
           token: null,
+          refreshToken: null,
           operatorName: 'Aliang',
           accountData: null,
         });
+      },
+      refreshSession: async () => {
+        const current = get().refreshToken;
+        if (!current) return false;
+        try {
+          const rotated = await refreshAuthToken(current);
+          // The access/session token value is stable across refresh (the server
+          // extends the local session's expiry server-side); only the sub2api
+          // refresh_token rotates. Strict rotation → persist the new value
+          // immediately so a concurrent refresh never reuses the invalidated old
+          // one (which would nuke the whole token family server-side).
+          set({ refreshToken: rotated });
+          return true;
+        } catch {
+          // A failed refresh (e.g. refresh_token stale after ≥2 missed
+          // rotations) is unrecoverable — the caller (sessionAuth.refreshSession)
+          // tears the session down. Do not mutate stored state here.
+          return false;
+        }
       },
       refreshAccountData: async () => {
         if (!get().token) {
@@ -130,17 +163,21 @@ export const useSessionStore = create<SessionState>()(
     {
       name: 'console-profile-store',
       storage: createJSONStorage(() => AsyncStorage),
-      version: 4,
+      version: 5,
       migrate: persistedState => ({
         ...(persistedState as Partial<SessionState>),
         hasHydrated: false,
         // v4: accountData shape changed (typed plan/orders); drop stale cache so
         // the Me page re-fetches with the real Aliang SaaS endpoints.
         accountData: null,
+        // v5: refresh_token added; old persisted state has none → null disables
+        // refresh (legacy re-login-on-expiry behavior) until the next login.
+        refreshToken: null,
       }),
       partialize: state => ({
         user: state.user,
         token: state.token,
+        refreshToken: state.refreshToken,
         operatorName: state.operatorName,
         accountData: state.accountData,
       }),
@@ -156,6 +193,12 @@ export const useSessionStore = create<SessionState>()(
 
 setApiAuthTokenProvider(() => useSessionStore.getState().token);
 
+// Register the session refresher: the HTTP clients and the WebSocket call
+// refreshSession() on a 401 / auth rejection to rotate the refresh_token and
+// extend the local session server-side, recovering a transiently-expired
+// session (e.g. after the phone was offline) without forcing re-login.
+setSessionRefresher(() => useSessionStore.getState().refreshSession());
+
 // Register the single session-invalidation handler. The HTTP client and the
 // WebSocket call notifySessionInvalidated() on a 401 / invalid-token / auth
 // close; this clears the persisted session (so RootNavigator flips to Login
@@ -165,6 +208,7 @@ setSessionInvalidationHandler(() => {
   useSessionStore.setState({
     user: null,
     token: null,
+    refreshToken: null,
     operatorName: 'Aliang',
     accountData: null,
   });

@@ -22,6 +22,7 @@ import {
   createTerminalSession as apiCreateTerminalSession,
   fetchDeviceTerminalCommands,
   fetchAiSession,
+  fetchAiSessionMessages,
   fetchAiSessions,
   fetchTerminalSessionCommands,
   pauseAiSession as apiPauseAiSession,
@@ -30,6 +31,7 @@ import {
   terminateAiSession as apiTerminateAiSession,
   updateAiSession as apiUpdateAiSession,
   type ServerAiSession,
+  type ServerAiMessagesPageResponse,
   type ServerTerminalCommand,
   type ServerTerminalSession,
 } from '../api/sessions';
@@ -262,6 +264,13 @@ class PlatformTransport {
     return fetchAiSession(sessionId, options);
   }
 
+  async loadAiSessionMessages(
+    sessionId: string,
+    options?: { limit?: number; before?: string; refresh?: boolean },
+  ): Promise<ServerAiMessagesPageResponse> {
+    return fetchAiSessionMessages(sessionId, options);
+  }
+
   createProject(input: Parameters<typeof apiCreateProject>[0]): Promise<PlatformProjectSnapshot> {
     return apiCreateProject(input);
   }
@@ -351,8 +360,12 @@ class PlatformTransport {
     return apiSendAiMessage(sessionId, content, [], mode);
   }
 
-  respondApproval(approvalId: string, decision: 'approved' | 'denied'): Promise<PlatformApprovalSnapshot> {
-    return apiRespondApproval(approvalId, decision);
+  respondApproval(
+    approvalId: string,
+    decision: 'approved' | 'denied',
+    options?: { selectedOptionId?: string; message?: string },
+  ): Promise<PlatformApprovalSnapshot> {
+    return apiRespondApproval(approvalId, decision, options);
   }
 
   markNotificationRead(notificationId: string): Promise<PlatformNotificationSnapshot> {

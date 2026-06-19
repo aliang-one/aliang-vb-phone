@@ -35,7 +35,10 @@ export const useIncrementalList = <T,>(
     visibleCount: Math.min(visibleCount, items.length),
     totalCount: items.length,
     hasMore: visibleCount < items.length,
-    showMore: () =>
-      setVisibleCount(current => Math.min(current + step, items.length)),
+    showMore: () => setVisibleCount(current => current + step),
+    // Mount every item at once. Used when a layout is needed for an arbitrary
+    // off-screen element (e.g. jump-to-message from the conversation scrubber);
+    // incremental showMore above would otherwise never reach the earliest items.
+    showAll: () => setVisibleCount(items.length),
   };
 };

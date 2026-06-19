@@ -6,6 +6,8 @@ import {
   isAuthRejectionClose,
   setSessionInvalidationHandler,
   notifySessionInvalidated,
+  setSessionRefresher,
+  refreshSession,
   __resetSessionAuthHubForTest,
 } from '../src/api/sessionAuth';
 
@@ -152,5 +154,64 @@ describe('invalidation hub', () => {
     jest.advanceTimersByTime(2000);
     notifySessionInvalidated();
     expect(handler).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('refresh hub', () => {
+  beforeEach(() => __resetSessionAuthHubForTest());
+
+  it('returns true and does NOT tear down when the refresher succeeds', async () => {
+    const teardown = jest.fn();
+    setSessionInvalidationHandler(teardown);
+    setSessionRefresher(() => Promise.resolve(true));
+    await expect(refreshSession()).resolves.toBe(true);
+    expect(teardown).not.toHaveBeenCalled();
+  });
+
+  it('fires teardown and returns false when the refresher returns false', async () => {
+    const teardown = jest.fn();
+    setSessionInvalidationHandler(teardown);
+    setSessionRefresher(() => Promise.resolve(false));
+    await expect(refreshSession()).resolves.toBe(false);
+    expect(teardown).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires teardown and returns false when the refresher throws', async () => {
+    const teardown = jest.fn();
+    setSessionInvalidationHandler(teardown);
+    setSessionRefresher(() => Promise.reject(new Error('network down')));
+    await expect(refreshSession()).resolves.toBe(false);
+    expect(teardown).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires teardown and returns false when no refresher is registered', async () => {
+    const teardown = jest.fn();
+    setSessionInvalidationHandler(teardown);
+    await expect(refreshSession()).resolves.toBe(false);
+    expect(teardown).toHaveBeenCalledTimes(1);
+  });
+
+  it('de-dupes concurrent calls into a single refresh (same result for all)', async () => {
+    let resolveRefresh!: (value: boolean) => void;
+    const refresher = jest.fn(
+      () => new Promise<boolean>(resolve => { resolveRefresh = resolve; }),
+    );
+    setSessionRefresher(refresher);
+
+    const a = refreshSession();
+    const b = refreshSession();
+    const c = refreshSession();
+    expect(refresher).toHaveBeenCalledTimes(1);
+
+    resolveRefresh(true);
+    await expect(Promise.all([a, b, c])).resolves.toEqual([true, true, true]);
+  });
+
+  it('runs a fresh refresh after the previous one settles (no sticky de-dupe)', async () => {
+    const refresher = jest.fn(() => Promise.resolve(true));
+    setSessionRefresher(refresher);
+    await refreshSession();
+    await refreshSession();
+    expect(refresher).toHaveBeenCalledTimes(2);
   });
 });

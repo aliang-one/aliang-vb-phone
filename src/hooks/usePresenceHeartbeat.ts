@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { platformTransport } from '../services/platformTransport';
+import { useControlCenterStore } from '../store/controlCenterStore';
 
 // Interval for the app-level presence heartbeat. While the app is in the
 // foreground we send `presence.alive` so the server's terminal idle-timeout
@@ -10,11 +11,27 @@ import { platformTransport } from '../services/platformTransport';
 const PRESENCE_HEARTBEAT_INTERVAL_MS = 60_000;
 
 /**
- * Sends a `presence.alive` heartbeat to the platform while the app is in the
- * foreground and the realtime socket is connected. Stops on background/inactive
- * and cleans up on unmount. Mount once at the app root.
+ * App-lifecycle hook. Mount once at the app root (RootNavigator). Two duties:
+ *
+ * 1. Presence heartbeat — emit `presence.alive` while foregrounded + connected.
+ *
+ * 2. Foreground re-sync — on every transition to `active`, pull a fresh
+ *    platform snapshot (`refreshFromServer`). WS has no replay buffer, and
+ *    React Native keeps the socket "connected" across a background suspension
+ *    (no `onclose`/`onopen` fires), so the reconnect-driven resync never runs
+ *    on a plain background→foreground hop. Any state the server published
+ *    while we were away — VibeCoding sessions the agent reported, approvals,
+ *    project changes — is silently lost without this. This is the only
+ *    reliable recovery path for, e.g., a project's VibeCoding list missing
+ *    sessions that the admin console can see. `refreshFromServer` dedupes
+ *    concurrent calls and no-ops when not yet in server mode.
  */
 export function usePresenceHeartbeat(): void {
+  const refreshFromServer = useControlCenterStore(
+    state => state.refreshFromServer,
+  );
+  const serverMode = useControlCenterStore(state => state.serverMode);
+
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -37,9 +54,17 @@ export function usePresenceHeartbeat(): void {
       }
     };
 
+    // Recover anything the server published while we were backgrounded. No-op
+    // until the platform has finished its initial connect (serverMode).
+    const resync = () => {
+      if (!serverMode) return;
+      refreshFromServer().catch(() => {});
+    };
+
     const handleChange = (state: AppStateStatus) => {
       if (state === 'active') {
         start();
+        resync();
       } else {
         stop();
       }
@@ -48,6 +73,7 @@ export function usePresenceHeartbeat(): void {
     // AppState may already be 'active' at mount (no change event will fire).
     if (AppState.currentState === 'active') {
       start();
+      resync();
     }
 
     const subscription = AppState.addEventListener('change', handleChange);
@@ -55,5 +81,5 @@ export function usePresenceHeartbeat(): void {
       subscription.remove();
       stop();
     };
-  }, []);
+  }, [refreshFromServer, serverMode]);
 }

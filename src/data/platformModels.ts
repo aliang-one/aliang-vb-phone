@@ -16,6 +16,8 @@ export interface Project {
   gitChangedCount?: number;
   detectedPorts: number[];
   sourceTools?: string[];
+  /** Effective `/`-command surface for this project (project > user > builtin). */
+  availableCommands?: AgentCommandInfo[];
 }
 
 export interface TerminalNode {
@@ -89,6 +91,22 @@ export interface Device {
   createdAt?: string;
 }
 
+export type AgentCommandScope = 'builtin' | 'user' | 'project';
+
+/**
+ * A discoverable `/`-style command for an AI coding tool (e.g. a Claude Code
+ * slash command). `name` is the bare command without the leading slash — the UI
+ * prepends `/`. The desktop agent is the source of truth: it introspects
+ * on-disk command files (`.claude/commands/*.md`) for claude-code and ships a
+ * curated built-in baseline for commands the CLIs don't enumerate.
+ */
+export interface AgentCommandInfo {
+  name: string;
+  description?: string;
+  argHint?: string;
+  scope?: AgentCommandScope;
+}
+
 export interface AgentToolInfo {
   id: string;
   name?: string;
@@ -96,6 +114,8 @@ export interface AgentToolInfo {
   path?: string;
   available?: boolean;
   description?: string;
+  /** Slash commands the agent discovered for this tool, if any. */
+  commands?: AgentCommandInfo[];
 }
 
 export interface WorkspaceHistoryEntry {
@@ -128,6 +148,15 @@ export interface VibeCodingRun {
   objective: string;
   model: string;
   projectBudget?: AgentBudgetInfo;
+  /** Reasoning effort (provider-specific); undefined = no override. */
+  effort?: string;
+  /**
+   * Authoritative AI provider, derived from the server session's
+   * `provider`/`tool` (see normalizeProvider). Drives provider-aware effort
+   * presets and codex-vs-claude rendering. Undefined only for legacy snapshots
+   * that lack the field — callers apply a sensible default.
+   */
+  provider?: 'codex' | 'claude_code';
   risk: 'low' | 'medium' | 'high';
   currentStep: string;
   branch: string;
@@ -142,6 +171,7 @@ export interface VibeCodingRun {
   lastActivityMs: number;
   previewId?: string;
   transcriptCount?: number;
+  transcriptPage?: AgentTranscriptPage;
   eventCount?: number;
   /** Distinct files the agent wrote/edited during the current/most-recent run. */
   filesTouchedCount?: number;
@@ -176,6 +206,18 @@ export interface AgentMessage {
   content: string;
   timestamp: string;
   pending?: boolean;
+  index?: number;
+}
+
+export interface AgentTranscriptPage {
+  limit: number;
+  count: number;
+  totalCount?: number;
+  hasMore: boolean;
+  nextBeforeCursor?: string;
+  nextBeforeMessageId?: string;
+  cacheStatus?: string;
+  fetchedAt?: string;
 }
 
 export interface AgentEvent {
