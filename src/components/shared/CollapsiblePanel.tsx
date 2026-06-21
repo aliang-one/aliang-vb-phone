@@ -5,16 +5,9 @@ import {
   StyleSheet,
   View,
   LayoutAnimation,
-  Platform,
-  UIManager,
 } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { IconBadge } from '../visual/IconBadge';
-
-// Enable LayoutAnimation for Android
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 interface CollapsiblePanelProps {
   title: string;

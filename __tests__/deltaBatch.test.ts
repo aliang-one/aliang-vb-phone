@@ -22,6 +22,7 @@ const run = (
   suggestions: [],
   transcript,
   events: [],
+  structuredEvents: [],
   ...extra,
 });
 

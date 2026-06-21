@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { platformTransport } from '../services/platformTransport';
 import { useControlCenterStore } from '../store/controlCenterStore';
@@ -31,6 +31,7 @@ export function usePresenceHeartbeat(): void {
     state => state.refreshFromServer,
   );
   const serverMode = useControlCenterStore(state => state.serverMode);
+  const previousAppStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;
@@ -54,26 +55,31 @@ export function usePresenceHeartbeat(): void {
       }
     };
 
-    // Recover anything the server published while we were backgrounded. No-op
-    // until the platform has finished its initial connect (serverMode).
+    // Recover anything the server published while we were backgrounded. Initial
+    // connect already loads a snapshot, so only AppState background -> active
+    // transitions need this extra pull. No-op until serverMode is established.
     const resync = () => {
       if (!serverMode) return;
       refreshFromServer().catch(() => {});
     };
 
     const handleChange = (state: AppStateStatus) => {
+      const previousState = previousAppStateRef.current;
+      previousAppStateRef.current = state;
       if (state === 'active') {
         start();
-        resync();
+        if (previousState !== 'active') {
+          resync();
+        }
       } else {
         stop();
       }
     };
 
-    // AppState may already be 'active' at mount (no change event will fire).
+    // AppState may already be 'active' at mount (no change event will fire), so
+    // start the heartbeat without forcing a second initial snapshot refresh.
     if (AppState.currentState === 'active') {
       start();
-      resync();
     }
 
     const subscription = AppState.addEventListener('change', handleChange);

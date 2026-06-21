@@ -8,8 +8,12 @@ jest.mock('../src/services/platformTransport', () => ({
 
 import { usePresenceHeartbeat } from '../src/hooks/usePresenceHeartbeat';
 import { platformTransport } from '../src/services/platformTransport';
+import { useControlCenterStore } from '../src/store/controlCenterStore';
 
 const sendMock = platformTransport.send as jest.Mock;
+const originalRefreshFromServer =
+  useControlCenterStore.getState().refreshFromServer;
+const refreshFromServerMock = jest.fn().mockResolvedValue(undefined);
 
 type ChangeHandler = (state: string) => void;
 let changeHandlers: ChangeHandler[] = [];
@@ -36,6 +40,11 @@ describe('usePresenceHeartbeat', () => {
   beforeEach(() => {
     changeHandlers = [];
     sendMock.mockClear();
+    refreshFromServerMock.mockClear();
+    useControlCenterStore.setState({
+      serverMode: true,
+      refreshFromServer: refreshFromServerMock,
+    });
     jest.useFakeTimers();
     jest.clearAllTimers();
     setCurrentAppState('active');
@@ -49,6 +58,10 @@ describe('usePresenceHeartbeat', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+    useControlCenterStore.setState({
+      serverMode: false,
+      refreshFromServer: originalRefreshFromServer,
+    });
     jest.useRealTimers();
   });
 
@@ -96,11 +109,26 @@ describe('usePresenceHeartbeat', () => {
       emitAppState('active');
     });
     expect(sendMock).toHaveBeenCalledTimes(2);
+    expect(refreshFromServerMock).toHaveBeenCalledTimes(1);
 
     act(() => {
       jest.advanceTimersByTime(60_000);
     });
     expect(sendMock).toHaveBeenCalledTimes(3);
+
+    act(() => {
+      screen?.unmount();
+    });
+  });
+
+  it('does not refresh the server snapshot on initial foreground mount', () => {
+    let screen: ReactTestRenderer.ReactTestRenderer | undefined;
+    act(() => {
+      screen = ReactTestRenderer.create(<Probe />);
+    });
+
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(refreshFromServerMock).not.toHaveBeenCalled();
 
     act(() => {
       screen?.unmount();

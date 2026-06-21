@@ -13,10 +13,13 @@ import {
   RefreshControl,
   TouchableOpacity,
   ActivityIndicator,
+  Animated,
+  Easing,
+  Keyboard,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { useTheme } from '../../theme/useTheme';
@@ -44,11 +47,16 @@ import {
   useSessionPreview,
   useSessionApprovals,
 } from '../../store/controlCenterStore';
+import type { ApprovalRequest } from '../../store/controlCenterStore';
 import { IconBadge, IconName } from '../../components/visual/IconBadge';
-import type { AgentBudgetInfo } from '../../data/platformModels';
+import type { AgentBudgetInfo, VibeCodingRun } from '../../data/platformModels';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { buildDisplayTranscript } from '../../utils/agentTranscript';
+import {
+  approvalTimelineItemId,
+  buildConversationTimeline,
+} from '../../utils/conversationTimeline';
 import { deriveScrubberStops } from '../../utils/conversationScrubber';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { useVoiceStt } from '../../hooks/useVoiceStt';
@@ -106,11 +114,26 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // Fine-grained selectors: subscribe only to the specific session/project/
   // device/preview the user is viewing, so streaming deltas on OTHER sessions
   // don't trigger re-renders here.
-  const session = useVibeRun(route.params.sessionId);
+  const liveSession = useVibeRun(route.params.sessionId);
+  const cachedSessionRef = useRef<VibeCodingRun | null>(null);
+  const session =
+    liveSession ??
+    (cachedSessionRef.current?.id === route.params.sessionId
+      ? cachedSessionRef.current
+      : undefined);
+  useEffect(() => {
+    if (liveSession?.id === route.params.sessionId) {
+      cachedSessionRef.current = liveSession;
+    } else if (cachedSessionRef.current?.id !== route.params.sessionId) {
+      cachedSessionRef.current = null;
+    }
+  }, [liveSession, route.params.sessionId]);
   const project = useProject(session?.projectId);
   const device = useDevice(session?.deviceId);
   const preview = useSessionPreview(session?.id);
-  const approvals = useSessionApprovals(session?.id);
+  const sessionApprovals = useSessionApprovals(session?.id);
+  const allApprovals = useControlCenterStore(state => state.approvals);
+  const globalEvents = useControlCenterStore(state => state.events);
   const wsConnected = useControlCenterStore(state => state.wsConnected);
   const loadAgentSessionDetail = useControlCenterStore(
     state => state.loadAgentSessionDetail,
@@ -122,8 +145,31 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const appendAgentMessage = useControlCenterStore(
     state => state.appendAgentMessage,
   );
+  const markSessionViewed = useControlCenterStore(
+    state => state.markSessionViewed,
+  );
+  const clearCurrentlyViewedSession = useControlCenterStore(
+    state => state.clearCurrentlyViewedSession,
+  );
+
+  // Track this session as the one the user is viewing so the idle-demoter
+  // never clears its resident data mid-view (which would flash a reload). Mark
+  // on focus, clear on blur/leave. lastViewedAt is retained on blur so the idle
+  // threshold clock keeps running for this session.
+  const focusedSessionId = route.params.sessionId;
+  useFocusEffect(
+    useCallback(() => {
+      markSessionViewed(focusedSessionId);
+      return () => {
+        clearCurrentlyViewedSession();
+      };
+    }, [focusedSessionId, markSessionViewed, clearCurrentlyViewedSession]),
+  );
   const updateAgentSession = useControlCenterStore(
     state => state.updateAgentSession,
+  );
+  const cacheStructuredDetail = useControlCenterStore(
+    state => state.cacheStructuredDetail,
   );
 
   const [mode, setMode] = useState<'voice' | 'text'>('voice');
@@ -146,6 +192,43 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const [noMoreEarlierHint, setNoMoreEarlierHint] = useState(false);
   const [scrollY, setScrollY] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
+
+  // iOS slides the soft keyboard over the app without resizing the window, so the
+  // docked input bar (position:absolute; bottom:0) would otherwise hide behind it.
+  // Android uses windowSoftInputMode=adjustResize (resizes the window for us); these
+  // keyboardWill* events don't fire there, so the offset stays 0 on Android.
+  const keyboardOffset = useRef(new Animated.Value(0)).current;
+  const [keyboardSpace, setKeyboardSpace] = useState(0);
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardWillShow', e => {
+      const h = e.endCoordinates.height;
+      // Grow the message-list bottom inset so new replies stay scrollable above
+      // the lifted bar; lift the bar itself via a native-driver translateY.
+      setKeyboardSpace(h);
+      Animated.timing(keyboardOffset, {
+        toValue: -h,
+        duration: e.duration || 250,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+        isInteraction: false,
+      }).start();
+    });
+    const hideSub = Keyboard.addListener('keyboardWillHide', e => {
+      setKeyboardSpace(0);
+      Animated.timing(keyboardOffset, {
+        toValue: 0,
+        duration: e.duration || 200,
+        easing: Easing.in(Easing.ease),
+        useNativeDriver: true,
+        isInteraction: false,
+      }).start();
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [keyboardOffset]);
+
   const scrollViewRef = useRef<ScrollView | null>(null);
   const scrollYRef = useRef(0);
   const followTailRef = useRef(true);
@@ -179,6 +262,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
     id: string;
     decision: 'approved' | 'denied';
   } | null>(null);
+  const focusedApprovalId = route.params.approvalId;
+  const resolvableApprovalIds = useMemo(
+    () => new Set(allApprovals.map(approval => approval.id)),
+    [allApprovals],
+  );
 
   const scheduleScrollToEnd = useCallback((animated = true) => {
     if (scrollToEndTimer.current) {
@@ -546,9 +634,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
     const visibleIds = new Set(visibleTranscript.map(message => message.id));
     setMessageLayouts(current => {
       const next: Record<string, { top: number; height: number }> = {};
-      for (const [messageId, layout] of Object.entries(current)) {
-        if (visibleIds.has(messageId)) {
-          next[messageId] = layout;
+      for (const [itemId, layout] of Object.entries(current)) {
+        if (visibleIds.has(itemId) || itemId.startsWith('approval:')) {
+          next[itemId] = layout;
         }
       }
       if (Object.keys(next).length === Object.keys(current).length) {
@@ -569,6 +657,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     preserveFocusRef.current = null;
     setPendingJumpId(null);
     setNoMoreEarlierHint(false);
+    setMessageLayouts({});
   }, [targetSessionId]);
 
   // Self-heal for the "top bar DONE, conversation blank" case. The run snapshot
@@ -619,16 +708,16 @@ export const VibeCodingSessionScreen: React.FC = () => {
     [],
   );
 
-  const handleTranscriptMessageLayout = (
-    messageId: string,
+  const handleConversationItemLayout = (
+    itemId: string,
     y: number,
     height: number,
   ) => {
-    // Store the message's offset relative to the conversation container only.
+    // Store the item's offset relative to the conversation container only.
     // `conversationTop` (the container's own offset within the scroll content) is
     // applied at calculation time so stale closure captures can't desync the rail.
     setMessageLayouts(current => {
-      const existing = current[messageId];
+      const existing = current[itemId];
       if (
         existing &&
         Math.abs(existing.top - y) < 1 &&
@@ -636,7 +725,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
       ) {
         return current;
       }
-      return { ...current, [messageId]: { top: y, height } };
+      return { ...current, [itemId]: { top: y, height } };
     });
   };
 
@@ -697,6 +786,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
     return () => clearTimeout(timer);
   }, [noMoreEarlierHint]);
 
+  const deviceOffline = device?.status === 'offline';
+
   const appendUserMessage = async (
     content: string,
     messageMode: 'voice' | 'text',
@@ -724,26 +815,43 @@ export const VibeCodingSessionScreen: React.FC = () => {
     }
   };
 
-  const handleVoiceCapture = () => {
+  const handleVoiceCaptureStart = useCallback(() => {
     if (deviceOffline) return;
-    // Toggle: tap again while recording/connecting/stopping to finish.
     if (
       voiceStt.status === 'recording' ||
       voiceStt.status === 'connecting' ||
       voiceStt.status === 'stopping'
     ) {
-      void voiceStt.stop();
       return;
     }
     setVoiceDraft('');
     void voiceStt.start({
+      sessionId: session?.id,
+      projectPath: session?.directory ?? project?.path,
       onComplete: transcript => {
         if (transcript.trim()) {
           setVoiceDraft(transcript);
         }
       },
     });
-  };
+  }, [deviceOffline, voiceStt, session, project]);
+
+  const handleVoiceCaptureEnd = useCallback(() => {
+    if (deviceOffline) return;
+    void voiceStt.stop();
+  }, [deviceOffline, voiceStt]);
+
+  const handleVoiceCapture = useCallback(() => {
+    if (
+      voiceStt.status === 'recording' ||
+      voiceStt.status === 'connecting' ||
+      voiceStt.status === 'stopping'
+    ) {
+      handleVoiceCaptureEnd();
+      return;
+    }
+    handleVoiceCaptureStart();
+  }, [handleVoiceCaptureEnd, handleVoiceCaptureStart, voiceStt.status]);
 
   // 方案A：转写结果直接发送，不经 AI 润色。
   const handleSendVoice = () => {
@@ -810,6 +918,157 @@ export const VibeCodingSessionScreen: React.FC = () => {
     return mergeCommands(provider, tool?.commands);
   }, [device?.tools, session?.model, session?.provider]);
 
+  const approvals = useMemo(() => {
+    if (!session) return sessionApprovals;
+    const byId = new Map<string, ApprovalRequest>();
+    const addApproval = (approval: ApprovalRequest | undefined) => {
+      if (!approval) return;
+      byId.set(approval.id, approval);
+    };
+    const statusFromEvent = (
+      status: 'done' | 'running' | 'waiting' | 'failed' | string,
+    ): ApprovalRequest['status'] =>
+      status === 'failed' ? 'denied' : status === 'done' ? 'approved' : 'pending';
+    const fallbackId = (eventId: string, approvalId?: string) =>
+      approvalId ?? (eventId.startsWith('approval-') ? eventId.slice(9) : undefined);
+    const addFallback = (input: {
+      id?: string;
+      title: string;
+      detail: string;
+      status: 'done' | 'running' | 'waiting' | 'failed' | string;
+      timestamp: string;
+    }) => {
+      if (!input.id || byId.has(input.id)) return;
+      byId.set(input.id, {
+        id: input.id,
+        kind: 'client_response',
+        title: input.title || 'Approval requested',
+        summary: input.detail || 'The assistant is waiting for approval.',
+        deviceId: session.deviceId,
+        projectId: session.projectId,
+        sessionId: session.id,
+        risk: 'medium',
+        status: statusFromEvent(input.status),
+        createdAt: input.timestamp,
+      });
+    };
+
+    sessionApprovals.forEach(addApproval);
+    addApproval(allApprovals.find(approval => approval.id === focusedApprovalId));
+    globalEvents
+      .filter(
+        event =>
+          event.type === 'approval.requested' &&
+          (event.sessionId === session.id || event.approvalId === focusedApprovalId),
+      )
+      .forEach(event => {
+        addFallback({
+          id: fallbackId(event.id, event.approvalId),
+          title: event.title,
+          detail: event.detail,
+          status: event.status,
+          timestamp: event.timestamp,
+        });
+      });
+    session.events
+      .filter(event => event.type === 'approval')
+      .forEach(event => {
+        addFallback({
+          id: fallbackId(event.id),
+          title: event.title,
+          detail: event.detail,
+          status: event.status,
+          timestamp: event.timestamp,
+        });
+      });
+
+    return Array.from(byId.values()).sort(
+      (left, right) =>
+        Date.parse(right.createdAt) - Date.parse(left.createdAt),
+    );
+  }, [
+    allApprovals,
+    focusedApprovalId,
+    globalEvents,
+    session,
+    sessionApprovals,
+  ]);
+  const conversationItems = useMemo(
+    () => buildConversationTimeline(visibleTranscript, approvals),
+    [approvals, visibleTranscript],
+  );
+  // Structured-activity attachment (P3.3). `transcript` is the coalesced
+  // DisplayTranscriptMessage[] — each assistant bubble already carries the
+  // underlying AgentMessage ids it spans (sourceMessageIds). The renderer
+  // filters structuredEvents per-bubble from that. But tool-only assistant
+  // turns (commands/files with NO prose) parse to zero segments and are
+  // dropped by buildDisplayTranscript, so their ids never appear in any
+  // sourceMessageIds — those need a synthetic activity bubble. We compute the
+  // orphan ids here: assistant message ids that have ≥1 structured event AND
+  // are not in any display bubble's sourceMessageIds. Grouped per-id so each
+  // orphan turn renders one ActivityBlock. Kept in render order (transcript
+  // order) for a stable layout.
+  const orphanActivityMessageIds = useMemo(() => {
+    if (!session) return [];
+    const eventsWithMessageId = session.structuredEvents.filter(
+      (e): e is Extract<typeof e, { messageId: string }> =>
+        'messageId' in e && typeof (e as { messageId?: unknown }).messageId === 'string',
+    );
+    if (eventsWithMessageId.length === 0) return [];
+    const eventMessageIds = new Set(eventsWithMessageId.map(e => e.messageId));
+    // Assistant message ids that DID render (covered by a display bubble).
+    const covered = new Set(
+      transcript.flatMap(message => message.sourceMessageIds),
+    );
+    // Walk the raw transcript in order; an assistant id is an orphan iff it
+    // has structured events but isn't covered. De-duped.
+    const seen = new Set<string>();
+    const orphans: string[] = [];
+    for (const m of session.transcript) {
+      if (m.role !== 'assistant') continue;
+      if (covered.has(m.id)) continue;
+      if (!eventMessageIds.has(m.id)) continue;
+      if (seen.has(m.id)) continue;
+      seen.add(m.id);
+      orphans.push(m.id);
+    }
+    return orphans;
+  }, [session, transcript]);
+  const pendingApprovals = useMemo(
+    () => approvals.filter(approval => approval.status === 'pending'),
+    [approvals],
+  );
+  const topPendingApproval = pendingApprovals[0];
+  const latestConversationKey = useMemo(() => {
+    const latest = conversationItems[conversationItems.length - 1];
+    if (!latest) return `${targetSessionId}:empty`;
+    return [
+      targetSessionId,
+      conversationItems.length,
+      latest.id,
+      latest.timestamp,
+    ].join(':');
+  }, [conversationItems, targetSessionId]);
+
+  useEffect(() => {
+    if (!latestConversationKey) return;
+    if (pendingScrollToEndRef.current || followTailRef.current) {
+      pendingScrollToEndRef.current = false;
+      scheduleScrollToEnd(true);
+    }
+  }, [latestConversationKey, scheduleScrollToEnd]);
+
+  const handleJumpToApproval = useCallback(
+    (approvalId: string) => {
+      followTailRef.current = false;
+      if (transcriptList.hasMore) {
+        transcriptList.showAll();
+      }
+      setPendingJumpId(approvalTimelineItemId(approvalId));
+    },
+    [transcriptList],
+  );
+
   const handleSaveToolsSettings = useCallback(
     async (patch: { model: string; effort: string }) => {
       if (!session) return;
@@ -825,6 +1084,156 @@ export const VibeCodingSessionScreen: React.FC = () => {
     },
     [mode],
   );
+
+  const renderApprovalCard = (approval: ApprovalRequest) => {
+    const pending = approval.status === 'pending';
+    const canResolve = pending && resolvableApprovalIds.has(approval.id);
+    const resolving = resolvingApproval?.id === approval.id;
+    const optionChoices = canResolve ? approval.options ?? [] : [];
+
+    return (
+      <GlassPanel
+        glowColor={pending ? 'secondary' : 'none'}
+        style={styles.approvalPanel}
+      >
+        <View style={styles.approvalHeader}>
+          <IconBadge
+            name="approval"
+            tone={
+              approval.status === 'denied'
+                ? 'error'
+                : pending
+                ? 'tertiary'
+                : 'secondary'
+            }
+            size={36}
+            iconSize={18}
+          />
+          <View style={styles.approvalCopy}>
+            <Text
+              style={[
+                theme.typography.labelCaps,
+                { color: theme.colors.primary },
+              ]}
+            >
+              APPROVAL REQUEST
+            </Text>
+            <Text
+              numberOfLines={2}
+              style={[
+                theme.typography.titleMd,
+                { color: theme.colors.onSurface },
+              ]}
+            >
+              {approval.title}
+            </Text>
+          </View>
+          <StatusChip
+            label={approval.status.toUpperCase()}
+            type={
+              pending
+                ? 'warning'
+                : approval.status === 'approved'
+                ? 'success'
+                : 'error'
+            }
+          />
+        </View>
+        <Text
+          style={[
+            theme.typography.bodySm,
+            { color: theme.colors.onSurfaceVariant },
+          ]}
+        >
+          {approval.summary}
+        </Text>
+        {approval.command ? (
+          <Text
+            selectable
+            style={[theme.typography.codeSm, { color: theme.colors.primary }]}
+          >
+            {approval.command}
+          </Text>
+        ) : null}
+        {approval.files?.length ? (
+          <View style={styles.approvalFiles}>
+            {approval.files.map(file => (
+              <Text
+                key={file}
+                numberOfLines={1}
+                style={[
+                  theme.typography.codeSm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
+                {file}
+              </Text>
+            ))}
+          </View>
+        ) : null}
+        {pending && !canResolve ? (
+          <Text
+            style={[
+              theme.typography.bodySm,
+              { color: theme.colors.tertiary },
+            ]}
+          >
+            已识别到审批事件，完整操作数据仍在同步中。下拉刷新后可在这里处理，或从首页进入 Approvals。
+          </Text>
+        ) : pending && optionChoices.length ? (
+          <View style={styles.approvalOptionActions}>
+            {optionChoices.map(option => {
+              const optionDecision =
+                option.id === 'deny' ? 'denied' : 'approved';
+              return (
+                <GlowButton
+                  key={option.id}
+                  title={option.label.toUpperCase()}
+                  onPress={() =>
+                    handleResolveApproval(approval.id, optionDecision, {
+                      selectedOptionId: option.id,
+                      message: option.response,
+                    })
+                  }
+                  variant={optionDecision === 'denied' ? 'outline' : 'primary'}
+                  loading={resolving}
+                  disabled={deviceOffline || Boolean(
+                    resolvingApproval && resolvingApproval.id !== approval.id,
+                  )}
+                  style={styles.approvalOptionAction}
+                />
+              );
+            })}
+          </View>
+        ) : pending ? (
+          <View style={styles.approvalActions}>
+            <GlowButton
+              title="APPROVE"
+              onPress={() => handleResolveApproval(approval.id, 'approved')}
+              variant="primary"
+              loading={
+                resolving && resolvingApproval?.decision === 'approved'
+              }
+              disabled={deviceOffline || Boolean(
+                resolvingApproval && resolvingApproval.id !== approval.id,
+              )}
+              style={styles.approvalAction}
+            />
+            <GlowButton
+              title="DENY"
+              onPress={() => handleResolveApproval(approval.id, 'denied')}
+              variant="outline"
+              loading={resolving && resolvingApproval?.decision === 'denied'}
+              disabled={deviceOffline || Boolean(
+                resolvingApproval && resolvingApproval.id !== approval.id,
+              )}
+              style={styles.approvalAction}
+            />
+          </View>
+        ) : null}
+      </GlassPanel>
+    );
+  };
 
   if (!session) {
     return (
@@ -851,7 +1260,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
 
   // project / device / preview are now subscribed via fine-grained selectors
   // at the top of the component (useProject / useDevice / useSessionPreview).
-  const deviceOffline = device?.status === 'offline';
   // When the transcript is empty, explain WHY using the server's detail_refresh
   // status (+ proactive device-offline guard) instead of a flat "暂无会话记录".
   // Native sessions keep their history on the agent; if it's offline the server
@@ -937,7 +1345,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
       <ScrollView
         ref={scrollViewRef}
         style={styles.scrollView}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: 268 + keyboardSpace }]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -1302,171 +1710,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
             </View>
             <StatusChip label={mode.toUpperCase()} type="info" />
           </View>
-          {approvals.length ? (
-            <View style={styles.approvalStack}>
-              {approvals.map(approval => {
-                const pending = approval.status === 'pending';
-                const resolving = resolvingApproval?.id === approval.id;
-                const optionChoices = approval.options ?? [];
-                return (
-                  <GlassPanel
-                    key={approval.id}
-                    glowColor={pending ? 'secondary' : 'none'}
-                    style={styles.approvalPanel}
-                  >
-                    <View style={styles.approvalHeader}>
-                      <IconBadge
-                        name="approval"
-                        tone={
-                          approval.status === 'denied'
-                            ? 'error'
-                            : pending
-                            ? 'tertiary'
-                            : 'secondary'
-                        }
-                        size={36}
-                        iconSize={18}
-                      />
-                      <View style={styles.approvalCopy}>
-                        <Text
-                          style={[
-                            theme.typography.labelCaps,
-                            { color: theme.colors.primary },
-                          ]}
-                        >
-                          APPROVAL REQUEST
-                        </Text>
-                        <Text
-                          numberOfLines={2}
-                          style={[
-                            theme.typography.titleMd,
-                            { color: theme.colors.onSurface },
-                          ]}
-                        >
-                          {approval.title}
-                        </Text>
-                      </View>
-                      <StatusChip
-                        label={approval.status.toUpperCase()}
-                        type={
-                          pending
-                            ? 'warning'
-                            : approval.status === 'approved'
-                            ? 'success'
-                            : 'error'
-                        }
-                      />
-                    </View>
-                    <Text
-                      style={[
-                        theme.typography.bodySm,
-                        { color: theme.colors.onSurfaceVariant },
-                      ]}
-                    >
-                      {approval.summary}
-                    </Text>
-                    {approval.command ? (
-                      <Text
-                        selectable
-                        style={[
-                          theme.typography.codeSm,
-                          { color: theme.colors.primary },
-                        ]}
-                      >
-                        {approval.command}
-                      </Text>
-                    ) : null}
-                    {approval.files?.length ? (
-                      <View style={styles.approvalFiles}>
-                        {approval.files.map(file => (
-                          <Text
-                            key={file}
-                            numberOfLines={1}
-                            style={[
-                              theme.typography.codeSm,
-                              { color: theme.colors.onSurfaceVariant },
-                            ]}
-                          >
-                            {file}
-                          </Text>
-                        ))}
-                      </View>
-                    ) : null}
-                    {pending && optionChoices.length ? (
-                      <View style={styles.approvalOptionActions}>
-                        {optionChoices.map(option => {
-                          const optionDecision =
-                            option.id === 'deny' ? 'denied' : 'approved';
-                          return (
-                            <GlowButton
-                              key={option.id}
-                              title={option.label.toUpperCase()}
-                              onPress={() =>
-                                handleResolveApproval(
-                                  approval.id,
-                                  optionDecision,
-                                  {
-                                    selectedOptionId: option.id,
-                                    message: option.response,
-                                  },
-                                )
-                              }
-                              variant={
-                                optionDecision === 'denied'
-                                  ? 'outline'
-                                  : 'primary'
-                              }
-                              loading={resolving}
-                              disabled={deviceOffline || Boolean(
-                                resolvingApproval &&
-                                  resolvingApproval.id !== approval.id,
-                              )}
-                              style={styles.approvalOptionAction}
-                            />
-                          );
-                        })}
-                      </View>
-                    ) : pending ? (
-                      <View style={styles.approvalActions}>
-                        <GlowButton
-                          title="APPROVE"
-                          onPress={() =>
-                            handleResolveApproval(approval.id, 'approved')
-                          }
-                          variant="primary"
-                          loading={
-                            resolving &&
-                            resolvingApproval?.decision === 'approved'
-                          }
-                          disabled={deviceOffline || Boolean(
-                            resolvingApproval &&
-                              resolvingApproval.id !== approval.id,
-                          )}
-                          style={styles.approvalAction}
-                        />
-                        <GlowButton
-                          title="DENY"
-                          onPress={() =>
-                            handleResolveApproval(approval.id, 'denied')
-                          }
-                          variant="outline"
-                          loading={
-                            resolving && resolvingApproval?.decision === 'denied'
-                          }
-                          disabled={deviceOffline || Boolean(
-                            resolvingApproval &&
-                              resolvingApproval.id !== approval.id,
-                          )}
-                          style={styles.approvalAction}
-                        />
-                      </View>
-                    ) : null}
-                  </GlassPanel>
-                );
-              })}
-            </View>
-          ) : null}
-          {transcript.length ? (
+          {conversationItems.length ? (
             <>
               {loadingDetail || detailError || loadingEarlier ? (
                 <GlassPanel style={styles.detailInlinePanel}>
@@ -1490,25 +1734,72 @@ export const VibeCodingSessionScreen: React.FC = () => {
                   </Text>
                 </GlassPanel>
               ) : null}
-              <LoadMoreRow
-                visibleCount={transcriptList.visibleCount}
-                totalCount={
-                  transcriptList.hasMore
-                    ? transcriptList.totalCount
-                    : hasServerEarlierMessages
-                    ? Math.max(
-                        session.transcriptCount ?? 0,
-                        transcriptList.visibleCount + 1,
-                      )
-                    : transcriptList.totalCount
-                }
-                onPress={handleLoadEarlierMessages}
-                label="LOAD EARLIER MESSAGES"
-              />
-              <TranscriptMessageList
-                items={visibleTranscript}
-                onMessageLayout={handleTranscriptMessageLayout}
-              />
+              {transcript.length ? (
+                <LoadMoreRow
+                  visibleCount={transcriptList.visibleCount}
+                  totalCount={
+                    transcriptList.hasMore
+                      ? transcriptList.totalCount
+                      : hasServerEarlierMessages
+                      ? Math.max(
+                          session.transcriptCount ?? 0,
+                          transcriptList.visibleCount + 1,
+                        )
+                      : transcriptList.totalCount
+                  }
+                  onPress={handleLoadEarlierMessages}
+                  label="LOAD EARLIER MESSAGES"
+                />
+              ) : null}
+              <View style={styles.conversationTimeline}>
+                {conversationItems.map(item => {
+                  if (item.kind === 'message') {
+                    return (
+                      <TranscriptMessageList
+                        key={item.id}
+                        items={[item.message]}
+                        onMessageLayout={handleConversationItemLayout}
+                        activitySessionId={session.id}
+                        structuredEvents={session.structuredEvents}
+                        activityDetailCache={session.eventDetailCache}
+                        onCacheActivityDetail={(eventId, detail) =>
+                          cacheStructuredDetail(session.id, eventId, detail)
+                        }
+                      />
+                    );
+                  }
+
+                  return (
+                    <View
+                      key={item.id}
+                      style={styles.approvalTimelineItem}
+                      onLayout={event => {
+                        const { y, height } = event.nativeEvent.layout;
+                        handleConversationItemLayout(item.id, y, height);
+                      }}
+                    >
+                      {renderApprovalCard(item.approval)}
+                    </View>
+                  );
+                })}
+                {/* Tool-only assistant turns (empty prose, dropped during
+                    coalescing) whose structured activity would otherwise vanish.
+                    Rendered once for the whole conversation, in transcript
+                    order. Each id → one ActivityBlock grouping its events. */}
+                {orphanActivityMessageIds.length > 0 ? (
+                  <TranscriptMessageList
+                    key="orphan-activity-block"
+                    items={[]}
+                    activitySessionId={session.id}
+                    structuredEvents={session.structuredEvents}
+                    activityDetailCache={session.eventDetailCache}
+                    onCacheActivityDetail={(eventId, detail) =>
+                      cacheStructuredDetail(session.id, eventId, detail)
+                    }
+                    orphanActivityMessageIds={orphanActivityMessageIds}
+                  />
+                ) : null}
+              </View>
             </>
           ) : loadingDetail || refreshing ? (
             <GlassPanel style={styles.detailStatePanel}>
@@ -1879,7 +2170,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
         onCommit={handleScrubberCommit}
       />
 
-      <View
+      <Animated.View
         style={[
           styles.inputPanel,
           {
@@ -1889,6 +2180,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
             borderTopColor: isDark
               ? 'rgba(255, 255, 255, 0.06)'
               : theme.colors.outlineVariant,
+            transform: [{ translateY: keyboardOffset }],
           },
         ]}
       >
@@ -1911,6 +2203,52 @@ export const VibeCodingSessionScreen: React.FC = () => {
             }
           }}
         />
+        {topPendingApproval ? (
+          <TouchableOpacity
+            activeOpacity={0.82}
+            accessibilityRole="button"
+            accessibilityLabel="跳转到待审批"
+            onPress={() => handleJumpToApproval(topPendingApproval.id)}
+            style={[
+              styles.pendingApprovalBubble,
+              {
+                backgroundColor: isDark
+                  ? 'rgba(17, 20, 23, 0.96)'
+                  : 'rgba(255, 255, 255, 0.98)',
+                borderColor: theme.colors.tertiary,
+              },
+            ]}
+          >
+            <IconBadge name="approval" tone="tertiary" size={28} iconSize={14} />
+            <View style={styles.pendingApprovalCopy}>
+              <Text
+                style={[
+                  theme.typography.labelSm,
+                  { color: theme.colors.onSurface },
+                ]}
+                numberOfLines={1}
+              >
+                {pendingApprovals.length > 1
+                  ? `${pendingApprovals.length} 个待审批`
+                  : '1 个待审批'}
+              </Text>
+              <Text
+                style={[
+                  theme.typography.codeSm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+                numberOfLines={1}
+              >
+                {topPendingApproval.title}
+              </Text>
+            </View>
+            <Text
+              style={[theme.typography.codeSm, { color: theme.colors.tertiary }]}
+            >
+              GO
+            </Text>
+          </TouchableOpacity>
+        ) : null}
         <MessageComposer
           mode={mode}
           onModeChange={setMode}
@@ -1928,13 +2266,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
           toolsMenuVisible={toolsMenuVisible}
           onToggleTools={() => setToolsMenuVisible(value => !value)}
           onVoiceCapture={handleVoiceCapture}
+          onVoiceCaptureStart={handleVoiceCaptureStart}
+          onVoiceCaptureEnd={handleVoiceCaptureEnd}
           onSendVoice={handleSendVoice}
           onSendText={handleSendText}
           onResetVoice={() => {
             setVoiceDraft('');
           }}
         />
-      </View>
+      </Animated.View>
     </SafeAreaWrapper>
   );
 };
@@ -2100,8 +2440,11 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 3,
   },
-  approvalStack: {
+  conversationTimeline: {
     gap: 10,
+  },
+  approvalTimelineItem: {
+    width: '100%',
   },
   approvalPanel: {
     padding: 12,
@@ -2210,6 +2553,25 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 18,
     gap: 10,
+  },
+  pendingApprovalBubble: {
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 360,
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 7,
+    paddingLeft: 8,
+    paddingRight: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pendingApprovalCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
   },
   conversationRail: {
     position: 'absolute',

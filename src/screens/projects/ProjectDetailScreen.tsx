@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   Text,
   StyleSheet,
   ScrollView,
@@ -50,9 +51,12 @@ export const ProjectDetailScreen: React.FC = () => {
   // the newest PROJECT_SESSION_PREVIEW_COUNT are shown here, with a "view all"
   // entry into the full project-scoped list (AgentSessions). See
   // hooks/useProjectSessions.
-  const { sessions, totalCount, reload } = useProjectSessions(project?.id, {
-    limit: PROJECT_SESSION_PREVIEW_COUNT,
-  });
+  const { sessions, totalCount, loading, reload } = useProjectSessions(
+    project?.id,
+    {
+      limit: PROJECT_SESSION_PREVIEW_COUNT,
+    },
+  );
   const [refreshing, setRefreshing] = useState(false);
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -296,6 +300,14 @@ export const ProjectDetailScreen: React.FC = () => {
               </TouchableOpacity>
             ) : null}
           </>
+        ) : loading ? (
+          <GlassPanel style={styles.emptyPanel}>
+            <ActivityIndicator color={theme.colors.primary} />
+            <Text
+              style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+              正在加载会话历史…
+            </Text>
+          </GlassPanel>
         ) : (
           <GlassPanel style={styles.emptyPanel}>
             <IconBadge name="agent" tone="neutral" size={44} iconSize={22} />

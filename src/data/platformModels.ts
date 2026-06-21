@@ -189,6 +189,170 @@ export interface VibeCodingRun {
   suggestions: string[];
   transcript: AgentMessage[];
   events: AgentEvent[];
+  /**
+   * Structured activity events (command / file_change / thinking / usage / task)
+   * ingested from the backend's slim `structured_events` envelopes. These power
+   * the structured activity timeline in the chat screen. Each event carries a
+   * stable `eventId`/`messageId` for dedupe + on-demand heavy-detail fetch.
+   */
+  structuredEvents: StructuredActivityEvent[];
+  /**
+   * On-demand cache for the heavy detail (command output / diff / thinking
+   * text) of a structured event, keyed by `eventId`. Populated lazily by the
+   * chat screen via `fetchStructuredEventDetail`; undefined on a fresh
+   * snapshot (no detail fetched yet). Bounded FIFO by EVENT_DETAIL_CACHE_MAX.
+   */
+  eventDetailCache?: Record<string, { text?: string; truncated?: boolean }>;
+  /**
+   * Last time the user viewed this session's chat screen (ms epoch, in-memory
+   * only — never persisted, never carried in a server snapshot). Drives idle
+   * demotion: sessions not viewed within IDLE_DEMOTE_MS (and not active, not
+   * currently viewed) get their transcript/structuredEvents/detailCache
+   * cleared to bound resident memory. Set by the session screen on focus.
+   */
+  lastViewedAt?: number;
+}
+
+/**
+ * Discriminated union of the 5 structured activity event kinds the backend
+ * pushes for AI sessions. Slim envelopes are mapped to this shape (camelCase,
+ * type-discriminated) by {@link envelopeToActivity}; the heavy text/detail
+ * payload is fetched on demand via `fetchStructuredEventDetail`.
+ */
+export type StructuredActivityEvent =
+  | {
+      kind: 'command';
+      eventId: string;
+      messageId: string;
+      itemId: string;
+      status: string;
+      command?: string;
+      cwd?: string;
+      exitCode?: number | null;
+    }
+  | {
+      kind: 'file_change';
+      eventId: string;
+      messageId: string;
+      itemId: string;
+      path?: string;
+      /**
+       * Backend file-change category (e.g. "create" | "edit" | "delete").
+       * Renamed from the wire's `kind` to avoid colliding with the
+       * discriminant above (two `kind` keys can't coexist in one object type).
+       */
+      changeKind?: string;
+      added?: number;
+      removed?: number;
+      renamedFrom?: string;
+    }
+  | {
+      kind: 'thinking';
+      eventId: string;
+      messageId: string;
+      active: boolean;
+      chars: number;
+    }
+  | {
+      kind: 'usage';
+      eventId: string;
+      messageId?: string;
+      inputTokens?: number;
+      outputTokens?: number;
+      cacheReadTokens?: number;
+      model?: string;
+    }
+  | {
+      kind: 'task';
+      eventId: string;
+      messageId: string;
+      tasks: { subject: string; status: string; active_form?: string }[];
+    };
+
+/**
+ * Map a backend slim envelope (snake_case `Record<string, unknown>`) to a phone
+ * {@link StructuredActivityEvent} (camelCase, type-discriminated). Returns
+ * `null` for unknown / missing envelope types so callers can `.filter` them out.
+ *
+ * Backend envelope field reference (by `env.type`):
+ *   ai.command:     event_id, session_id, message_id, item_id, status, command?, cwd?, exit_code?
+ *   ai.file_change: event_id, session_id, message_id, item_id, path?, kind?(→changeKind), added?, removed?, renamed_from?
+ *   ai.thinking:    event_id, session_id, message_id, active, chars
+ *   ai.usage:       event_id, session_id, message_id?, input_tokens?, output_tokens?, cache_read_tokens?, model?
+ *   ai.task:        event_id, session_id, message_id, tasks[{subject,status,active_form}]
+ */
+export function envelopeToActivity(
+  env: Record<string, unknown>,
+): StructuredActivityEvent | null {
+  const type = String(env.type ?? '');
+  const eventId = String(env.event_id ?? '');
+  const messageId = String(env.message_id ?? '');
+  const itemId = String(env.item_id ?? '');
+  const num = (v: unknown) => (typeof v === 'number' ? v : undefined);
+  const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
+  switch (type) {
+    case 'ai.command':
+      return {
+        kind: 'command',
+        eventId,
+        messageId,
+        itemId,
+        status: String(env.status ?? 'started'),
+        command: str(env.command),
+        cwd: str(env.cwd),
+        exitCode:
+          typeof env.exit_code === 'number'
+            ? env.exit_code
+            : env.exit_code == null
+              ? undefined
+              : null,
+      };
+    case 'ai.file_change':
+      return {
+        kind: 'file_change',
+        eventId,
+        messageId,
+        itemId,
+        path: str(env.path),
+        changeKind: str(env.kind),
+        added: num(env.added),
+        removed: num(env.removed),
+        renamedFrom: str(env.renamed_from),
+      };
+    case 'ai.thinking':
+      return {
+        kind: 'thinking',
+        eventId,
+        messageId,
+        active: env.active !== false,
+        chars: typeof env.chars === 'number' ? env.chars : 0,
+      };
+    case 'ai.usage':
+      return {
+        kind: 'usage',
+        eventId,
+        messageId: str(env.message_id),
+        inputTokens: num(env.input_tokens),
+        outputTokens: num(env.output_tokens),
+        cacheReadTokens: num(env.cache_read_tokens),
+        model: str(env.model),
+      };
+    case 'ai.task':
+      return {
+        kind: 'task',
+        eventId,
+        messageId,
+        tasks: Array.isArray(env.tasks)
+          ? (env.tasks as {
+              subject: string;
+              status: string;
+              active_form?: string;
+            }[])
+          : [],
+      };
+    default:
+      return null;
+  }
 }
 
 export interface AgentBudgetInfo {

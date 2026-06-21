@@ -44,6 +44,7 @@ const run = (transcript: VibeCodingRun['transcript'] = []): VibeCodingRun => ({
   suggestions: [],
   transcript,
   events: [],
+  structuredEvents: [],
 });
 
 const deltaEvent = (delta: string, messageId = 'msg-A', currentStep = '') =>

@@ -42,7 +42,20 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
     platformTransport.disconnect();
     cancelDeltaBatch();
     cancelRefreshDebounce();
-    set({ ...emptySessionData(), serverMode: true, wsConnected: false });
+    set(state => {
+      const hasResidentData =
+        state.vibeRuns.length ||
+        state.devices.length ||
+        state.projects.length ||
+        state.approvals.length ||
+        state.notifications.length;
+      return {
+        ...(hasResidentData ? {} : emptySessionData()),
+        serverMode: true,
+        wsConnected: false,
+        stale: Boolean(hasResidentData),
+      };
+    });
 
     try {
       const snapshot = await loadSnapshotWithTimeout();

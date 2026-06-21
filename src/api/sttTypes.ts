@@ -3,7 +3,18 @@
 
 /** Phone -> Server control messages. */
 export type SttControlIn =
-  | { type: 'stt.start'; request_id: string; lang: string; sample_rate: number }
+  // session_id/project_path scope the persisted recording to its vibecoding
+  // session; channels/bits describe the PCM stream so the saved WAV is correct.
+  | {
+      type: 'stt.start';
+      request_id: string;
+      lang: string;
+      sample_rate: number;
+      session_id?: string;
+      project_path?: string;
+      channels?: number;
+      bits?: number;
+    }
   | { type: 'stt.stop'; request_id: string };
 
 /** Server -> Phone control messages. */

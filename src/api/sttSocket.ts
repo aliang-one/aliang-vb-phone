@@ -36,8 +36,20 @@ export class SttSocket {
     this.ws = ws;
 
     await new Promise<void>((resolve, reject) => {
-      ws.onopen = () => resolve();
-      ws.onerror = () => reject(new Error('stt_socket_connect_failed'));
+      let settled = false;
+      const fail = (message: string) => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(message));
+      };
+      ws.onopen = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      ws.onerror = () => fail('stt_socket_connect_failed');
+      ws.onclose = (event: WebSocketCloseEvent) =>
+        fail(`stt_socket_closed:${event.code ?? 0}`);
     });
 
     ws.onmessage = (event: WebSocketMessageEvent) => {

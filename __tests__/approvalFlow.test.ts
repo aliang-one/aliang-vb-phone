@@ -30,6 +30,7 @@ const run = (events: VibeCodingRun['events'] = []): VibeCodingRun => ({
   suggestions: [],
   transcript: [],
   events,
+  structuredEvents: [],
 });
 
 const serverApproval = (

@@ -230,6 +230,13 @@ export interface ControlCenterState {
   devices: Device[];
   projects: Project[];
   vibeRuns: VibeCodingRun[];
+  /**
+   * The AI session currently on the chat screen (set on focus, cleared on
+   * blur/unmount). The idle demoter never clears this session's resident
+   * detail, so viewing a conversation never triggers a mid-view reload.
+   * Client-side only; never persisted or carried in a server snapshot.
+   */
+  currentlyViewedSessionId?: string;
   previewLinks: PreviewLink[];
   terminalSessions: TerminalSession[];
   terminalCommandHistory: Record<string, TerminalCommandHistoryItem[]>;
@@ -316,6 +323,31 @@ export interface ControlCenterState {
     decision: 'approved' | 'denied',
     options?: { selectedOptionId?: string; message?: string },
   ) => Promise<void>;
+  /**
+   * Cache the lazily-fetched heavy detail (command output / diff / thinking
+   * text) for one structured activity event on the matching run's
+   * `eventDetailCache`, keyed by `eventId`. Called by the chat screen via
+   * `ActivityBlock` so the presentational component never touches the store.
+   */
+  cacheStructuredDetail: (
+    sessionId: string,
+    eventId: string,
+    detail: { text?: string; truncated?: boolean },
+  ) => void;
+  /**
+   * Mark a session as viewed now (chat screen focus): stamps its `lastViewedAt`
+   * and sets it as `currentlyViewedSessionId` so idle demotion skips it.
+   */
+  markSessionViewed: (sessionId: string) => void;
+  /** Clear the currently-viewed marker (chat screen blur/unmount). */
+  clearCurrentlyViewedSession: () => void;
+  /**
+   * Demote sessions not viewed within the idle threshold (and not active /
+   * currently viewed) — clears their resident transcript/structuredEvents/
+   * detail cache to bound memory. Triggered on AppState background and by a
+   * coarse interval sweeper.
+   */
+  demoteIdleSessions: () => void;
   markNotificationRead: (notificationId: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
   createPtySession: (

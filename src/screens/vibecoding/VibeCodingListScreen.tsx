@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   StyleSheet,
@@ -21,6 +22,7 @@ import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { SearchBar } from '../../components/input/SearchBar';
+import { DeferredMount } from '../../components/shared/DeferredMount';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { TerminalCard } from '../../components/terminals/TerminalCard';
@@ -295,6 +297,17 @@ export const VibeCodingListScreen: React.FC = () => {
         ),
     [terminalSessions, devices, matchesQuery],
   );
+  const newTerminalDevice = useMemo(() => {
+    const terminalEnabledDevices = devices.filter(
+      device => device.remoteTerminalEnabled,
+    );
+    return (
+      terminalEnabledDevices.find(device => device.status === 'online') ??
+      terminalEnabledDevices[0] ??
+      devices.find(device => device.status === 'online') ??
+      devices[0]
+    );
+  }, [devices]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -304,6 +317,14 @@ export const VibeCodingListScreen: React.FC = () => {
       setRefreshing(false);
     }
   };
+
+  const handleCreateTerminal = useCallback(() => {
+    if (!newTerminalDevice) return;
+    navigation.navigate('DeviceTerminal', {
+      deviceId: newTerminalDevice.id,
+      directory: newTerminalDevice.authorizedDirectories[0] ?? '~',
+    });
+  }, [navigation, newTerminalDevice]);
 
   const goToTab = (index: number) => {
     setActiveTab(index);
@@ -363,6 +384,15 @@ export const VibeCodingListScreen: React.FC = () => {
         />
       </View>
 
+      <DeferredMount
+        fallback={
+          <View style={styles.deferredPlaceholder}>
+            <ActivityIndicator color={theme.colors.primary} />
+            <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+              正在加载会话…
+            </Text>
+          </View>
+        }>
       <ScrollView
         ref={pagerRef}
         horizontal
@@ -487,58 +517,80 @@ export const VibeCodingListScreen: React.FC = () => {
 
         {/* ---------- Page 2: Terminals ---------- */}
         <View style={{ width }}>
-          <ScrollView
-            nestedScrollEnabled
-            contentContainerStyle={styles.content}
-            refreshControl={refreshControl}>
-            <View style={styles.sectionHeader}>
-              <Text
-                style={[
-                  theme.typography.labelCaps,
-                  { color: theme.colors.onSurfaceVariant },
-                ]}>
-                REMOTE TERMINALS
-              </Text>
-              <StatusChip
-                label={`${activeTerminals.length} ACTIVE`}
-                type="info"
-              />
-            </View>
-            {activeTerminals.map(({ terminal, device }) => (
-              <TerminalCard
-                key={terminal.id}
-                terminal={terminal}
-                deviceName={device?.name}
-                disabled={isDeviceStatusOffline(
-                  deviceStatusIndex.get(terminal.deviceId),
-                )}
-                onPress={() =>
-                  navigation.navigate('DeviceTerminal', {
-                    deviceId: terminal.deviceId,
-                    terminalId: terminal.id,
-                    directory: terminal.directory,
-                  })
-                }
-                onClose={() => {
-                  stopTerminal(terminal.id).catch(() => {});
-                }}
-              />
-            ))}
-            {!activeTerminals.length ? (
-              <Text
-                style={[
-                  theme.typography.bodySm,
-                  { color: theme.colors.onSurfaceVariant },
-                  styles.emptyText,
-                ]}>
-                {normalizedQuery
-                  ? `没有匹配「${query}」的终端，换个关键词或清空搜索看看。`
-                  : '没有进行中的远程终端。在设备页打开 Terminal 即可开始。'}
-              </Text>
-            ) : null}
-          </ScrollView>
+          <View style={styles.terminalPage}>
+            <ScrollView
+              nestedScrollEnabled
+              contentContainerStyle={styles.content}
+              refreshControl={refreshControl}>
+              <View style={styles.sectionHeader}>
+                <Text
+                  style={[
+                    theme.typography.labelCaps,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}>
+                  REMOTE TERMINALS
+                </Text>
+                <View style={styles.sectionHeaderRight}>
+                  <StatusChip
+                    label={`${activeTerminals.length} ACTIVE`}
+                    type="info"
+                  />
+                  <TouchableOpacity
+                    activeOpacity={0.75}
+                    disabled={!newTerminalDevice}
+                    onPress={handleCreateTerminal}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Text
+                      style={[
+                        theme.typography.codeSm,
+                        {
+                          color: newTerminalDevice
+                            ? theme.colors.primary
+                            : theme.colors.onSurfaceVariant,
+                        },
+                      ]}>
+                      NEW TERM
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              {activeTerminals.map(({ terminal, device }) => (
+                <TerminalCard
+                  key={terminal.id}
+                  terminal={terminal}
+                  deviceName={device?.name}
+                  disabled={isDeviceStatusOffline(
+                    deviceStatusIndex.get(terminal.deviceId),
+                  )}
+                  onPress={() =>
+                    navigation.navigate('DeviceTerminal', {
+                      deviceId: terminal.deviceId,
+                      terminalId: terminal.id,
+                      directory: terminal.directory,
+                    })
+                  }
+                  onClose={() => {
+                    stopTerminal(terminal.id).catch(() => {});
+                  }}
+                />
+              ))}
+              {!activeTerminals.length ? (
+                <Text
+                  style={[
+                    theme.typography.bodySm,
+                    { color: theme.colors.onSurfaceVariant },
+                    styles.emptyText,
+                  ]}>
+                  {normalizedQuery
+                    ? `没有匹配「${query}」的终端，换个关键词或清空搜索看看。`
+                    : '没有进行中的远程终端。'}
+                </Text>
+              ) : null}
+            </ScrollView>
+          </View>
         </View>
       </ScrollView>
+      </DeferredMount>
     </SafeAreaWrapper>
   );
 };
@@ -592,10 +644,20 @@ const styles = StyleSheet.create({
   pager: {
     flex: 1,
   },
+  deferredPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
   content: {
     paddingHorizontal: 16,
     paddingBottom: 40,
     paddingTop: 4,
+  },
+  terminalPage: {
+    flex: 1,
+    position: 'relative',
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -603,6 +665,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 8,
     marginBottom: 2,
+  },
+  sectionHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   filters: {
     gap: 8,

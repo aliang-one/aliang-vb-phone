@@ -4,9 +4,11 @@ import type {
   Device,
   PreviewLink,
   Project,
+  StructuredActivityEvent,
   VibeCodingRun,
   VibeStatus,
 } from '../data/platformModels';
+import { envelopeToActivity } from '../data/platformModels';
 import { normalizeProvider } from '../utils/modelIntensity';
 import { sameRemotePath } from '../utils/remotePath';
 import {
@@ -99,8 +101,28 @@ export const MAX_TRANSCRIPT_LENGTH = 500; // Maximum messages per session transc
 export const MAX_EVENTS = 120; // Global event log limit
 export const MAX_NOTIFICATIONS = 120; // Notification list limit
 export const MAX_APPROVALS = 50; // Pending/resolved approvals limit
+// --- Bounded memory for AI session structured activity (see bounded-memory spec) ---
+export const STRUCTURED_EVENTS_CAP = 200; // per session: keep newest N structured activity events
+export const EVENT_DETAIL_CACHE_MAX = 30; // per session: keep newest N fetched heavy details (FIFO)
+export const IDLE_DEMOTE_MS = 3 * 60 * 1000; // session not viewed for this long (and inactive) gets demoted
+export const IDLE_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // coarse fallback sweeper cadence
 export const tail = <T>(list: T[], limit: number): T[] =>
   list.length <= limit ? list : list.slice(list.length - limit);
+
+// FIFO-cap a session's eventDetailCache by insertion order (oldest key dropped).
+// Object key order is insertion order in JS, so slice the keys array. Details
+// are heavy (output/diff/thinking text up to 32KB), so this bounds resident RAM.
+export function capEventDetailCache(
+  cache: Record<string, { text?: string; truncated?: boolean }>,
+  limit = EVENT_DETAIL_CACHE_MAX,
+): Record<string, { text?: string; truncated?: boolean }> {
+  const keys = Object.keys(cache);
+  if (keys.length <= limit) return cache;
+  const keep = keys.slice(keys.length - limit); // newest N
+  const next: Record<string, { text?: string; truncated?: boolean }> = {};
+  for (const k of keep) next[k] = cache[k];
+  return next;
+}
 
 // Sessions whose transcript must stay resident — evicting a live one would
 // drop the buffer the streaming reducer appends to.
@@ -135,10 +157,52 @@ export function evictStaleSessionDetail(
   );
   if (!toEvict.size) return runs;
   return runs.map(run =>
-    toEvict.has(run.id)
-      ? { ...run, transcript: [], events: [], detailLoadedAt: undefined }
-      : run,
+    toEvict.has(run.id) ? demoteRunDetail(run) : run,
   );
+}
+
+/**
+ * Drop a session's resident detail to bound memory: clear transcript, lifecycle
+ * events, structured activity events, and the on-demand detail cache, and mark
+ * it as not-detail-loaded so re-opening re-fetches. Metadata (id, title,
+ * status, lastActivityMs, lastMessage) is retained so the session list still
+ * renders. Shared by count-based eviction (evictStaleSessionDetail) and
+ * time-based idle demotion (demoteIdleSessions).
+ */
+export function demoteRunDetail(run: VibeCodingRun): VibeCodingRun {
+  return {
+    ...run,
+    transcript: [],
+    events: [],
+    structuredEvents: [],
+    eventDetailCache: undefined,
+    detailLoadedAt: undefined,
+  };
+}
+
+/**
+ * Demote sessions the user is no longer paying attention to. A run is demoted
+ * when ALL of: not currently viewed (currentlyViewedSessionId), not active
+ * (streaming/resumable — keep the streaming buffer), has been viewed before
+ * (lastViewedAt set), and not viewed within IDLE_DEMOTE_MS. Never-viewed
+ * sessions are left alone (they only hold a light snapshot; the hard-floor
+ * caps bound any live-accumulated activity). `now` is injected for testability.
+ */
+export function demoteIdleSessions(
+  runs: VibeCodingRun[],
+  now: number,
+  currentlyViewedSessionId?: string,
+): VibeCodingRun[] {
+  let changed = false;
+  const next = runs.map(run => {
+    if (run.id === currentlyViewedSessionId) return run;
+    if (ACTIVE_RUN_STATUS.has(run.status)) return run;
+    if (run.lastViewedAt == null) return run;
+    if (now - run.lastViewedAt <= IDLE_DEMOTE_MS) return run;
+    changed = true;
+    return demoteRunDetail(run);
+  });
+  return changed ? next : runs;
 }
 
 /**
@@ -354,14 +418,16 @@ export function serverAiSessionToVibeRun(
     timestamp: t.timestamp,
     index: t.index,
   }));
-  const events = (session.events ?? []).map(e => ({
-    id: e.id,
-    type: e.type as AgentEvent['type'],
-    title: e.title,
-    detail: e.detail,
-    status: e.status as AgentEvent['status'],
-    timestamp: e.timestamp,
-  }));
+  const events = dedupeAgentEvents(
+    (session.events ?? []).map(e => ({
+      id: e.id,
+      type: e.type as AgentEvent['type'],
+      title: e.title,
+      detail: e.detail,
+      status: e.status as AgentEvent['status'],
+      timestamp: e.timestamp,
+    })),
+  );
   const lastMessage = session.last_message
     ? {
         id: session.last_message.id,
@@ -431,6 +497,18 @@ export function serverAiSessionToVibeRun(
     suggestions: ['Ask for plan', 'Open terminal', 'Pause session'],
     transcript,
     events,
+    // Map the backend's slim `structured_events` envelopes into the
+    // type-discriminated activity union. Snapshot-only mapping here (no
+    // reconcile/merge — that's P2.3); unknown envelopes are dropped via the
+    // null filter. `eventDetailCache` is intentionally left undefined on a
+    // fresh snapshot (populated on demand in P3 via fetchStructuredEventDetail).
+    structuredEvents: (session.structured_events ?? [])
+      .map(env =>
+        env && typeof env === 'object'
+          ? envelopeToActivity(env as Record<string, unknown>)
+          : null,
+      )
+      .filter((e): e is StructuredActivityEvent => e !== null),
   };
 }
 
@@ -530,14 +608,34 @@ export function mergeAgentMessages(
   });
 }
 
+export function dedupeAgentEvents(
+  events: VibeCodingRun['events'],
+): VibeCodingRun['events'] {
+  if (events.length < 2) return events;
+  const seen = new Set<string>();
+  const deduped: VibeCodingRun['events'] = [];
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const item = events[index];
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    deduped.unshift(item);
+  }
+  return deduped;
+}
+
 export function mergeAgentEvents(
   existing: VibeCodingRun['events'],
   incoming: VibeCodingRun['events'],
 ): VibeCodingRun['events'] {
-  if (!incoming.length) return existing;
-  const incomingIds = new Set(incoming.map(item => item.id));
+  const incomingEvents = dedupeAgentEvents(incoming);
+  if (!incomingEvents.length) return dedupeAgentEvents(existing);
+  const existingEvents = dedupeAgentEvents(existing);
+  const incomingIds = new Set(incomingEvents.map(item => item.id));
   return tail(
-    [...incoming, ...existing.filter(item => !incomingIds.has(item.id))],
+    [
+      ...incomingEvents,
+      ...existingEvents.filter(item => !incomingIds.has(item.id)),
+    ],
     MAX_RUN_EVENTS,
   );
 }
@@ -586,6 +684,10 @@ export function mergeVibeRunSnapshot(
     transcript,
     events,
     detailLoadedAt: incoming.detailLoadedAt ?? existing.detailLoadedAt,
+    // lastViewedAt is purely client-side (never in a server snapshot), so always
+    // keep the existing value — otherwise every ai.session.updated / snapshot
+    // merge would wipe it and break idle demotion immediately.
+    lastViewedAt: existing.lastViewedAt,
     transcriptPage: incoming.transcriptPage ?? existing.transcriptPage,
     lastMessage:
       (incomingHasDetail
@@ -746,6 +848,85 @@ export const payloadString = (
   return typeof value === 'string' ? value : undefined;
 };
 
+const payloadStringArray = (
+  payload: Record<string, unknown> | undefined,
+  key: string,
+) => {
+  const value = payload?.[key];
+  return Array.isArray(value) ? value.map(String) : undefined;
+};
+
+const payloadRecords = (
+  payload: Record<string, unknown> | undefined,
+  key: string,
+): Record<string, unknown>[] => {
+  const value = payload?.[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is Record<string, unknown> =>
+      Boolean(item && typeof item === 'object' && !Array.isArray(item)),
+  );
+};
+
+const approvalStatus = (value: string | undefined): ApprovalRequest['status'] =>
+  value === 'approved' || value === 'denied' ? value : 'pending';
+
+const approvalRisk = (
+  value: string | undefined,
+): ApprovalRequest['risk'] =>
+  value === 'low' || value === 'medium' || value === 'high'
+    ? value
+    : 'medium';
+
+export function realtimeApprovalSnapshot(
+  message: PlatformRealtimeEventSnapshot,
+): PlatformApprovalSnapshot | undefined {
+  if (message.message_type !== 'approval.requested') return undefined;
+  const payload = isRecord(message.payload) ? message.payload : undefined;
+  const approval = isRecord(payload?.approval) ? payload.approval : undefined;
+  if (!approval) return undefined;
+
+  const id = payloadString(approval, 'id') ?? payloadString(approval, 'approval_id');
+  const deviceId = payloadString(approval, 'device_id') ?? message.device_id;
+  if (!id || !deviceId) return undefined;
+
+  const options: NonNullable<PlatformApprovalSnapshot['options']> = [];
+  payloadRecords(approval, 'options').forEach(option => {
+    const optionId = payloadString(option, 'id');
+    const label = payloadString(option, 'label');
+    if (!optionId || !label) return;
+    options.push({
+      id: optionId,
+      label,
+      description: payloadString(option, 'description'),
+      response: payloadString(option, 'response'),
+    });
+  });
+
+  return {
+    id,
+    approval_id: payloadString(approval, 'approval_id') ?? id,
+    user_id: payloadString(approval, 'user_id') ?? message.user_id,
+    device_id: deviceId,
+    project_id: payloadString(approval, 'project_id'),
+    session_id: payloadString(approval, 'session_id') ?? message.session_id,
+    terminal_id: payloadString(approval, 'terminal_id'),
+    kind: payloadString(approval, 'kind') ?? 'client_response',
+    title: payloadString(approval, 'title') ?? 'Approval requested',
+    summary:
+      payloadString(approval, 'summary') ??
+      payloadString(payload, 'detail') ??
+      'The assistant is waiting for approval.',
+    command: payloadString(approval, 'command'),
+    files: payloadStringArray(approval, 'files'),
+    options: options.length ? options : undefined,
+    risk: approvalRisk(payloadString(approval, 'risk')),
+    status: approvalStatus(payloadString(approval, 'status')),
+    created_at: payloadString(approval, 'created_at') ?? message.created_at,
+    resolved_at: payloadString(approval, 'resolved_at'),
+  };
+}
+
 export function primitivePayload(payload: unknown): UnifiedEvent['payload'] {
   if (!isRecord(payload)) return undefined;
   const entries = Object.entries(payload)
@@ -868,14 +1049,18 @@ export function realtimeEventToUnifiedEvent(
   message: PlatformRealtimeEventSnapshot,
 ): UnifiedEvent {
   const payload = isRecord(message.payload) ? message.payload : undefined;
+  const approval = realtimeApprovalSnapshot(message);
   return {
     id: message.id,
     type: realtimeMessageTypeToEventType(message.message_type, payload),
     title: realtimeMessageTitle(message.message_type, payload),
     detail: realtimeMessageDetail(message, payload),
     status: realtimeMessageStatus(message.message_type),
-    deviceId: message.device_id,
-    sessionId: message.session_id,
+    deviceId: message.device_id ?? approval?.device_id,
+    projectId: approval?.project_id,
+    sessionId: message.session_id ?? approval?.session_id,
+    terminalId: approval?.terminal_id,
+    approvalId: approval?.id,
     timestamp: realtimeMessageTimestamp(message, payload),
     payload: primitivePayload(message.payload),
   };
@@ -1089,9 +1274,23 @@ export function stateFromSnapshot(
   );
   const devices = attachDeviceRelations(baseDevices, projects, mergedVibeRuns);
   const scanResults = projects.map(projectToScanResult);
-  const approvals = snapshot.approvals
+  const approvalsById = new Map<string, ApprovalRequest>();
+  snapshot.realtimeEvents
+    .map(realtimeApprovalSnapshot)
+    .filter(
+      (approval): approval is PlatformApprovalSnapshot =>
+        Boolean(approval && knownDeviceIds.has(approval.device_id)),
+    )
+    .forEach(approval => {
+      approvalsById.set(approval.id, serverApprovalToClient(approval));
+    });
+  snapshot.approvals
     .filter(approval => knownDeviceIds.has(approval.device_id))
-    .map(serverApprovalToClient)
+    .forEach(approval => {
+      approvalsById.set(approval.id, serverApprovalToClient(approval));
+    });
+  const approvals = Array.from(approvalsById.values())
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     .slice(0, MAX_APPROVALS);
   const previousTerminalSessionsById = new Map(
     previousTerminalSessions.map(session => [session.id, session]),

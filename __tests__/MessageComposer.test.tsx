@@ -168,6 +168,56 @@ describe('MessageComposer', () => {
     expect(() => findByTestID(root, 'composer-stop')).not.toThrow();
   });
 
+  it('voice mode records while held and stops on release', () => {
+    const onVoiceCapture = jest.fn();
+    const onVoiceCaptureStart = jest.fn();
+    const onVoiceCaptureEnd = jest.fn();
+    const root = wrap(
+      <MessageComposer
+        {...defaultProps({
+          mode: 'voice',
+          onVoiceCapture,
+          onVoiceCaptureStart,
+          onVoiceCaptureEnd,
+        })}
+      />,
+    );
+    expect(allTexts(root).some(t => t === '按住说话')).toBe(true);
+
+    act(() => {
+      findByTestID(root, 'composer-voice-hold').props.onPressIn();
+    });
+    expect(onVoiceCaptureStart).toHaveBeenCalledTimes(1);
+    expect(onVoiceCapture).not.toHaveBeenCalled();
+
+    act(() => {
+      findByTestID(root, 'composer-voice-hold').props.onPressOut();
+    });
+    expect(onVoiceCaptureEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not restart capture from the hold target while already active', () => {
+    const onVoiceCaptureStart = jest.fn();
+    const onVoiceCaptureEnd = jest.fn();
+    const root = wrap(
+      <MessageComposer
+        {...defaultProps({
+          mode: 'voice',
+          voiceStt: mockVoiceStt({ status: 'recording' }),
+          onVoiceCaptureStart,
+          onVoiceCaptureEnd,
+        })}
+      />,
+    );
+
+    act(() => {
+      findByTestID(root, 'composer-voice-hold').props.onPressIn();
+      findByTestID(root, 'composer-voice-hold').props.onPressOut();
+    });
+    expect(onVoiceCaptureStart).not.toHaveBeenCalled();
+    expect(onVoiceCaptureEnd).not.toHaveBeenCalled();
+  });
+
   it('voice draft (方案A) offers 发送 + 重置 directly — no AI 润色', () => {
     const onSendVoice = jest.fn();
     const root = wrap(

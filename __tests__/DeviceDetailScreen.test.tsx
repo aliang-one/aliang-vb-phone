@@ -76,6 +76,7 @@ describe('DeviceDetailScreen', () => {
           suggestions: [],
           events: [],
           transcript: [],
+          structuredEvents: [],
         },
         {
           id: 'newer-display-older-activity',
@@ -94,6 +95,7 @@ describe('DeviceDetailScreen', () => {
           suggestions: [],
           events: [],
           transcript: [],
+          structuredEvents: [],
         },
       ],
       events: [],

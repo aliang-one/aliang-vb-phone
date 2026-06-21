@@ -15,7 +15,7 @@ export type RootStackParamList = {
   FileBrowser: { projectId: string; deviceId?: string; sessionId?: string };
   CreateVibeCoding: { deviceId?: string; projectId?: string };
   AgentSessions: { deviceId?: string; projectId?: string } | undefined;
-  VibeCodingSession: { sessionId: string };
+  VibeCodingSession: { sessionId: string; approvalId?: string };
   SessionSettings: { sessionId: string };
   EventStream:
     | { deviceId?: string; sessionId?: string; scope?: 'conversation' }

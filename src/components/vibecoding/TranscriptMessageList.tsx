@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { IconBadge } from '../visual/IconBadge';
+import { ActivityBlock } from './ActivityBlock';
+import type { StructuredActivityEvent } from '../../data/platformModels';
 import type {
   TranscriptCalloutSegment,
   DisplayTranscriptMessage,
@@ -11,9 +13,44 @@ import type {
   TranscriptSegment,
 } from '../../utils/agentTranscript';
 
+/**
+ * Detail-passthrough shape for the lazily-fetched heavy detail of a structured
+ * event (mirrors `VibeCodingRun.eventDetailCache`). Kept inline so this
+ * presentational component has no store import.
+ */
+export type ActivityDetailCache = Record<
+  string,
+  { text?: string; truncated?: boolean }
+>;
+
 interface TranscriptMessageListProps {
   items: DisplayTranscriptMessage[];
   onMessageLayout?: (messageId: string, y: number, height: number) => void;
+  /**
+   * When provided, an `ActivityBlock` is rendered under each assistant bubble
+   * for the structured events whose `messageId` matches that bubble's
+   * `sourceMessageIds`, plus a synthetic activity bubble for any tool-only
+   * assistant turn (empty prose) whose message id was dropped during coalescing
+   * but still has structured events. All four props must be supplied together
+   * (or all omitted). The component stays store-free — the owning screen owns
+   * the run + cache + setter.
+   */
+  activitySessionId?: string;
+  /** All structured events for the run (the component filters per-bubble). */
+  structuredEvents?: StructuredActivityEvent[];
+  activityDetailCache?: ActivityDetailCache;
+  onCacheActivityDetail?: (
+    eventId: string,
+    detail: { text?: string; truncated?: boolean },
+  ) => void;
+  /**
+   * Assistant message ids that produced no display bubble (tool-only turns
+   * whose empty prose was skipped by `buildDisplayTranscript`) but still have
+   * structured events. Each renders a standalone activity bubble after the
+   * transcript. Built by the owning screen so this component doesn't import
+   * the run.
+   */
+  orphanActivityMessageIds?: string[];
 }
 
 const roleLabel: Record<DisplayTranscriptMessage['role'], string> = {
@@ -34,9 +71,34 @@ const foldedToneColor = (
 export const TranscriptMessageList: React.FC<TranscriptMessageListProps> = ({
   items,
   onMessageLayout,
+  activitySessionId,
+  structuredEvents,
+  activityDetailCache,
+  onCacheActivityDetail,
+  orphanActivityMessageIds,
 }) => {
   const { theme, isDark } = useTheme();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  const hasActivity =
+    Boolean(activitySessionId) &&
+    Boolean(structuredEvents) &&
+    Boolean(onCacheActivityDetail);
+
+  // Events for one assistant bubble: those whose messageId is in the (possibly
+  // coalesced) bubble's sourceMessageIds. Computed per-render; structuredEvents
+  // is small (bounded by the run's structured activity window).
+  const eventsForBubble = (message: DisplayTranscriptMessage) =>
+    message.role === 'assistant' && structuredEvents
+      ? structuredEvents.filter(
+          (e): e is Extract<StructuredActivityEvent, { messageId: string }> =>
+            'messageId' in e &&
+            typeof (e as { messageId?: unknown }).messageId === 'string' &&
+            message.sourceMessageIds.includes(
+              (e as { messageId: string }).messageId,
+            ),
+        )
+      : [];
 
   const toggleSegment = (segmentId: string) => {
     setExpanded(current => ({
@@ -376,6 +438,10 @@ export const TranscriptMessageList: React.FC<TranscriptMessageListProps> = ({
           message.endTimestamp && message.endTimestamp !== message.timestamp
             ? `${message.timestamp} - ${message.endTimestamp}`
             : message.timestamp;
+        // Structured activity for THIS assistant bubble only (events whose
+        // messageId matches one of the bubble's coalesced source ids). Empty
+        // for user/system bubbles or when no activity context was supplied.
+        const bubbleEvents = hasActivity ? eventsForBubble(message) : [];
 
         return (
           <View
@@ -450,6 +516,14 @@ export const TranscriptMessageList: React.FC<TranscriptMessageListProps> = ({
               >
                 {message.segments.map(renderSegment)}
               </View>
+              {bubbleEvents.length > 0 ? (
+                <ActivityBlock
+                  sessionId={activitySessionId!}
+                  events={bubbleEvents}
+                  detailCache={activityDetailCache ?? {}}
+                  onCacheDetail={onCacheActivityDetail!}
+                />
+              ) : null}
             </View>
             {isUser ? (
               <IconBadge name="user" tone="secondary" size={32} iconSize={16} />
@@ -457,6 +531,34 @@ export const TranscriptMessageList: React.FC<TranscriptMessageListProps> = ({
           </View>
         );
       })}
+      {hasActivity && orphanActivityMessageIds && structuredEvents
+        ? orphanActivityMessageIds.map(messageId => {
+            // Tool-only assistant turn: empty prose was dropped during
+            // coalescing, but structured events still exist for it. Render a
+            // standalone activity bubble (under an agent badge) so the turn's
+            // activity is visible. Events are grouped per orphan messageId.
+            const orphanEvents = structuredEvents.filter(
+              (e): e is Extract<StructuredActivityEvent, { messageId: string }> =>
+                'messageId' in e &&
+                typeof (e as { messageId?: unknown }).messageId === 'string' &&
+                (e as { messageId: string }).messageId === messageId,
+            );
+            if (orphanEvents.length === 0) return null;
+            return (
+              <View key={`orphan-activity:${messageId}`} style={styles.messageRow}>
+                <IconBadge name="agent" tone="primary" size={32} iconSize={16} />
+                <View style={[styles.messageStack, styles.messageStackAgent]}>
+                  <ActivityBlock
+                    sessionId={activitySessionId!}
+                    events={orphanEvents}
+                    detailCache={activityDetailCache ?? {}}
+                    onCacheDetail={onCacheActivityDetail!}
+                  />
+                </View>
+              </View>
+            );
+          })
+        : null}
     </>
   );
 };

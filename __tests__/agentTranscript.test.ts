@@ -122,10 +122,36 @@ describe('agentTranscript', () => {
     });
   });
 
-  it('parses common markdown without treating code tags as agent markup', () => {
+  it('renders aliang approval option fences as approval callouts', () => {
     const segments = parseTranscriptSegments(
       message(
         '7',
+        'assistant',
+        'I need a choice.\n```aliang-options\n{"title":"Choose next step","description":"Pick one path.","options":[{"id":"fix","label":"Fix bug","description":"Patch the missing action"},{"id":"docs","label":"Write docs"}]}\n```',
+      ),
+    );
+
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({
+      kind: 'text',
+      content: 'I need a choice.',
+    });
+    expect(segments[1]).toMatchObject({
+      kind: 'callout',
+      title: 'Approval request',
+      tone: 'warning',
+      content: expect.stringContaining('Choose next step'),
+    });
+    expect(segments[1]).toMatchObject({
+      content: expect.stringContaining('- Fix bug: Patch the missing action'),
+    });
+    expect(segments[1].content).not.toContain('"options"');
+  });
+
+  it('parses common markdown without treating code tags as agent markup', () => {
+    const segments = parseTranscriptSegments(
+      message(
+        '8',
         'assistant',
         '## Result\n- **Done** with `npm test`\n- [Open docs](https://example.com)\n\n```md\n<command-name>literal</command-name>\n```',
       ),
@@ -163,7 +189,7 @@ describe('agentTranscript', () => {
 
   it('leaves unknown tags visible as normal markdown text', () => {
     const segments = parseTranscriptSegments(
-      message('8', 'assistant', 'Keep <unknown-tag>visible</unknown-tag>.'),
+      message('9', 'assistant', 'Keep <unknown-tag>visible</unknown-tag>.'),
     );
 
     expect(segments).toHaveLength(1);
@@ -183,5 +209,53 @@ describe('agentTranscript', () => {
     expect(display).toHaveLength(2);
     expect(display[0].role).toBe('user');
     expect(display[0].mergedCount).toBe(2);
+  });
+
+  it('keeps display and segment keys unique when upstream repeats an id', () => {
+    const display = buildDisplayTranscript([
+      message('approval-1', 'system', 'Approval requested.'),
+      message('approval-1', 'user', 'Approved.'),
+      message('approval-1', 'assistant', 'Continuing.'),
+    ]);
+
+    expect(display.map(item => item.id)).toEqual([
+      'approval-1',
+      'approval-1:dup:2',
+      'approval-1:dup:3',
+    ]);
+    const segmentIds = display.flatMap(item =>
+      item.segments.map(segment => segment.id),
+    );
+    expect(new Set(segmentIds).size).toBe(segmentIds.length);
+  });
+
+  it('carries sourceMessageIds through coalescing (single + merged)', () => {
+    // Single bubble: one source id.
+    const single = buildDisplayTranscript([
+      message('a1', 'assistant', 'hello'),
+    ]);
+    expect(single).toHaveLength(1);
+    expect(single[0].sourceMessageIds).toEqual(['a1']);
+
+    // Coalesced assistant bubble: both source ids, in merge order.
+    const merged = buildDisplayTranscript([
+      message('a1', 'assistant', 'hello'),
+      message('a2', 'assistant', 'world'),
+    ]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].mergedCount).toBe(2);
+    expect(merged[0].sourceMessageIds).toEqual(['a1', 'a2']);
+  });
+
+  it('drops tool-only (empty-prose) assistant turns so their ids are absent', () => {
+    // No prose => no segments => skipped by buildDisplayTranscript. The render
+    // site handles these orphan ids via a synthetic activity bubble; this util
+    // stays pure and simply drops them.
+    const display = buildDisplayTranscript([
+      message('a1', 'assistant', '   '),
+      message('a2', 'assistant', 'real answer'),
+    ]);
+    expect(display).toHaveLength(1);
+    expect(display[0].sourceMessageIds).toEqual(['a2']);
   });
 });

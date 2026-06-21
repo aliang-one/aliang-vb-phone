@@ -102,9 +102,8 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
     expect(joinedText).toContain('$ git status --short');
     expect(joinedText).not.toContain('old');
 
-    const buttons = screen!.root.findAllByType(TouchableOpacity);
-    const resumeButton = findButtonByLabel(buttons, 'RESUME');
-    const closeButton = findButtonByLabel(buttons, 'CLOSE');
+    const resumeButton = findTerminalActionButton(screen!.root, 'RESUME');
+    const closeButton = findTerminalActionButton(screen!.root, 'CLOSE');
 
     act(() => {
       resumeButton?.props.onPress();
@@ -132,19 +131,45 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
       screen = renderScreen();
     });
 
-    const buttons = screen!.root.findAllByType(TouchableOpacity);
-    expect(findButtonByLabel(buttons, 'RESUME')?.props.disabled).toBe(true);
-    expect(findButtonByLabel(buttons, 'CLOSE')?.props.disabled).toBe(true);
+    expect(findTerminalActionButton(screen!.root, 'RESUME')?.props.disabled).toBe(
+      true,
+    );
+    expect(findTerminalActionButton(screen!.root, 'CLOSE')?.props.disabled).toBe(
+      true,
+    );
+  });
+
+  it('opens a fresh terminal from the floating terminal action', () => {
+    act(() => {
+      screen = renderScreen();
+    });
+
+    const newTerminalButton = screen!.root.findByProps({
+      testID: 'new-terminal-floating-button',
+    });
+
+    act(() => {
+      newTerminalButton.props.onPress();
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('DeviceTerminal', {
+      deviceId: 'device-1',
+      directory: '~/project',
+    });
   });
 });
 
-function findButtonByLabel(
-  buttons: ReactTestRenderer.ReactTestInstance[],
+function findTerminalActionButton(
+  root: ReactTestRenderer.ReactTestInstance,
   label: string,
 ) {
-  return buttons.find(button =>
-    button.findAllByType(Text).some(node => node.props.children === label),
-  );
+  const labelNode = root
+    .findAllByType(Text)
+    .find(node => node.props.children === label);
+  const actionRail = labelNode?.parent;
+  const buttons = actionRail?.findAllByType(TouchableOpacity) ?? [];
+
+  return label === 'RESUME' ? buttons[0] : buttons[1];
 }
 
 function device(id: string, name: string, status: Device['status']): Device {

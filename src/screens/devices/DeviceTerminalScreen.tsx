@@ -17,7 +17,6 @@ import {
   Text,
   TextInput,
   TextInputKeyPressEventData,
-  UIManager,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -366,15 +365,6 @@ export const DeviceTerminalScreen: React.FC = () => {
       keyboardProxyStateRef.current,
     );
     resetTerminalKeyboardProxyInput(keyboardProxyRef.current);
-  }, []);
-
-  useEffect(() => {
-    if (
-      Platform.OS === 'android' &&
-      UIManager.setLayoutAnimationEnabledExperimental
-    ) {
-      UIManager.setLayoutAnimationEnabledExperimental(true);
-    }
   }, []);
 
   useEffect(() => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -14,6 +14,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
+import { DeferredMount } from '../../components/shared/DeferredMount';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
@@ -60,35 +61,12 @@ export const SettingsScreen: React.FC = () => {
   const [checkingConnection, setCheckingConnection] = useState(false);
   const [refreshingAccount, setRefreshingAccount] = useState(false);
 
-  // The Account tab is lazy-mounted by React Navigation, so its first visit
-  // instantiates the whole subtree (SVG RingMeters, IconBadges, several panels)
-  // in one synchronous JS-thread commit that races the navigation transition —
-  // that is the "first tap into Me is very laggy" feeling. Defer the heavy
-  // sections until the transition finishes; later taps are instant because the
-  // tab stays mounted.
-  const [sectionsReady, setSectionsReady] = useState(false);
-  useEffect(() => {
-    // Defer the heavy sections two animation frames so the tab-switch cross-fade
-    // gets to paint its cheap shell first; the SVG/panel tree then mounts on
-    // frame 3 instead of blocking the transition's first frames. (Bottom-tab
-    // switches don't hold an InteractionManager handle, so rAF is the right
-    // signal here — and InteractionManager is deprecated in RN 0.85 anyway.)
-    let cancelled = false;
-    let secondFrame = 0;
-    const firstFrame = requestAnimationFrame(() => {
-      secondFrame = requestAnimationFrame(() => {
-        if (!cancelled) {
-          setSectionsReady(true);
-        }
-      });
-    });
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(firstFrame);
-      cancelAnimationFrame(secondFrame);
-    };
-  }, []);
-
+  // The Account tab's first visit instantiates a heavy subtree (SVG RingMeters,
+  // IconBadges, several panels) in one synchronous JS-thread commit that races
+  // the tab transition — the "first tap into Me is very laggy" feeling. The
+  // heavy sections below are wrapped in <DeferredMount> so the cheap shell
+  // (profile + scan tile) paints first; later taps thaw an already-mounted
+  // tree instantly.
   const themeOptions = [
     { key: 'system', label: 'SYSTEM' },
     { key: 'dark', label: 'CYBER' },
@@ -296,7 +274,15 @@ export const SettingsScreen: React.FC = () => {
           style={styles.scanTile}
         />
 
-        {sectionsReady ? (
+        <DeferredMount
+          fallback={
+            <View style={styles.deferredPlaceholder}>
+              <ActivityIndicator color={theme.colors.primary} />
+              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                正在加载控制台…
+              </Text>
+            </View>
+          }>
           <>
             {renderSectionTitle('账户 ACCOUNT')}
             <GlassPanel style={styles.panel}>
@@ -591,14 +577,7 @@ export const SettingsScreen: React.FC = () => {
               style={styles.logoutBtn}
             />
           </>
-        ) : (
-          <View style={styles.deferredPlaceholder}>
-            <ActivityIndicator color={theme.colors.primary} />
-            <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-              正在加载控制台…
-            </Text>
-          </View>
-        )}
+        </DeferredMount>
       </ScrollView>
     </SafeAreaWrapper>
   );
@@ -680,12 +659,20 @@ const styles = StyleSheet.create({
   },
   ringsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    // Vertical gap between the two wrapped rows. Horizontal gap comes from
+    // space-between + each cell being 48% wide (≈4% gutter).
+    rowGap: 16,
   },
   ringCell: {
+    // Two cells per row regardless of device width, so the fixed-size rings
+    // (98px) never overflow their cell and overlap their neighbours. The ring
+    // is an absolute-sized Svg, so a flex:1 cell can't shrink it — capping the
+    // cell at 48% + wrapping is what prevents the overlap on narrow screens.
+    width: '48%',
     alignItems: 'center',
     gap: 8,
-    flex: 1,
   },
   ringCaption: {
     color: 'rgba(255,255,255,0.55)',

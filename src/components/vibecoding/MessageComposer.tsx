@@ -13,6 +13,7 @@ import React, { useEffect, useRef } from 'react';
 import {
   Animated,
   Easing,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -44,6 +45,10 @@ export interface MessageComposerProps {
   onToggleTools: () => void;
   /** Toggles start/stop of voice capture. */
   onVoiceCapture: () => void;
+  /** Begins press-and-hold voice capture. Falls back to onVoiceCapture. */
+  onVoiceCaptureStart?: () => void;
+  /** Ends press-and-hold voice capture. Falls back to onVoiceCapture. */
+  onVoiceCaptureEnd?: () => void;
   /** Sends the transcribed voice draft as a user message. */
   onSendVoice: () => void;
   onSendText: () => void;
@@ -245,6 +250,8 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   toolsMenuVisible,
   onToggleTools,
   onVoiceCapture,
+  onVoiceCaptureStart,
+  onVoiceCaptureEnd,
   onSendVoice,
   onSendText,
   onResetVoice,
@@ -268,7 +275,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
 
   const statusLabel =
     status === 'recording'
-      ? '正在聆听…再次点击结束'
+      ? '正在聆听…松开结束'
       : status === 'stopping'
         ? '识别中…'
         : status === 'connecting'
@@ -285,6 +292,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   const toggleScale = useRef(new Animated.Value(0.6)).current;
   const draftOpacity = useRef(new Animated.Value(0)).current;
   const draftSlide = useRef(new Animated.Value(10)).current;
+  const voicePressActiveRef = useRef(false);
 
   useEffect(() => {
     contentOpacity.setValue(0);
@@ -324,6 +332,18 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasDraft, mode]);
+
+  const handleVoicePressIn = () => {
+    if (deviceOffline || isVoiceActive) return;
+    voicePressActiveRef.current = true;
+    (onVoiceCaptureStart ?? onVoiceCapture)();
+  };
+
+  const handleVoicePressOut = () => {
+    if (!voicePressActiveRef.current) return;
+    voicePressActiveRef.current = false;
+    (onVoiceCaptureEnd ?? onVoiceCapture)();
+  };
 
   // ----- the round control buttons (mode toggle + primary action) -----
 
@@ -425,12 +445,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
 
     if (status === 'error') {
       return (
-        <TouchableOpacity
-          accessibilityRole="button"
-          disabled={deviceOffline}
-          onPress={onVoiceCapture}
-          style={styles.inlineRow}
-        >
+        <View style={styles.inlineRow}>
           <ComposerIcon name="mic" size={18} color={theme.colors.error} />
           <Text
             style={[theme.typography.bodySm, { color: theme.colors.error, flex: 1 }]}
@@ -438,20 +453,14 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
           >
             {voiceStt.errorMessage || '语音输入出错，点击重试'}
           </Text>
-        </TouchableOpacity>
+        </View>
       );
     }
 
     if (!isVoiceActive) {
-      // voice idle — the content itself is the tap-to-record target
+      // voice idle — the outer Pressable is the hold-to-record target
       return (
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel="开始录音"
-          disabled={deviceOffline}
-          onPress={onVoiceCapture}
-          style={styles.inlineRow}
-        >
+        <View style={styles.inlineRow}>
           <View
             style={[
               styles.idleOrb,
@@ -465,9 +474,9 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
             <ComposerIcon name="mic" size={18} color={theme.colors.primary} />
           </View>
           <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
-            点击说话
+            按住说话
           </Text>
-        </TouchableOpacity>
+        </View>
       );
     }
 
@@ -512,6 +521,14 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
       </View>
     );
   };
+
+  const renderAnimatedContent = () => (
+    <Animated.View
+      style={{ opacity: contentOpacity, transform: [{ translateY: contentSlide }] }}
+    >
+      {renderContent()}
+    </Animated.View>
+  );
 
   return (
     <View style={styles.wrap}>
@@ -560,11 +577,21 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
           <View style={styles.innerRow}>
             {renderModeToggle()}
             <View style={styles.contentArea}>
-              <Animated.View
-                style={{ opacity: contentOpacity, transform: [{ translateY: contentSlide }] }}
-              >
-                {renderContent()}
-              </Animated.View>
+              {mode === 'voice' ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={isVoiceActive ? '松开结束录音' : '按住开始录音'}
+                  disabled={deviceOffline}
+                  onPressIn={handleVoicePressIn}
+                  onPressOut={handleVoicePressOut}
+                  testID="composer-voice-hold"
+                  style={styles.voicePressable}
+                >
+                  {renderAnimatedContent()}
+                </Pressable>
+              ) : (
+                renderAnimatedContent()
+              )}
             </View>
             {renderAction()}
           </View>
@@ -644,6 +671,10 @@ const styles = StyleSheet.create({
   },
   contentArea: {
     flex: 1,
+    justifyContent: 'center',
+  },
+  voicePressable: {
+    minHeight: 40,
     justifyContent: 'center',
   },
   textInput: {

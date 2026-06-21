@@ -5,7 +5,9 @@ import type { ControlCenterState } from '../types';
 import {
   activityNowMs,
   attachDeviceRelations,
+  capEventDetailCache,
   createId,
+  demoteIdleSessions,
   event,
   evictStaleSessionDetail,
   fileNameFromPath,
@@ -24,6 +26,8 @@ type AiSessionSlice = Pick<
   | 'startAgentSession' | 'loadAgentSessionDetail' | 'pauseAgentSession'
   | 'resumeAgentSession' | 'terminateAgentSession' | 'updateAgentSession'
   | 'deleteAgentSession' | 'appendAgentMessage' | 'loadEarlierAgentMessages'
+  | 'cacheStructuredDetail'
+  | 'markSessionViewed' | 'clearCurrentlyViewedSession' | 'demoteIdleSessions'
 >;
 
 const pendingMessageSends = new Set<string>();
@@ -112,6 +116,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
               timestamp: shortTime(),
             },
           ],
+          structuredEvents: [],
         };
 
         set(state => ({
@@ -539,5 +544,55 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     } finally {
       pendingMessageSends.delete(sendKey);
     }
+  },
+
+  cacheStructuredDetail: (sessionId, eventId, detail) => {
+    set(state => ({
+      vibeRuns: state.vibeRuns.map(run =>
+        run.id === sessionId
+          ? {
+              ...run,
+              // FIFO-cap the heavy-detail cache so it can't grow without bound
+              // as the user expands activity items. Newest entries survive.
+              eventDetailCache: capEventDetailCache({
+                ...(run.eventDetailCache ?? {}),
+                [eventId]: detail,
+              }),
+            }
+          : run,
+      ),
+    }));
+  },
+
+  // Mark a session as viewed now (chat screen focus). Stamps lastViewedAt and
+  // records it as the currently-viewed session so the idle demoter never clears
+  // the conversation the user is actively looking at.
+  markSessionViewed: sessionId => {
+    const viewedAt = Date.now();
+    set(state => ({
+      currentlyViewedSessionId: sessionId,
+      vibeRuns: state.vibeRuns.map(run =>
+        run.id === sessionId ? { ...run, lastViewedAt: viewedAt } : run,
+      ),
+    }));
+  },
+
+  // Clear the currently-viewed marker (chat screen blur / unmount). lastViewedAt
+  // is retained so the idle threshold clock keeps running for that session.
+  clearCurrentlyViewedSession: () => {
+    set({ currentlyViewedSessionId: undefined });
+  },
+
+  // Demote sessions the user hasn't viewed within the idle threshold (and that
+  // aren't active or currently viewed) — clears their resident detail to bound
+  // memory. Triggered by AppState backgrounding and a coarse interval sweeper.
+  demoteIdleSessions: () => {
+    set(state => ({
+      vibeRuns: demoteIdleSessions(
+        state.vibeRuns,
+        Date.now(),
+        state.currentlyViewedSessionId,
+      ),
+    }));
   },
 });

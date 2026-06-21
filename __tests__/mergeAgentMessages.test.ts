@@ -1,5 +1,5 @@
-import { mergeAgentMessages } from '../src/store/internals';
-import type { AgentMessage } from '../src/data/platformModels';
+import { mergeAgentEvents, mergeAgentMessages } from '../src/store/internals';
+import type { AgentEvent, AgentMessage } from '../src/data/platformModels';
 
 const message = (
   id: string,
@@ -10,6 +10,20 @@ const message = (
   id,
   role,
   content,
+  timestamp: extra.timestamp ?? '2026-06-16T10:00:00.000Z',
+  ...extra,
+});
+
+const event = (
+  id: string,
+  title: string,
+  extra: Partial<AgentEvent> = {},
+): AgentEvent => ({
+  id,
+  type: 'approval',
+  title,
+  detail: title,
+  status: 'waiting',
   timestamp: extra.timestamp ?? '2026-06-16T10:00:00.000Z',
   ...extra,
 });
@@ -78,6 +92,25 @@ describe('mergeAgentMessages', () => {
       role: 'user',
       content: 'Follow-up',
       pending: true,
+    });
+  });
+});
+
+describe('mergeAgentEvents', () => {
+  it('dedupes repeated approval events from snapshots and keeps the latest copy', () => {
+    const merged = mergeAgentEvents(
+      [event('approval-1', 'Approval requested')],
+      [
+        event('approval-1', 'Approval requested'),
+        event('approval-1', 'Approval granted', { status: 'done' }),
+      ],
+    );
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      id: 'approval-1',
+      title: 'Approval granted',
+      status: 'done',
     });
   });
 });

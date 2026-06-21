@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
+import { ActivityIndicator, View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { SearchBar } from '../../components/input/SearchBar';
+import { DeferredMount } from '../../components/shared/DeferredMount';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard';
@@ -109,7 +110,16 @@ export const TerminalListScreen: React.FC = () => {
             colors={[theme.colors.primary]}
           />
         }>
-        <View style={styles.summary}>
+        <DeferredMount
+          fallback={
+            <View style={styles.deferredPlaceholder}>
+              <ActivityIndicator color={theme.colors.primary} />
+              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                正在加载设备…
+              </Text>
+            </View>
+          }>
+          <View style={styles.summary}>
           <StatusChip label={`${filtered.length} DEVICES`} type="info" />
           <StatusChip
             label={`${filtered.filter(device => device.status === 'online').length} ONLINE`}
@@ -156,6 +166,7 @@ export const TerminalListScreen: React.FC = () => {
             </View>
           </GlassPanel>
         ) : null}
+        </DeferredMount>
       </ScrollView>
     </SafeAreaWrapper>
   );
@@ -172,6 +183,12 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 16,
     paddingBottom: 40,
+  },
+  deferredPlaceholder: {
+    paddingVertical: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
   },
   summary: {
     flexDirection: 'row',

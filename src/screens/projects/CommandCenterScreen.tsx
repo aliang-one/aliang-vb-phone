@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   StyleSheet,
@@ -12,6 +13,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
+import { DeferredMount } from '../../components/shared/DeferredMount';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { UsageSummaryCard } from '../../components/vibecoding/UsageSummaryCard';
@@ -74,6 +76,7 @@ interface ConversationFeedItem {
   subtitle: string;
   timeLabel: string;
   sessionId?: string;
+  approvalId?: string;
   ms: number;
 }
 
@@ -186,6 +189,7 @@ export const CommandCenterScreen: React.FC = () => {
       subtitle: string,
       sessionId: string | undefined,
       ms: number,
+      approvalId?: string,
     ) => {
       items.push({
         key,
@@ -193,6 +197,7 @@ export const CommandCenterScreen: React.FC = () => {
         title,
         subtitle,
         sessionId,
+        approvalId,
         ms,
         timeLabel: formatConversationRelativeShort(ms, nowMs),
       });
@@ -224,6 +229,7 @@ export const CommandCenterScreen: React.FC = () => {
           evt.detail,
           evt.sessionId,
           parseConversationTimestampMs(evt.timestamp, nowMs),
+          evt.approvalId,
         );
       }
     }
@@ -343,12 +349,17 @@ export const CommandCenterScreen: React.FC = () => {
   const getProjectDevice = (project: Project) =>
     devices.find(device => device.id === project.deviceId) ??
     devices.find(device => device.projectIds.includes(project.id));
-  // Home events open straight into the conversation, never the notification list.
-  const openConversation = (sessionId?: string, isApproval = false) => {
-    if (sessionId) {
-      navigation.navigate('VibeCodingSession', { sessionId });
-    } else if (isApproval) {
+  // Home cards route by semantic type: approvals go to the global approval queue,
+  // conversation activity goes into the matching chat.
+  const openConversation = (
+    sessionId?: string,
+    isApproval = false,
+    approvalId?: string,
+  ) => {
+    if (isApproval) {
       navigation.navigate('ApprovalCenter');
+    } else if (sessionId) {
+      navigation.navigate('VibeCodingSession', { sessionId, approvalId });
     } else {
       navigation.navigate('NotificationCenter');
     }
@@ -435,13 +446,27 @@ export const CommandCenterScreen: React.FC = () => {
           />
         }
       >
-        {topRealtimeKind && topRealtimeTitle ? (
+        <DeferredMount
+          fallback={
+            <View style={styles.deferredPlaceholder}>
+              <ActivityIndicator color={theme.colors.primary} />
+              <Text
+                style={[
+                  theme.typography.labelSm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}>
+                正在加载首页…
+              </Text>
+            </View>
+          }>
+          {topRealtimeKind && topRealtimeTitle ? (
           <TouchableOpacity
             activeOpacity={0.78}
             onPress={() =>
               openConversation(
                 topApproval?.sessionId ?? topNotification?.sessionId,
                 topRealtimeKind === 'approval',
+                topApproval?.id ?? topNotification?.approvalId,
               )
             }
           >
@@ -516,7 +541,11 @@ export const CommandCenterScreen: React.FC = () => {
                 key={item.key}
                 activeOpacity={0.75}
                 onPress={() =>
-                  openConversation(item.sessionId, item.kind === 'approval')
+                  openConversation(
+                    item.sessionId,
+                    item.kind === 'approval',
+                    item.approvalId,
+                  )
                 }
               >
                 <GlassPanel
@@ -994,6 +1023,7 @@ export const CommandCenterScreen: React.FC = () => {
           </Text>
         </View>
         <UsageSummaryCard summary={platformSummary} />
+        </DeferredMount>
       </ScrollView>
     </SafeAreaWrapper>
   );
@@ -1080,6 +1110,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 92,
     paddingTop: 12,
+  },
+  deferredPlaceholder: {
+    paddingVertical: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
   },
   avatar: {
     width: 32,

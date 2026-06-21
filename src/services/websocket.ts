@@ -16,6 +16,13 @@ interface MobileWebSocketOptions {
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const HEARTBEAT_INTERVAL_MS = 25000;
+// Force a reconnect after this many consecutive heartbeat pings go unanswered.
+// The server replies to `{"type":"ping"}` with `{"type":"pong"}` (and to
+// `presence.alive` with `presence.ack`); a missed reply means the socket is
+// half-open — the peer restarted/killed without a clean close, which React
+// Native never surfaces as onclose. One tolerated miss avoids false positives
+// from a momentarily-delayed pong; two silent beats (~50s) => dead => reconnect.
+const HEARTBEAT_MAX_MISSES = 1;
 
 export class MobileWebSocket {
   private ws: WebSocket | null = null;
@@ -37,6 +44,12 @@ export class MobileWebSocket {
   private _connected = false;
   private onStateChange?: (state: WsConnectionState) => void;
   private token?: string;
+  // Liveness tracking. `awaitingPong` is set when a heartbeat ping is sent and
+  // cleared when its pong/ack arrives; `heartbeatMisses` counts consecutive
+  // unanswered pings. Together they detect a half-open socket (peer gone, no
+  // close frame) that React Native otherwise leaves reported as "connected".
+  private awaitingPong = false;
+  private heartbeatMisses = 0;
 
   constructor(handler: WsMessageHandler, options: MobileWebSocketOptions = {}) {
     this.handler = handler;
@@ -85,6 +98,8 @@ export class MobileWebSocket {
     const ws = new WebSocket(url);
 
     ws.onopen = () => {
+      // Guard against a stale socket firing after forceReconnect() replaced it.
+      if (this.ws !== ws) return;
       this._connected = true;
       this.reconnectAttempts = 0;
       // A successful open starts a fresh open cycle: we may refresh once more
@@ -95,17 +110,28 @@ export class MobileWebSocket {
     };
 
     ws.onmessage = (event: WebSocketMessageEvent) => {
+      if (this.ws !== ws) return;
       try {
         const parsed = JSON.parse(event.data as string) as Record<string, unknown>;
-        if (parsed) {
-          this.handler(parsed);
+        if (!parsed) return;
+        // Liveness acks: the server replies to our heartbeat `ping` with `pong`
+        // (and to `presence.alive` with `presence.ack`). Both prove the socket is
+        // carrying traffic, so they clear the half-open detector. They're infra,
+        // not domain events — never forward them to the store handler.
+        if (parsed.type === 'pong' || parsed.type === 'presence.ack') {
+          this.markAlive();
+          return;
         }
+        this.handler(parsed);
       } catch {
         // Ignore non-JSON messages
       }
     };
 
     ws.onclose = (event: WebSocketCloseEvent) => {
+      // A newer socket already replaced this one (forceReconnect) — ignore the
+      // abandoned socket's late close so it can't clobber the fresh connection.
+      if (this.ws !== ws) return;
       this._connected = false;
       this.stopHeartbeat();
       this.onStateChange?.('disconnected');
@@ -123,7 +149,8 @@ export class MobileWebSocket {
     };
 
     ws.onerror = () => {
-      // onclose will fire after onerror
+      // onclose will fire after onerror; the identity guard above ignores any
+      // close from a socket we've already replaced.
     };
 
     this.ws = ws;
@@ -178,11 +205,57 @@ export class MobileWebSocket {
 
   private startHeartbeat(): void {
     this.stopHeartbeat();
+    this.awaitingPong = false;
+    this.heartbeatMisses = 0;
     this.heartbeatTimer = setInterval(() => {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'ping' }));
+      const socket = this.ws;
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      // Liveness probe. If the ping we sent on the previous beat never came
+      // back (no pong/ack), the socket is most likely half-open: the server
+      // restarted or was killed without emitting a close frame, and React
+      // Native keeps reporting readyState OPEN indefinitely. Force a reconnect
+      // instead of silently losing every push published while we were stranded.
+      if (this.awaitingPong) {
+        this.heartbeatMisses += 1;
+      } else {
+        this.heartbeatMisses = 0;
+      }
+      if (this.heartbeatMisses >= HEARTBEAT_MAX_MISSES) {
+        this.forceReconnect('liveness_timeout');
+        return;
+      }
+      this.awaitingPong = true;
+      try {
+        socket.send(JSON.stringify({ type: 'ping' }));
+      } catch {
+        // A failed send surfaces as a liveness miss on the next beat.
       }
     }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private markAlive(): void {
+    this.awaitingPong = false;
+    this.heartbeatMisses = 0;
+  }
+
+  // Half-open/dead socket recovery. onclose may never fire for such a socket,
+  // so don't wait for it: drop this socket synchronously and open a fresh one.
+  // The abandoned socket's eventual close/error is ignored by the identity guard
+  // (`this.ws !== ws`) in each handler, so it can't disrupt the new connection.
+  private forceReconnect(reason: string): void {
+    const stale = this.ws;
+    this.ws = null;
+    this._connected = false;
+    this.cleanup();
+    this.onStateChange?.('disconnected');
+    try {
+      stale?.close(1000, reason);
+    } catch {
+      /* already torn down */
+    }
+    if (!this.intentionalClose && !this.authRejected) {
+      this.connectAsync();
+    }
   }
 
   private stopHeartbeat(): void {

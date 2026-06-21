@@ -44,6 +44,10 @@ import { createTerminalSlice } from './slices/terminalSlice';
 import { createApprovalSlice } from './slices/approvalSlice';
 import { createAiSessionSlice } from './slices/aiSessionSlice';
 import { createDeviceProjectSlice } from './slices/deviceProjectSlice';
+import {
+  applyStructuredEvent,
+  reconcileStructured,
+} from './slices/structuredSlice';
 
 const EMPTY_SESSION_APPROVALS: ControlCenterState['approvals'] = [];
 
@@ -149,6 +153,8 @@ export const useControlCenterStore = create<ControlCenterState>()(
 
       // Only the global activity log lives here; all domain data is owned by slices.
       events: [],
+      // No session is viewed until a chat screen focuses.
+      currentlyViewedSessionId: undefined,
       handleTransportEvent: transportEvent => {
         // Apply any buffered streaming tokens before handling a different event,
         // so ordering is preserved (e.g. an `ai.done` reflects every preceding
@@ -361,6 +367,25 @@ export const useControlCenterStore = create<ControlCenterState>()(
               return;
             }
 
+            case 'ai.command':
+            case 'ai.file_change':
+            case 'ai.thinking':
+            case 'ai.usage':
+            case 'ai.task': {
+              // All 5 structured-activity transport types funnel through
+              // applyStructuredEvent, which dispatches on type internally
+              // (command two-state merge, task replace, others overlay) and
+              // upserts onto run.structuredEvents by eventId.
+              set(state => ({
+                vibeRuns: state.vibeRuns.map(run =>
+                  run.id === transportEvent.sessionId
+                    ? applyStructuredEvent(run, transportEvent)
+                    : run,
+                ),
+              }));
+              return;
+            }
+
             case 'ai.session.updated': {
               set(state => {
                 const nextRun = serverAiSessionToVibeRun(
@@ -371,18 +396,34 @@ export const useControlCenterStore = create<ControlCenterState>()(
                 const previousRun = state.vibeRuns.find(
                   run => run.id === nextRun.id,
                 );
+                // Reconcile the snapshot's structured_events with live state so
+                // events that arrived live (and may not be in the snapshot yet)
+                // aren't clobbered. Snapshot wins on eventId conflict; local
+                // events not in the snapshot are preserved. The per-event detail
+                // cache is local-only (never present in a snapshot) so keep the
+                // previous run's cache.
+                const reconciled = previousRun
+                  ? {
+                      ...nextRun,
+                      structuredEvents: reconcileStructured(
+                        previousRun.structuredEvents,
+                        nextRun.structuredEvents,
+                      ),
+                      eventDetailCache: previousRun.eventDetailCache,
+                    }
+                  : nextRun;
                 const shouldRecordEvent = hasMeaningfulVibeRunUpdate(
                   previousRun,
-                  nextRun,
+                  reconciled,
                 );
                 const exists = Boolean(previousRun);
                 const rawVibeRuns = exists
                   ? state.vibeRuns.map(run =>
-                      run.id === nextRun.id
-                        ? mergeVibeRunSnapshot(run, nextRun)
+                      run.id === reconciled.id
+                        ? mergeVibeRunSnapshot(run, reconciled)
                         : run,
                     )
-                  : [nextRun, ...state.vibeRuns];
+                  : [reconciled, ...state.vibeRuns];
                 // Apply memory bounds: limit total sessions and trim transcripts
                 const vibeRuns = evictOverflowVibeRuns(
                   rawVibeRuns.map(run => ({

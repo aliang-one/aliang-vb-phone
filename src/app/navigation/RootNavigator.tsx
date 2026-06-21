@@ -25,9 +25,10 @@ import { NotificationCenterScreen } from '../../screens/operations/NotificationC
 import { PreviewScreen } from '../../screens/preview/PreviewScreen';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import type { TerminalCommandHistoryItem, TerminalSession } from '../../store/types';
-import { usePresenceHeartbeat } from '../../hooks/usePresenceHeartbeat';
 import { useTheme } from '../../theme/useTheme';
 import { useSessionStore } from '../../../stores/useSettingsStore';
+import { usePresenceHeartbeat } from '../../hooks/usePresenceHeartbeat';
+import { useIdleSessionDemoter } from '../../hooks/useIdleSessionDemoter';
 import { isSessionInvalidError } from '../../api/sessionAuth';
 import {
   FIRST_ONLINE_DEVICE_TARGET,
@@ -166,6 +167,17 @@ export const RootNavigator = ({ debugDeviceTerminal }: RootNavigatorProps) => {
     state => state.initializeFromServer,
   );
   const syncingRef = useRef(false);
+  // Foreground re-sync safety net. WS has no replay buffer and React Native
+  // keeps the socket "connected" across a background suspension (no onclose/
+  // onopen), so a backend restart while the app was backgrounded leaves the
+  // phone on a stale snapshot — device shows offline forever even though the
+  // agent reconnected (admin shows online). On every background→foreground hop
+  // this pulls a fresh snapshot (device online) and re-establishes presence.
+  // Self-guards on serverMode, so it's safe to mount unconditionally at the root.
+  usePresenceHeartbeat();
+  // Bounds resident AI-session memory: demotes sessions the user isn't viewing
+  // when the app backgrounds and on a coarse interval. Self-guards on serverMode.
+  useIdleSessionDemoter();
   const initialRouteName =
     token && debugDeviceTerminal
       ? 'DebugDeviceTerminalBootstrap'
@@ -192,10 +204,6 @@ export const RootNavigator = ({ debugDeviceTerminal }: RootNavigatorProps) => {
         syncingRef.current = false;
       });
   }, [hasHydrated, initializeFromServer, restoreUser, serverMode, token]);
-
-  // App-lifecycle: presence heartbeat + foreground snapshot re-sync (recovers
-  // state published while the app was backgrounded; WS has no replay buffer).
-  usePresenceHeartbeat();
 
   if (!hasHydrated) {
     return (

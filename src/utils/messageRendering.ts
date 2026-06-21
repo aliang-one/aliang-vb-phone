@@ -179,6 +179,26 @@ const tagRegistry: Record<string, TagConfig> = {
   },
   'codex-event': { display: 'folded', label: 'Codex event', tone: 'neutral' },
   'claude-event': { display: 'folded', label: 'Claude event', tone: 'neutral' },
+  approval: {
+    display: 'callout',
+    title: 'Approval request',
+    tone: 'warning',
+  },
+  'approval-request': {
+    display: 'callout',
+    title: 'Approval request',
+    tone: 'warning',
+  },
+  'approval-requested': {
+    display: 'callout',
+    title: 'Approval request',
+    tone: 'warning',
+  },
+  'client-response': {
+    display: 'callout',
+    title: 'Approval request',
+    tone: 'warning',
+  },
 };
 
 const normalizeTag = (value: string) =>
@@ -193,6 +213,47 @@ const cleanText = (value: string) =>
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{4,}/g, '\n\n\n')
     .trim();
+
+const textValue = (value: unknown) =>
+  typeof value === 'string' ? value.trim() : '';
+
+const objectRecords = (value: unknown): Record<string, unknown>[] =>
+  Array.isArray(value)
+    ? value.filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item && typeof item === 'object' && !Array.isArray(item)),
+      )
+    : [];
+
+const formatAliangOptionsFence = (body: string) => {
+  try {
+    const raw = JSON.parse(body) as Record<string, unknown>;
+    const title = textValue(raw.title) || 'Choose next step';
+    const summary =
+      textValue(raw.description) ||
+      textValue(raw.summary) ||
+      'The assistant is waiting for your choice.';
+    const options = objectRecords(raw.options)
+      .map((option, index) => {
+        const label =
+          textValue(option.label) || textValue(option.id) || `Option ${index + 1}`;
+        const description = textValue(option.description);
+        return description ? `- ${label}: ${description}` : `- ${label}`;
+      })
+      .filter(Boolean);
+    return [title, '', summary, options.length ? ['', 'Options:', ...options].join('\n') : '']
+      .filter(Boolean)
+      .join('\n');
+  } catch {
+    return cleanText(body) || 'The assistant is waiting for your approval.';
+  }
+};
+
+const replaceAliangOptionsFences = (rawContent: string) =>
+  rawContent.replace(/```aliang-options\s*([\s\S]*?)```/gi, (_match, body) => {
+    const content = formatAliangOptionsFence(String(body ?? ''));
+    return `\n<approval-request>${content}</approval-request>\n`;
+  });
 
 const summarizeContent = (value: string) => {
   const lineCount = value ? value.split('\n').length : 0;
@@ -518,7 +579,9 @@ const collectMarkdownCodeRanges = (content: string) => {
 };
 
 const tokenizeAgentMarkup = (rawContent: string): AgentMarkupToken[] => {
-  const content = rawContent.replace(ansiRegex, '').replace(/\r\n/g, '\n');
+  const content = replaceAliangOptionsFences(rawContent)
+    .replace(ansiRegex, '')
+    .replace(/\r\n/g, '\n');
   const codeRanges = collectMarkdownCodeRanges(content);
   const tokens: AgentMarkupToken[] = [];
   const tagRegex = /<([a-zA-Z][\w:-]*)(?:\s[^>]*)?>/g;

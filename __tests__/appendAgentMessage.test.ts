@@ -28,6 +28,7 @@ const run = (transcript: VibeCodingRun['transcript'] = []): VibeCodingRun => ({
   suggestions: [],
   transcript,
   events: [],
+  structuredEvents: [],
 });
 
 describe('appendAgentMessage', () => {

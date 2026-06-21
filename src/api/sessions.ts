@@ -57,6 +57,15 @@ export interface ServerAiSession {
   }>;
   transcript_count?: number;
   event_count?: number;
+  /**
+   * Structured activity events (command / file_change / thinking / usage /
+   * task) for the session, as slim snake_case envelopes pushed by the backend.
+   * Present on single-session detail GETs; the list snapshot may omit it. The
+   * phone maps each envelope to a `StructuredActivityEvent`
+   * (see `envelopeToActivity` in `data/platformModels`); heavy detail per event
+   * is fetched on demand via `fetchStructuredEventDetail`.
+   */
+  structured_events?: Array<Record<string, unknown>>;
   /** Distinct files the agent wrote/edited during the current/most-recent run. */
   files_touched_count?: number;
   /** git working-tree change count for the project dir during the current/most-recent run. */
@@ -172,6 +181,40 @@ export const fetchAiSessionMessages = (
     { timeoutMs: 15_000 },
   );
 };
+
+export interface StructuredEventDetailResponse {
+  event_id: string;
+  event_type: string;
+  detail: Record<string, unknown> | null;
+  truncated: boolean;
+}
+
+/**
+ * Fetch the heavy detail for a single structured activity event. The backend
+ * serves it at `/api/ai/sessions/:sessionId/structured-events/:eventId`; the
+ * `detail` payload carries the large field by event type
+ * (command→{output}, file_change→{diff, changes}, thinking→{text}). We extract
+ * the first known text-bearing field for display; null/missing → undefined so
+ * the UI can show a neutral placeholder.
+ */
+export async function fetchStructuredEventDetail(
+  sessionId: string,
+  eventId: string,
+): Promise<{ text?: string; truncated: boolean }> {
+  const r = await apiGet<StructuredEventDetailResponse>(
+    `/api/ai/sessions/${sessionId}/structured-events/${eventId}`,
+  );
+  const d = r.detail ?? {};
+  const text =
+    typeof d.output === 'string'
+      ? d.output
+      : typeof d.diff === 'string'
+        ? d.diff
+        : typeof d.text === 'string'
+          ? d.text
+          : undefined;
+  return { text, truncated: Boolean(r.truncated) };
+}
 
 export const createAiSession = (input: {
   device_id: string;

@@ -128,6 +128,11 @@ export type PlatformTransportEvent =
   | { type: 'ai.delta'; sessionId: string; delta: string; currentStep: string; messageId?: string; raw: Record<string, unknown> }
   | { type: 'ai.done'; sessionId: string; detail: string; raw: Record<string, unknown> }
   | { type: 'ai.error'; sessionId: string; error: string; raw: Record<string, unknown> }
+  | { type: 'ai.command'; sessionId: string; messageId: string; itemId: string; status: string; command?: string; cwd?: string; exitCode?: number | null; eventId: string; raw: Record<string, unknown> }
+  | { type: 'ai.file_change'; sessionId: string; messageId: string; itemId: string; path?: string; kind?: string; added?: number; removed?: number; renamedFrom?: string; eventId: string; raw: Record<string, unknown> }
+  | { type: 'ai.thinking'; sessionId: string; messageId: string; active: boolean; chars: number; eventId: string; raw: Record<string, unknown> }
+  | { type: 'ai.usage'; sessionId: string; messageId?: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; model?: string; eventId: string; raw: Record<string, unknown> }
+  | { type: 'ai.task'; sessionId: string; messageId: string; tasks: { subject: string; status: string; active_form?: string }[]; eventId: string; raw: Record<string, unknown> }
   | { type: 'ai.session.created'; sessionId: string; raw: Record<string, unknown> }
   | { type: 'ai.session.updated'; session: PlatformAiSessionSnapshot; raw: Record<string, unknown> }
   | { type: 'ai.session.deleted'; sessionId: string; raw: Record<string, unknown> }
@@ -151,6 +156,9 @@ type TransportEventHandler = (event: PlatformTransportEvent) => void;
 
 const asString = (value: unknown) =>
   typeof value === 'string' ? value : undefined;
+
+const num = (v: unknown): number | undefined =>
+  typeof v === 'number' ? v : undefined;
 
 const asStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.map(String) : [];
@@ -452,6 +460,81 @@ class PlatformTransport {
         type: 'ai.error',
         sessionId: String(message.session_id ?? ''),
         error: String(message.error ?? message.detail ?? 'AI session failed'),
+        raw: message,
+      };
+    }
+
+    if (type === 'ai.command') {
+      return {
+        type: 'ai.command',
+        sessionId: String(message.session_id ?? ''),
+        messageId: String(message.message_id ?? ''),
+        itemId: String(message.item_id ?? ''),
+        status: String(message.status ?? 'started'),
+        command: asString(message.command),
+        cwd: asString(message.cwd),
+        exitCode:
+          typeof message.exit_code === 'number'
+            ? message.exit_code
+            : message.exit_code == null
+              ? undefined
+              : null,
+        eventId: String(message.event_id ?? ''),
+        raw: message,
+      };
+    }
+
+    if (type === 'ai.file_change') {
+      return {
+        type: 'ai.file_change',
+        sessionId: String(message.session_id ?? ''),
+        messageId: String(message.message_id ?? ''),
+        itemId: String(message.item_id ?? ''),
+        path: asString(message.path),
+        kind: asString(message.kind),
+        added: num(message.added),
+        removed: num(message.removed),
+        renamedFrom: asString(message.renamed_from),
+        eventId: String(message.event_id ?? ''),
+        raw: message,
+      };
+    }
+
+    if (type === 'ai.thinking') {
+      return {
+        type: 'ai.thinking',
+        sessionId: String(message.session_id ?? ''),
+        messageId: String(message.message_id ?? ''),
+        active: message.active !== false,
+        chars: typeof message.chars === 'number' ? message.chars : 0,
+        eventId: String(message.event_id ?? ''),
+        raw: message,
+      };
+    }
+
+    if (type === 'ai.usage') {
+      return {
+        type: 'ai.usage',
+        sessionId: String(message.session_id ?? ''),
+        messageId: asString(message.message_id),
+        inputTokens: num(message.input_tokens),
+        outputTokens: num(message.output_tokens),
+        cacheReadTokens: num(message.cache_read_tokens),
+        model: asString(message.model),
+        eventId: String(message.event_id ?? ''),
+        raw: message,
+      };
+    }
+
+    if (type === 'ai.task') {
+      return {
+        type: 'ai.task',
+        sessionId: String(message.session_id ?? ''),
+        messageId: String(message.message_id ?? ''),
+        tasks: Array.isArray(message.tasks)
+          ? (message.tasks as { subject: string; status: string; active_form?: string }[])
+          : [],
+        eventId: String(message.event_id ?? ''),
         raw: message,
       };
     }
