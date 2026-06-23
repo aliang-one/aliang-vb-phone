@@ -47,4 +47,30 @@ describe('platformTransport realtime events', () => {
       },
     ]);
   });
+
+  it('normalizes ai.status messages without turning them into ai.error', () => {
+    const events: unknown[] = [];
+
+    platformTransport.connect(event => {
+      events.push(event);
+    });
+    socketHandler?.({
+      type: 'ai.status',
+      session_id: 'ai-1',
+      status: 'Reconnecting... 1/5',
+    });
+
+    expect(events).toEqual([
+      {
+        type: 'ai.status',
+        sessionId: 'ai-1',
+        status: 'Reconnecting... 1/5',
+        raw: {
+          type: 'ai.status',
+          session_id: 'ai-1',
+          status: 'Reconnecting... 1/5',
+        },
+      },
+    ]);
+  });
 });

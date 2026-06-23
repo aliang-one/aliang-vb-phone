@@ -474,6 +474,25 @@ export const useControlCenterStore = create<ControlCenterState>()(
               });
               return;
 
+            case 'ai.status':
+              set(state => ({
+                vibeRuns: state.vibeRuns.map(item =>
+                  item.id === transportEvent.sessionId
+                    ? {
+                        ...item,
+                        status:
+                          item.status === 'failed' || item.status === 'completed'
+                            ? item.status
+                            : ('running' as VibeStatus),
+                        currentStep: transportEvent.status || item.currentStep,
+                        lastActivityMs: activityNowMs(),
+                        updatedAt: formatActivityLabel(activityNowMs()),
+                      }
+                    : item,
+                ),
+              }));
+              return;
+
             case 'ai.steer.ack':
               set(state => ({
                 vibeRuns: state.vibeRuns.map(run => {

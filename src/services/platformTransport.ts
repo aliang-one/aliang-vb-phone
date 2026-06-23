@@ -129,6 +129,7 @@ export type PlatformTransportEvent =
   | { type: 'device.removed'; deviceId: string; raw: Record<string, unknown> }
   | { type: 'ai.delta'; sessionId: string; delta: string; currentStep: string; messageId?: string; raw: Record<string, unknown> }
   | { type: 'ai.done'; sessionId: string; detail: string; raw: Record<string, unknown> }
+  | { type: 'ai.status'; sessionId: string; status: string; raw: Record<string, unknown> }
   | { type: 'ai.error'; sessionId: string; error: string; raw: Record<string, unknown> }
   | { type: 'ai.steer.ack'; sessionId: string; messageId: string; result: string; error?: string; code?: string; raw: Record<string, unknown> }
   | { type: 'ai.command'; sessionId: string; messageId: string; itemId: string; status: string; command?: string; cwd?: string; exitCode?: number | null; eventId: string; raw: Record<string, unknown> }
@@ -475,6 +476,15 @@ class PlatformTransport {
         type: 'ai.error',
         sessionId: String(message.session_id ?? ''),
         error: String(message.error ?? message.detail ?? 'AI session failed'),
+        raw: message,
+      };
+    }
+
+    if (type === 'ai.status') {
+      return {
+        type: 'ai.status',
+        sessionId: String(message.session_id ?? ''),
+        status: String(message.status ?? message.current_step ?? ''),
         raw: message,
       };
     }
