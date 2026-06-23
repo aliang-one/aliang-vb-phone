@@ -1,7 +1,8 @@
 import {
+  discoverReachableBaseUrl,
   getPlatformServiceBaseUrl,
-  normalizeServiceBaseUrl,
-  PLATFORM_SERVICE_CANDIDATES,
+  isPlatformServiceReachable,
+  markPlatformServiceUnreachable,
   rememberPlatformServiceBaseUrl,
 } from '../config/localService';
 import {
@@ -133,46 +134,65 @@ export async function apiFetch<T = unknown>(
     ...fetchOptions,
     headers
   };
-  const preferred = await getPlatformServiceBaseUrl();
-  const candidates = Array.from(
-    new Set([preferred, ...PLATFORM_SERVICE_CANDIDATES].map(normalizeServiceBaseUrl)),
-  );
-  let lastError: unknown;
-
-  // Try every candidate base URL. An ApiResponseError (an HTTP status)
-  // propagates immediately to the retry wrapper below; a network error falls
-  // through to the next candidate and only surfaces if all are unreachable.
-  const runCandidates = async (): Promise<T> => {
-    for (const baseUrl of candidates) {
-      try {
-        const payload = await requestJson<T>(baseUrl, path, requestOptions, timeoutMs);
-        await rememberPlatformServiceBaseUrl(baseUrl);
-        return payload;
-      } catch (error) {
-        if (error instanceof ApiResponseError) throw error;
-        lastError = error;
+  // Send the real request to ONE base URL. An ApiResponseError (an HTTP
+  // status response) means the host is reachable — propagate it so the
+  // refresh-retry path below can handle session-invalid. A network error means
+  // this host is dead; mark it unreachable so the next call re-discovers
+  // instead of retrying the same dead host.
+  const sendTo = async (baseUrl: string): Promise<T> => {
+    try {
+      const payload = await requestJson<T>(baseUrl, path, requestOptions, timeoutMs);
+      await rememberPlatformServiceBaseUrl(baseUrl);
+      return payload;
+    } catch (error) {
+      if (!(error instanceof ApiResponseError)) {
+        markPlatformServiceUnreachable();
       }
+      throw error;
     }
-    const detail = lastError instanceof Error ? lastError.message : 'unknown error';
-    throw new Error(
-      `Unable to reach platform service. Tried ${candidates.join(', ')}. ${detail}`,
-    );
+  };
+
+  // Resolve a reachable base URL. Warm path: if reachability was confirmed this
+  // session, reuse the cached host with zero probe overhead. Cold path: race
+  // /health across every candidate IN PARALLEL (~2.5s worst case) instead of
+  // sending the real request to each host sequentially — the original code
+  // blocked for up to ~24s (3 candidates x 8s) when the server was
+  // unreachable, which was the multi-second freeze after creating a session.
+  // Discovery is GET /health only, so POSTs are never fanned out to hosts.
+  const resolveBaseUrl = async (): Promise<string> => {
+    if (isPlatformServiceReachable()) {
+      return await getPlatformServiceBaseUrl();
+    }
+    return discoverReachableBaseUrl();
+  };
+
+  const perform = async (): Promise<T> => {
+    const baseUrl = await resolveBaseUrl();
+    try {
+      return await sendTo(baseUrl);
+    } catch (error) {
+      if (error instanceof ApiResponseError) throw error;
+      // Network error despite resolveBaseUrl: the host died between the probe
+      // and the request (or the cached host went stale). Re-discover once and
+      // retry against the fresh winner; if discovery fails it throws the
+      // friendly "Unable to reach platform service" error.
+      const fresh = await discoverReachableBaseUrl();
+      return sendTo(fresh);
+    }
   };
 
   try {
-    return await runCandidates();
+    return await perform();
   } catch (error) {
-    // A session-invalid response (expired local session — e.g. the phone was
-    // offline past the session TTL) is recoverable: rotate the refresh_token
-    // once, which extends the session server-side, then retry the whole
-    // request. The token value is stable across refresh, so the retry re-reads
-    // the same (now-valid) token from the provider. `refreshSession` fires the
-    // teardown itself when refresh fails, so here we just rethrow. The refresh
-    // request sets `skipRefreshRetry` so a 401 from it can't recurse.
+    // A session-invalid response (expired local session) is recoverable: rotate
+    // the refresh_token once, which extends the session server-side, then retry.
+    // The access token is stable across refresh, so the retry re-reads the same
+    // (now-valid) token. `refreshSession` fires the teardown itself when refresh
+    // fails; `skipRefreshRetry` (set on the refresh request) prevents recursion.
     if (skipRefreshRetry || !isSessionInvalidError(error)) throw error;
     const refreshed = await refreshSession();
     if (!refreshed) throw error;
-    return runCandidates();
+    return perform();
   }
 }
 
@@ -192,6 +212,14 @@ export async function apiPatch<T = unknown>(path: string, body?: unknown, option
   return apiFetch<T>(path, {
     ...options,
     method: 'PATCH',
+    body: body ? JSON.stringify(body) : undefined
+  });
+}
+
+export async function apiPut<T = unknown>(path: string, body?: unknown, options: ApiFetchOptions = {}): Promise<T> {
+  return apiFetch<T>(path, {
+    ...options,
+    method: 'PUT',
     body: body ? JSON.stringify(body) : undefined
   });
 }

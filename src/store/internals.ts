@@ -354,6 +354,12 @@ export function serverProjectToClient(sp: PlatformProjectSnapshot): Project {
     detectedPorts: sp.detected_ports ?? [],
     sourceTools: sp.source_tools ?? [],
     availableCommands: sp.available_commands ?? [],
+    // Project-scoped approval policy (Phase B): mirror the server's scheme.
+    approvalScheme: sp.approval_policy?.scheme ?? 'balanced',
+    modelConfig: sp.model_config,
+    provider: sp.provider ?? undefined,
+    model: sp.model ?? undefined,
+    effort: sp.effort ?? undefined,
   };
 }
 
@@ -389,9 +395,9 @@ export function projectToScanResult(project: Project): ProjectScanResult {
 }
 
 export function aiSessionModelLabel(session: PlatformAiSessionSnapshot) {
-  const provider = (session.provider ?? session.tool ?? '').toLowerCase();
+  const provider = normalizeProvider(session.provider, session.tool);
   if (provider === 'codex') return session.model ?? 'GPT-5 Codex';
-  if (provider === 'claude' || provider === 'claudecode')
+  if (provider === 'claude_code')
     return session.model ?? 'Claude Code';
   return session.model ?? session.mode;
 }
@@ -456,6 +462,7 @@ export function serverAiSessionToVibeRun(
     model,
     effort: session.effort || undefined,
     provider: normalizeProvider(session.provider, session.tool),
+    effectiveModelConfig: session.effective_model_config ?? undefined,
     risk: session.risk ?? 'medium',
     currentStep: session.current_step ?? '',
     branch: session.branch ?? `agent/${session.session_id}`,
@@ -666,8 +673,10 @@ export function mergeVibeRunSnapshot(
   const existingActive = ACTIVE_RUN_STATUS.has(existing.status);
   const incomingDemotes =
     existingActive && !ACTIVE_RUN_STATUS.has(incoming.status);
+  const incomingFailure = incoming.status === 'failed';
   const staleDemotion =
     incomingDemotes &&
+    !incomingFailure &&
     (incoming.lastActivityMs ?? 0) <= (existing.lastActivityMs ?? 0);
   const transcript = incomingHasDetail
     ? mergeAgentMessages(existing.transcript, incoming.transcript)
@@ -689,6 +698,11 @@ export function mergeVibeRunSnapshot(
     // merge would wipe it and break idle demotion immediately.
     lastViewedAt: existing.lastViewedAt,
     transcriptPage: incoming.transcriptPage ?? existing.transcriptPage,
+    // effective_model_config is only attached to detail snapshots; keep the last
+    // known value when a partial list snapshot omits it, so the session-settings
+    // "当前有效" hint survives reconnect refreshes.
+    effectiveModelConfig:
+      incoming.effectiveModelConfig ?? existing.effectiveModelConfig,
     lastMessage:
       (incomingHasDetail
         ? transcript[transcript.length - 1] ?? incoming.lastMessage
@@ -1204,19 +1218,50 @@ export const projectBelongsToDevice = (
 ): boolean =>
   project.deviceId === device.id || device.projectIds.includes(project.id);
 
+/** Order-independent membership check for two string arrays. Lets the
+ *  relation-deriving helpers below keep a device's existing array (and object)
+ *  reference when the recomputed members are identical. Without this, every
+ *  re-derivation allocates a fresh array of fresh device objects, so
+ *  `state.devices` changes identity on every snapshot and zustand v5
+ *  (Object.is equality) re-renders all ~17 `state => state.devices`
+ *  subscribers even when nothing changed. */
+const sameStringMembers = (
+  a: string[] | undefined,
+  b: string[] | undefined,
+): boolean => {
+  if (a === b) return true;
+  // A snapshot device may arrive without projectIds/activeSessionIds yet.
+  // Treat a missing side as "different" so the field is (re)set to the computed
+  // array — matching the previous always-assign behavior.
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  const seen = new Set(b);
+  for (const id of a) {
+    if (!seen.has(id)) return false;
+  }
+  return true;
+};
+
 export const attachProjectIds = (
   devices: Device[],
   projects: Project[],
-): Device[] =>
-  devices.map(device => ({
-    ...device,
-    projectIds: mergeIds(
+): Device[] => {
+  let changed = false;
+  const next = devices.map(device => {
+    const computed = mergeIds(
       device.projectIds,
       projects
         .filter(project => projectBelongsToDevice(project, device))
         .map(project => project.id),
-    ),
-  }));
+    );
+    if (sameStringMembers(computed, device.projectIds)) {
+      return device;
+    }
+    changed = true;
+    return { ...device, projectIds: computed };
+  });
+  return changed ? next : devices;
+};
 
 export const attachActiveSessionIds = (
   devices: Device[],
@@ -1230,10 +1275,16 @@ export const attachActiveSessionIds = (
     sessionsByDevice.set(run.deviceId, [run.id, ...existing]);
   }
 
-  return devices.map(device => ({
-    ...device,
-    activeSessionIds: sessionsByDevice.get(device.id) ?? [],
-  }));
+  let changed = false;
+  const next = devices.map(device => {
+    const computed = sessionsByDevice.get(device.id) ?? [];
+    if (sameStringMembers(computed, device.activeSessionIds)) {
+      return device;
+    }
+    changed = true;
+    return { ...device, activeSessionIds: computed };
+  });
+  return changed ? next : devices;
 };
 
 export const attachDeviceRelations = (

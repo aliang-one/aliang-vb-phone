@@ -1,10 +1,12 @@
 import {
   summarizeMessage,
   deriveScrubberStops,
+  deriveTurnScrubberStops,
   pickStopAtFraction,
   tickScale,
 } from '../src/utils/conversationScrubber';
 import { buildDisplayTranscript } from '../src/utils/agentTranscript';
+import { buildConversationTurns } from '../src/utils/conversationTurns';
 import type { AgentMessage } from '../src/data/platformModels';
 
 const message = (
@@ -122,6 +124,29 @@ describe('conversationScrubber', () => {
       ]);
       const stops = deriveScrubberStops(transcript);
       expect(stops.map(stop => stop.timestamp)).toEqual(['10:01', '10:03']);
+    });
+  });
+
+  describe('deriveTurnScrubberStops', () => {
+    it('counts one user prompt plus many tool messages as one stop', () => {
+      const turns = buildConversationTurns(
+        buildDisplayTranscript([
+          message('1', 'user', 'Run the merge.'),
+          message('2', 'assistant', 'Checking status.'),
+          message('3', 'system', '<tool_use>git status</tool_use>'),
+          message('4', 'system', '<tool_result>clean</tool_result>'),
+          message('5', 'assistant', 'Done.'),
+        ]),
+      );
+
+      const stops = deriveTurnScrubberStops(turns);
+
+      expect(stops).toHaveLength(1);
+      expect(stops[0]).toMatchObject({
+        id: turns[0].id,
+        role: 'user',
+        preview: 'Run the merge.',
+      });
     });
   });
 

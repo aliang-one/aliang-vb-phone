@@ -1,15 +1,15 @@
 import type { ApprovalRequest } from '../store/types';
-import type { DisplayTranscriptMessage } from './agentTranscript';
+import type { ConversationTurn } from './conversationTurns';
 
 export const approvalTimelineItemId = (approvalId: string) =>
   `approval:${approvalId}`;
 
 export type ConversationTimelineItem =
   | {
-      kind: 'message';
+      kind: 'turn';
       id: string;
       timestamp: string;
-      message: DisplayTranscriptMessage;
+      turn: ConversationTurn;
     }
   | {
       kind: 'approval';
@@ -29,24 +29,24 @@ const parseTimestamp = (timestamp: string) => {
 };
 
 export const buildConversationTimeline = (
-  messages: DisplayTranscriptMessage[],
+  turns: ConversationTurn[],
   approvals: ApprovalRequest[],
 ): ConversationTimelineItem[] => {
   const items: SortableTimelineItem[] = [
-    ...messages.map((message, index) => ({
-      kind: 'message' as const,
-      id: `message:${message.id}`,
-      timestamp: message.timestamp,
-      message,
+    ...turns.map((turn, index) => ({
+      kind: 'turn' as const,
+      id: turn.id,
+      timestamp: turn.timestamp,
+      turn,
       order: index * 2,
-      timestampMs: parseTimestamp(message.timestamp),
+      timestampMs: parseTimestamp(turn.timestamp),
     })),
     ...approvals.map((approval, index) => ({
       kind: 'approval' as const,
       id: approvalTimelineItemId(approval.id),
       timestamp: approval.createdAt,
       approval,
-      order: messages.length * 2 + index,
+      order: turns.length * 2 + index,
       timestampMs: parseTimestamp(approval.createdAt),
     })),
   ];

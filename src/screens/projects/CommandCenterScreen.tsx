@@ -342,10 +342,6 @@ export const CommandCenterScreen: React.FC = () => {
     ],
   };
 
-  const getProject = (projectId: string) =>
-    projects.find(project => project.id === projectId);
-  const getDevice = (deviceId: string) =>
-    devices.find(device => device.id === deviceId);
   const getProjectDevice = (project: Project) =>
     devices.find(device => device.id === project.deviceId) ??
     devices.find(device => device.projectIds.includes(project.id));
@@ -842,16 +838,9 @@ export const CommandCenterScreen: React.FC = () => {
           <VibeSessionCard
             key={session.id}
             session={session}
-            project={getProject(session.projectId)}
-            device={getDevice(session.deviceId)}
             disabled={isDeviceStatusOffline(
               deviceStatusIndex.get(session.deviceId),
             )}
-            onPress={() =>
-              navigation.navigate('VibeCodingSession', {
-                sessionId: session.id,
-              })
-            }
           />
         ))}
         <LoadMoreRow

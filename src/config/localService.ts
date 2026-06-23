@@ -40,6 +40,20 @@ const timeout = (ms: number) =>
   });
 
 let resolvedPlatformServiceBaseUrl: string | null = null;
+// Whether the resolved base URL has been confirmed reachable this session
+// (via a /health probe or a successful request). Reset on network failure so
+// the next call re-discovers instead of blocking on a dead host.
+let platformServiceReachable = false;
+
+export function isPlatformServiceReachable(): boolean {
+  return platformServiceReachable;
+}
+
+// Mark the cached host unreachable (e.g. a request just failed with a network
+// error). The next apiFetch will re-run discovery instead of reusing it.
+export function markPlatformServiceUnreachable(): void {
+  platformServiceReachable = false;
+}
 
 export function normalizeServiceBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, '');
@@ -146,3 +160,73 @@ export const checkPlatformService = async (
     message: `Unable to reach platform service. Tried ${candidates.join(', ')}`,
   };
 };
+
+// Per-candidate probe timeout for discovery. Kept short (and parallel) so a
+// dead platform service fails fast instead of blocking the UI for the full
+// per-host request timeout on every candidate sequentially (~24s before).
+const DISCOVERY_TIMEOUT_MS = 2500;
+
+// Dependency-free Promise.any: resolves with the first fulfilled promise,
+// rejects only when ALL reject. Avoids relying on Promise.any (ES2021) being
+// available on every RN JS engine.
+function anyResolve<T>(promises: Array<Promise<T>>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let pending = promises.length;
+    if (pending === 0) {
+      reject(new Error('no platform service candidates'));
+      return;
+    }
+    promises.forEach(promise => {
+      promise.then(resolve, () => {
+        pending -= 1;
+        if (pending === 0) {
+          reject(new Error('all platform service candidates unreachable'));
+        }
+      });
+    });
+  });
+}
+
+// Probe ONE candidate's /health. Resolves to the base URL when reachable,
+// rejects otherwise. GET /health is side-effect-free and unauthenticated, so
+// it is safe to fire across every candidate in parallel.
+async function probeHealth(baseUrl: string, timeoutMs: number): Promise<string> {
+  const normalized = normalizeServiceBaseUrl(baseUrl);
+  const response = await Promise.race([
+    fetch(`${normalized}/health`, { method: 'GET' }),
+    timeout(timeoutMs),
+  ]);
+  if (!response.ok) {
+    throw new Error(`${normalized} responded HTTP ${response.status}`);
+  }
+  return normalized;
+}
+
+// Discover a reachable platform service by racing /health across every
+// candidate IN PARALLEL. The fastest reachable host wins and is cached for
+// subsequent calls. Throws a friendly "Unable to reach platform service"
+// error if none respond — bounded by `timeoutMs` (default ~2.5s) rather than
+// the old sequential per-host real-request timeout.
+//
+// This is discovery ONLY: the real (possibly POST) request is sent to the
+// single winner afterwards by the caller, so non-idempotent requests are
+// never fanned out to multiple hosts.
+export async function discoverReachableBaseUrl(
+  timeoutMs: number = DISCOVERY_TIMEOUT_MS,
+): Promise<string> {
+  const preferred = await getPlatformServiceBaseUrl();
+  const candidates = Array.from(
+    new Set([preferred, ...PLATFORM_SERVICE_CANDIDATES].map(normalizeServiceBaseUrl)),
+  );
+  try {
+    const winner = await anyResolve(
+      candidates.map(base => probeHealth(base, timeoutMs)),
+    );
+    await rememberPlatformServiceBaseUrl(winner);
+    platformServiceReachable = true;
+    return winner;
+  } catch {
+    platformServiceReachable = false;
+    throw new Error(`Unable to reach platform service. Tried ${candidates.join(', ')}`);
+  }
+}

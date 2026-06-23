@@ -1,3 +1,6 @@
+import type { ApprovalScheme } from '../api/devices';
+import type { ProjectProviderModelConfig } from '../api/modelConfig';
+
 export interface Project {
   id: string;
   name: string;
@@ -18,6 +21,14 @@ export interface Project {
   sourceTools?: string[];
   /** Effective `/`-command surface for this project (project > user > builtin). */
   availableCommands?: AgentCommandInfo[];
+  /** Active approval-policy scheme (project-scoped; defaults to balanced). */
+  approvalScheme?: ApprovalScheme;
+  /** Project-scoped model/effort selections keyed by provider tab. */
+  modelConfig?: ProjectProviderModelConfig;
+  /** Legacy single-provider override from older server payloads. */
+  provider?: 'codex' | 'claude_code';
+  model?: string;
+  effort?: string;
 }
 
 export interface TerminalNode {
@@ -157,6 +168,22 @@ export interface VibeCodingRun {
    * that lack the field — callers apply a sensible default.
    */
   provider?: 'codex' | 'claude_code';
+  /**
+   * Server-resolved effective model config (the concrete provider/model/effort
+   * the agent runs with + each field's provenance). Surfaced read-only in the
+   * session settings as "当前有效". Undefined when the server snapshot didn't
+   * attach it. Mirrors `EffectiveModelConfig` (api/modelConfig.ts).
+   */
+  effectiveModelConfig?: {
+    provider?: string | null;
+    model?: string | null;
+    effort?: string | null;
+    source?: {
+      provider?: string;
+      model?: string;
+      effort?: string;
+    };
+  };
   risk: 'low' | 'medium' | 'high';
   currentStep: string;
   branch: string;

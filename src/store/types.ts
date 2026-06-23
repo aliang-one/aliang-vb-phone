@@ -295,6 +295,7 @@ export interface ControlCenterState {
     options?: { refresh?: boolean },
   ) => Promise<void>;
   loadEarlierAgentMessages: (sessionId: string) => Promise<void>;
+  interruptAgentSession: (sessionId: string) => Promise<void>;
   pauseAgentSession: (sessionId: string) => Promise<void>;
   resumeAgentSession: (sessionId: string) => Promise<void>;
   terminateAgentSession: (sessionId: string) => Promise<void>;

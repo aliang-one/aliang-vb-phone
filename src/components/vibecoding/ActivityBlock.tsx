@@ -30,14 +30,21 @@ export interface ActivityBlockProps {
     eventId: string,
     detail: { text?: string; truncated?: boolean },
   ) => void;
+  /**
+   * L2:这一回合是否已经 settle(球回到用户)。仅影响空档兜底标题:
+   *  - true(默认,历史回合 / 已结束)→ 「已完成」
+   *  - false(最新回合仍在流式,处于两次 API 请求的空档)→ 「处理中…」
+   * 由 TranscriptMessageList 按 liveMessageId 计算。
+   */
+  turnSettled?: boolean;
 }
 
 export const ActivityBlock: React.FC<ActivityBlockProps> = React.memo(
-  ({ sessionId, events, detailCache, onCacheDetail }) => {
+  ({ sessionId, events, detailCache, onCacheDetail, turnSettled = true }) => {
     const { theme } = useTheme();
     const [expanded, setExpanded] = useState(false);
 
-    const summary = summarizeActivity(events);
+    const summary = summarizeActivity(events, turnSettled);
     if (!summary) return null;
 
     const metaParts: string[] = [];

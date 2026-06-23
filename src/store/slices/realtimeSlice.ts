@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand';
 import { platformTransport } from '../../services/platformTransport';
 import { cancelDeltaBatch, cancelRefreshDebounce } from '../streaming';
+import { cancelTerminalBatch } from '../terminalBatching';
 import type { ControlCenterState } from '../types';
 import { emptySessionData, stateFromSnapshot } from '../internals';
 
@@ -41,6 +42,7 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
   initializeFromServer: async (token) => {
     platformTransport.disconnect();
     cancelDeltaBatch();
+    cancelTerminalBatch();
     cancelRefreshDebounce();
     set(state => {
       const hasResidentData =
@@ -125,6 +127,7 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
   disconnectFromServer: () => {
     platformTransport.disconnect();
     cancelDeltaBatch();
+    cancelTerminalBatch();
     cancelRefreshDebounce();
     set({ wsConnected: false, serverMode: false });
   },
@@ -132,6 +135,7 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
   resetSessionData: () => {
     platformTransport.disconnect();
     cancelDeltaBatch();
+    cancelTerminalBatch();
     cancelRefreshDebounce();
     set({
       ...emptySessionData(),

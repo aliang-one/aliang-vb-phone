@@ -9,11 +9,16 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { Device, Project, VibeCodingRun } from '../../data/platformModels';
+import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../../theme/useTheme';
 import { GlassPanel } from '../shared/GlassPanel';
 import { StatusChip } from '../shared/StatusChip';
 import { vibeStatusLabel, vibeStatusType } from './status';
-import { useControlCenterStore } from '../../store/controlCenterStore';
+import {
+  useControlCenterStore,
+  useDevice,
+  useProject,
+} from '../../store/controlCenterStore';
 import { formatActivityLabel } from '../../store/internals';
 import { useNowTick } from '../../hooks/useNowTick';
 import { IconBadge } from '../visual/IconBadge';
@@ -37,8 +42,34 @@ interface VibeSessionCardProps {
 }
 
 export const VibeSessionCard = React.memo<VibeSessionCardProps>(
-  ({ session, project, device, onPress, homeFocus = false, disabled = false }) => {
+  ({
+    session,
+    project: projectProp,
+    device: deviceProp,
+    onPress,
+    homeFocus = false,
+    disabled = false,
+  }) => {
     const { theme, isDark } = useTheme();
+    const navigation = useNavigation();
+    // Self-sufficient: derive project/device from the store so parent list
+    // screens don't pass inline `.find()` results (a fresh reference each
+    // render would defeat this React.memo during streaming). The optional
+    // props still override for callers that already hold a stable value.
+    const projectFromStore = useProject(session.projectId);
+    const deviceFromStore = useDevice(session.deviceId);
+    const project = projectProp ?? projectFromStore;
+    const device = deviceProp ?? deviceFromStore;
+    // Default press opens this session's conversation. Parents no longer pass
+    // an inline onPress closure (also a fresh reference each render → memo
+    // defeat); `onPress` is kept as an optional override.
+    const handlePress = () => {
+      if (onPress) {
+        onPress();
+      } else {
+        navigation.navigate('VibeCodingSession', { sessionId: session.id });
+      }
+    };
     const [menuVisible, setMenuVisible] = useState(false);
     const [detailsVisible, setDetailsVisible] = useState(false);
     const [notice, setNotice] = useState('');
@@ -219,7 +250,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
     return (
       <>
         <TouchableOpacity
-          onPress={onPress}
+          onPress={handlePress}
           onLongPress={() => {
             setNotice('');
             setConfirmTerminate(false);

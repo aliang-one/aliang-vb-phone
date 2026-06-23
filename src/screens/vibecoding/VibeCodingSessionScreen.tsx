@@ -13,9 +13,8 @@ import {
   RefreshControl,
   TouchableOpacity,
   ActivityIndicator,
-  Animated,
-  Easing,
-  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from 'react-native';
@@ -34,10 +33,7 @@ import { MessageComposer } from '../../components/vibecoding/MessageComposer';
 import { mergeCommands } from '../../utils/agentCommands';
 import { TranscriptMessageList } from '../../components/vibecoding/TranscriptMessageList';
 import { ConversationScrubber } from '../../components/vibecoding/ConversationScrubber';
-import {
-  vibeStatusLabel,
-  vibeStatusType,
-} from '../../components/vibecoding/status';
+import { ResolvedApprovalsGroup } from '../../components/vibecoding/ResolvedApprovalsGroup';
 import { RootStackParamList } from '../../app/navigation/types';
 import {
   useControlCenterStore,
@@ -49,20 +45,41 @@ import {
 } from '../../store/controlCenterStore';
 import type { ApprovalRequest } from '../../store/controlCenterStore';
 import { IconBadge, IconName } from '../../components/visual/IconBadge';
-import type { AgentBudgetInfo, VibeCodingRun } from '../../data/platformModels';
+import type {
+  AgentBudgetInfo,
+  StructuredActivityEvent,
+  VibeCodingRun,
+} from '../../data/platformModels';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import {
+  catalogEffortOptions,
+  useModelOptions,
+} from '../../hooks/useModelOptions';
 import { buildDisplayTranscript } from '../../utils/agentTranscript';
 import {
   approvalTimelineItemId,
   buildConversationTimeline,
 } from '../../utils/conversationTimeline';
-import { deriveScrubberStops } from '../../utils/conversationScrubber';
+import { deriveTurnScrubberStops } from '../../utils/conversationScrubber';
+import {
+  buildConversationTurns,
+} from '../../utils/conversationTurns';
+import {
+  deriveSessionPhase,
+  liveAssistantMessageId,
+  sessionPhaseLabel,
+  sessionPhaseType,
+} from '../../utils/sessionPhase';
+import { deriveLivePulse } from '../../utils/activitySummary';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
+import { useNowTick } from '../../hooks/useNowTick';
 import { useVoiceStt } from '../../hooks/useVoiceStt';
+import { normalizeProvider } from '../../utils/modelIntensity';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type SessionRoute = RouteProp<RootStackParamList, 'VibeCodingSession'>;
+type MessageTimelinePosition = 'single' | 'start' | 'middle' | 'end';
 
 // During streaming the store updates on a ~60ms cadence; driving scroll-driven
 // state at 60fps on top of that re-runs the conversation-rail computation every
@@ -76,6 +93,7 @@ const SCROLL_THROTTLE_MS = 80;
 // (fetchAiSession); this race is the safety net on top.
 const DETAIL_LOAD_TIMEOUT_MS = 15000;
 const SCROLL_FOLLOW_THRESHOLD = 180;
+const EMPTY_ACTIVITY_EVENTS: StructuredActivityEvent[] = [];
 
 const eventIcon: Record<string, IconName> = {
   command: 'terminal',
@@ -93,6 +111,12 @@ const formatBudget = (budget?: AgentBudgetInfo) =>
       }${budget.limit}`
     : '';
 
+const hasActivityMessageId = (
+  event: StructuredActivityEvent,
+): event is Extract<StructuredActivityEvent, { messageId: string }> =>
+  'messageId' in event &&
+  typeof (event as { messageId?: unknown }).messageId === 'string';
+
 // Splits a formatted session title ("Subject · meta · meta …" — the parts are
 // joined by formatVibeSessionTitle with ' · ') into a primary subject and a
 // metadata tail. Drives the tiered title rendering: head = large caps, tail =
@@ -105,6 +129,16 @@ const splitSessionTitle = (title: string): { head: string; tail: string } => {
     head: title.slice(0, idx).trim(),
     tail: title.slice(idx + 3).trim(),
   };
+};
+
+const formatConversationBoundaryTime = (timestamp?: string) => {
+  if (!timestamp) return '';
+  const ms = Date.parse(timestamp);
+  if (!Number.isFinite(ms)) return timestamp;
+  const date = new Date(ms);
+  return `${date.getMonth() + 1}/${date.getDate()} ${String(
+    date.getHours(),
+  ).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 };
 
 export const VibeCodingSessionScreen: React.FC = () => {
@@ -145,6 +179,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const appendAgentMessage = useControlCenterStore(
     state => state.appendAgentMessage,
   );
+  const interruptAgentSession = useControlCenterStore(
+    state => state.interruptAgentSession,
+  );
   const markSessionViewed = useControlCenterStore(
     state => state.markSessionViewed,
   );
@@ -176,6 +213,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const [input, setInput] = useState('');
   const [voiceDraft, setVoiceDraft] = useState('');
   const voiceStt = useVoiceStt();
+  const { providerCatalog } = useModelOptions();
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState('');
   // Drives the ScrollView's RefreshControl. Pull-to-refresh forces a server
@@ -192,42 +230,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const [noMoreEarlierHint, setNoMoreEarlierHint] = useState(false);
   const [scrollY, setScrollY] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
-
-  // iOS slides the soft keyboard over the app without resizing the window, so the
-  // docked input bar (position:absolute; bottom:0) would otherwise hide behind it.
-  // Android uses windowSoftInputMode=adjustResize (resizes the window for us); these
-  // keyboardWill* events don't fire there, so the offset stays 0 on Android.
-  const keyboardOffset = useRef(new Animated.Value(0)).current;
-  const [keyboardSpace, setKeyboardSpace] = useState(0);
-  useEffect(() => {
-    const showSub = Keyboard.addListener('keyboardWillShow', e => {
-      const h = e.endCoordinates.height;
-      // Grow the message-list bottom inset so new replies stay scrollable above
-      // the lifted bar; lift the bar itself via a native-driver translateY.
-      setKeyboardSpace(h);
-      Animated.timing(keyboardOffset, {
-        toValue: -h,
-        duration: e.duration || 250,
-        easing: Easing.out(Easing.ease),
-        useNativeDriver: true,
-        isInteraction: false,
-      }).start();
-    });
-    const hideSub = Keyboard.addListener('keyboardWillHide', e => {
-      setKeyboardSpace(0);
-      Animated.timing(keyboardOffset, {
-        toValue: 0,
-        duration: e.duration || 200,
-        easing: Easing.in(Easing.ease),
-        useNativeDriver: true,
-        isInteraction: false,
-      }).start();
-    });
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, [keyboardOffset]);
 
   const scrollViewRef = useRef<ScrollView | null>(null);
   const scrollYRef = useRef(0);
@@ -257,6 +259,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     prevTop: number;
   } | null>(null);
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [interruptingTurn, setInterruptingTurn] = useState(false);
   const [toolsMenuVisible, setToolsMenuVisible] = useState(false);
   const [resolvingApproval, setResolvingApproval] = useState<{
     id: string;
@@ -308,12 +311,44 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const [timelineExpanded, setTimelineExpanded] = useState(false);
   const [titleExpanded, setTitleExpanded] = useState(false);
   // Conversation scrubber (the right-edge magnifier locator). `pendingJumpId`
-  // holds the message we must scroll to once showAll() has mounted it.
+  // targets already-mounted timeline items; older history loads in chunks.
   const [pendingJumpId, setPendingJumpId] = useState<string | null>(null);
   const targetSessionId = session?.id ?? route.params.sessionId;
   const transcript = useMemo(
     () => buildDisplayTranscript(session?.transcript ?? []),
     [session?.transcript],
+  );
+  const activityEventsByMessageId = useMemo(() => {
+    const byMessageId = new Map<string, StructuredActivityEvent[]>();
+    for (const event of session?.structuredEvents ?? EMPTY_ACTIVITY_EVENTS) {
+      if (!hasActivityMessageId(event)) continue;
+      const list = byMessageId.get(event.messageId);
+      if (list) {
+        list.push(event);
+      } else {
+        byMessageId.set(event.messageId, [event]);
+      }
+    }
+    return byMessageId;
+  }, [session?.structuredEvents]);
+  const activityEventsByDisplayMessageId = useMemo(() => {
+    const byDisplayMessageId = new Map<string, StructuredActivityEvent[]>();
+    for (const message of transcript) {
+      if (message.role !== 'assistant') continue;
+      const events: StructuredActivityEvent[] = [];
+      for (const messageId of message.sourceMessageIds) {
+        const sourceEvents = activityEventsByMessageId.get(messageId);
+        if (sourceEvents) events.push(...sourceEvents);
+      }
+      if (events.length) {
+        byDisplayMessageId.set(message.id, events);
+      }
+    }
+    return byDisplayMessageId;
+  }, [activityEventsByMessageId, transcript]);
+  const conversationTurns = useMemo(
+    () => buildConversationTurns(transcript),
+    [transcript],
   );
   const visibleSessionEvents = useMemo(
     () =>
@@ -322,7 +357,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
       ),
     [session?.events],
   );
-  const transcriptList = useIncrementalList(transcript, {
+  const turnList = useIncrementalList(conversationTurns, {
     initialCount: 12,
     step: 12,
     from: 'end',
@@ -336,7 +371,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   });
   // sessionApprovals now comes from the useSessionApprovals selector above;
   // no need to re-derive here.
-  const visibleTranscript = transcriptList.visibleItems;
+  const visibleTurns = turnList.visibleItems;
   const visibleAgentEvents = agentEventList.visibleItems;
   const latestAgentEvent =
     visibleSessionEvents[visibleSessionEvents.length - 1];
@@ -356,17 +391,17 @@ export const VibeCodingSessionScreen: React.FC = () => {
       latest.content.length,
     ].join(':');
   }, [session, targetSessionId]);
-  const visibleTranscriptLayoutKey = useMemo(
-    () => visibleTranscript.map(message => message.id).join('|'),
-    [visibleTranscript],
+  const visibleTurnLayoutKey = useMemo(
+    () => visibleTurns.map(turn => turn.id).join('|'),
+    [visibleTurns],
   );
-  const visibleTranscriptIds = useMemo(
-    () => new Set(visibleTranscript.map(message => message.id)),
-    [visibleTranscript],
+  const visibleTurnIds = useMemo(
+    () => new Set(visibleTurns.map(turn => turn.id)),
+    [visibleTurns],
   );
-  const activeRailMessageId = useMemo(() => {
-    if (!visibleTranscript.length) return undefined;
-    const fallbackId = visibleTranscript[visibleTranscript.length - 1]?.id;
+  const activeRailTurnId = useMemo(() => {
+    if (!visibleTurns.length) return undefined;
+    const fallbackId = visibleTurns[visibleTurns.length - 1]?.id;
     if (!viewportHeight) return fallbackId;
 
     const focusY =
@@ -374,15 +409,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
     let activeId = fallbackId;
     let activeDistance = Number.POSITIVE_INFINITY;
 
-    for (const message of visibleTranscript) {
-      const layout = messageLayouts[message.id];
+    for (const turn of visibleTurns) {
+      const layout = messageLayouts[turn.id];
       if (!layout) continue;
       // Absolute position in the scroll content = container offset + message offset.
       const center = conversationTop + layout.top + layout.height / 2;
       const distance = Math.abs(center - focusY);
       if (distance < activeDistance) {
         activeDistance = distance;
-        activeId = message.id;
+        activeId = turn.id;
       }
     }
 
@@ -391,25 +426,25 @@ export const VibeCodingSessionScreen: React.FC = () => {
     messageLayouts,
     scrollY,
     viewportHeight,
-    visibleTranscript,
+    visibleTurns,
     conversationTop,
   ]);
   const conversationRailItems = useMemo(() => {
-    if (!transcript.length) return [];
+    if (!visibleTurns.length) return [];
     const maxMarks = 16;
-    const activeIndex = activeRailMessageId
-      ? transcript.findIndex(message => message.id === activeRailMessageId)
+    const activeIndex = activeRailTurnId
+      ? visibleTurns.findIndex(turn => turn.id === activeRailTurnId)
       : -1;
     const indices = new Set<number>();
 
-    if (transcript.length <= maxMarks) {
-      transcript.forEach((_, index) => indices.add(index));
+    if (visibleTurns.length <= maxMarks) {
+      visibleTurns.forEach((_, index) => indices.add(index));
     } else {
       const slots = activeIndex >= 0 ? maxMarks - 1 : maxMarks;
       const denominator = Math.max(1, slots - 1);
       for (let index = 0; index < slots; index += 1) {
         indices.add(
-          Math.round((index * (transcript.length - 1)) / denominator),
+          Math.round((index * (visibleTurns.length - 1)) / denominator),
         );
       }
       if (activeIndex >= 0) indices.add(activeIndex);
@@ -418,41 +453,42 @@ export const VibeCodingSessionScreen: React.FC = () => {
     return Array.from(indices)
       .sort((left, right) => left - right)
       .map(index => {
-        const message = transcript[index];
+        const turn = visibleTurns[index];
         return {
-          message,
-          active: message.id === activeRailMessageId,
-          visible: visibleTranscriptIds.has(message.id),
+          turn,
+          active: turn.id === activeRailTurnId,
+          visible: visibleTurnIds.has(turn.id),
         };
       });
-  }, [activeRailMessageId, transcript, visibleTranscriptIds]);
-  const scrubberStops = useMemo(() => deriveScrubberStops(transcript), [
-    transcript,
-  ]);
+  }, [activeRailTurnId, visibleTurns, visibleTurnIds]);
+  const scrubberStops = useMemo(
+    () => deriveTurnScrubberStops(visibleTurns),
+    [visibleTurns],
+  );
   // The user-turn stop nearest the viewport's focus message — the scrubber's
   // idle preview position. Falls back to the latest stop when the active
   // message can't be resolved (e.g. before any layout has landed).
   const activeScrubberStopId = useMemo(() => {
     if (!scrubberStops.length) return undefined;
     const fallbackId = scrubberStops[scrubberStops.length - 1].id;
-    if (!activeRailMessageId) return fallbackId;
-    const activeIndex = transcript.findIndex(
-      message => message.id === activeRailMessageId,
+    if (!activeRailTurnId) return fallbackId;
+    const activeIndex = visibleTurns.findIndex(
+      turn => turn.id === activeRailTurnId,
     );
     if (activeIndex < 0) return fallbackId;
     const stopIds = new Set(scrubberStops.map(stop => stop.id));
     let nearestId = fallbackId;
     let nearestDistance = Number.POSITIVE_INFINITY;
-    transcript.forEach((message, index) => {
-      if (!stopIds.has(message.id)) return;
+    visibleTurns.forEach((turn, index) => {
+      if (!stopIds.has(turn.id)) return;
       const distance = Math.abs(index - activeIndex);
       if (distance < nearestDistance) {
         nearestDistance = distance;
-        nearestId = message.id;
+        nearestId = turn.id;
       }
     });
     return nearestId;
-  }, [scrubberStops, activeRailMessageId, transcript]);
+  }, [scrubberStops, activeRailTurnId, visibleTurns]);
 
   // First-fetch guard: skip the auto-load only when we already hold the
   // transcript detail (a prior fetch set detailLoadedAt, or a hot window
@@ -542,7 +578,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // once older messages are prepended above (otherwise prepending content
   // shoves what the user is reading down / out of view).
   const capturePreserveFocus = useCallback(() => {
-    const focusId = visibleTranscript[0]?.id;
+    const focusId = visibleTurns[0]?.id;
     const focusLayout = focusId ? messageLayouts[focusId] : undefined;
     if (!focusId || !focusLayout) return;
     preserveFocusRef.current = {
@@ -553,15 +589,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
       ),
       prevTop: focusLayout.top,
     };
-  }, [conversationTop, messageLayouts, visibleTranscript]);
+  }, [conversationTop, messageLayouts, visibleTurns]);
 
   const handleLoadEarlierMessages = useCallback(async () => {
     if (!targetSessionId || loadingEarlier) return;
-    if (transcriptList.hasMore) {
+    if (turnList.hasMore) {
       // Reveal more of the locally-held transcript (no network). Pin first so
       // the newly revealed older messages appear above without a viewport jump.
       capturePreserveFocus();
-      transcriptList.showMore();
+      turnList.showMore();
       return;
     }
     if (hasServerEarlierMessages) {
@@ -570,7 +606,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
       setDetailError('');
       try {
         await loadEarlierAgentMessages(targetSessionId);
-        transcriptList.showMore();
+        turnList.showMore();
       } catch (error) {
         preserveFocusRef.current = null;
         setDetailError(
@@ -589,7 +625,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     loadEarlierAgentMessages,
     loadingEarlier,
     targetSessionId,
-    transcriptList,
+    turnList,
   ]);
 
   // Pull-to-refresh dispatcher. In a chat, pulling at the top = "load earlier
@@ -601,7 +637,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   //     fall back to a forced agent refresh to recover the latest snapshot.
   const handleRefresh = useCallback(async () => {
     if (!targetSessionId) return;
-    if (transcriptList.hasMore || hasServerEarlierMessages) {
+    if (turnList.hasMore || hasServerEarlierMessages) {
       setRefreshing(true);
       try {
         await handleLoadEarlierMessages();
@@ -627,11 +663,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
     hasServerEarlierMessages,
     session?.transcript.length,
     targetSessionId,
-    transcriptList,
+    turnList,
   ]);
 
   useEffect(() => {
-    const visibleIds = new Set(visibleTranscript.map(message => message.id));
+    const visibleIds = new Set(visibleTurns.map(turn => turn.id));
     setMessageLayouts(current => {
       const next: Record<string, { top: number; height: number }> = {};
       for (const [itemId, layout] of Object.entries(current)) {
@@ -644,7 +680,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
       }
       return next;
     });
-  }, [targetSessionId, visibleTranscript, visibleTranscriptLayoutKey]);
+  }, [targetSessionId, visibleTurns, visibleTurnLayoutKey]);
 
   useEffect(() => {
     setTimelineExpanded(false);
@@ -708,7 +744,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     [],
   );
 
-  const handleConversationItemLayout = (
+  const handleConversationItemLayout = useCallback((
     itemId: string,
     y: number,
     height: number,
@@ -727,33 +763,38 @@ export const VibeCodingSessionScreen: React.FC = () => {
       }
       return { ...current, [itemId]: { top: y, height } };
     });
-  };
+  }, []);
+  // Stable callback so TranscriptMessageList's React.memo isn't defeated by a
+  // fresh inline closure on every render.
+  const handleCacheActivityDetail = useCallback(
+    (eventId: string, detail: { text?: string; truncated?: boolean }) => {
+      const sessionId = session?.id;
+      if (!sessionId) return;
+      cacheStructuredDetail(sessionId, eventId, detail);
+    },
+    [cacheStructuredDetail, session?.id],
+  );
 
-  // User settled on a scrubber stop → jump the chat there. Mount the whole
-  // transcript first (off-screen targets carry no layout otherwise), then the
-  // pendingJump effect below performs the scroll once the target is laid out.
+  // User settled on a visible scrubber stop → jump there. The scrubber samples
+  // only mounted turns; older history still comes in via LOAD EARLIER, avoiding
+  // a long-session showAll() that can freeze the JS thread.
   const handleScrubberCommit = (stopId: string) => {
     followTailRef.current = false;
-    if (transcriptList.hasMore) {
-      transcriptList.showAll();
-    }
     setPendingJumpId(stopId);
   };
 
   useEffect(() => {
     if (!pendingJumpId) return;
-    // Hold off until showAll has finished mounting (the LoadMoreRow above the
-    // messages collapses and re-lays-out everything) AND the target's own
-    // layout has landed — otherwise we'd scroll to a stale offset.
-    if (transcriptList.hasMore) return;
     const layout = messageLayouts[pendingJumpId];
-    if (!layout) return;
+    if (!layout) {
+      setPendingJumpId(null);
+      return;
+    }
     const y = conversationTop + layout.top;
     scrollViewRef.current?.scrollTo({ y: Math.max(0, y), animated: false });
     setPendingJumpId(null);
   }, [
     pendingJumpId,
-    transcriptList.hasMore,
     messageLayouts,
     conversationTop,
   ]);
@@ -777,7 +818,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     );
     preserveFocusRef.current = null;
     scrollViewRef.current?.scrollTo({ y: targetY, animated: false });
-  }, [messageLayouts, conversationTop, visibleTranscriptLayoutKey]);
+  }, [messageLayouts, conversationTop, visibleTurnLayoutKey]);
 
   // Auto-dismiss the "已是最早消息" notice shortly after it appears.
   useEffect(() => {
@@ -787,13 +828,28 @@ export const VibeCodingSessionScreen: React.FC = () => {
   }, [noMoreEarlierHint]);
 
   const deviceOffline = device?.status === 'offline';
+  const effectiveProvider = normalizeProvider(
+    session?.effectiveModelConfig?.provider ?? session?.provider,
+  );
+  const isConversationActiveForInput =
+    session?.status === 'running' || session?.status === 'waiting_approval';
+  const shouldDisableComposerForProvider =
+    isConversationActiveForInput && effectiveProvider === 'claude_code';
 
   const appendUserMessage = async (
     content: string,
     messageMode: 'voice' | 'text',
   ) => {
     const normalizedContent = content.trim();
-    if (!session || !normalizedContent || sendLockRef.current) return false;
+    if (
+      !session ||
+      session.status === 'failed' ||
+      shouldDisableComposerForProvider ||
+      !normalizedContent ||
+      sendLockRef.current
+    ) {
+      return false;
+    }
     const sendKey = `${session.id}:${messageMode}:${normalizedContent}`;
     sendLockRef.current = sendKey;
     pendingScrollToEndRef.current = true;
@@ -816,7 +872,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   };
 
   const handleVoiceCaptureStart = useCallback(() => {
-    if (deviceOffline) return;
+    if (deviceOffline || shouldDisableComposerForProvider) return;
     if (
       voiceStt.status === 'recording' ||
       voiceStt.status === 'connecting' ||
@@ -834,7 +890,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
         }
       },
     });
-  }, [deviceOffline, voiceStt, session, project]);
+  }, [deviceOffline, shouldDisableComposerForProvider, voiceStt, session, project]);
 
   const handleVoiceCaptureEnd = useCallback(() => {
     if (deviceOffline) return;
@@ -856,7 +912,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // 方案A：转写结果直接发送，不经 AI 润色。
   const handleSendVoice = () => {
     const draft = voiceDraft.trim();
-    if (deviceOffline || !draft || sendingMessage) {
+    if (deviceOffline || shouldDisableComposerForProvider || !draft || sendingMessage) {
       return;
     }
     void appendUserMessage(draft, 'voice')
@@ -871,7 +927,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   };
 
   const handleSendText = () => {
-    if (deviceOffline) return;
+    if (deviceOffline || shouldDisableComposerForProvider) return;
     const nextInput = input.trim();
     if (!nextInput || sendingMessage) {
       return;
@@ -993,10 +1049,111 @@ export const VibeCodingSessionScreen: React.FC = () => {
     session,
     sessionApprovals,
   ]);
-  const conversationItems = useMemo(
-    () => buildConversationTimeline(visibleTranscript, approvals),
-    [approvals, visibleTranscript],
+  const pendingApprovals = useMemo(
+    () => approvals.filter(approval => approval.status === 'pending'),
+    [approvals],
   );
+  // 已处理(approved / denied)审批:不再进对话时间线,由末尾的折叠组承载,省屏幕空间。
+  const resolvedApprovals = useMemo(
+    () => approvals.filter(approval => approval.status !== 'pending'),
+    [approvals],
+  );
+  const topPendingApproval = pendingApprovals[0];
+  const conversationItems = useMemo(
+    () => buildConversationTimeline(visibleTurns, pendingApprovals),
+    [pendingApprovals, visibleTurns],
+  );
+
+  const handleJumpToApproval = useCallback(
+    (approvalId: string) => {
+      const timelineId = approvalTimelineItemId(approvalId);
+      if (!conversationItems.some(item => item.id === timelineId)) return;
+      followTailRef.current = false;
+      setPendingJumpId(timelineId);
+    },
+    [conversationItems],
+  );
+
+  // --- 状态层级派生(L1 整体 / L2 回合 / L3 步骤) ---
+  // useNowTick 每 30s 触发一次重算,驱动「live 回合 → settle」的翻转
+  // (数据流期间 delta 每 60ms 自带重渲染,窗口判定始终新鲜)。
+  const now = useNowTick();
+  const liveMessageId = useMemo(
+    () =>
+      liveAssistantMessageId(
+        session?.transcript ?? [],
+        session?.lastActivityMs,
+        now,
+      ),
+    [session?.lastActivityMs, session?.transcript, now],
+  );
+  const isLiveTurn = Boolean(liveMessageId);
+  const livePulse = useMemo(
+    () => deriveLivePulse(session?.structuredEvents ?? [], isLiveTurn),
+    [isLiveTurn, session?.structuredEvents],
+  );
+  // L1 的生命迹象:和 L2/L3 同源——有 active 思考/started 命令,或最近 delta 在窗口内。
+  // 用于压过 session.status 误报的 completed/closed(会话明明还在干活)。
+  const isSessionLive = livePulse?.hasActive ?? isLiveTurn;
+  const sessionPhase = useMemo(
+    () =>
+      deriveSessionPhase(
+        session?.status ?? 'idle',
+        pendingApprovals.length > 0,
+        isSessionLive,
+      ),
+    [isSessionLive, pendingApprovals.length, session?.status],
+  );
+  const bottomPulseHeadline =
+    sessionPhase === 'failed'
+      ? '会话失败'
+      : sessionPhase === 'completed'
+        ? '上一轮已完成'
+        : sessionPhase === 'waiting_approval'
+          ? '等待审批'
+          : livePulse?.headline;
+  const composerReadOnlyReason =
+    sessionPhase === 'failed'
+      ? '该会话已失败，当前仅可查看历史。'
+      : shouldDisableComposerForProvider
+        ? 'Claude Code 正在运行，停止后可继续输入。'
+        : undefined;
+  const serviceThinksRunning =
+    session?.status === 'running' || session?.status === 'waiting_approval';
+  const canInterruptTurn =
+    !deviceOffline &&
+    !interruptingTurn &&
+    session?.status !== 'failed' &&
+    session?.status !== 'completed' &&
+    (isSessionLive || serviceThinksRunning);
+
+  const handleInterruptTurn = useCallback(() => {
+    if (!session || !canInterruptTurn) return;
+    if (
+      voiceStt.status === 'recording' ||
+      voiceStt.status === 'connecting' ||
+      voiceStt.status === 'stopping'
+    ) {
+      void voiceStt.stop();
+    }
+    setInterruptingTurn(true);
+    void interruptAgentSession(session.id)
+      .catch(error => {
+        console.warn('[vibecoding] failed to interrupt turn', error);
+        setDetailError(
+          error instanceof Error
+            ? `停止失败：${error.message}`
+            : '停止失败，请检查服务端连接。',
+        );
+      })
+      .finally(() => setInterruptingTurn(false));
+  }, [
+    canInterruptTurn,
+    interruptAgentSession,
+    session,
+    voiceStt.status,
+    voiceStt.stop,
+  ]);
   // Structured-activity attachment (P3.3). `transcript` is the coalesced
   // DisplayTranscriptMessage[] — each assistant bubble already carries the
   // underlying AgentMessage ids it spans (sourceMessageIds). The renderer
@@ -1010,12 +1167,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // order) for a stable layout.
   const orphanActivityMessageIds = useMemo(() => {
     if (!session) return [];
-    const eventsWithMessageId = session.structuredEvents.filter(
-      (e): e is Extract<typeof e, { messageId: string }> =>
-        'messageId' in e && typeof (e as { messageId?: unknown }).messageId === 'string',
-    );
-    if (eventsWithMessageId.length === 0) return [];
-    const eventMessageIds = new Set(eventsWithMessageId.map(e => e.messageId));
+    if (activityEventsByMessageId.size === 0) return [];
     // Assistant message ids that DID render (covered by a display bubble).
     const covered = new Set(
       transcript.flatMap(message => message.sourceMessageIds),
@@ -1027,18 +1179,45 @@ export const VibeCodingSessionScreen: React.FC = () => {
     for (const m of session.transcript) {
       if (m.role !== 'assistant') continue;
       if (covered.has(m.id)) continue;
-      if (!eventMessageIds.has(m.id)) continue;
+      if (!activityEventsByMessageId.has(m.id)) continue;
       if (seen.has(m.id)) continue;
       seen.add(m.id);
       orphans.push(m.id);
     }
     return orphans;
-  }, [session, transcript]);
-  const pendingApprovals = useMemo(
-    () => approvals.filter(approval => approval.status === 'pending'),
-    [approvals],
-  );
-  const topPendingApproval = pendingApprovals[0];
+  }, [activityEventsByMessageId, session, transcript]);
+  const messageTimelinePositions = useMemo(() => {
+    const entries: Array<{ id?: string; hasRail: boolean }> = [];
+    for (const item of conversationItems) {
+      if (item.kind !== 'turn') {
+        entries.push({ hasRail: false });
+        continue;
+      }
+      for (const message of item.turn.messages) {
+        entries.push({ id: message.id, hasRail: message.role !== 'user' });
+      }
+    }
+    if (orphanActivityMessageIds.length > 0) {
+      entries.push({ hasRail: true });
+    }
+
+    const positions = new Map<string, MessageTimelinePosition>();
+    entries.forEach((entry, index) => {
+      if (!entry.id || !entry.hasRail) return;
+      const hasPreviousRail = Boolean(entries[index - 1]?.hasRail);
+      const hasNextRail = Boolean(entries[index + 1]?.hasRail);
+      const position: MessageTimelinePosition =
+        hasPreviousRail && hasNextRail
+          ? 'middle'
+          : hasPreviousRail
+          ? 'end'
+          : hasNextRail
+          ? 'start'
+          : 'single';
+      positions.set(entry.id, position);
+    });
+    return positions;
+  }, [conversationItems, orphanActivityMessageIds.length]);
   const latestConversationKey = useMemo(() => {
     const latest = conversationItems[conversationItems.length - 1];
     if (!latest) return `${targetSessionId}:empty`;
@@ -1057,17 +1236,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
       scheduleScrollToEnd(true);
     }
   }, [latestConversationKey, scheduleScrollToEnd]);
-
-  const handleJumpToApproval = useCallback(
-    (approvalId: string) => {
-      followTailRef.current = false;
-      if (transcriptList.hasMore) {
-        transcriptList.showAll();
-      }
-      setPendingJumpId(approvalTimelineItemId(approvalId));
-    },
-    [transcriptList],
-  );
 
   const handleSaveToolsSettings = useCallback(
     async (patch: { model: string; effort: string }) => {
@@ -1312,6 +1480,28 @@ export const VibeCodingSessionScreen: React.FC = () => {
     session.provider ??
     (session.model.toLowerCase().includes('codex') ? 'codex' : 'claude_code');
   const isCodexSession = sessionProvider === 'codex';
+  // Live model/effort catalog (shared, cached) — drives the ToolsMenu effort
+  // chips so they render the provider's catalog efforts (codex 4, claude 6),
+  // falling back to the hardcoded ladder before it loads.
+  const sessionEffortOptions = catalogEffortOptions(
+    sessionProvider,
+    providerCatalog,
+  );
+  const effective = session.effectiveModelConfig;
+  const effectiveLabel = effective
+    ? [
+        `model=${effective.model || '用户默认'}`,
+        effective.source?.model ? `(${effective.source.model})` : '',
+        `· effort=${effective.effort || '用户默认'}`,
+        effective.source?.effort ? `(${effective.source.effort})` : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+    : null;
+  const modelStatusLabel = [
+    session.model,
+    session.effort ? `effort ${session.effort}` : 'default effort',
+  ].join(' / ');
   const displayTitle = formatVibeSessionTitle(session.title, {
     directory: session.directory,
     projectName: project?.name,
@@ -1328,6 +1518,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
       : session.status === 'failed'
       ? theme.colors.error
       : theme.colors.outlineVariant;
+  const conversationBoundaryStart = formatConversationBoundaryTime(
+    conversationTurns[0]?.timestamp,
+  );
+  const conversationBoundaryEnd = formatConversationBoundaryTime(
+    conversationTurns[conversationTurns.length - 1]?.endTimestamp ??
+      conversationTurns[conversationTurns.length - 1]?.timestamp,
+  );
 
   return (
     <SafeAreaWrapper>
@@ -1336,196 +1533,77 @@ export const VibeCodingSessionScreen: React.FC = () => {
         subtitle={device?.name ?? 'VIBECODING SESSION'}
         onBack={navigation.goBack}
         rightAction={
-          <StatusChip
-            label={vibeStatusLabel[session.status]}
-            type={vibeStatusType[session.status]}
-          />
+          <View style={styles.topStatusCluster}>
+            <StatusChip
+              label={sessionPhaseLabel[sessionPhase]}
+              type={sessionPhaseType[sessionPhase]}
+            />
+            <Text
+              numberOfLines={1}
+              style={[
+                theme.typography.codeSm,
+                styles.topStatusMeta,
+                { color: theme.colors.onSurfaceVariant },
+              ]}
+            >
+              {modelStatusLabel}
+            </Text>
+          </View>
         }
       />
-      <ScrollView
-        ref={scrollViewRef}
-        style={styles.scrollView}
-        contentContainerStyle={[styles.content, { paddingBottom: 268 + keyboardSpace }]}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor={theme.colors.primary}
-            colors={[theme.colors.primary]}
-            title="同步会话历史..."
-            titleColor={theme.colors.onSurfaceVariant}
-          />
-        }
-        scrollEventThrottle={16}
-        onLayout={event => {
-          const height = event.nativeEvent.layout.height;
-          setViewportHeight(height);
-        }}
-        onMomentumScrollEnd={handleScroll}
-        onContentSizeChange={(_, _height) => {
-          if (pendingScrollToEndRef.current || followTailRef.current) {
-            pendingScrollToEndRef.current = false;
-            scheduleScrollToEnd(true);
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}>
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.scrollView}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={theme.colors.primary}
+              colors={[theme.colors.primary]}
+              title="同步会话历史..."
+              titleColor={theme.colors.onSurfaceVariant}
+            />
           }
-        }}
-        onScroll={handleScroll}
-      >
-        {deviceOffline ? (
-          <View
-            style={[
-              styles.offlineBanner,
-              {
-                backgroundColor: isDark
-                  ? 'rgba(248,113,113,0.14)'
-                  : 'rgba(248,113,113,0.1)',
-                borderColor: theme.colors.error,
-              },
-            ]}
-          >
-            <IconBadge name="device" tone="neutral" size={26} iconSize={14} />
-            <View style={styles.offlineBannerCopy}>
-              <Text
-                style={[
-                  theme.typography.labelMd,
-                  { color: theme.colors.error, fontWeight: '700' },
-                ]}
-              >
-                设备离线 · 只读模式
-              </Text>
-              <Text
-                style={[
-                  theme.typography.labelSm,
-                  { color: theme.colors.onSurfaceVariant },
-                ]}
-              >
-                该设备不可达，发送 / 审批 / 控制已暂停，仍可查看历史。
-              </Text>
-            </View>
-          </View>
-        ) : null}
-        <GlassPanel style={styles.sessionHeader}>
-          <View
-            style={[
-              styles.headerAccent,
-              { backgroundColor: statusAccent },
-              session.status === 'running' && isDark
-                ? theme.glow.primary
-                : null,
-            ]}
-          />
-          <View style={styles.headerInner}>
-            <View style={styles.headerTop}>
-              <IconBadge
-                name={isCodexSession ? 'code' : 'agent'}
-                tone={
-                  session.status === 'waiting_approval' ? 'tertiary' : 'primary'
-                }
-                size={44}
-                iconSize={22}
-                filled={session.status === 'running'}
-              />
-              <View style={styles.headerTitle}>
-                <View style={styles.titleTapRow}>
-                  <View style={styles.titleLead}>
-                    <Text
-                      style={[
-                        theme.typography.titleMd,
-                        styles.titlePrimary,
-                        { color: theme.colors.onSurface },
-                      ]}
-                      numberOfLines={titleExpanded ? undefined : 1}
-                    >
-                      {titleHead.toUpperCase()}
-                    </Text>
-                    {titleHasOverflow ? (
-                      <Text
-                        style={[
-                          theme.typography.labelSm,
-                          { color: theme.colors.onSurfaceVariant },
-                        ]}
-                        numberOfLines={titleExpanded ? undefined : 1}
-                      >
-                        {titleTail}
-                      </Text>
-                    ) : null}
-                  </View>
-                  {titleCanExpand ? (
-                    <TouchableOpacity
-                      activeOpacity={0.5}
-                      accessibilityLabel={
-                        titleExpanded ? '收起标题' : '展开标题'
-                      }
-                      accessibilityRole="button"
-                      onPress={() => setTitleExpanded(value => !value)}
-                      style={styles.titleExpand}>
-                      <Text
-                        style={[
-                          styles.titleChevron,
-                          { color: theme.colors.onSurfaceVariant },
-                        ]}>
-                        {titleExpanded ? '▴' : '▾'}
-                      </Text>
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-                <Text
-                  style={[
-                    theme.typography.codeSm,
-                    styles.titleDirectory,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {session.directory}
-                </Text>
-              </View>
-              <StatusChip
-                label={session.risk.toUpperCase()}
-                type={
-                  session.risk === 'high'
-                    ? 'error'
-                    : session.risk === 'medium'
-                    ? 'warning'
-                    : 'success'
-                }
-              />
-            </View>
-            {session.objective ? (
-              <Text
-                style={[
-                  theme.typography.bodySm,
-                  { color: theme.colors.onSurfaceVariant },
-                ]}
-                numberOfLines={titleExpanded ? undefined : 2}
-              >
-                {session.objective}
-              </Text>
-            ) : null}
-          {session.projectBudget ? (
+          scrollEventThrottle={16}
+          onLayout={event => {
+            const height = event.nativeEvent.layout.height;
+            setViewportHeight(height);
+          }}
+          onMomentumScrollEnd={handleScroll}
+          onContentSizeChange={(_, _height) => {
+            if (pendingScrollToEndRef.current || followTailRef.current) {
+              pendingScrollToEndRef.current = false;
+              scheduleScrollToEnd(true);
+            }
+          }}
+          onScroll={handleScroll}
+        >
+          {deviceOffline ? (
             <View
               style={[
-                styles.budgetStrip,
+                styles.offlineBanner,
                 {
                   backgroundColor: isDark
-                    ? 'rgba(106, 153, 85, 0.12)'
-                    : 'rgba(0, 120, 84, 0.08)',
+                    ? 'rgba(248,113,113,0.14)'
+                    : 'rgba(248,113,113,0.1)',
+                  borderColor: theme.colors.error,
                 },
               ]}
             >
-              <IconBadge
-                name="quota"
-                tone="secondary"
-                size={30}
-                iconSize={15}
-              />
-              <View style={styles.budgetCopy}>
+              <IconBadge name="device" tone="neutral" size={26} iconSize={14} />
+              <View style={styles.offlineBannerCopy}>
                 <Text
                   style={[
-                    theme.typography.labelCaps,
-                    { color: isDark ? '#6A9955' : theme.colors.secondary },
+                    theme.typography.labelMd,
+                    { color: theme.colors.error, fontWeight: '700' },
                   ]}
                 >
-                  CODEX BUDGET
+                  设备离线 · 只读模式
                 </Text>
                 <Text
                   style={[
@@ -1533,748 +1611,1010 @@ export const VibeCodingSessionScreen: React.FC = () => {
                     { color: theme.colors.onSurfaceVariant },
                   ]}
                 >
-                  {budgetLabel} · updated {session.projectBudget.updatedAt}
+                  该设备不可达，发送 / 审批 / 控制已暂停，仍可查看历史。
                 </Text>
               </View>
             </View>
           ) : null}
-          </View>
-        </GlassPanel>
-
-        <View style={styles.quickActions}>
-          <TouchableOpacity
-            activeOpacity={0.7}
-            disabled={deviceOffline}
-            accessibilityLabel="文件"
-            accessibilityRole="button"
-            onPress={() =>
-              navigation.navigate('FileBrowser', {
-                projectId: session.projectId,
-                deviceId: session.deviceId,
-                sessionId: session.id,
-              })
-            }
-            style={[
-              styles.quickTile,
-              deviceOffline ? styles.quickTileDisabled : null,
-            ]}>
-            <GlassPanel style={styles.quickTileInner}>
-              <IconBadge
-                name="project"
-                tone="secondary"
-                size={40}
-                iconSize={20}
-              />
-              <View style={styles.quickTileCopy}>
-                <Text
-                  style={[
-                    theme.typography.labelCaps,
-                    { color: theme.colors.onSurface },
-                  ]}>
-                  FILES
-                </Text>
-                <Text
-                  style={[
-                    theme.typography.codeSm,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}
-                  numberOfLines={1}>
-                  浏览代码
-                </Text>
-              </View>
-              <Text
-                style={[
-                  styles.quickTileChevron,
-                  { color: theme.colors.onSurfaceVariant },
-                ]}>
-                ›
-              </Text>
-            </GlassPanel>
-          </TouchableOpacity>
-          <TouchableOpacity
-            activeOpacity={0.7}
-            disabled={deviceOffline}
-            accessibilityLabel="终端"
-            accessibilityRole="button"
-            onPress={() =>
-              navigation.navigate('DeviceTerminal', {
-                deviceId: session.deviceId,
-                directory: session.directory,
-              })
-            }
-            style={[
-              styles.quickTile,
-              deviceOffline ? styles.quickTileDisabled : null,
-            ]}>
-            <GlassPanel style={styles.quickTileInner}>
-              <IconBadge
-                name="terminal"
-                tone="primary"
-                size={40}
-                iconSize={20}
-              />
-              <View style={styles.quickTileCopy}>
-                <Text
-                  style={[
-                    theme.typography.labelCaps,
-                    { color: theme.colors.onSurface },
-                  ]}>
-                  TERMINAL
-                </Text>
-                <Text
-                  style={[
-                    theme.typography.codeSm,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}
-                  numberOfLines={1}>
-                  打开终端
-                </Text>
-              </View>
-              <Text
-                style={[
-                  styles.quickTileChevron,
-                  { color: theme.colors.onSurfaceVariant },
-                ]}>
-                ›
-              </Text>
-            </GlassPanel>
-          </TouchableOpacity>
-        </View>
-
-        {preview && (
-          <TouchableOpacity
-            activeOpacity={0.75}
-            onPress={() =>
-              navigation.navigate('Preview', { previewId: preview.id })
-            }
-          >
-            <GlassPanel glowColor="primary" style={styles.previewCard}>
-              <View style={styles.previewTop}>
-                <Text
-                  style={[
-                    theme.typography.titleMd,
-                    { color: theme.colors.onSurface },
-                  ]}
-                >
-                  Preview ready
-                </Text>
-                <StatusChip label={`${preview.port}`} type="info" />
-              </View>
-              <Text
-                style={[
-                  theme.typography.codeSm,
-                  { color: theme.colors.primary },
-                ]}
-              >
-                {preview.shortUrl}
-              </Text>
-              <Text
-                style={[
-                  theme.typography.labelSm,
-                  { color: theme.colors.onSurfaceVariant },
-                ]}
-              >
-                {preview.access.toUpperCase()} / expires in {preview.expiresIn}
-              </Text>
-            </GlassPanel>
-          </TouchableOpacity>
-        )}
-
-        <View
-          style={styles.conversationSection}
-          onLayout={event => setConversationTop(event.nativeEvent.layout.y)}
-        >
-          <View style={styles.chatSectionHeader}>
-            <View style={styles.chatHeaderLeft}>
-              <IconBadge name="chat" tone="primary" size={34} iconSize={17} />
-              <View>
-                <Text
-                  style={[
-                    theme.typography.labelCaps,
-                    { color: theme.colors.primary },
-                  ]}
-                >
-                  CONVERSATION
-                </Text>
-                <Text
-                  style={[
-                    theme.typography.labelSm,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}
-                >
-                  {transcript.length
-                    ? `${visibleTranscript.length}/${transcript.length} grouped`
-                    : `${session.transcriptCount ?? 0} messages`}
-                </Text>
-              </View>
-            </View>
-            <StatusChip label={mode.toUpperCase()} type="info" />
-          </View>
-          {conversationItems.length ? (
-            <>
-              {loadingDetail || detailError || loadingEarlier ? (
-                <GlassPanel style={styles.detailInlinePanel}>
-                  {loadingDetail || loadingEarlier ? (
-                    <ActivityIndicator
-                      color={theme.colors.primary}
-                      size="small"
-                    />
-                  ) : null}
-                  <Text
-                    style={[
-                      theme.typography.bodySm,
-                      {
-                        color: detailError
-                          ? theme.colors.tertiary
-                          : theme.colors.onSurfaceVariant,
-                      },
-                    ]}
-                  >
-                    {detailError || '正在同步更早的会话内容...'}
-                  </Text>
-                </GlassPanel>
-              ) : null}
-              {transcript.length ? (
-                <LoadMoreRow
-                  visibleCount={transcriptList.visibleCount}
-                  totalCount={
-                    transcriptList.hasMore
-                      ? transcriptList.totalCount
-                      : hasServerEarlierMessages
-                      ? Math.max(
-                          session.transcriptCount ?? 0,
-                          transcriptList.visibleCount + 1,
-                        )
-                      : transcriptList.totalCount
-                  }
-                  onPress={handleLoadEarlierMessages}
-                  label="LOAD EARLIER MESSAGES"
-                />
-              ) : null}
-              <View style={styles.conversationTimeline}>
-                {conversationItems.map(item => {
-                  if (item.kind === 'message') {
-                    return (
-                      <TranscriptMessageList
-                        key={item.id}
-                        items={[item.message]}
-                        onMessageLayout={handleConversationItemLayout}
-                        activitySessionId={session.id}
-                        structuredEvents={session.structuredEvents}
-                        activityDetailCache={session.eventDetailCache}
-                        onCacheActivityDetail={(eventId, detail) =>
-                          cacheStructuredDetail(session.id, eventId, detail)
-                        }
-                      />
-                    );
-                  }
-
-                  return (
-                    <View
-                      key={item.id}
-                      style={styles.approvalTimelineItem}
-                      onLayout={event => {
-                        const { y, height } = event.nativeEvent.layout;
-                        handleConversationItemLayout(item.id, y, height);
-                      }}
-                    >
-                      {renderApprovalCard(item.approval)}
-                    </View>
-                  );
-                })}
-                {/* Tool-only assistant turns (empty prose, dropped during
-                    coalescing) whose structured activity would otherwise vanish.
-                    Rendered once for the whole conversation, in transcript
-                    order. Each id → one ActivityBlock grouping its events. */}
-                {orphanActivityMessageIds.length > 0 ? (
-                  <TranscriptMessageList
-                    key="orphan-activity-block"
-                    items={[]}
-                    activitySessionId={session.id}
-                    structuredEvents={session.structuredEvents}
-                    activityDetailCache={session.eventDetailCache}
-                    onCacheActivityDetail={(eventId, detail) =>
-                      cacheStructuredDetail(session.id, eventId, detail)
-                    }
-                    orphanActivityMessageIds={orphanActivityMessageIds}
-                  />
-                ) : null}
-              </View>
-            </>
-          ) : loadingDetail || refreshing ? (
-            <GlassPanel style={styles.detailStatePanel}>
-              <ActivityIndicator color={theme.colors.primary} />
-              <Text
-                style={[
-                  theme.typography.bodySm,
-                  { color: theme.colors.onSurfaceVariant },
-                ]}
-              >
-                {refreshing ? '正在同步会话历史...' : '正在拉取完整会话内容...'}
-              </Text>
-            </GlassPanel>
-          ) : detailError ? (
-            <GlassPanel style={styles.detailStatePanel}>
-              <Text
-                style={[theme.typography.bodySm, { color: theme.colors.error }]}
-              >
-                {detailError}
-              </Text>
-              <TouchableOpacity
-                activeOpacity={0.75}
-                onPress={handleRefresh}
-                style={[
-                  styles.detailRetryButton,
-                  { borderColor: theme.colors.primary },
-                ]}
-              >
-                <Text
-                  style={[
-                    theme.typography.codeSm,
-                    { color: theme.colors.primary },
-                  ]}
-                >
-                  重试
-                </Text>
-              </TouchableOpacity>
-            </GlassPanel>
-          ) : (
-            <GlassPanel style={styles.detailStatePanel}>
-              <View style={styles.summaryFallbackHeader}>
+          <GlassPanel style={styles.sessionHeader}>
+            <View
+              style={[
+                styles.headerAccent,
+                { backgroundColor: statusAccent },
+                session.status === 'running' && isDark
+                  ? theme.glow.primary
+                  : null,
+              ]}
+            />
+            <View style={styles.headerInner}>
+              <View style={styles.headerTop}>
                 <IconBadge
                   name={isCodexSession ? 'code' : 'agent'}
-                  tone="primary"
-                  size={34}
-                  iconSize={17}
+                  tone={
+                    session.status === 'waiting_approval' ? 'tertiary' : 'primary'
+                  }
+                  size={44}
+                  iconSize={22}
+                  filled={session.status === 'running'}
                 />
-                <View style={styles.summaryFallbackTitle}>
+                <View style={styles.headerTitle}>
+                  <View style={styles.titleTapRow}>
+                    <View style={styles.titleLead}>
+                      <Text
+                        style={[
+                          theme.typography.titleMd,
+                          styles.titlePrimary,
+                          { color: theme.colors.onSurface },
+                        ]}
+                        numberOfLines={titleExpanded ? undefined : 1}
+                      >
+                        {titleHead.toUpperCase()}
+                      </Text>
+                      {titleHasOverflow ? (
+                        <Text
+                          style={[
+                            theme.typography.labelSm,
+                            { color: theme.colors.onSurfaceVariant },
+                          ]}
+                          numberOfLines={titleExpanded ? undefined : 1}
+                        >
+                          {titleTail}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {titleCanExpand ? (
+                      <TouchableOpacity
+                        activeOpacity={0.5}
+                        accessibilityLabel={
+                          titleExpanded ? '收起标题' : '展开标题'
+                        }
+                        accessibilityRole="button"
+                        onPress={() => setTitleExpanded(value => !value)}
+                        style={styles.titleExpand}>
+                        <Text
+                          style={[
+                            styles.titleChevron,
+                            { color: theme.colors.onSurfaceVariant },
+                          ]}>
+                          {titleExpanded ? '▴' : '▾'}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
                   <Text
                     style={[
-                      theme.typography.labelCaps,
-                      {
-                        color:
-                          emptyTranscriptState.tone === 'neutral'
-                            ? theme.colors.primary
-                            : emptyTranscriptState.tone === 'error'
-                            ? theme.colors.error
-                            : theme.colors.tertiary,
-                      },
+                      theme.typography.codeSm,
+                      styles.titleDirectory,
+                      { color: theme.colors.onSurfaceVariant },
                     ]}
+                    numberOfLines={1}
                   >
-                    HISTORY SUMMARY
-                  </Text>
-                  <Text
-                    numberOfLines={2}
-                    style={[
-                      theme.typography.titleMd,
-                      { color: theme.colors.onSurface },
-                    ]}
-                  >
-                    {displayTitle}
+                    {session.directory}
                   </Text>
                 </View>
+                <StatusChip
+                  label={session.risk.toUpperCase()}
+                  type={
+                    session.risk === 'high'
+                      ? 'error'
+                      : session.risk === 'medium'
+                      ? 'warning'
+                      : 'success'
+                  }
+                />
               </View>
-              {session.objective || session.currentStep ? (
+              {session.objective ? (
                 <Text
                   style={[
                     theme.typography.bodySm,
                     { color: theme.colors.onSurfaceVariant },
                   ]}
+                  numberOfLines={titleExpanded ? undefined : 2}
                 >
-                  {session.objective || session.currentStep}
+                  {session.objective}
                 </Text>
               ) : null}
-              <Text
+            {session.projectBudget ? (
+              <View
                 style={[
-                  theme.typography.codeSm,
-                  { color: theme.colors.onSurfaceVariant },
-                ]}
-              >
-                {session.transcriptCount ?? 0} messages · {session.model}
-                {session.directory ? ` · ${session.directory}` : ''}
-              </Text>
-              <Text
-                style={[
-                  theme.typography.labelMd,
-                  {
-                    color:
-                      emptyTranscriptState.tone === 'neutral'
-                        ? theme.colors.onSurface
-                        : emptyTranscriptState.tone === 'error'
-                          ? theme.colors.error
-                          : theme.colors.tertiary,
-                  },
-                ]}
-              >
-                {emptyTranscriptState.title}
-              </Text>
-              <Text
-                style={[
-                  theme.typography.bodySm,
-                  { color: theme.colors.onSurfaceVariant },
-                ]}
-              >
-                {emptyTranscriptState.detail}
-              </Text>
-              <TouchableOpacity
-                activeOpacity={0.75}
-                onPress={handleRefresh}
-                style={[
-                  styles.detailRetryButton,
-                  {
-                    borderColor:
-                      emptyTranscriptState.tone === 'offline'
-                        ? theme.colors.tertiary
-                        : theme.colors.primary,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    theme.typography.codeSm,
-                    {
-                      color:
-                        emptyTranscriptState.tone === 'offline'
-                          ? theme.colors.tertiary
-                          : theme.colors.primary,
-                    },
-                  ]}
-                >
-                  下拉或点击刷新
-                </Text>
-              </TouchableOpacity>
-            </GlassPanel>
-          )}
-          {latestAgentEvent ? (
-            <View style={styles.timelineDock}>
-              {timelineExpanded ? (
-                <GlassPanel style={styles.timelinePopover}>
-                  <View style={styles.timelinePopoverHeader}>
-                    <Text
-                      style={[
-                        theme.typography.labelCaps,
-                        { color: theme.colors.primary },
-                      ]}
-                    >
-                      AGENT TIMELINE
-                    </Text>
-                    <TouchableOpacity
-                      onPress={() => setTimelineExpanded(false)}
-                    >
-                      <Text
-                        style={[
-                          theme.typography.codeSm,
-                          { color: theme.colors.onSurfaceVariant },
-                        ]}
-                      >
-                        CLOSE
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                  <LoadMoreRow
-                    visibleCount={agentEventList.visibleCount}
-                    totalCount={agentEventList.totalCount}
-                    onPress={agentEventList.showMore}
-                    label="LOAD EARLIER EVENTS"
-                  />
-                  {visibleAgentEvents.map((event, index) => (
-                    <View key={event.id}>
-                      <View style={styles.eventRow}>
-                        <IconBadge
-                          name={eventIcon[event.type] ?? 'event'}
-                          tone={
-                            event.status === 'failed'
-                              ? 'error'
-                              : event.status === 'waiting'
-                              ? 'tertiary'
-                              : 'primary'
-                          }
-                          size={30}
-                          iconSize={15}
-                        />
-                        <View style={styles.eventText}>
-                          <Text
-                            style={[
-                              theme.typography.labelSm,
-                              { color: theme.colors.onSurface },
-                            ]}
-                          >
-                            {event.title}
-                          </Text>
-                          <Text
-                            style={[
-                              theme.typography.bodySm,
-                              { color: theme.colors.onSurfaceVariant },
-                            ]}
-                            numberOfLines={2}
-                          >
-                            {event.detail}
-                          </Text>
-                          <Text
-                            style={[
-                              theme.typography.codeSm,
-                              { color: theme.colors.onSurfaceVariant },
-                            ]}
-                          >
-                            {event.timestamp}
-                          </Text>
-                        </View>
-                        <StatusChip
-                          label={event.status.toUpperCase()}
-                          type={
-                            event.status === 'done'
-                              ? 'success'
-                              : event.status === 'failed'
-                              ? 'error'
-                              : event.status === 'running'
-                              ? 'info'
-                              : 'warning'
-                          }
-                        />
-                      </View>
-                      {index < visibleAgentEvents.length - 1 && (
-                        <View style={styles.divider} />
-                      )}
-                    </View>
-                  ))}
-                </GlassPanel>
-              ) : null}
-              <TouchableOpacity
-                activeOpacity={0.82}
-                onPress={() => setTimelineExpanded(current => !current)}
-                style={[
-                  styles.timelineBadge,
+                  styles.budgetStrip,
                   {
                     backgroundColor: isDark
-                      ? 'rgba(17, 20, 23, 0.9)'
-                      : 'rgba(255, 255, 255, 0.95)',
-                    borderColor: isDark
-                      ? 'rgba(255, 255, 255, 0.1)'
-                      : theme.colors.outlineVariant,
+                      ? 'rgba(106, 153, 85, 0.12)'
+                      : 'rgba(0, 120, 84, 0.08)',
                   },
                 ]}
               >
                 <IconBadge
-                  name={eventIcon[latestAgentEvent.type] ?? 'event'}
-                  tone={
-                    latestAgentEvent.status === 'failed'
-                      ? 'error'
-                      : latestAgentEvent.status === 'waiting'
-                      ? 'tertiary'
-                      : 'primary'
-                  }
-                  size={28}
-                  iconSize={14}
+                  name="quota"
+                  tone="secondary"
+                  size={30}
+                  iconSize={15}
                 />
-                <View style={styles.timelineBadgeText}>
+                <View style={styles.budgetCopy}>
+                  <Text
+                    style={[
+                      theme.typography.labelCaps,
+                      { color: isDark ? '#6A9955' : theme.colors.secondary },
+                    ]}
+                  >
+                    CODEX BUDGET
+                  </Text>
                   <Text
                     style={[
                       theme.typography.labelSm,
-                      { color: theme.colors.onSurface },
+                      { color: theme.colors.onSurfaceVariant },
                     ]}
-                    numberOfLines={1}
                   >
-                    {latestAgentEvent.title}
+                    {budgetLabel} · updated {session.projectBudget.updatedAt}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+            </View>
+          </GlassPanel>
+
+          <View style={styles.quickActions}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              disabled={deviceOffline}
+              accessibilityLabel="文件"
+              accessibilityRole="button"
+              onPress={() =>
+                navigation.navigate('FileBrowser', {
+                  projectId: session.projectId,
+                  deviceId: session.deviceId,
+                  sessionId: session.id,
+                })
+              }
+              style={[
+                styles.quickTile,
+                deviceOffline ? styles.quickTileDisabled : null,
+              ]}>
+              <GlassPanel style={styles.quickTileInner}>
+                <IconBadge
+                  name="project"
+                  tone="secondary"
+                  size={40}
+                  iconSize={20}
+                />
+                <View style={styles.quickTileCopy}>
+                  <Text
+                    style={[
+                      theme.typography.labelCaps,
+                      { color: theme.colors.onSurface },
+                    ]}>
+                    FILES
                   </Text>
                   <Text
                     style={[
                       theme.typography.codeSm,
                       { color: theme.colors.onSurfaceVariant },
                     ]}
-                    numberOfLines={1}
-                  >
-                    {visibleSessionEvents.length} events ·{' '}
-                    {latestAgentEvent.timestamp}
+                    numberOfLines={1}>
+                    浏览代码
                   </Text>
                 </View>
-                <StatusChip
-                  label={latestAgentEvent.status.toUpperCase()}
-                  type={
-                    latestAgentEvent.status === 'done'
-                      ? 'success'
-                      : latestAgentEvent.status === 'failed'
-                      ? 'error'
-                      : latestAgentEvent.status === 'running'
-                      ? 'info'
-                      : 'warning'
-                  }
+                <Text
+                  style={[
+                    styles.quickTileChevron,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}>
+                  ›
+                </Text>
+              </GlassPanel>
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              disabled={deviceOffline}
+              accessibilityLabel="终端"
+              accessibilityRole="button"
+              onPress={() =>
+                navigation.navigate('DeviceTerminal', {
+                  deviceId: session.deviceId,
+                  directory: session.directory,
+                })
+              }
+              style={[
+                styles.quickTile,
+                deviceOffline ? styles.quickTileDisabled : null,
+              ]}>
+              <GlassPanel style={styles.quickTileInner}>
+                <IconBadge
+                  name="terminal"
+                  tone="primary"
+                  size={40}
+                  iconSize={20}
                 />
-                {/*
-                  Refresh-latest affordance. Pull-to-refresh is now dedicated to
-                  "load earlier history", so this is the home for the forced
-                  agent detail refresh (recover the newest snapshot / re-sync
-                  after an offline gap). Nested in the badge but a separate
-                  press target so tapping it doesn't toggle the timeline.
-                */}
-                <TouchableOpacity
-                  hitSlop={{ top: 12, bottom: 12, left: 4, right: 8 }}
-                  activeOpacity={0.6}
-                  disabled={refreshingLatest}
-                  onPress={handleRefreshLatest}
-                  style={styles.timelineBadgeRefresh}
-                  accessibilityLabel="刷新最新会话"
-                  accessibilityRole="button">
-                  {refreshingLatest ? (
-                    <ActivityIndicator
-                      size="small"
-                      color={theme.colors.primary}
-                    />
-                  ) : (
-                    <IconBadge
-                      name="refresh"
-                      tone="primary"
-                      size={30}
-                      iconSize={15}
-                    />
-                  )}
-                </TouchableOpacity>
-              </TouchableOpacity>
+                <View style={styles.quickTileCopy}>
+                  <Text
+                    style={[
+                      theme.typography.labelCaps,
+                      { color: theme.colors.onSurface },
+                    ]}>
+                    TERMINAL
+                  </Text>
+                  <Text
+                    style={[
+                      theme.typography.codeSm,
+                      { color: theme.colors.onSurfaceVariant },
+                    ]}
+                    numberOfLines={1}>
+                    打开终端
+                  </Text>
+                </View>
+                <Text
+                  style={[
+                    styles.quickTileChevron,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}>
+                  ›
+                </Text>
+              </GlassPanel>
+            </TouchableOpacity>
+          </View>
+
+          {preview && (
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() =>
+                navigation.navigate('Preview', { previewId: preview.id })
+              }
+            >
+              <GlassPanel glowColor="primary" style={styles.previewCard}>
+                <View style={styles.previewTop}>
+                  <Text
+                    style={[
+                      theme.typography.titleMd,
+                      { color: theme.colors.onSurface },
+                    ]}
+                  >
+                    Preview ready
+                  </Text>
+                  <StatusChip label={`${preview.port}`} type="info" />
+                </View>
+                <Text
+                  style={[
+                    theme.typography.codeSm,
+                    { color: theme.colors.primary },
+                  ]}
+                >
+                  {preview.shortUrl}
+                </Text>
+                <Text
+                  style={[
+                    theme.typography.labelSm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {preview.access.toUpperCase()} / expires in {preview.expiresIn}
+                </Text>
+              </GlassPanel>
+            </TouchableOpacity>
+          )}
+
+          <View
+            style={styles.conversationSection}
+            onLayout={event => setConversationTop(event.nativeEvent.layout.y)}
+          >
+            <View style={styles.chatSectionHeader}>
+              <View style={styles.chatHeaderLeft}>
+                <IconBadge name="chat" tone="primary" size={34} iconSize={17} />
+                <View>
+                  <Text
+                    style={[
+                      theme.typography.labelCaps,
+                      { color: theme.colors.primary },
+                    ]}
+                  >
+                    CONVERSATION
+                  </Text>
+                  <Text
+                    style={[
+                      theme.typography.labelSm,
+                      { color: theme.colors.onSurfaceVariant },
+                    ]}
+                  >
+                    {conversationTurns.length
+                      ? `${visibleTurns.length}/${conversationTurns.length} turns`
+                      : `${session.transcriptCount ?? 0} messages`}
+                  </Text>
+                </View>
+              </View>
+              <StatusChip label={mode.toUpperCase()} type="info" />
             </View>
-          ) : null}
-        </View>
-      </ScrollView>
+            {conversationItems.length ? (
+              <>
+                {loadingDetail || detailError || loadingEarlier ? (
+                  <GlassPanel style={styles.detailInlinePanel}>
+                    {loadingDetail || loadingEarlier ? (
+                      <ActivityIndicator
+                        color={theme.colors.primary}
+                        size="small"
+                      />
+                    ) : null}
+                    <Text
+                      style={[
+                        theme.typography.bodySm,
+                        {
+                          color: detailError
+                            ? theme.colors.tertiary
+                            : theme.colors.onSurfaceVariant,
+                        },
+                      ]}
+                    >
+                      {detailError || '正在同步更早的会话内容...'}
+                    </Text>
+                  </GlassPanel>
+                ) : null}
+                {conversationTurns.length ? (
+                  <LoadMoreRow
+                    visibleCount={turnList.visibleCount}
+                    totalCount={
+                      turnList.hasMore
+                        ? turnList.totalCount
+                        : hasServerEarlierMessages
+                        ? Math.max(
+                            session.transcriptCount ?? 0,
+                            turnList.visibleCount + 1,
+                          )
+                        : turnList.totalCount
+                    }
+                    onPress={handleLoadEarlierMessages}
+                    label="LOAD EARLIER TURNS"
+                  />
+                ) : null}
+                <View style={styles.conversationTimeline}>
+                  <View style={styles.conversationBoundaryRow}>
+                    <View
+                      style={[
+                        styles.conversationBoundaryNode,
+                        {
+                          backgroundColor: theme.colors.secondary,
+                          borderColor: isDark
+                            ? 'rgba(17, 20, 23, 0.98)'
+                            : theme.colors.surface,
+                        },
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.conversationBoundaryLine,
+                        {
+                          backgroundColor: isDark
+                            ? 'rgba(255,255,255,0.1)'
+                            : theme.colors.outlineVariant,
+                        },
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        theme.typography.labelCaps,
+                        styles.conversationBoundaryLabel,
+                        { color: theme.colors.secondary },
+                      ]}
+                    >
+                      会话开始
+                    </Text>
+                    {conversationBoundaryStart ? (
+                      <Text
+                        style={[
+                          theme.typography.codeSm,
+                          { color: theme.colors.onSurfaceVariant },
+                        ]}
+                      >
+                        {conversationBoundaryStart}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {conversationItems.map(item => {
+                    if (item.kind === 'turn') {
+                      return (
+                        <View
+                          key={item.id}
+                          style={styles.turnGroup}
+                          onLayout={event => {
+                            const { y, height } = event.nativeEvent.layout;
+                            handleConversationItemLayout(item.turn.id, y, height);
+                          }}
+                        >
+                          {item.turn.messages.map(message => {
+                            return (
+                              <TranscriptMessageList
+                                key={message.id}
+                                message={message}
+                                activitySessionId={session.id}
+                                messageActivityEvents={
+                                  activityEventsByDisplayMessageId.get(
+                                    message.id,
+                                  ) ?? EMPTY_ACTIVITY_EVENTS
+                                }
+                                activityDetailCache={session.eventDetailCache}
+                                onCacheActivityDetail={handleCacheActivityDetail}
+                                liveMessageId={liveMessageId}
+                                timelinePosition={
+                                  messageTimelinePositions.get(message.id) ??
+                                  'single'
+                                }
+                              />
+                            );
+                          })}
+                        </View>
+                      );
+                    }
 
-      {noMoreEarlierHint ? (
-        <View
-          pointerEvents="none"
-          style={[
-            styles.noMoreEarlierHint,
-            {
-              backgroundColor: isDark
-                ? 'rgba(17, 20, 23, 0.92)'
-                : 'rgba(255, 255, 255, 0.96)',
-              borderColor: isDark
-                ? 'rgba(255, 255, 255, 0.1)'
-                : theme.colors.outlineVariant,
-            },
-          ]}>
-          <Text
+                    return (
+                      <View
+                        key={item.id}
+                        style={styles.approvalTimelineItem}
+                        onLayout={event => {
+                          const { y, height } = event.nativeEvent.layout;
+                          handleConversationItemLayout(item.id, y, height);
+                        }}
+                      >
+                        {renderApprovalCard(item.approval)}
+                      </View>
+                    );
+                  })}
+                  {/* Tool-only assistant turns (empty prose, dropped during
+                      coalescing) whose structured activity would otherwise vanish.
+                      Rendered once for the whole conversation, in transcript
+                      order. Each id → one ActivityBlock grouping its events. */}
+                  {orphanActivityMessageIds.length > 0 ? (
+                    <TranscriptMessageList
+                      key="orphan-activity-block"
+                      activitySessionId={session.id}
+                      orphanActivityEventsByMessageId={activityEventsByMessageId}
+                      activityDetailCache={session.eventDetailCache}
+                      onCacheActivityDetail={handleCacheActivityDetail}
+                      orphanActivityMessageIds={orphanActivityMessageIds}
+                      liveMessageId={liveMessageId}
+                    />
+                  ) : null}
+                  {/* 已处理(approved/denied)审批:默认折叠成一行,展开后置灰列出,
+                      避免每张占满屏幕。pending 审批仍在上面按时间线完整展示。 */}
+                  {resolvedApprovals.length > 0 ? (
+                    <ResolvedApprovalsGroup
+                      approvals={resolvedApprovals}
+                      renderCard={renderApprovalCard}
+                    />
+                  ) : null}
+                  <View style={styles.conversationBoundaryRow}>
+                    <View
+                      style={[
+                        styles.conversationBoundaryLine,
+                        {
+                          backgroundColor: isDark
+                            ? 'rgba(255,255,255,0.1)'
+                            : theme.colors.outlineVariant,
+                        },
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.conversationBoundaryNode,
+                        styles.conversationBoundaryEndNode,
+                        {
+                          backgroundColor:
+                            sessionPhase === 'completed'
+                              ? theme.colors.secondary
+                              : sessionPhase === 'failed'
+                              ? theme.colors.error
+                              : theme.colors.primary,
+                          borderColor: isDark
+                            ? 'rgba(17, 20, 23, 0.98)'
+                            : theme.colors.surface,
+                        },
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        theme.typography.labelCaps,
+                        styles.conversationBoundaryLabel,
+                        {
+                          color:
+                            sessionPhase === 'completed'
+                              ? theme.colors.secondary
+                              : sessionPhase === 'failed'
+                              ? theme.colors.error
+                              : theme.colors.primary,
+                        },
+                      ]}
+                    >
+                      {sessionPhase === 'completed'
+                        ? '本轮完成'
+                        : sessionPhase === 'failed'
+                        ? '会话失败'
+                        : '进行中'}
+                    </Text>
+                    {conversationBoundaryEnd ? (
+                      <Text
+                        style={[
+                          theme.typography.codeSm,
+                          { color: theme.colors.onSurfaceVariant },
+                        ]}
+                      >
+                        {conversationBoundaryEnd}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              </>
+            ) : loadingDetail || refreshing ? (
+              <GlassPanel style={styles.detailStatePanel}>
+                <ActivityIndicator color={theme.colors.primary} />
+                <Text
+                  style={[
+                    theme.typography.bodySm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {refreshing ? '正在同步会话历史...' : '正在拉取完整会话内容...'}
+                </Text>
+              </GlassPanel>
+            ) : detailError ? (
+              <GlassPanel style={styles.detailStatePanel}>
+                <Text
+                  style={[theme.typography.bodySm, { color: theme.colors.error }]}
+                >
+                  {detailError}
+                </Text>
+                <TouchableOpacity
+                  activeOpacity={0.75}
+                  onPress={handleRefresh}
+                  style={[
+                    styles.detailRetryButton,
+                    { borderColor: theme.colors.primary },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      theme.typography.codeSm,
+                      { color: theme.colors.primary },
+                    ]}
+                  >
+                    重试
+                  </Text>
+                </TouchableOpacity>
+              </GlassPanel>
+            ) : (
+              <GlassPanel style={styles.detailStatePanel}>
+                <View style={styles.summaryFallbackHeader}>
+                  <IconBadge
+                    name={isCodexSession ? 'code' : 'agent'}
+                    tone="primary"
+                    size={34}
+                    iconSize={17}
+                  />
+                  <View style={styles.summaryFallbackTitle}>
+                    <Text
+                      style={[
+                        theme.typography.labelCaps,
+                        {
+                          color:
+                            emptyTranscriptState.tone === 'neutral'
+                              ? theme.colors.primary
+                              : emptyTranscriptState.tone === 'error'
+                              ? theme.colors.error
+                              : theme.colors.tertiary,
+                        },
+                      ]}
+                    >
+                      HISTORY SUMMARY
+                    </Text>
+                    <Text
+                      numberOfLines={2}
+                      style={[
+                        theme.typography.titleMd,
+                        { color: theme.colors.onSurface },
+                      ]}
+                    >
+                      {displayTitle}
+                    </Text>
+                  </View>
+                </View>
+                {session.objective || session.currentStep ? (
+                  <Text
+                    style={[
+                      theme.typography.bodySm,
+                      { color: theme.colors.onSurfaceVariant },
+                    ]}
+                  >
+                    {session.objective || session.currentStep}
+                  </Text>
+                ) : null}
+                <Text
+                  style={[
+                    theme.typography.codeSm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {session.transcriptCount ?? 0} messages · {session.model}
+                  {session.directory ? ` · ${session.directory}` : ''}
+                </Text>
+                <Text
+                  style={[
+                    theme.typography.labelMd,
+                    {
+                      color:
+                        emptyTranscriptState.tone === 'neutral'
+                          ? theme.colors.onSurface
+                          : emptyTranscriptState.tone === 'error'
+                            ? theme.colors.error
+                            : theme.colors.tertiary,
+                    },
+                  ]}
+                >
+                  {emptyTranscriptState.title}
+                </Text>
+                <Text
+                  style={[
+                    theme.typography.bodySm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {emptyTranscriptState.detail}
+                </Text>
+                <TouchableOpacity
+                  activeOpacity={0.75}
+                  onPress={handleRefresh}
+                  style={[
+                    styles.detailRetryButton,
+                    {
+                      borderColor:
+                        emptyTranscriptState.tone === 'offline'
+                          ? theme.colors.tertiary
+                          : theme.colors.primary,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      theme.typography.codeSm,
+                      {
+                        color:
+                          emptyTranscriptState.tone === 'offline'
+                            ? theme.colors.tertiary
+                            : theme.colors.primary,
+                      },
+                    ]}
+                  >
+                    下拉或点击刷新
+                  </Text>
+                </TouchableOpacity>
+              </GlassPanel>
+            )}
+            {latestAgentEvent ? (
+              <View style={styles.timelineDock}>
+                {timelineExpanded ? (
+                  <GlassPanel style={styles.timelinePopover}>
+                    <View style={styles.timelinePopoverHeader}>
+                      <Text
+                        style={[
+                          theme.typography.labelCaps,
+                          { color: theme.colors.primary },
+                        ]}
+                      >
+                        AGENT TIMELINE
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => setTimelineExpanded(false)}
+                      >
+                        <Text
+                          style={[
+                            theme.typography.codeSm,
+                            { color: theme.colors.onSurfaceVariant },
+                          ]}
+                        >
+                          CLOSE
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    <LoadMoreRow
+                      visibleCount={agentEventList.visibleCount}
+                      totalCount={agentEventList.totalCount}
+                      onPress={agentEventList.showMore}
+                      label="LOAD EARLIER EVENTS"
+                    />
+                    {visibleAgentEvents.map((event, index) => (
+                      <View key={event.id}>
+                        <View style={styles.eventRow}>
+                          <IconBadge
+                            name={eventIcon[event.type] ?? 'event'}
+                            tone={
+                              event.status === 'failed'
+                                ? 'error'
+                                : event.status === 'waiting'
+                                ? 'tertiary'
+                                : 'primary'
+                            }
+                            size={30}
+                            iconSize={15}
+                          />
+                          <View style={styles.eventText}>
+                            <Text
+                              style={[
+                                theme.typography.labelSm,
+                                { color: theme.colors.onSurface },
+                              ]}
+                            >
+                              {event.title}
+                            </Text>
+                            <Text
+                              style={[
+                                theme.typography.bodySm,
+                                { color: theme.colors.onSurfaceVariant },
+                              ]}
+                              numberOfLines={2}
+                            >
+                              {event.detail}
+                            </Text>
+                            <Text
+                              style={[
+                                theme.typography.codeSm,
+                                { color: theme.colors.onSurfaceVariant },
+                              ]}
+                            >
+                              {event.timestamp}
+                            </Text>
+                          </View>
+                          <StatusChip
+                            label={event.status.toUpperCase()}
+                            type={
+                              event.status === 'done'
+                                ? 'success'
+                                : event.status === 'failed'
+                                ? 'error'
+                                : event.status === 'running'
+                                ? 'info'
+                                : 'warning'
+                            }
+                          />
+                        </View>
+                        {index < visibleAgentEvents.length - 1 && (
+                          <View style={styles.divider} />
+                        )}
+                      </View>
+                    ))}
+                  </GlassPanel>
+                ) : null}
+                <TouchableOpacity
+                  activeOpacity={0.82}
+                  onPress={() => setTimelineExpanded(current => !current)}
+                  style={[
+                    styles.timelineBadge,
+                    {
+                      backgroundColor: isDark
+                        ? 'rgba(17, 20, 23, 0.9)'
+                        : 'rgba(255, 255, 255, 0.95)',
+                      borderColor: isDark
+                        ? 'rgba(255, 255, 255, 0.1)'
+                        : theme.colors.outlineVariant,
+                    },
+                  ]}
+                >
+                  <IconBadge
+                    name={eventIcon[latestAgentEvent.type] ?? 'event'}
+                    tone={
+                      latestAgentEvent.status === 'failed'
+                        ? 'error'
+                        : latestAgentEvent.status === 'waiting'
+                        ? 'tertiary'
+                        : 'primary'
+                    }
+                    size={28}
+                    iconSize={14}
+                  />
+                  <View style={styles.timelineBadgeText}>
+                    {/* L3 实时步骤脉冲:永不显示「已完成/DONE」,取而代之是
+                        思考中 / 运行命令 / 处理中… / 等待你的输入。
+                        无结构化事件时回退到最近一条事件的标题(保留信息)。 */}
+                    <Text
+                      style={[
+                        theme.typography.labelMd,
+                        { color: theme.colors.onSurface },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {bottomPulseHeadline ?? latestAgentEvent.title}
+                    </Text>
+                    <Text
+                      style={[
+                        theme.typography.codeSm,
+                        { color: theme.colors.onSurfaceVariant },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {visibleSessionEvents.length} events ·{' '}
+                      {latestAgentEvent.timestamp}
+                    </Text>
+                  </View>
+                  {/*
+                    Refresh-latest affordance. Pull-to-refresh is now dedicated to
+                    "load earlier history", so this is the home for the forced
+                    agent detail refresh (recover the newest snapshot / re-sync
+                    after an offline gap). Nested in the badge but a separate
+                    press target so tapping it doesn't toggle the timeline.
+                  */}
+                  <TouchableOpacity
+                    hitSlop={{ top: 12, bottom: 12, left: 4, right: 8 }}
+                    activeOpacity={0.6}
+                    disabled={refreshingLatest}
+                    onPress={handleRefreshLatest}
+                    style={styles.timelineBadgeRefresh}
+                    accessibilityLabel="刷新最新会话"
+                    accessibilityRole="button">
+                    {refreshingLatest ? (
+                      <ActivityIndicator
+                        size="small"
+                        color={theme.colors.primary}
+                      />
+                    ) : (
+                      <IconBadge
+                        name="refresh"
+                        tone="primary"
+                        size={30}
+                        iconSize={15}
+                      />
+                    )}
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
+        </ScrollView>
+
+        {noMoreEarlierHint ? (
+          <View
+            pointerEvents="none"
             style={[
-              theme.typography.labelSm,
-              { color: theme.colors.onSurface },
-            ]}>
-            已是最早的消息
-          </Text>
-        </View>
-      ) : null}
-
-      <ConversationScrubber
-        collapsedMarks={conversationRailItems.map(({ message, active, visible }) => ({
-          id: message.id,
-          role: message.role,
-          active,
-          visible,
-        }))}
-        stops={scrubberStops}
-        activeStopId={activeScrubberStopId}
-        onCommit={handleScrubberCommit}
-      />
-
-      <Animated.View
-        style={[
-          styles.inputPanel,
-          {
-            backgroundColor: isDark
-              ? 'rgba(17, 20, 23, 0.98)'
-              : 'rgba(247, 249, 255, 0.98)',
-            borderTopColor: isDark
-              ? 'rgba(255, 255, 255, 0.06)'
-              : theme.colors.outlineVariant,
-            transform: [{ translateY: keyboardOffset }],
-          },
-        ]}
-      >
-        {toolsMenuVisible && (
-          <ToolsMenu
-            onClose={() => setToolsMenuVisible(false)}
-            model={session.model}
-            provider={sessionProvider}
-            effort={session.effort ?? ''}
-            commands={sessionCommands}
-            onSaveSettings={handleSaveToolsSettings}
-            onInsertCommand={handleInsertCommand}
-          />
-        )}
-        <SuggestionActionBar
-          suggestions={session.suggestions}
-          onSelect={suggestion => {
-            if (suggestion.toLowerCase().includes('preview') && preview) {
-              navigation.navigate('Preview', { previewId: preview.id });
-            }
-          }}
-        />
-        {topPendingApproval ? (
-          <TouchableOpacity
-            activeOpacity={0.82}
-            accessibilityRole="button"
-            accessibilityLabel="跳转到待审批"
-            onPress={() => handleJumpToApproval(topPendingApproval.id)}
-            style={[
-              styles.pendingApprovalBubble,
+              styles.noMoreEarlierHint,
               {
                 backgroundColor: isDark
-                  ? 'rgba(17, 20, 23, 0.96)'
-                  : 'rgba(255, 255, 255, 0.98)',
-                borderColor: theme.colors.tertiary,
+                  ? 'rgba(17, 20, 23, 0.92)'
+                  : 'rgba(255, 255, 255, 0.96)',
+                borderColor: isDark
+                  ? 'rgba(255, 255, 255, 0.1)'
+                  : theme.colors.outlineVariant,
               },
-            ]}
-          >
-            <IconBadge name="approval" tone="tertiary" size={28} iconSize={14} />
-            <View style={styles.pendingApprovalCopy}>
-              <Text
-                style={[
-                  theme.typography.labelSm,
-                  { color: theme.colors.onSurface },
-                ]}
-                numberOfLines={1}
-              >
-                {pendingApprovals.length > 1
-                  ? `${pendingApprovals.length} 个待审批`
-                  : '1 个待审批'}
-              </Text>
-              <Text
-                style={[
-                  theme.typography.codeSm,
-                  { color: theme.colors.onSurfaceVariant },
-                ]}
-                numberOfLines={1}
-              >
-                {topPendingApproval.title}
-              </Text>
-            </View>
+            ]}>
             <Text
-              style={[theme.typography.codeSm, { color: theme.colors.tertiary }]}
-            >
-              GO
+              style={[
+                theme.typography.labelSm,
+                { color: theme.colors.onSurface },
+              ]}>
+              已是最早的消息
             </Text>
-          </TouchableOpacity>
+          </View>
         ) : null}
-        <MessageComposer
-          mode={mode}
-          onModeChange={setMode}
-          input={input}
-          onInputChange={setInput}
-          voiceDraft={voiceDraft}
-          commands={
-            project?.availableCommands?.length
-              ? project.availableCommands
-              : sessionCommands
-          }
-          voiceStt={voiceStt}
-          sendingMessage={sendingMessage}
-          deviceOffline={deviceOffline}
-          toolsMenuVisible={toolsMenuVisible}
-          onToggleTools={() => setToolsMenuVisible(value => !value)}
-          onVoiceCapture={handleVoiceCapture}
-          onVoiceCaptureStart={handleVoiceCaptureStart}
-          onVoiceCaptureEnd={handleVoiceCaptureEnd}
-          onSendVoice={handleSendVoice}
-          onSendText={handleSendText}
-          onResetVoice={() => {
-            setVoiceDraft('');
-          }}
+
+        <ConversationScrubber
+          collapsedMarks={conversationRailItems.map(({ turn, active, visible }) => ({
+            id: turn.id,
+            role: turn.role,
+            active,
+            visible,
+          }))}
+          stops={scrubberStops}
+          activeStopId={activeScrubberStopId}
+          onCommit={handleScrubberCommit}
         />
-      </Animated.View>
+
+        <View
+          style={[
+            styles.inputPanel,
+            {
+              backgroundColor: isDark
+                ? 'rgba(17, 20, 23, 0.98)'
+                : 'rgba(247, 249, 255, 0.98)',
+              borderTopColor: isDark
+                ? 'rgba(255, 255, 255, 0.06)'
+                : theme.colors.outlineVariant,
+            },
+          ]}
+        >
+          {toolsMenuVisible && (
+            <ToolsMenu
+              onClose={() => setToolsMenuVisible(false)}
+              model={session.model}
+              provider={sessionProvider}
+              effort={session.effort ?? ''}
+              effortOptions={sessionEffortOptions}
+              effectiveLabel={effectiveLabel ?? undefined}
+              commands={sessionCommands}
+              onSaveSettings={handleSaveToolsSettings}
+              onInsertCommand={handleInsertCommand}
+            />
+          )}
+          <SuggestionActionBar
+            suggestions={session.suggestions}
+            onSelect={suggestion => {
+              if (suggestion.toLowerCase().includes('preview') && preview) {
+                navigation.navigate('Preview', { previewId: preview.id });
+              }
+            }}
+          />
+          {topPendingApproval ? (
+            <TouchableOpacity
+              activeOpacity={0.82}
+              accessibilityRole="button"
+              accessibilityLabel="跳转到待审批"
+              onPress={() => handleJumpToApproval(topPendingApproval.id)}
+              style={[
+                styles.pendingApprovalBubble,
+                {
+                  backgroundColor: isDark
+                    ? 'rgba(17, 20, 23, 0.96)'
+                    : 'rgba(255, 255, 255, 0.98)',
+                  borderColor: theme.colors.tertiary,
+                },
+              ]}
+            >
+              <IconBadge name="approval" tone="tertiary" size={28} iconSize={14} />
+              <View style={styles.pendingApprovalCopy}>
+                <Text
+                  style={[
+                    theme.typography.labelSm,
+                    { color: theme.colors.onSurface },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {pendingApprovals.length > 1
+                    ? `${pendingApprovals.length} 个待审批`
+                    : '1 个待审批'}
+                </Text>
+                <Text
+                  style={[
+                    theme.typography.codeSm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {topPendingApproval.title}
+                </Text>
+              </View>
+              <Text
+                style={[theme.typography.codeSm, { color: theme.colors.tertiary }]}
+              >
+                GO
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          <MessageComposer
+            mode={mode}
+            onModeChange={setMode}
+            input={input}
+            onInputChange={setInput}
+            voiceDraft={voiceDraft}
+            commands={
+              project?.availableCommands?.length
+                ? project.availableCommands
+                : sessionCommands
+            }
+            voiceStt={voiceStt}
+            sendingMessage={sendingMessage}
+            interruptingTurn={interruptingTurn}
+            canInterruptTurn={canInterruptTurn}
+            deviceOffline={deviceOffline}
+            readOnlyReason={composerReadOnlyReason}
+            toolsMenuVisible={toolsMenuVisible}
+            onToggleTools={() => setToolsMenuVisible(value => !value)}
+            onTextInputFocus={() => {
+              pendingScrollToEndRef.current = true;
+              scheduleScrollToEnd(true);
+            }}
+            onVoiceCapture={handleVoiceCapture}
+            onVoiceCaptureStart={handleVoiceCaptureStart}
+            onVoiceCaptureEnd={handleVoiceCaptureEnd}
+            onSendVoice={handleSendVoice}
+            onSendText={handleSendText}
+            onInterruptTurn={handleInterruptTurn}
+            onResetVoice={() => {
+              setVoiceDraft('');
+            }}
+          />
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaWrapper>
   );
 };
@@ -2286,7 +2626,16 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 268,
+    paddingBottom: 16,
+  },
+  topStatusCluster: {
+    alignItems: 'flex-end',
+    maxWidth: 156,
+    gap: 4,
+  },
+  topStatusMeta: {
+    textAlign: 'right',
+    fontSize: 10,
   },
   offlineBanner: {
     flexDirection: 'row',
@@ -2443,6 +2792,36 @@ const styles = StyleSheet.create({
   conversationTimeline: {
     gap: 10,
   },
+  conversationBoundaryRow: {
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingLeft: 10,
+    paddingRight: 2,
+  },
+  conversationBoundaryLine: {
+    width: 24,
+    height: 1,
+    borderRadius: 999,
+  },
+  conversationBoundaryNode: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 2,
+  },
+  conversationBoundaryEndNode: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  conversationBoundaryLabel: {
+    minWidth: 58,
+  },
+  turnGroup: {
+    gap: 8,
+  },
   approvalTimelineItem: {
     width: '100%',
   },
@@ -2544,10 +2923,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
   },
   inputPanel: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
     borderTopWidth: 1,
     paddingHorizontal: 20,
     paddingTop: 10,

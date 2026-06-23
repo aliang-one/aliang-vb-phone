@@ -1,5 +1,11 @@
 import React, { useRef, useState } from 'react';
-import { View, Text, PanResponder, StyleSheet, Dimensions } from 'react-native';
+import {
+  View,
+  Text,
+  PanResponder,
+  StyleSheet,
+  Dimensions,
+} from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -51,6 +57,7 @@ const FISHEYE_BASE_HEIGHT = 6;
 const FISHEYE_PEAK_HEIGHT = 28;
 const FISHEYE_BASE_WIDTH = 4;
 const FISHEYE_PEAK_WIDTH = 9;
+const RAIL_TOUCH_WIDTH = 48;
 
 /**
  * Right-edge conversation locator — a dense minimap pill by default, with a
@@ -153,8 +160,20 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: event => {
+        const pageX = event.nativeEvent.pageX;
+        const screenWidth = Dimensions.get('window').width;
+        return pageX >= screenWidth - RAIL_TOUCH_WIDTH;
+      },
+      onMoveShouldSetPanResponder: (_event, gesture) => {
+        const screenWidth = Dimensions.get('window').width;
+        return (
+          Math.abs(gesture.dx) + Math.abs(gesture.dy) > 3 &&
+          gesture.x0 >= screenWidth - RAIL_TOUCH_WIDTH
+        );
+      },
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponderCapture: () => false,
       onPanResponderGrant: (_evt, gesture) => {
         // Capture geometry up front; the loupe itself only appears on first
         // move (a bare tap should just jump, not flash the magnifier).
@@ -193,7 +212,7 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
         }
       },
       onPanResponderTerminate: () => endSlide(),
-      onPanResponderTerminationRequest: () => false,
+      onPanResponderTerminationRequest: () => true,
     }),
   ).current;
 

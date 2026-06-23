@@ -10,7 +10,12 @@ import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { RootStackParamList } from '../../app/navigation/types';
-import { useControlCenterStore } from '../../store/controlCenterStore';
+import {
+  useControlCenterStore,
+  useDevice,
+  useProject,
+  useVibeRun,
+} from '../../store/controlCenterStore';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -20,20 +25,15 @@ export const PreviewScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
   const route = useRoute<PreviewRoute>();
-  const devices = useControlCenterStore(state => state.devices);
-  const projects = useControlCenterStore(state => state.projects);
   const previewLinks = useControlCenterStore(state => state.previewLinks);
-  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
   const preview =
     previewLinks.find(item => item.id === route.params.previewId) ??
     previewLinks[0];
-  const session = vibeRuns.find(item => item.id === preview.sessionId);
-  const project = session
-    ? projects.find(item => item.id === session.projectId)
-    : undefined;
-  const device = session
-    ? devices.find(item => item.id === session.deviceId)
-    : undefined;
+  // Fine-grained: subscribe to THIS preview's session/project/device only, so
+  // streaming ai.delta on other sessions no longer re-renders this screen.
+  const session = useVibeRun(preview?.sessionId);
+  const project = useProject(session?.projectId);
+  const device = useDevice(session?.deviceId);
   const displayTitle = formatVibeSessionTitle(
     session?.title ?? 'Remote preview',
     {

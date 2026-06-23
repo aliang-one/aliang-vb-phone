@@ -483,16 +483,9 @@ export const VibeCodingListScreen: React.FC = () => {
               <VibeSessionCard
                 key={session.id}
                 session={session}
-                project={projects.find(project => project.id === session.projectId)}
-                device={devices.find(device => device.id === session.deviceId)}
                 disabled={isDeviceStatusOffline(
                   deviceStatusIndex.get(session.deviceId),
                 )}
-                onPress={() =>
-                  navigation.navigate('VibeCodingSession', {
-                    sessionId: session.id,
-                  })
-                }
               />
             ))}
             <LoadMoreRow

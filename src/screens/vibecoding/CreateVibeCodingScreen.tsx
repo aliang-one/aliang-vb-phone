@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
+  Alert,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -24,7 +25,7 @@ import {
 import { IconBadge } from '../../components/visual/IconBadge';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
-import { EFFORT_PRESETS } from '../../utils/modelIntensity';
+import { catalogEffortOptions, useModelOptions } from '../../hooks/useModelOptions';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type CreateRoute = RouteProp<RootStackParamList, 'CreateVibeCoding'>;
@@ -62,6 +63,10 @@ export const CreateVibeCodingScreen: React.FC = () => {
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
   const startAgentSession = useControlCenterStore(state => state.startAgentSession);
+  // In-flight guard for the create call. startAgentSession can take many
+  // seconds (platform-service discovery when the server is slow/unreachable),
+  // so without this a user taps repeatedly and fires N parallel creates.
+  const [creating, setCreating] = useState(false);
   const initialDeviceId = route.params?.deviceId ?? devices[0]?.id ?? '';
   const initialProjectId =
     route.params?.projectId ??
@@ -79,6 +84,11 @@ export const CreateVibeCodingScreen: React.FC = () => {
   const [provider, setProvider] = useState<AgentProvider>('codex');
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState('');
+  // Live catalog drives the EFFORT chips for the selected provider (codex 4,
+  // claude 6); falls back to the hardcoded ladder before it loads. "默认" =
+  // inherit (don't specify), which is the default selection.
+  const { providerCatalog, userDefault } = useModelOptions();
+  const effortOptions = catalogEffortOptions(provider, providerCatalog);
   const device = devices.find(item => item.id === deviceId) ?? devices[0];
   const project = useCustomPath
     ? undefined
@@ -126,6 +136,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
   };
 
   const handleCreate = async () => {
+    if (creating) return;
     if (!device || !objective.trim()) return;
     // Project selected → run inside its path (no separate directory). Custom
     // path → use the typed value, falling back to the device's first
@@ -133,18 +144,31 @@ export const CreateVibeCodingScreen: React.FC = () => {
     const effectiveDirectory =
       project?.path ?? directory?.trim() ?? device.authorizedDirectories[0] ?? '~';
 
-    const sessionId = await startAgentSession({
-      deviceId: device.id,
-      projectId: project?.id ?? '',
-      directory: effectiveDirectory,
-      provider,
-      objective: objective.trim(),
-      // '' => omit so the agent uses its own default model (never send a label).
-      model: model.trim() || undefined,
-      // '' => omit so the agent/gateway use their default reasoning effort.
-      effort: effort.trim() || undefined,
-    });
-    navigation.replace('VibeCodingSession', { sessionId });
+    setCreating(true);
+    try {
+      const sessionId = await startAgentSession({
+        deviceId: device.id,
+        projectId: project?.id ?? '',
+        directory: effectiveDirectory,
+        provider,
+        objective: objective.trim(),
+        // '' => omit so the agent uses its own default model (never send a label).
+        model: model.trim() || undefined,
+        // '' => omit so the agent/gateway use their own default reasoning effort.
+        effort: effort.trim() || undefined,
+      });
+      navigation.replace('VibeCodingSession', { sessionId });
+    } catch (error) {
+      // Failed (e.g. platform service unreachable after discovery). Re-enable
+      // the button so the user can retry, and surface why — otherwise the
+      // rejection is a silent "Uncaught (in promise)" and nothing happens.
+      setCreating(false);
+      const message =
+        error instanceof Error
+          ? error.message
+          : '创建会话失败,请确认设备在线且平台服务可达后重试。';
+      Alert.alert('创建失败', message);
+    }
   };
 
   if (!device) {
@@ -452,7 +476,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
           onChangeText={setModel}
           autoCapitalize="none"
           autoCorrect={false}
-          placeholder="留空使用 Agent 默认模型"
+          placeholder={`留空继承用户默认${userDefault.model ? `: ${userDefault.model}` : ''}`}
           placeholderTextColor={theme.colors.onSurfaceVariant}
           style={[
             theme.typography.bodyMd,
@@ -515,7 +539,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.modelHint,
           ]}>
-          指定模型名后会作为 --model 传给 codex / claude;留空则用 CLI 默认模型。
+          指定模型名后会作为本 session 覆盖;留空继承 Me 中的用户默认。
         </Text>
 
         <Text
@@ -527,7 +551,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
           6. EFFORT
         </Text>
         <View style={styles.chipRow}>
-          {EFFORT_PRESETS[provider].map(preset => {
+          {effortOptions.map(preset => {
             const active = effort.trim() === preset.value;
             return (
               <TouchableOpacity
@@ -570,8 +594,8 @@ export const CreateVibeCodingScreen: React.FC = () => {
             styles.modelHint,
           ]}>
           {provider === 'codex'
-            ? 'Codex 推理强度：codex 用 xhigh；留空用默认。会作为模型名后缀传给网关。'
-            : 'Claude 推理强度：claude 用 max；留空用默认。'}
+            ? 'Codex 推理强度：codex 用 xhigh；留空继承用户默认。'
+            : 'Claude 推理强度：claude 用 max；留空继承用户默认。'}
         </Text>
 
         <Text
@@ -646,7 +670,8 @@ export const CreateVibeCodingScreen: React.FC = () => {
         <GlowButton
           title="START VIBECODING"
           onPress={handleCreate}
-          disabled={!device || !objective.trim() || selectedPermissions.length === 0}
+          disabled={!device || !objective.trim() || selectedPermissions.length === 0 || creating}
+          loading={creating}
           style={styles.createButton}
         />
       </ScrollView>

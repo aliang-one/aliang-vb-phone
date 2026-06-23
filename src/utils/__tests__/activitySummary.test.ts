@@ -1,5 +1,5 @@
 import type { StructuredActivityEvent } from '../../data/platformModels';
-import { summarizeActivity } from '../activitySummary';
+import { deriveLivePulse, summarizeActivity } from '../activitySummary';
 
 const cmd = (
   overrides: Partial<
@@ -206,5 +206,80 @@ describe('summarizeActivity', () => {
       const summary = summarizeActivity([cmd({ status: 'interrupted' })]);
       expect(summary?.hasActive).toBe(false);
     });
+  });
+
+  describe('turnSettled(空档兜底语义)', () => {
+    it('默认 turnSettled=true:无活跃脉冲 → 「已完成」(历史回合)', () => {
+      const summary = summarizeActivity([cmd({ status: 'completed' })]);
+      expect(summary?.headline).toBe('已完成');
+      expect(summary?.hasActive).toBe(false);
+    });
+
+    it('turnSettled=false:同一组事件,空档 → 「处理中…」+ hasActive=true(spinner)', () => {
+      const summary = summarizeActivity([cmd({ status: 'completed' })], false);
+      expect(summary?.headline).toBe('处理中…');
+      expect(summary?.hasActive).toBe(true);
+    });
+
+    it('turnSettled 不影响有活跃脉冲时的标题(active thinking 仍赢)', () => {
+      expect(summarizeActivity([thinking({ active: true })], false)?.headline).toBe(
+        '🧠 思考中…',
+      );
+      expect(summarizeActivity([cmd({ status: 'started' })], false)?.headline).toBe(
+        '⚙ npm test',
+      );
+    });
+
+    it('turnSettled=false 但有文件 → 仍是「编辑文件」(文件分支先于兜底)', () => {
+      const summary = summarizeActivity([fileChange()], false);
+      expect(summary?.headline).toBe('📝 编辑 1 个文件');
+    });
+  });
+});
+
+describe('deriveLivePulse (L3 底部脉冲)', () => {
+  it('空事件 → null', () => {
+    expect(deriveLivePulse([], false)).toBeNull();
+  });
+
+  it('active thinking → 思考中(无论 isLiveTurn)', () => {
+    expect(deriveLivePulse([thinking({ active: true })], false)?.headline).toBe(
+      '🧠 思考中…',
+    );
+  });
+
+  it('started command → 运行命令(无论 isLiveTurn)', () => {
+    expect(deriveLivePulse([cmd({ status: 'started' })], false)?.headline).toBe(
+      '⚙ npm test',
+    );
+  });
+
+  it('无活跃脉冲 + isLiveTurn=true → 「处理中…」+ hasActive', () => {
+    const pulse = deriveLivePulse([cmd({ status: 'completed' })], true);
+    expect(pulse?.headline).toBe('处理中…');
+    expect(pulse?.hasActive).toBe(true);
+  });
+
+  it('无活跃脉冲 + isLiveTurn=false → 「等待你的输入」+ hasActive=false', () => {
+    const pulse = deriveLivePulse([cmd({ status: 'completed' })], false);
+    expect(pulse?.headline).toBe('等待你的输入');
+    expect(pulse?.hasActive).toBe(false);
+  });
+
+  it('started command 即使 isLiveTurn=false 仍判为活跃(纯命令执行期无文本 delta)', () => {
+    const pulse = deriveLivePulse([cmd({ status: 'started' })], false);
+    expect(pulse?.hasActive).toBe(true);
+  });
+
+  it('永不返回「已完成/DONE」', () => {
+    const cases = [
+      deriveLivePulse([cmd({ status: 'completed' })], true),
+      deriveLivePulse([cmd({ status: 'completed' })], false),
+      deriveLivePulse([fileChange()], false),
+    ];
+    for (const p of cases) {
+      expect(p?.headline).not.toBe('已完成');
+      expect(p?.headline).not.toBe('DONE');
+    }
   });
 });

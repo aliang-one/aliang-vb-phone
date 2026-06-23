@@ -6,6 +6,7 @@ import { RouteProp } from '@react-navigation/native';
 import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
+import { DeferredMount } from '../../components/shared/DeferredMount';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { ProjectWorkspaceCard } from '../../components/cards/ProjectWorkspaceCard';
 import { GlowButton } from '../../components/shared/GlowButton';
@@ -201,6 +202,7 @@ export const DeviceDetailScreen: React.FC = () => {
         onBack={navigation.goBack}
       />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+        <DeferredMount>
         <GlassPanel style={styles.hero}>
           <View style={styles.heroTop}>
             <IconBadge
@@ -413,12 +415,7 @@ export const DeviceDetailScreen: React.FC = () => {
             <VibeSessionCard
               key={session.id}
               session={session}
-              project={projectsStore.find(project => project.id === session.projectId)}
-              device={device}
               disabled={deviceOffline}
-              onPress={() =>
-                navigation.navigate('VibeCodingSession', { sessionId: session.id })
-              }
             />
           ))}
           <LoadMoreRow
@@ -655,6 +652,7 @@ export const DeviceDetailScreen: React.FC = () => {
             </View>
           </CollapsiblePanel>
         ) : null}
+        </DeferredMount>
       </ScrollView>
     </SafeAreaWrapper>
   );

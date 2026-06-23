@@ -1,5 +1,6 @@
 import React from 'react';
 import { StatusBar } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider } from './src/theme/ThemeContext';
@@ -46,12 +47,18 @@ function AppContent({ debugDeviceTerminal }: AppInitialProps = {}) {
 }
 
 function App(props: AppInitialProps = {}) {
+  // GestureHandlerRootView must wrap the navigation tree: React Navigation 7's
+  // stack gestures and react-native-reanimated 4 pan gestures both expect a
+  // gesture root. Without it they fall back to the legacy responder system,
+  // which adds overhead and drops frames during screen transitions.
   return (
-    <SafeAreaProvider>
-      <ThemeProvider>
-        <AppContent debugDeviceTerminal={props.debugDeviceTerminal} />
-      </ThemeProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <AppContent debugDeviceTerminal={props.debugDeviceTerminal} />
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 

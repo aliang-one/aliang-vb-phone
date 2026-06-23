@@ -144,12 +144,11 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
       screen = renderScreen();
     });
 
-    const newTerminalButton = screen!.root.findByProps({
-      testID: 'new-terminal-floating-button',
-    });
+    const newTerminalButton = findHeaderActionButton(screen!.root, 'NEW TERM');
+    expect(newTerminalButton).toBeDefined();
 
     act(() => {
-      newTerminalButton.props.onPress();
+      newTerminalButton!.props.onPress();
     });
 
     expect(mockNavigate).toHaveBeenCalledWith('DeviceTerminal', {
@@ -170,6 +169,17 @@ function findTerminalActionButton(
   const buttons = actionRail?.findAllByType(TouchableOpacity) ?? [];
 
   return label === 'RESUME' ? buttons[0] : buttons[1];
+}
+
+function findHeaderActionButton(
+  root: ReactTestRenderer.ReactTestInstance,
+  label: string,
+) {
+  return root
+    .findAllByType(TouchableOpacity)
+    .find(button =>
+      button.findAllByType(Text).some(node => node.props.children === label),
+    );
 }
 
 function device(id: string, name: string, status: Device['status']): Device {

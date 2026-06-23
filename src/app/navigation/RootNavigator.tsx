@@ -14,6 +14,7 @@ import { DeviceDetailScreen } from '../../screens/devices/DeviceDetailScreen';
 import { DeviceTerminalScreen } from '../../screens/devices/DeviceTerminalScreen';
 import { ProjectScanScreen } from '../../screens/devices/ProjectScanScreen';
 import { ProjectDetailScreen } from '../../screens/projects/ProjectDetailScreen';
+import { ProjectSettingsScreen } from '../../screens/projects/ProjectSettingsScreen';
 import { FileBrowserScreen } from '../../screens/projects/FileBrowserScreen';
 import { CreateVibeCodingScreen } from '../../screens/vibecoding/CreateVibeCodingScreen';
 import { AgentSessionsScreen } from '../../screens/vibecoding/AgentSessionsScreen';
@@ -215,7 +216,7 @@ export const RootNavigator = ({ debugDeviceTerminal }: RootNavigatorProps) => {
 
   return (
     <Stack.Navigator
-      screenOptions={{ headerShown: false }}
+      screenOptions={{ headerShown: false, freezeOnBlur: true }}
       initialRouteName={initialRouteName}>
       {!token ? (
         <Stack.Screen name="Login" component={LoginScreen} />
@@ -235,6 +236,7 @@ export const RootNavigator = ({ debugDeviceTerminal }: RootNavigatorProps) => {
           <Stack.Screen name="DeviceTerminal" component={DeviceTerminalScreen} />
           <Stack.Screen name="ProjectScan" component={ProjectScanScreen} />
           <Stack.Screen name="ProjectDetail" component={ProjectDetailScreen} />
+          <Stack.Screen name="ProjectSettings" component={ProjectSettingsScreen} />
           <Stack.Screen name="FileBrowser" component={FileBrowserScreen} />
           <Stack.Screen name="CreateVibeCoding" component={CreateVibeCodingScreen} />
           <Stack.Screen name="AgentSessions" component={AgentSessionsScreen} />

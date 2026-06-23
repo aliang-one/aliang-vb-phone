@@ -7,8 +7,8 @@
 // voice→text flow feels alive (the STT hook exposes no amplitude, so the
 // waveform is a decorative loop keyed off `status`).
 //
-// Session-level controls (pause/end) deliberately live OUT of the composer —
-// they belong on the session card's long-press menu, not the input row.
+// Session-level controls (pause/end) deliberately live OUT of the composer.
+// Current-turn interrupt lives here because it replaces "send" while streaming.
 import React, { useEffect, useRef } from 'react';
 import {
   Animated,
@@ -40,9 +40,13 @@ export interface MessageComposerProps {
   commands: AgentCommandInfo[];
   voiceStt: UseVoiceSttResult;
   sendingMessage: boolean;
+  interruptingTurn?: boolean;
+  canInterruptTurn?: boolean;
   deviceOffline: boolean;
+  readOnlyReason?: string;
   toolsMenuVisible: boolean;
   onToggleTools: () => void;
+  onTextInputFocus?: () => void;
   /** Toggles start/stop of voice capture. */
   onVoiceCapture: () => void;
   /** Begins press-and-hold voice capture. Falls back to onVoiceCapture. */
@@ -52,6 +56,7 @@ export interface MessageComposerProps {
   /** Sends the transcribed voice draft as a user message. */
   onSendVoice: () => void;
   onSendText: () => void;
+  onInterruptTurn?: () => void;
   onResetVoice: () => void;
 }
 
@@ -178,31 +183,32 @@ const Waveform: React.FC<{ active: boolean; calm: boolean; color: string }> = ({
   color,
 }) => {
   const BAR_COUNT = 5;
-  const MIN = 4;
+  const MIN_SCALE = 0.18;
+  const MAX_HEIGHT = 26;
   const bars = useRef<Animated.Value[]>(
-    Array.from({ length: BAR_COUNT }, () => new Animated.Value(MIN)),
+    Array.from({ length: BAR_COUNT }, () => new Animated.Value(MIN_SCALE)),
   ).current;
   useEffect(() => {
     if (!active) {
-      bars.forEach(b => b.stopAnimation(() => b.setValue(MIN)));
+      bars.forEach(b => b.stopAnimation(() => b.setValue(MIN_SCALE)));
       return;
     }
-    const max = calm ? 12 : 26;
+    const maxScale = calm ? 0.46 : 1;
     const loops = bars.map((bar, i) => {
       const dur = (calm ? 520 : 340) + i * 70;
       return Animated.loop(
         Animated.sequence([
           Animated.timing(bar, {
-            toValue: max,
+            toValue: maxScale,
             duration: dur,
             easing: Easing.inOut(Easing.sin),
-            useNativeDriver: false,
+            useNativeDriver: true,
           }),
           Animated.timing(bar, {
-            toValue: MIN,
+            toValue: MIN_SCALE,
             duration: dur,
             easing: Easing.inOut(Easing.sin),
-            useNativeDriver: false,
+            useNativeDriver: true,
           }),
         ]),
       );
@@ -217,11 +223,12 @@ const Waveform: React.FC<{ active: boolean; calm: boolean; color: string }> = ({
           key={i}
           style={{
             width: 3,
-            height: bar,
+            height: MAX_HEIGHT,
             borderRadius: 2,
             marginHorizontal: 1.5,
             backgroundColor: color,
             opacity: calm ? 0.6 : 0.9,
+            transform: [{ scaleY: bar }],
           }}
         />
       ))}
@@ -246,14 +253,19 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   commands,
   voiceStt,
   sendingMessage,
+  interruptingTurn = false,
+  canInterruptTurn = false,
   deviceOffline,
+  readOnlyReason,
   toolsMenuVisible,
   onToggleTools,
+  onTextInputFocus,
   onVoiceCapture,
   onVoiceCaptureStart,
   onVoiceCaptureEnd,
   onSendVoice,
   onSendText,
+  onInterruptTurn,
   onResetVoice,
 }) => {
   const { theme, isDark } = useTheme();
@@ -261,6 +273,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   const isVoiceActive = ACTIVE_STATUSES.includes(status);
   const isRecording = status === 'recording';
   const hasDraft = Boolean(voiceDraft);
+  const composerDisabled = deviceOffline || Boolean(readOnlyReason);
   // Slash-command typeahead: active only while the whole input is a single
   // `/token` (slash first, command-name chars, no space yet) in text mode. A
   // space ends the command name and hides the dropdown.
@@ -334,7 +347,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   }, [hasDraft, mode]);
 
   const handleVoicePressIn = () => {
-    if (deviceOffline || isVoiceActive) return;
+    if (composerDisabled || isVoiceActive) return;
     voicePressActiveRef.current = true;
     (onVoiceCaptureStart ?? onVoiceCapture)();
   };
@@ -353,7 +366,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
     // by accident.
     const targetMode: ComposerMode = mode === 'text' ? 'voice' : 'text';
     const iconName: ComposerIconName = mode === 'text' ? 'mic' : 'keyboard';
-    const disabled = deviceOffline && mode === 'text' ? false : isVoiceActive;
+    const disabled = Boolean(readOnlyReason) || isVoiceActive;
     return (
       <TouchableOpacity
         accessibilityRole="button"
@@ -371,8 +384,35 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   };
 
   const renderAction = () => {
+    if (canInterruptTurn && onInterruptTurn) {
+      return (
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="停止生成"
+          disabled={interruptingTurn || deviceOffline}
+          onPress={onInterruptTurn}
+          testID="composer-interrupt"
+          style={[
+            styles.ctrlBtn,
+            {
+              borderRadius: theme.borderRadius.full,
+              backgroundColor: interruptingTurn ? ctrlBg.backgroundColor : theme.colors.error,
+              ...(interruptingTurn || !isDark ? {} : theme.glow.primary),
+            },
+          ]}
+        >
+          {interruptingTurn ? (
+            <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
+              …
+            </Text>
+          ) : (
+            <ComposerIcon name="stop" size={20} color={theme.colors.onPrimary} />
+          )}
+        </TouchableOpacity>
+      );
+    }
     if (mode === 'text') {
-      const canSend = input.trim().length > 0 && !sendingMessage && !deviceOffline;
+      const canSend = input.trim().length > 0 && !sendingMessage && !composerDisabled;
       return (
         <TouchableOpacity
           accessibilityRole="button"
@@ -426,11 +466,29 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   // ----- the adaptive content area -----
 
   const renderContent = () => {
+    if (readOnlyReason) {
+      return (
+        <View style={styles.inlineRow}>
+          <ComposerIcon name="stop" size={18} color={theme.colors.onSurfaceVariant} />
+          <Text
+            style={[
+              theme.typography.bodySm,
+              { color: theme.colors.onSurfaceVariant, flex: 1 },
+            ]}
+            numberOfLines={2}
+          >
+            {readOnlyReason}
+          </Text>
+        </View>
+      );
+    }
+
     if (mode === 'text') {
       return (
         <TextInput
           value={input}
           onChangeText={onInputChange}
+          onFocus={onTextInputFocus}
           placeholder="Send a direction..."
           placeholderTextColor={theme.colors.onSurfaceVariant}
           multiline
@@ -581,7 +639,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={isVoiceActive ? '松开结束录音' : '按住开始录音'}
-                  disabled={deviceOffline}
+                  disabled={composerDisabled}
                   onPressIn={handleVoicePressIn}
                   onPressOut={handleVoicePressOut}
                   testID="composer-voice-hold"

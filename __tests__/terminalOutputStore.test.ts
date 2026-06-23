@@ -1,4 +1,5 @@
 import { useControlCenterStore } from '../src/store/controlCenterStore';
+import { cancelTerminalBatch, flushTerminalOutput } from '../src/store/terminalBatching';
 import { platformTransport } from '../src/services/platformTransport';
 import { stateFromSnapshot } from '../src/store/internals';
 
@@ -65,6 +66,9 @@ describe('terminal output store handling', () => {
       events: [],
     });
     jest.clearAllMocks();
+    // terminal.output is batched (see src/store/terminalBatching.ts); reset the
+    // module-level buffer between tests so a prior test can't leak into this one.
+    cancelTerminalBatch();
   });
 
   it('replaces screen-repaint stdout frames instead of appending forever', () => {
@@ -85,6 +89,7 @@ describe('terminal output store handling', () => {
       encoding: 'text',
       raw: {},
     });
+    flushTerminalOutput();
 
     expect(
       useControlCenterStore
@@ -115,6 +120,7 @@ describe('terminal output store handling', () => {
       encoding: 'text',
       raw: {},
     });
+    flushTerminalOutput();
 
     expect(
       useControlCenterStore
@@ -176,6 +182,7 @@ describe('terminal output store handling', () => {
       encoding: 'text',
       raw: {},
     });
+    flushTerminalOutput();
 
     expect(
       useControlCenterStore

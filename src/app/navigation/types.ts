@@ -12,6 +12,7 @@ export type RootStackParamList = {
   DeviceTerminal: { deviceId: string; directory?: string; terminalId?: string };
   ProjectScan: { deviceId: string };
   ProjectDetail: { projectId: string; deviceId?: string };
+  ProjectSettings: { projectId: string; deviceId?: string };
   FileBrowser: { projectId: string; deviceId?: string; sessionId?: string };
   CreateVibeCoding: { deviceId?: string; projectId?: string };
   AgentSessions: { deviceId?: string; projectId?: string } | undefined;

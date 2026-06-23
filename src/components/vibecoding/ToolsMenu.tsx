@@ -30,6 +30,18 @@ export interface ToolsMenuProps {
   commands: AgentCommandInfo[];
   /** Current reasoning effort (provider-specific); undefined/'' = no override. */
   effort?: string;
+  /**
+   * Resolved effort options for the provider. When supplied, the chips render
+   * the live server catalog's efforts (codex 4, claude 6); otherwise the
+   * hardcoded fallback ladder is used. Passed down by the session screen.
+   */
+  effortOptions?: Array<{ label: string; value: string }>;
+  /**
+   * Read-only "当前有效" hint from the session's `effective_model_config`
+   * (server-resolved concrete model/effort + provenance). Shown above the
+   * MODEL field so the user knows what the agent actually runs with today.
+   */
+  effectiveLabel?: string;
   /** Persist the edited model + effort. Empty strings clear; the model is a
    *  clean base name (effort is sent as a separate field, never baked in). */
   onSaveSettings: (patch: { model: string; effort: string }) => Promise<void>;
@@ -47,6 +59,8 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
   provider,
   commands,
   effort,
+  effortOptions,
+  effectiveLabel,
   onSaveSettings,
   onInsertCommand,
 }) => {
@@ -142,6 +156,36 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
       </View>
 
       <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
+        {effectiveLabel ? (
+          <View
+            style={[
+              styles.effectiveRow,
+              {
+                borderRadius: theme.borderRadius.md,
+                borderColor: rowBorder,
+                backgroundColor: isDark
+                  ? 'rgba(255,255,255,0.03)'
+                  : theme.colors.surfaceContainerLow,
+              },
+            ]}>
+            <Text
+              style={[
+                theme.typography.labelCaps,
+                { color: theme.colors.onSurfaceVariant },
+              ]}>
+              当前有效
+            </Text>
+            <Text
+              style={[
+                theme.typography.codeSm,
+                { color: theme.colors.onSurface, flexShrink: 1 },
+              ]}
+              numberOfLines={2}>
+              {effectiveLabel}
+            </Text>
+          </View>
+        ) : null}
+
         {/* MODEL */}
         <Text
           style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }, styles.fieldLabel]}>
@@ -155,7 +199,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
           }}
           autoCapitalize="none"
           autoCorrect={false}
-          placeholder="留空 = Agent 默认"
+          placeholder="留空 = 用户默认"
           placeholderTextColor={theme.colors.onSurfaceVariant}
           style={[
             theme.typography.bodyMd,
@@ -197,7 +241,10 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
           思考深度 EFFORT
         </Text>
         <View style={styles.chipRow}>
-          {effortPresetsFor(provider).map(option => {
+          {(effortOptions && effortOptions.length
+            ? effortOptions
+            : effortPresetsFor(provider)
+          ).map(option => {
             const active = effortDraft === option.value;
             return (
               <TouchableOpacity
@@ -316,6 +363,15 @@ const styles = StyleSheet.create({
   body: {
     paddingHorizontal: 12,
     paddingBottom: 12,
+  },
+  effectiveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    marginTop: 10,
   },
   fieldLabel: {
     marginTop: 10,

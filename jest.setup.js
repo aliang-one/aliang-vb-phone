@@ -4,6 +4,19 @@ jest.mock('react-native-reanimated', () =>
   require('react-native-reanimated/mock'),
 );
 
+// App wraps NavigationContainer in <GestureHandlerRootView>. The native
+// RNGestureHandlerModule isn't registered under Jest's TurboModule registry, so
+// importing the real module throws at import time — mock it as a passthrough View.
+jest.mock('react-native-gesture-handler', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return {
+    GestureHandlerRootView: React.forwardRef((props, ref) =>
+      React.createElement(View, { ...props, ref }),
+    ),
+  };
+});
+
 jest.mock('@react-native-async-storage/async-storage', () => {
   let store = {};
   return {

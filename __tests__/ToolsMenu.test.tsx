@@ -101,16 +101,18 @@ describe('ToolsMenu', () => {
     expect(() => findByTestID(root, 'tools-cmd-clear')).toThrow();
   });
 
-  it('renders provider-aware effort presets (codex shows xhigh, claude shows max)', () => {
-    // Codex: xhigh present, max absent.
+  it('renders provider-aware effort presets (codex ladder vs claude ladder)', () => {
+    // Codex ladder: low/medium/high/xhigh (no max, no ultracode).
     const codexRoot = wrap(<ToolsMenu {...defaultProps({ provider: 'codex' })} />);
     expect(chipByLabel(codexRoot, 'xhigh')).toBeTruthy();
     expect(chipByLabel(codexRoot, 'max')).toBeUndefined();
+    expect(chipByLabel(codexRoot, 'ultracode')).toBeUndefined();
 
-    // Claude: max present, xhigh absent.
+    // Claude ladder: low/medium/high/xhigh/max/ultracode (xhigh + max + ultracode all present).
     const claudeRoot = wrap(<ToolsMenu {...defaultProps({ provider: 'claude_code' })} />);
+    expect(chipByLabel(claudeRoot, 'xhigh')).toBeTruthy();
     expect(chipByLabel(claudeRoot, 'max')).toBeTruthy();
-    expect(chipByLabel(claudeRoot, 'xhigh')).toBeUndefined();
+    expect(chipByLabel(claudeRoot, 'ultracode')).toBeTruthy();
   });
 
   it('persists a CLEAN model name and separate effort on save', async () => {

@@ -12,6 +12,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
+import { DeferredMount } from '../../components/shared/DeferredMount';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
@@ -465,6 +466,7 @@ export const FileBrowserScreen: React.FC = () => {
         }
       />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+        <DeferredMount>
         {/* Project identity + device status + action toolbar */}
         <GlassPanel style={styles.hero}>
           <View style={styles.heroTop}>
@@ -796,6 +798,7 @@ export const FileBrowserScreen: React.FC = () => {
           }>
           {renderSheetBody()}
         </BottomSheet>
+        </DeferredMount>
       </ScrollView>
     </SafeAreaWrapper>
   );

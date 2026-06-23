@@ -60,11 +60,20 @@ export function getTerminalThemePalette(isDark: boolean): TerminalThemePalette {
   };
 }
 
+// The inlined HTML (with the full xterm.js source) only varies by theme, so
+// build each variant once and reuse the string across every terminal mount —
+// avoids re-allocating a large string on every navigation into a terminal.
+const terminalHtmlByTheme = new Map<boolean, string>();
+
 export function getTerminalHtml(isDark: boolean): string {
+  const cached = terminalHtmlByTheme.get(isDark);
+  if (cached) {
+    return cached;
+  }
   const palette = getTerminalThemePalette(isDark);
   const serializedPalette = JSON.stringify(palette);
 
-  return `<!DOCTYPE html>
+  const html = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -322,4 +331,6 @@ export function getTerminalHtml(isDark: boolean): string {
   </script>
 </body>
 </html>`;
+  terminalHtmlByTheme.set(isDark, html);
+  return html;
 }

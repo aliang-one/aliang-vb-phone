@@ -4,6 +4,7 @@
 
 import 'react-native-gesture-handler';
 import { AppRegistry, LogBox } from 'react-native';
+import { enableFreeze } from 'react-native-screens';
 import App from './App';
 import { name as appName } from './app.json';
 
@@ -19,5 +20,14 @@ import { name as appName } from './app.json';
 LogBox.ignoreLogs([
   'new NativeEventEmitter() was called with a non-null argument',
 ]);
+
+// Freeze offscreen screens at the native layer so the heavy pushed screens
+// (chat, terminal, file browser, device detail) stop re-rendering in JS while
+// the transition animation runs and while they sit beneath another screen.
+// `enableFreeze` is opt-in; without it react-native-screens keeps offscreen
+// screens live, and during an active AI session the store re-renders them at
+// the streaming cadence — directly competing with navigation frames.
+// Must run before the first render.
+enableFreeze(true);
 
 AppRegistry.registerComponent(appName, () => App);

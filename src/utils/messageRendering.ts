@@ -43,7 +43,15 @@ export type TranscriptMarkdownBlock =
   | { kind: 'heading'; level: number; children: TranscriptMarkdownInline[] }
   | { kind: 'quote'; children: TranscriptMarkdownInline[] }
   | { kind: 'list'; ordered: boolean; items: TranscriptMarkdownInline[][] }
-  | { kind: 'code'; language?: string; content: string };
+  | { kind: 'code'; language?: string; content: string }
+  | {
+      kind: 'folded';
+      label: string;
+      content: string;
+      preview?: string;
+      tone: TranscriptTone;
+      blocks: TranscriptMarkdownBlock[];
+    };
 
 type InlineTagKind = 'commandName' | 'commandArgs';
 
@@ -260,6 +268,166 @@ const summarizeContent = (value: string) => {
   if (!value) return 'empty';
   if (lineCount > 1) return `${lineCount} lines`;
   return `${value.length} chars`;
+};
+
+const AUTO_FOLD_CODE_LINES = 12;
+const AUTO_FOLD_CODE_CHARS = 800;
+const AUTO_FOLD_LIST_ITEMS = 8;
+const AUTO_FOLD_PARAGRAPH_LINES = 8;
+const AUTO_FOLD_PARAGRAPH_CHARS = 900;
+const AUTO_FOLD_SECTION_LINES = 6;
+const toolSectionHeading = /^#{3,4}\s+(Ran Playwright code|Page|Snapshot|Events|Result|Console|Console entries|Warnings|Errors)\s*$/i;
+const alwaysFoldToolSection = /^Ran Playwright code|Snapshot|Events|Console|Console entries|Warnings|Errors$/i;
+const diagnosticToolSection = /^Result$/i;
+
+const previewText = (value: string, maxLines = 3) =>
+  value
+    .split('\n')
+    .slice(0, maxLines)
+    .join('\n')
+    .trim();
+
+const countLines = (value: string) => (value ? value.split('\n').length : 0);
+
+const foldLabel = (title: string, content: string) =>
+  `${title} · ${summarizeContent(content)}`;
+
+const inlineNodesText = (nodes: TranscriptMarkdownInline[]): string =>
+  nodes
+    .map(node => {
+      switch (node.kind) {
+        case 'strong':
+        case 'emphasis':
+        case 'link':
+          return inlineNodesText(node.children);
+        default:
+          return node.content;
+      }
+    })
+    .join('');
+
+const blockText = (block: TranscriptMarkdownBlock): string => {
+  switch (block.kind) {
+    case 'paragraph':
+    case 'heading':
+    case 'quote':
+      return inlineNodesText(block.children);
+    case 'list':
+      return block.items.map((item, index) => `${index + 1}. ${inlineNodesText(item)}`).join('\n');
+    case 'code':
+      return block.content;
+    case 'folded':
+      return block.content;
+  }
+};
+
+const createFoldedMarkdownBlock = (
+  label: string,
+  content: string,
+  blocks: TranscriptMarkdownBlock[],
+  tone: TranscriptTone = 'neutral',
+): TranscriptMarkdownBlock => ({
+  kind: 'folded',
+  label,
+  content,
+  preview: previewText(content),
+  tone,
+  blocks,
+});
+
+const shouldFoldCodeBlock = (block: Extract<TranscriptMarkdownBlock, { kind: 'code' }>) =>
+  countLines(block.content) > AUTO_FOLD_CODE_LINES ||
+  block.content.length > AUTO_FOLD_CODE_CHARS;
+
+const shouldFoldParagraphBlock = (
+  block: Extract<TranscriptMarkdownBlock, { kind: 'paragraph' | 'quote' }>,
+) => {
+  const content = blockText(block);
+  return (
+    countLines(content) > AUTO_FOLD_PARAGRAPH_LINES ||
+    content.length > AUTO_FOLD_PARAGRAPH_CHARS ||
+    /\[WARNING\]|\[ERROR\]|Vue warn|Traceback|Exception/i.test(content)
+  );
+};
+
+const headingText = (block: TranscriptMarkdownBlock) =>
+  block.kind === 'heading' ? inlineNodesText(block.children).trim() : '';
+
+const isToolSectionHeading = (
+  block: TranscriptMarkdownBlock,
+): block is Extract<TranscriptMarkdownBlock, { kind: 'heading' }> =>
+  block.kind === 'heading' &&
+  toolSectionHeading.test(`#`.repeat(block.level) + ` ${headingText(block)}`);
+
+const autoFoldMarkdownBlocks = (
+  blocks: TranscriptMarkdownBlock[],
+): TranscriptMarkdownBlock[] => {
+  const result: TranscriptMarkdownBlock[] = [];
+  let index = 0;
+
+  while (index < blocks.length) {
+    const block = blocks[index];
+    const title = headingText(block);
+
+    if (isToolSectionHeading(block)) {
+      const section: TranscriptMarkdownBlock[] = [block];
+      index += 1;
+      while (index < blocks.length) {
+        const next = blocks[index];
+        if (
+          next.kind === 'heading' &&
+          next.level <= block.level &&
+          isToolSectionHeading(next)
+        ) {
+          break;
+        }
+        section.push(next);
+        index += 1;
+      }
+      const content = section.map(blockText).filter(Boolean).join('\n\n');
+      const shouldFold =
+        alwaysFoldToolSection.test(title) ||
+        (diagnosticToolSection.test(title) &&
+          /\[WARNING\]|\[ERROR\]|Total messages|Console:/i.test(content)) ||
+        countLines(content) >= AUTO_FOLD_SECTION_LINES ||
+        content.length > 360;
+      if (shouldFold) {
+        result.push(createFoldedMarkdownBlock(foldLabel(title, content), content, section, title.match(/warning|error/i) ? 'warning' : 'info'));
+      } else {
+        result.push(...section);
+      }
+      continue;
+    }
+
+    if (block.kind === 'code' && shouldFoldCodeBlock(block)) {
+      const title = block.language
+        ? `${block.language.toUpperCase()} code`
+        : 'Code';
+      result.push(createFoldedMarkdownBlock(foldLabel(title, block.content), block.content, [block], 'info'));
+      index += 1;
+      continue;
+    }
+
+    if (block.kind === 'list' && block.items.length > AUTO_FOLD_LIST_ITEMS) {
+      const content = blockText(block);
+      result.push(createFoldedMarkdownBlock(foldLabel('List', content), content, [block], 'neutral'));
+      index += 1;
+      continue;
+    }
+
+    if ((block.kind === 'paragraph' || block.kind === 'quote') && shouldFoldParagraphBlock(block)) {
+      const content = blockText(block);
+      const warning = /\[WARNING\]|\[ERROR\]|Vue warn|Traceback|Exception/i.test(content);
+      result.push(createFoldedMarkdownBlock(foldLabel(warning ? 'Log output' : 'Long text', content), content, [block], warning ? 'warning' : 'neutral'));
+      index += 1;
+      continue;
+    }
+
+    result.push(block);
+    index += 1;
+  }
+
+  return result;
 };
 
 const escapeRegExp = (value: string) =>
@@ -530,7 +698,7 @@ export const parseMarkdownBlocks = (
     });
   }
 
-  return blocks;
+  return autoFoldMarkdownBlocks(blocks);
 };
 
 const isInsideRange = (

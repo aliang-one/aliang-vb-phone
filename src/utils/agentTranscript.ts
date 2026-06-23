@@ -137,9 +137,6 @@ export const buildDisplayTranscript = (
     if (role === 'assistant') {
       if (previous?.role === 'assistant') {
         appendSegments(previous, message, segments);
-      } else if (previous?.role === 'system') {
-        previous.role = 'assistant';
-        appendSegments(previous, message, segments);
       } else {
         result.push({
           id: uniqueId(message.id, usedDisplayIds),
@@ -153,7 +150,7 @@ export const buildDisplayTranscript = (
       continue;
     }
 
-    if (previous?.role === 'assistant' || previous?.role === 'system') {
+    if (previous?.role === 'system') {
       appendSegments(previous, message, segments);
     } else {
       result.push({

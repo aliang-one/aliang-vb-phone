@@ -7,9 +7,9 @@
 // from it (see server src/types.ts AiSession.effort). The phone must NEVER
 // splice an effort tier into the model string.
 //
-// `effort` is provider-specific (codex: minimal/low/medium/high/xhigh; claude:
-// low/medium/high/max). Provider-aware presets live here as the single source
-// of truth for the create flow, the inline ToolsMenu, and SessionSettings.
+// `effort` is provider-specific (codex: low/medium/high/xhigh; claude_code:
+// low/medium/high/xhigh/max/ultracode). Provider-aware presets live below as a
+// fallback ladder; the live catalog is fetched at runtime (effortOptionsFor).
 //
 // The `Intensity` / `INTENSITY_*` / `parseModelIntensity` / `composeModel`
 // helpers below are LEGACY: they model the OLD (buggy) "tier as model-name
@@ -21,15 +21,20 @@
 export type EffortProvider = 'codex' | 'claude_code';
 
 // Provider-aware reasoning-effort presets. "默认" (value '') means no override
-// — the CLI/gateway default reasoning level is used. Single source of truth;
-// the create flow, ToolsMenu, and SessionSettings all render from this.
+// — the server/CLI default reasoning level is used. This hardcoded ladder is a
+// FALLBACK: the live taxonomy comes from the server catalog
+// (see `effortOptionsFor` + src/api/modelConfig.ts). The levels here MUST stay
+// in sync with what the server seeds so the fallback is never wrong.
+//
+// CONTRACT (must match the server's seeded catalog exactly):
+//   codex:        low / medium / high / xhigh
+//   claude_code:  low / medium / high / xhigh / max / ultracode
 export const EFFORT_PRESETS: Record<
   EffortProvider,
   Array<{ label: string; value: string }>
 > = {
   codex: [
     { label: '默认', value: '' },
-    { label: 'minimal', value: 'minimal' },
     { label: 'low', value: 'low' },
     { label: 'medium', value: 'medium' },
     { label: 'high', value: 'high' },
@@ -40,12 +45,47 @@ export const EFFORT_PRESETS: Record<
     { label: 'low', value: 'low' },
     { label: 'medium', value: 'medium' },
     { label: 'high', value: 'high' },
+    { label: 'xhigh', value: 'xhigh' },
     { label: 'max', value: 'max' },
+    { label: 'ultracode', value: 'ultracode' },
   ],
 };
 
 export const effortPresetsFor = (provider: EffortProvider) =>
   EFFORT_PRESETS[provider] ?? EFFORT_PRESETS.codex;
+
+/**
+ * Resolve the selectable effort options for a provider, preferring the live
+ * server catalog when supplied (the source of truth) and falling back to the
+ * hardcoded `EFFORT_PRESETS` ladder otherwise. Always leads with the
+ * "默认" (value '') inherit option when the fallback is used; a catalog that
+ * already includes an empty-valued inherit entry is passed through untouched.
+ *
+ * `catalog` is the `provider_catalog` array from `fetchModelOptions()`
+ * (see src/api/modelConfig.ts). Imported lazily via a structural type so this
+ * util stays free of api-layer dependencies.
+ */
+export const effortOptionsFor = (
+  provider: EffortProvider,
+  catalog?: ReadonlyArray<{
+    provider: EffortProvider;
+    efforts: ReadonlyArray<{ label: string; value: string }>;
+  }>,
+): Array<{ label: string; value: string }> => {
+  if (catalog && catalog.length) {
+    const entry = catalog.find(item => item.provider === provider);
+    if (entry && entry.efforts && entry.efforts.length) {
+      const efforts = [...entry.efforts];
+      // Guarantee a leading "默认" inherit option so the UI always offers it
+      // even if the catalog omits it.
+      if (!efforts.some(option => option.value === '')) {
+        efforts.unshift({ label: '默认', value: '' });
+      }
+      return efforts;
+    }
+  }
+  return effortPresetsFor(provider);
+};
 
 /**
  * Map a server session's provider/tool strings to the effort-provider
@@ -57,9 +97,18 @@ export function normalizeProvider(
   provider?: string,
   tool?: string,
 ): EffortProvider | undefined {
-  const value = (provider ?? tool ?? '').trim().toLowerCase();
-  if (value === 'codex') return 'codex';
-  if (value === 'claude' || value === 'claudecode') return 'claude_code';
+  for (const candidate of [provider, tool]) {
+    const value = (candidate ?? '').trim().toLowerCase();
+    if (value === 'codex') return 'codex';
+    if (
+      value === 'claude' ||
+      value === 'claudecode' ||
+      value === 'claude_code' ||
+      value === 'claude-code'
+    ) {
+      return 'claude_code';
+    }
+  }
   return undefined;
 }
 

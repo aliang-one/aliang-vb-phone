@@ -5,15 +5,26 @@ jest.mock('../src/api/client', () => ({
   apiPost: jest.fn().mockResolvedValue({}),
   apiPatch: jest.fn().mockResolvedValue({}),
   apiFetch: jest.fn().mockResolvedValue({}),
-  ApiResponseError: class ApiResponseError extends Error {},
+  ApiResponseError: class ApiResponseError extends Error {
+    status: number;
+    code?: string;
+
+    constructor(message: string, status: number, code?: string) {
+      super(message);
+      this.status = status;
+      this.code = code;
+    }
+  },
 }));
 
-import { serverAiSessionToVibeRun } from '../src/store/internals';
-import { fetchAiSession } from '../src/api/sessions';
+import { mergeVibeRunSnapshot, serverAiSessionToVibeRun } from '../src/store/internals';
+import type { VibeCodingRun } from '../src/data/platformModels';
+import { fetchAiSession, interruptAiSession } from '../src/api/sessions';
 import type { PlatformAiSessionSnapshot } from '../src/services/platformTransport';
-import { apiGet } from '../src/api/client';
+import { ApiResponseError, apiGet, apiPost } from '../src/api/client';
 
 const mockedApiGet = apiGet as jest.Mock;
+const mockedApiPost = apiPost as jest.Mock;
 
 // Build a minimal but valid AI session snapshot for mapping tests. Only the
 // fields under test are varied per-case; everything else uses sane defaults so
@@ -77,6 +88,61 @@ describe('serverAiSessionToVibeRun detail signalling', () => {
     expect(run.detailLoadedAt).toBeTruthy();
     expect(run.transcript).toHaveLength(1);
   });
+
+  it('labels claude_code sessions as Claude Code when no concrete model is set', () => {
+    const run = serverAiSessionToVibeRun(
+      baseSession({ provider: 'claude_code' as never }),
+      [],
+      [],
+    );
+    expect(run.model).toBe('Claude Code');
+  });
+});
+
+describe('mergeVibeRunSnapshot status authority', () => {
+  const run = (overrides: Partial<VibeCodingRun> = {}) =>
+    ({
+      id: 'sess-1',
+      title: 'Test session',
+      deviceId: 'device-1',
+      projectId: 'project-1',
+      directory: '/tmp/project',
+      status: 'running',
+      objective: '',
+      model: 'Claude Code',
+      currentStep: 'Waiting for AI response.',
+      branch: 'agent/sess-1',
+      lastActivityMs: 2_000,
+      updatedAt: 'now',
+      suggestions: [],
+      transcript: [],
+      events: [],
+      structuredEvents: [],
+      ...overrides,
+    }) as VibeCodingRun;
+
+  it('applies failed snapshots even when the phone optimistic timestamp is newer', () => {
+    const merged = mergeVibeRunSnapshot(
+      run({ status: 'running', lastActivityMs: 2_000 }),
+      run({
+        status: 'failed',
+        currentStep: 'unsupported AI provider: claude_code',
+        lastActivityMs: 1_000,
+      }),
+    );
+
+    expect(merged.status).toBe('failed');
+    expect(merged.currentStep).toBe('unsupported AI provider: claude_code');
+  });
+
+  it('still ignores stale non-error demotions from older snapshots', () => {
+    const merged = mergeVibeRunSnapshot(
+      run({ status: 'running', lastActivityMs: 2_000 }),
+      run({ status: 'idle', lastActivityMs: 1_000 }),
+    );
+
+    expect(merged.status).toBe('running');
+  });
 });
 
 describe('fetchAiSession refresh option', () => {
@@ -97,5 +163,48 @@ describe('fetchAiSession refresh option', () => {
       '/api/ai/sessions/sess-1?refresh=true',
       { timeoutMs: 15000 },
     );
+  });
+});
+
+describe('interruptAiSession compatibility fallback', () => {
+  afterEach(() => {
+    mockedApiGet.mockReset();
+    mockedApiGet.mockResolvedValue({});
+    mockedApiPost.mockReset();
+    mockedApiPost.mockResolvedValue({});
+  });
+
+  it('falls back to the legacy stop endpoint when interrupt is not deployed', async () => {
+    const stoppedSession = baseSession({ status: 'paused' });
+    mockedApiPost
+      .mockRejectedValueOnce(new ApiResponseError('Not found', 404))
+      .mockResolvedValueOnce({ status: 'paused', session: stoppedSession });
+
+    const result = await interruptAiSession('sess-1');
+
+    expect(result).toBe(stoppedSession);
+    expect(mockedApiPost).toHaveBeenNthCalledWith(
+      1,
+      '/api/ai/sessions/sess-1/interrupt',
+    );
+    expect(mockedApiPost).toHaveBeenNthCalledWith(
+      2,
+      '/api/ai/sessions/sess-1/stop',
+    );
+  });
+
+  it('refreshes the session when the legacy stop response has no snapshot', async () => {
+    const refreshedSession = baseSession({ status: 'paused' });
+    mockedApiPost
+      .mockRejectedValueOnce(new ApiResponseError('Not found', 404))
+      .mockResolvedValueOnce({ status: 'paused' });
+    mockedApiGet.mockResolvedValueOnce(refreshedSession);
+
+    const result = await interruptAiSession('sess-1');
+
+    expect(result).toBe(refreshedSession);
+    expect(mockedApiGet).toHaveBeenCalledWith('/api/ai/sessions/sess-1', {
+      timeoutMs: 15000,
+    });
   });
 });

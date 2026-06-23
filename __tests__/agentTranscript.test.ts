@@ -40,7 +40,7 @@ describe('agentTranscript', () => {
     });
   });
 
-  it('merges consecutive assistant and tool messages into one answer', () => {
+  it('keeps system tool output separate from assistant prose', () => {
     const display = buildDisplayTranscript([
       message('1', 'user', 'Fix the project.'),
       message('2', 'assistant', 'I will inspect it.'),
@@ -48,14 +48,26 @@ describe('agentTranscript', () => {
       message('4', 'assistant', 'The fix is ready.'),
     ]);
 
-    expect(display).toHaveLength(2);
+    expect(display).toHaveLength(4);
     expect(display[1].role).toBe('assistant');
-    expect(display[1].mergedCount).toBe(3);
-    expect(display[1].segments.map(segment => segment.kind)).toEqual([
-      'text',
-      'folded',
-      'text',
+    expect(display[1].mergedCount).toBe(1);
+    expect(display[2].role).toBe('system');
+    expect(display[2].segments.map(segment => segment.kind)).toEqual(['folded']);
+    expect(display[3].role).toBe('assistant');
+    expect(display[3].mergedCount).toBe(1);
+  });
+
+  it('still merges consecutive system messages into one lightweight log group', () => {
+    const display = buildDisplayTranscript([
+      message('1', 'assistant', 'Checking now.'),
+      message('2', 'system', '<tool_use>npm test</tool_use>'),
+      message('3', 'system', '<tool_result>ok</tool_result>'),
     ]);
+
+    expect(display).toHaveLength(2);
+    expect(display[1].role).toBe('system');
+    expect(display[1].mergedCount).toBe(2);
+    expect(display[1].sourceMessageIds).toEqual(['2', '3']);
   });
 
   it('folds fenced code blocks while keeping surrounding assistant text visible', () => {
@@ -83,6 +95,70 @@ describe('agentTranscript', () => {
       },
       { kind: 'paragraph' },
     ]);
+  });
+
+  it('auto-folds long fenced code blocks inside markdown text', () => {
+    const longCode = Array.from({ length: 18 }, (_, index) => `line_${index}();`).join('\n');
+    const segments = parseTranscriptSegments(
+      message(
+        '5b',
+        'assistant',
+        `Here is the generated file:\n\`\`\`js\n${longCode}\n\`\`\`\nDone.`,
+      ),
+    );
+
+    expect(segments).toHaveLength(1);
+    if (segments[0].kind !== 'text') throw new Error('Expected text segment');
+    expect(segments[0].blocks).toMatchObject([
+      { kind: 'paragraph' },
+      {
+        kind: 'folded',
+        label: 'JS code · 18 lines',
+        tone: 'info',
+      },
+      { kind: 'paragraph' },
+    ]);
+  });
+
+  it('auto-folds verbose Playwright report sections', () => {
+    const segments = parseTranscriptSegments(
+      message(
+        '5c',
+        'system',
+        [
+          '### Ran Playwright code',
+          '```js',
+          "await page.getByRole('button', { name: 'Terminal' }).click();",
+          '```',
+          '### Page',
+          '- Page URL: http://localhost:5179/pod',
+          '- Page Title: AliangBoard',
+          '- Console: 0 errors, 5 warnings',
+          '### Result',
+          '[WARNING] [Vue warn]: Component inside <Transition> renders non-element root node.',
+          '  at <PodDetail>',
+          '[WARNING] [Vue warn]: Component inside <Transition> renders non-element root node.',
+          '  at <PodDetail>',
+        ].join('\n'),
+      ),
+    );
+
+    expect(segments).toHaveLength(1);
+    if (segments[0].kind !== 'text') throw new Error('Expected text segment');
+    expect(segments[0].blocks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'folded',
+          label: expect.stringContaining('Ran Playwright code'),
+          tone: 'info',
+        }),
+        expect.objectContaining({
+          kind: 'folded',
+          label: expect.stringContaining('Result'),
+          tone: 'info',
+        }),
+      ]),
+    );
   });
 
   it('renders command tags as structured inline text and callouts', () => {

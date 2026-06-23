@@ -1,5 +1,8 @@
-import type { VibeCodingRun } from '../../data/platformModels';
+import type { VibeCodingRun, Device, Project } from '../../data/platformModels';
 import {
+  attachActiveSessionIds,
+  attachDeviceRelations,
+  attachProjectIds,
   capEventDetailCache,
   demoteIdleSessions,
   demoteRunDetail,
@@ -177,5 +180,77 @@ describe('mergeVibeRunSnapshot preserves client-only lastViewedAt', () => {
     const incoming = makeRun({ id: 's1' }); // snapshot never carries lastViewedAt
     const out = mergeVibeRunSnapshot(existing, incoming);
     expect(out.lastViewedAt).toBe(12345);
+  });
+});
+
+// Minimal device/project mocks — only fields the relation helpers touch. Cast
+// through unknown so we don't materialize the full literal.
+const makeDevice = (over: Partial<Device> & { id: string }): Device =>
+  ({
+    projectIds: [],
+    activeSessionIds: [],
+    ...over,
+  }) as unknown as Device;
+
+const makeProject = (over: Partial<Project> & { id: string }): Project =>
+  over as unknown as Project;
+
+describe('attachDeviceRelations referential stability', () => {
+  it('returns the SAME array reference when nothing changed', () => {
+    const devices = [makeDevice({ id: 'd1', projectIds: ['p1'] })];
+    const projects = [makeProject({ id: 'p1', deviceId: 'd1' })];
+    // Second call with identical inputs must hand back the same array.
+    const first = attachDeviceRelations(devices, projects, []);
+    const second = attachDeviceRelations(first, projects, []);
+    expect(second).toBe(first);
+  });
+
+  it('returns the SAME array reference when activeSessionIds are unchanged', () => {
+    const devices = [makeDevice({ id: 'd1', activeSessionIds: ['s1'] })];
+    const runs = [makeRun({ id: 's1', deviceId: 'd1', status: 'running' })];
+    const out = attachDeviceRelations(devices, [], runs);
+    // The active set ['s1'] equals the existing one -> no rewrite.
+    expect(out).toBe(devices);
+  });
+
+  it('keeps the SAME device object reference for an unchanged device', () => {
+    const d1 = makeDevice({ id: 'd1', projectIds: ['p1'], activeSessionIds: [] });
+    const d2 = makeDevice({ id: 'd2', projectIds: ['p2'], activeSessionIds: ['s9'] });
+    const devices = [d1, d2];
+    const projects = [
+      makeProject({ id: 'p1', deviceId: 'd1' }),
+      makeProject({ id: 'p2', deviceId: 'd2' }),
+    ];
+    const runs = [makeRun({ id: 's9', deviceId: 'd2', status: 'running' })];
+    const out = attachDeviceRelations(devices, projects, runs);
+    // Array is new (a re-derivation), but each unchanged device keeps its ref.
+    expect(out[0]).toBe(d1);
+    expect(out[1]).toBe(d2);
+  });
+
+  it('produces a NEW device object when its activeSessionIds change', () => {
+    const d1 = makeDevice({ id: 'd1', activeSessionIds: [] });
+    const runs = [makeRun({ id: 's1', deviceId: 'd1', status: 'running' })];
+    const out = attachDeviceRelations([d1], [], runs);
+    expect(out).not.toBe([d1]); // new array
+    expect(out[0]).not.toBe(d1); // new device object
+    expect(out[0].activeSessionIds).toEqual(['s1']);
+  });
+
+  it('produces a NEW device object when its projectIds change', () => {
+    const d1 = makeDevice({ id: 'd1', projectIds: [] });
+    const projects = [makeProject({ id: 'p1', deviceId: 'd1' })];
+    const out = attachProjectIds([d1], projects);
+    expect(out[0]).not.toBe(d1);
+    expect(out[0].projectIds).toEqual(['p1']);
+  });
+
+  it('attachActiveSessionIds returns same ref when all devices unchanged', () => {
+    const devices = [
+      makeDevice({ id: 'd1', activeSessionIds: ['s1'] }),
+      makeDevice({ id: 'd2', activeSessionIds: [] }),
+    ];
+    const runs = [makeRun({ id: 's1', deviceId: 'd1', status: 'running' })];
+    expect(attachActiveSessionIds(devices, runs)).toBe(devices);
   });
 });

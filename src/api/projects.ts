@@ -1,6 +1,37 @@
 import { apiFetch, apiGet, apiPost, apiPatch } from './client';
 import type { ServerAiSession } from './sessions';
 import type { AgentCommandInfo } from '../data/platformModels';
+import type { ProjectProviderModelConfig } from './modelConfig';
+// Reuse the device-level approval type aliases — they describe the same enum
+// values the server now carries on the project. Do not redefine here.
+import type { ApprovalScheme, ApprovalDecision } from './devices';
+
+/** Server-side approval-policy descriptor carried on every project payload. */
+export interface ServerApprovalPolicy {
+  scheme: ApprovalScheme;
+  version: number;
+  hash: string;
+}
+
+/** A single rule in the resolved approval policy (read-only on the client). */
+export interface ServerApprovalRule {
+  id: string;
+  match: {
+    tool?: string[];
+    command_regex?: string;
+  };
+  decision: ApprovalDecision;
+  reason?: string;
+}
+
+/** Full resolved policy returned by GET /api/projects/:id/approval-policy. */
+export interface ServerProjectApprovalPolicy {
+  scheme: ApprovalScheme;
+  version: number;
+  hash: string;
+  rules: ServerApprovalRule[];
+  default_decision: ApprovalDecision;
+}
 
 export interface ServerProject {
   id: string;
@@ -21,6 +52,14 @@ export interface ServerProject {
   source_tools?: string[];
   /** Effective `/`-command surface (project > user > builtin), server-computed. */
   available_commands?: AgentCommandInfo[];
+  /** Project-scoped approval policy (Phase B): scheme + version + hash. */
+  approval_policy?: ServerApprovalPolicy;
+  /** Project-scoped model/effort choices per provider tab. */
+  model_config?: ProjectProviderModelConfig;
+  /** Legacy single-provider override; kept for older server payloads. */
+  provider?: 'codex' | 'claude_code' | null;
+  model?: string | null;
+  effort?: string | null;
   last_active_at?: string;
   created_at: string;
   updated_at: string;
@@ -106,9 +145,31 @@ export const updateProject = (
     is_git_repo: boolean;
     detected_ports: number[];
     source_tools: string[];
+    approval_policy: {
+      scheme?: ApprovalScheme;
+      custom_rule_overrides?: Record<string, ApprovalDecision>;
+    };
   }>,
 ): Promise<ServerProject> =>
   apiPatch<ServerProject>(`/api/projects/${projectId}`, input);
+
+// Switch a project's approval-policy scheme (balanced / allow_all / custom).
+// The server stores the choice, bumps version + rehashes, and pushes
+// `project.settings.updated` to the agent so it refetches + re-evaluates.
+export const patchProjectCustomPolicy = (
+  projectId: string,
+  customRuleOverrides: Record<string, ApprovalDecision>,
+): Promise<ServerProject> =>
+  apiPatch<ServerProject>(`/api/projects/${projectId}/approval-policy/custom`, {
+    custom_rule_overrides: customRuleOverrides,
+  });
+
+// Fetch the fully-resolved approval policy for the custom-rule editor
+// (开关微调): the balanced preset's rules with per-rule decisions.
+export const fetchProjectApprovalPolicy = (
+  projectId: string,
+): Promise<ServerProjectApprovalPolicy> =>
+  apiGet<ServerProjectApprovalPolicy>(`/api/projects/${projectId}/approval-policy`);
 
 export const deleteProject = (projectId: string): Promise<{ status: string; project_id: string }> =>
   apiFetch<{ status: string; project_id: string }>(`/api/projects/${projectId}`, { method: 'DELETE' });

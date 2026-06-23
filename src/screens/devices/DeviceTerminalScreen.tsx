@@ -33,7 +33,11 @@ import {
 } from '../../components/terminal/TerminalEmulator';
 import { useTheme } from '../../theme/useTheme';
 import { RootStackParamList } from '../../app/navigation/types';
-import { useControlCenterStore } from '../../store/controlCenterStore';
+import {
+  useControlCenterStore,
+  useDevice,
+  useTerminalSession,
+} from '../../store/controlCenterStore';
 import {
   getTerminalInteractionState,
   getTerminalStatusChip,
@@ -171,15 +175,8 @@ export const DeviceTerminalScreen: React.FC = () => {
     directory: route.params.directory,
   });
   const directoryPathRef = useRef<ScrollView>(null);
-  const devices = useControlCenterStore(state => state.devices);
-  const terminalSessions = useControlCenterStore(
-    state => state.terminalSessions,
-  );
   const createTerminalSession = useControlCenterStore(
     state => state.createTerminalSession,
-  );
-  const terminalCommandHistory = useControlCenterStore(
-    state => state.terminalCommandHistory,
   );
   const loadTerminalCommandHistory = useControlCenterStore(
     state => state.loadTerminalCommandHistory,
@@ -204,8 +201,18 @@ export const DeviceTerminalScreen: React.FC = () => {
   const [currentQuickDirectory, setCurrentQuickDirectory] = useState(
     route.params.directory ?? '',
   );
-  const device = devices.find(item => item.id === route.params.deviceId);
-  const terminal = terminalSessions.find(item => item.id === terminalId);
+  // Fine-grained subscriptions: only THIS device/terminal/history slices, so
+  // background churn from other terminals/devices no longer re-renders here.
+  const device = useDevice(route.params.deviceId);
+  const terminal = useTerminalSession(terminalId);
+  const sessionHistory = useControlCenterStore(state =>
+    terminalId
+      ? state.terminalCommandHistory[`session:${terminalId}`]
+      : undefined,
+  );
+  const deviceHistory = useControlCenterStore(state =>
+    device ? state.terminalCommandHistory[`device:${device.id}`] : undefined,
+  );
   const directory = terminal?.directory ?? route.params.directory ?? '~';
   const terminalInteraction = getTerminalInteractionState({
     terminalStatus: terminal?.status,
@@ -222,19 +229,13 @@ export const DeviceTerminalScreen: React.FC = () => {
     ? focusedDirectory
     : directory;
   const aiSuggestions = useMemo(() => {
-    const sessionHistory = terminal
-      ? terminalCommandHistory[`session:${terminal.id}`] ?? []
-      : [];
-    const deviceHistory = device
-      ? terminalCommandHistory[`device:${device.id}`] ?? []
-      : [];
-
+    const history = [...(sessionHistory ?? []), ...(deviceHistory ?? [])];
     return buildTerminalSuggestions({
       directory,
-      history: [...sessionHistory, ...deviceHistory],
+      history,
       max: 4,
     });
-  }, [device, directory, terminal, terminalCommandHistory]);
+  }, [directory, sessionHistory, deviceHistory]);
   const surfaceColor = isDark
     ? 'rgba(255,255,255,0.04)'
     : theme.colors.surfaceContainerLow;

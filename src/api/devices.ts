@@ -54,6 +54,11 @@ export interface ServerDevice {
   active_ports: number[];
   authorized_directories: string[];
   project_ids: string[];
+  approval_policy?: {
+    scheme: 'balanced' | 'allow_all' | 'custom';
+    version: number;
+    hash: string;
+  };
 }
 
 export interface DeviceDetail extends ServerDevice {
@@ -61,6 +66,9 @@ export interface DeviceDetail extends ServerDevice {
   terminal_sessions: unknown[];
   ai_sessions: ServerAiSession[];
 }
+
+export type ApprovalScheme = 'balanced' | 'allow_all' | 'custom';
+export type ApprovalDecision = 'auto_approve' | 'require_approval' | 'auto_deny';
 
 export const fetchDevices = (): Promise<ServerDevice[]> =>
   apiGet<ServerDevice[]>('/api/devices');
@@ -83,9 +91,29 @@ export const updateDeviceSettings = (
     name?: string;
     remote_terminal_enabled?: boolean;
     ai_control_enabled?: boolean;
+    approval_policy?: {
+      scheme?: ApprovalScheme;
+      custom_rule_overrides?: Record<string, ApprovalDecision>;
+    };
   }
 ): Promise<ServerDevice> =>
   apiPatch(`/api/devices/${deviceId}/settings`, settings);
+
+// Switch a device's approval-policy scheme (balanced / allow_all / custom).
+export const updateDeviceApprovalScheme = (
+  deviceId: string,
+  scheme: ApprovalScheme,
+): Promise<ServerDevice> =>
+  apiPatch(`/api/devices/${deviceId}/settings`, { approval_policy: { scheme } });
+
+// Toggle per-rule decisions on a device's custom policy (rule id -> decision).
+export const patchDeviceCustomPolicy = (
+  deviceId: string,
+  customRuleOverrides: Record<string, ApprovalDecision>,
+): Promise<ServerDevice> =>
+  apiPatch(`/api/devices/${deviceId}/approval-policy/custom`, {
+    custom_rule_overrides: customRuleOverrides,
+  });
 
 export const unbindDevice = (deviceId: string): Promise<{ status: string; device_id: string }> =>
   apiPost(`/api/devices/${deviceId}/unbind`);

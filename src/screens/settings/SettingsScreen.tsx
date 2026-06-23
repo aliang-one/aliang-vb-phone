@@ -33,6 +33,7 @@ import { useSessionStore } from '../../../stores/useSettingsStore';
 import { ALIANG_ACCOUNT_BASE_URL } from '../../config/accountService';
 import { ratioPercent, daysUntil, formatDate } from '../../utils/format';
 import type { AccountSubscription } from '../../api/account';
+import { UserModelDefaultCard } from '../../components/account/UserModelDefaultCard';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -399,6 +400,9 @@ export const SettingsScreen: React.FC = () => {
                 </>
               )}
             </GlassPanel>
+
+            {renderSectionTitle('模型配置 MODEL CONFIG')}
+            <UserModelDefaultCard />
 
             {renderSectionTitle('PLATFORM SERVICE')}
             <GlassPanel style={styles.servicePanel}>

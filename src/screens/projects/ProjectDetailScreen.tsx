@@ -87,6 +87,24 @@ export const ProjectDetailScreen: React.FC = () => {
   const portLabel = project.detectedPorts.length
     ? project.detectedPorts.join(', ')
     : 'none';
+  const approvalSchemeLabel =
+    project.approvalScheme === 'allow_all'
+      ? 'Allow all'
+      : project.approvalScheme === 'custom'
+      ? 'Custom'
+      : 'Balanced';
+  const heroSettingsEntryStyle = [
+    styles.heroSettingsEntry,
+    {
+      borderRadius: theme.borderRadius.md,
+      borderColor: isDark
+        ? 'rgba(255,255,255,0.08)'
+        : theme.colors.outlineVariant,
+      backgroundColor: isDark
+        ? 'rgba(255,255,255,0.04)'
+        : theme.colors.surfaceContainerLow,
+    },
+  ];
 
   return (
     <SafeAreaWrapper>
@@ -174,6 +192,43 @@ export const ProjectDetailScreen: React.FC = () => {
                   <MetricCell label="PORTS" value={portLabel} mono />
                 </View>
               </View>
+
+              <TouchableOpacity
+                activeOpacity={0.78}
+                accessibilityRole="button"
+                accessibilityLabel="打开项目设置"
+                testID="project-settings-entry"
+                onPress={() =>
+                  navigation.navigate('ProjectSettings', {
+                    projectId: project.id,
+                    deviceId: device?.id,
+                  })
+                }
+                style={heroSettingsEntryStyle}>
+                <View style={styles.heroSettingsLeft}>
+                  <IconBadge name="settings" tone="neutral" size={32} iconSize={16} />
+                  <View style={styles.heroSettingsCopy}>
+                    <Text
+                      style={[
+                        theme.typography.labelMd,
+                        { color: theme.colors.onSurface },
+                      ]}>
+                      项目设置
+                    </Text>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        theme.typography.bodySm,
+                        { color: theme.colors.onSurfaceVariant },
+                      ]}>
+                      Approval {approvalSchemeLabel}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={[styles.heroSettingsArrow, { color: theme.colors.primary }]}>
+                  →
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         </GlassPanel>
@@ -260,11 +315,6 @@ export const ProjectDetailScreen: React.FC = () => {
               <VibeSessionCard
                 key={session.id}
                 session={session}
-                project={project}
-                device={devices.find(item => item.id === session.deviceId)}
-                onPress={() =>
-                  navigation.navigate('VibeCodingSession', { sessionId: session.id })
-                }
               />
             ))}
             {totalCount > sessions.length ? (
@@ -471,6 +521,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     gap: 2,
+  },
+  heroSettingsEntry: {
+    marginTop: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  heroSettingsLeft: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  heroSettingsCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  heroSettingsArrow: {
+    fontSize: 18,
+    fontWeight: '700',
   },
   cta: {
     minHeight: 64,

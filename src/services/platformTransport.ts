@@ -25,9 +25,11 @@ import {
   fetchAiSessionMessages,
   fetchAiSessions,
   fetchTerminalSessionCommands,
+  interruptAiSession as apiInterruptAiSession,
   pauseAiSession as apiPauseAiSession,
   resumeAiSession as apiResumeAiSession,
   sendAiMessage as apiSendAiMessage,
+  sendAiSteer as apiSendAiSteer,
   terminateAiSession as apiTerminateAiSession,
   updateAiSession as apiUpdateAiSession,
   type ServerAiSession,
@@ -128,6 +130,7 @@ export type PlatformTransportEvent =
   | { type: 'ai.delta'; sessionId: string; delta: string; currentStep: string; messageId?: string; raw: Record<string, unknown> }
   | { type: 'ai.done'; sessionId: string; detail: string; raw: Record<string, unknown> }
   | { type: 'ai.error'; sessionId: string; error: string; raw: Record<string, unknown> }
+  | { type: 'ai.steer.ack'; sessionId: string; messageId: string; result: string; error?: string; code?: string; raw: Record<string, unknown> }
   | { type: 'ai.command'; sessionId: string; messageId: string; itemId: string; status: string; command?: string; cwd?: string; exitCode?: number | null; eventId: string; raw: Record<string, unknown> }
   | { type: 'ai.file_change'; sessionId: string; messageId: string; itemId: string; path?: string; kind?: string; added?: number; removed?: number; renamedFrom?: string; eventId: string; raw: Record<string, unknown> }
   | { type: 'ai.thinking'; sessionId: string; messageId: string; active: boolean; chars: number; eventId: string; raw: Record<string, unknown> }
@@ -348,6 +351,10 @@ class PlatformTransport {
     return apiPauseAiSession(sessionId);
   }
 
+  interruptAiSession(sessionId: string): Promise<PlatformAiSessionSnapshot> {
+    return apiInterruptAiSession(sessionId);
+  }
+
   resumeAiSession(sessionId: string): Promise<PlatformAiSessionSnapshot> {
     return apiResumeAiSession(sessionId);
   }
@@ -366,6 +373,14 @@ class PlatformTransport {
     mode: 'voice' | 'text' = 'text',
   ): Promise<{ message_id: string; status: string }> {
     return apiSendAiMessage(sessionId, content, [], mode);
+  }
+
+  sendAiSteer(
+    sessionId: string,
+    content: string,
+    mode: 'voice' | 'text' = 'text',
+  ): Promise<{ message_id: string; status: string }> {
+    return apiSendAiSteer(sessionId, content, [], mode);
   }
 
   respondApproval(
@@ -535,6 +550,18 @@ class PlatformTransport {
           ? (message.tasks as { subject: string; status: string; active_form?: string }[])
           : [],
         eventId: String(message.event_id ?? ''),
+        raw: message,
+      };
+    }
+
+    if (type === 'ai.steer.ack') {
+      return {
+        type: 'ai.steer.ack',
+        sessionId: String(message.session_id ?? ''),
+        messageId: String(message.message_id ?? ''),
+        result: String(message.result ?? ''),
+        error: asString(message.error),
+        code: asString(message.code),
         raw: message,
       };
     }

@@ -15,6 +15,7 @@ interface GlowButtonProps {
   disabled?: boolean;
   style?: object;
   textStyle?: object;
+  testID?: string;
 }
 
 export const GlowButton: React.FC<GlowButtonProps> = ({
@@ -25,6 +26,7 @@ export const GlowButton: React.FC<GlowButtonProps> = ({
   disabled = false,
   style,
   textStyle,
+  testID,
 }) => {
   const { theme, isDark } = useTheme();
 
@@ -74,6 +76,7 @@ export const GlowButton: React.FC<GlowButtonProps> = ({
         getButtonStyle(),
         style,
       ]}
+      testID={testID}
       onPress={onPress}
       disabled={disabled || loading}
       activeOpacity={0.7}>

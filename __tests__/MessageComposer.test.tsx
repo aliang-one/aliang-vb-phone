@@ -154,6 +154,26 @@ describe('MessageComposer', () => {
     expect(onSendText).toHaveBeenCalled();
   });
 
+  it('replaces send with interrupt while a turn is running', () => {
+    const onInterruptTurn = jest.fn();
+    const root = wrap(
+      <MessageComposer
+        {...defaultProps({
+          mode: 'text',
+          input: '加一个登录页',
+          canInterruptTurn: true,
+          onInterruptTurn,
+        })}
+      />,
+    );
+    expect(() => findByTestID(root, 'composer-interrupt')).not.toThrow();
+    expect(() => findByTestID(root, 'composer-send')).toThrow();
+    act(() => {
+      findByTestID(root, 'composer-interrupt').props.onPress();
+    });
+    expect(onInterruptTurn).toHaveBeenCalled();
+  });
+
   it('voice recording shows the listening label + a stop control', () => {
     const root = wrap(
       <MessageComposer

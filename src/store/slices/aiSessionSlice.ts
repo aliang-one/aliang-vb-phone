@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand';
 import type { VibeCodingRun, VibeStatus } from '../../data/platformModels';
 import { platformTransport } from '../../services/platformTransport';
+import { normalizeProvider } from '../../utils/modelIntensity';
 import type { ControlCenterState } from '../types';
 import {
   activityNowMs,
@@ -24,7 +25,7 @@ type AiSessionSlice = Pick<
   ControlCenterState,
   | 'vibeRuns' | 'previewLinks'
   | 'startAgentSession' | 'loadAgentSessionDetail' | 'pauseAgentSession'
-  | 'resumeAgentSession' | 'terminateAgentSession' | 'updateAgentSession'
+  | 'interruptAgentSession' | 'resumeAgentSession' | 'terminateAgentSession' | 'updateAgentSession'
   | 'deleteAgentSession' | 'appendAgentMessage' | 'loadEarlierAgentMessages'
   | 'cacheStructuredDetail'
   | 'markSessionViewed' | 'clearCurrentlyViewedSession' | 'demoteIdleSessions'
@@ -91,6 +92,8 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
           objective: input.objective,
           model: modelLabel,
           effort: sentEffort,
+          provider: input.provider,
+          effectiveModelConfig: session.effective_model_config ?? undefined,
           risk: input.provider === 'claude_code' ? 'medium' : 'low',
           currentStep: `${modelLabel} is reading the project and preparing a plan.`,
           branch: `agent/${sessionId}`,
@@ -120,7 +123,11 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         };
 
         set(state => ({
-          vibeRuns: [nextRun, ...state.vibeRuns],
+          // Dedup by id: the server creates idempotently (same payload → same
+          // session_id), so a double-tap or a WS-broadcast + REST-response
+          // race could otherwise reinsert the same id and duplicate the list
+          // (React key collision). Drop any existing run with this id first.
+          vibeRuns: [nextRun, ...state.vibeRuns.filter(run => run.id !== sessionId)],
           devices: state.devices.map(device =>
             device.id === input.deviceId
               ? { ...device, activeSessionIds: [sessionId, ...device.activeSessionIds] }
@@ -243,6 +250,49 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       return {
         vibeRuns,
         devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
+      };
+    });
+  },
+
+  interruptAgentSession: async sessionId => {
+    if (!get().serverMode) {
+      throw new Error('Platform connection is required before interrupting a VibeCoding turn.');
+    }
+    const interruptedAt = activityNowMs();
+    set(state => {
+      const vibeRuns = state.vibeRuns.map(run =>
+        run.id === sessionId
+          ? {
+              ...run,
+              status: 'idle' as VibeStatus,
+              currentStep: 'Interrupted. Ready for your next message.',
+              lastActivityMs: interruptedAt,
+              updatedAt: formatActivityLabel(interruptedAt),
+            }
+          : run,
+      );
+      return {
+        vibeRuns,
+        devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
+      };
+    });
+    const serverSession = await platformTransport.interruptAiSession(sessionId);
+    set(state => {
+      const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
+      const vibeRuns = state.vibeRuns.map(run =>
+        run.id === nextRun.id ? mergeVibeRunSnapshot(run, nextRun) : run,
+      );
+      return {
+        vibeRuns,
+        devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
+        events: [
+          event('agent.session.paused', 'VibeCoding interrupted', nextRun.title, 'done', {
+            deviceId: nextRun.deviceId,
+            projectId: nextRun.projectId,
+            sessionId: nextRun.id,
+          }),
+          ...state.events,
+        ].slice(0, 120),
       };
     });
   },
@@ -375,6 +425,16 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       pendingMessageSends.delete(sendKey);
       throw new Error('Platform connection is required before sending a VibeCoding message.');
     }
+    const currentRun = get().vibeRuns.find(run => run.id === sessionId);
+    const isRunning = currentRun?.status === 'running' || currentRun?.status === 'waiting_approval';
+    const provider = normalizeProvider(
+      currentRun?.effectiveModelConfig?.provider ?? currentRun?.provider,
+    );
+    const sendAsSteer = Boolean(isRunning && provider === 'codex');
+    if (isRunning && provider === 'claude_code') {
+      pendingMessageSends.delete(sendKey);
+      throw new Error('Claude Code is still running. Stop it before sending another message.');
+    }
     // OPTIMISTIC UPDATE — render the user's message and flip the session to
     // "running / waiting for AI" BEFORE the HTTP round trip. The optimistic
     // message is tagged with `pending: true` so the merge logic (internals.ts)
@@ -397,7 +457,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         return {
           ...run,
           status: 'running' as VibeStatus,
-          currentStep: 'Waiting for AI response.',
+          currentStep: sendAsSteer ? 'Steering current Codex turn.' : 'Waiting for AI response.',
           lastActivityMs: activityNowMs(),
           updatedAt: formatActivityLabel(activityNowMs()),
           transcript,
@@ -417,7 +477,9 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       };
     });
     try {
-      const response = await platformTransport.sendAiMessage(sessionId, normalizedContent, mode);
+      const response = sendAsSteer
+        ? await platformTransport.sendAiSteer(sessionId, normalizedContent, mode)
+        : await platformTransport.sendAiMessage(sessionId, normalizedContent, mode);
       // The server persists the user message under its own id (e.g. `msg_abc123`).
       // Reconcile: the optimistic bubble's id is replaced with the server's id
       // so subsequent server state sync (WebSocket `ai.session.updated`) merges

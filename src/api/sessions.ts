@@ -1,4 +1,10 @@
-import { apiFetch, apiGet, apiPatch, apiPost } from './client';
+import {
+  ApiResponseError,
+  apiFetch,
+  apiGet,
+  apiPatch,
+  apiPost,
+} from './client';
 
 export interface ServerAiTranscriptPage {
   limit: number;
@@ -43,6 +49,23 @@ export interface ServerAiSession {
    * suffix. Empty/omit = no effort override (CLI/gateway default).
    */
   effort?: string;
+  /**
+   * Server-resolved effective model config for this session: the concrete
+   * provider/model/effort the agent will actually run with, plus where each
+   * field was sourced from (session | project | device | server). Surfaced to
+   * the UI as a read-only "当前有效" hint. Optional — only present when the
+   * server attached it. Mirrors `EffectiveModelConfig` (api/modelConfig.ts).
+   */
+  effective_model_config?: {
+    provider?: string | null;
+    model?: string | null;
+    effort?: string | null;
+    source?: {
+      provider?: string;
+      model?: string;
+      effort?: string;
+    };
+  };
   current_step?: string;
   branch?: string;
   transcript?: ServerAiMessage[];
@@ -239,8 +262,34 @@ export const sendAiMessage = (
 ): Promise<{ message_id: string; status: string }> =>
   apiPost(`/api/ai/sessions/${sessionId}/messages`, { content, attachments, mode });
 
-export const stopAiSession = (sessionId: string): Promise<{ status: string; session?: ServerAiSession }> =>
+export const sendAiSteer = (
+  sessionId: string,
+  content: string,
+  attachments: unknown[] = [],
+  mode: 'voice' | 'text' = 'text',
+): Promise<{ message_id: string; status: string }> =>
+  apiPost(`/api/ai/sessions/${sessionId}/steers`, { content, attachments, mode });
+
+export const stopAiSession = (
+  sessionId: string,
+): Promise<{ status: string; session?: ServerAiSession }> =>
   apiPost(`/api/ai/sessions/${sessionId}/stop`);
+
+export const interruptAiSession = async (
+  sessionId: string,
+): Promise<ServerAiSession> => {
+  try {
+    return await apiPost<ServerAiSession>(
+      `/api/ai/sessions/${sessionId}/interrupt`,
+    );
+  } catch (error) {
+    if (error instanceof ApiResponseError && error.status === 404) {
+      const stopped = await stopAiSession(sessionId);
+      return stopped.session ?? fetchAiSession(sessionId);
+    }
+    throw error;
+  }
+};
 
 export const pauseAiSession = (sessionId: string): Promise<ServerAiSession> =>
   apiPost<ServerAiSession>(`/api/ai/sessions/${sessionId}/pause`);

@@ -1,4 +1,5 @@
 import type { DisplayTranscriptMessage } from './agentTranscript';
+import type { ConversationTurn } from './conversationTurns';
 import type {
   TranscriptMarkdownBlock,
   TranscriptMarkdownInline,
@@ -95,6 +96,16 @@ export const deriveScrubberStops = (
     preview: summarizeMessage(message),
   }));
 };
+
+export const deriveTurnScrubberStops = (
+  turns: ConversationTurn[],
+): ScrubberStop[] =>
+  turns.map(turn => ({
+    id: turn.id,
+    role: turn.role,
+    timestamp: turn.timestamp,
+    preview: turn.preview,
+  }));
 
 /**
  * Map a normalized drag position ([0,1], bottom..top or top..bottom depending

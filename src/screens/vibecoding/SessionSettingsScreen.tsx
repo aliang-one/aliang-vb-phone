@@ -20,11 +20,11 @@ import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore, useVibeRun } from '../../store/controlCenterStore';
 import {
   MODEL_PRESETS,
-  effortPresetsFor,
   intensityToEffort,
   parseModelIntensity,
   type EffortProvider,
 } from '../../utils/modelIntensity';
+import { catalogEffortOptions, useModelOptions } from '../../hooks/useModelOptions';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type SessionSettingsRoute = RouteProp<RootStackParamList, 'SessionSettings'>;
@@ -47,6 +47,21 @@ export const SessionSettingsScreen: React.FC = () => {
   );
 
   const provider = resolveProvider(session?.provider, session?.model);
+  // Live catalog drives the effort chips (codex 4, claude 6) with a hardcoded
+  // fallback before it loads.
+  const { providerCatalog } = useModelOptions();
+  const effortOptions = catalogEffortOptions(provider, providerCatalog);
+  const effective = session?.effectiveModelConfig;
+  const effectiveLabel = effective
+    ? [
+        `model=${effective.model || '用户默认'}`,
+        effective.source?.model ? `(${effective.source.model})` : '',
+        `· effort=${effective.effort || '用户默认'}`,
+        effective.source?.effort ? `(${effective.source.effort})` : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+    : null;
   const parsed = parseModelIntensity(session?.model);
   const [modelBase, setModelBase] = useState(parsed.base);
   // Prefer the authoritative effort field; fall back to a legacy baked suffix
@@ -108,7 +123,7 @@ export const SessionSettingsScreen: React.FC = () => {
           onChangeText={setModelBase}
           autoCapitalize="none"
           autoCorrect={false}
-          placeholder="留空使用 Agent 默认模型"
+          placeholder="留空继承用户默认模型"
           placeholderTextColor={theme.colors.onSurfaceVariant}
           style={[
             theme.typography.bodyMd,
@@ -171,7 +186,7 @@ export const SessionSettingsScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.hint,
           ]}>
-          指定模型名后会作为 --model 传给 codex / claude;留空则用 CLI 默认模型。
+          指定模型名后会作为本 session 覆盖;留空继承 Me 中的用户默认。
         </Text>
 
         <Text
@@ -183,7 +198,7 @@ export const SessionSettingsScreen: React.FC = () => {
           2. 工作强度 EFFORT
         </Text>
         <View style={styles.chipRow}>
-          {effortPresetsFor(provider).map(option => {
+          {effortOptions.map(option => {
             const active = effortDraft === option.value;
             return (
               <TouchableOpacity
@@ -225,8 +240,19 @@ export const SessionSettingsScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.hint,
           ]}>
-          EFFORT 作为独立字段下发,网关据此设置推理强度({provider === 'codex' ? 'Codex' : 'Claude'} 档位:{effortPresetsFor(provider).filter(o => o.value).map(o => o.value).join('/')});选「默认」则不覆盖。与模型互相独立,无需先选模型。
+          EFFORT 作为独立字段下发,网关据此设置推理强度({provider === 'codex' ? 'Codex' : 'Claude'} 档位:{effortOptions.filter(o => o.value).map(o => o.value).join('/')});选「默认」则继承用户默认。与模型互相独立,无需先选模型。
         </Text>
+
+        {effectiveLabel ? (
+          <GlassPanel style={styles.noteCard}>
+            <Text style={[theme.typography.labelCaps, { color: theme.colors.secondary }]}>
+              当前有效
+            </Text>
+            <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
+              {effectiveLabel}
+            </Text>
+          </GlassPanel>
+        ) : null}
 
         <GlassPanel style={styles.noteCard}>
           <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>

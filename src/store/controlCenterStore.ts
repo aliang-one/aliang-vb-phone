@@ -10,6 +10,12 @@ import {
   registerDeltaApplier,
   scheduleRefreshDebounce,
 } from './streaming';
+import {
+  flushTerminalOutput,
+  pushTerminalOutput,
+  registerTerminalOutputApplier,
+  type TerminalOutputBatchItem,
+} from './terminalBatching';
 import type {
   ControlCenterState,
   TerminalSessionStatus,
@@ -112,6 +118,81 @@ export const useSessionPreview = (sessionId: string | undefined) =>
       : undefined,
   );
 
+/** Subscribe to a single terminal session by id. Re-renders ONLY when that
+ *  session's object identity changes. The batched terminal.output flush
+ *  (applyOutputToSession) preserves identity for sessions whose lines didn't
+ *  change, so background terminal output no longer re-renders a screen viewing
+ *  a different terminal. */
+export const useTerminalSession = (sessionId: string | undefined) =>
+  useControlCenterStore(state =>
+    sessionId
+      ? state.terminalSessions.find(ts => ts.id === sessionId)
+      : undefined,
+  );
+
+// ============================================================
+// Terminal output reducer (extracted from the transport dispatcher)
+// ------------------------------------------------------------
+// Pure per-session line update for one `terminal.output` payload. Returns the
+// SAME session reference when the payload is a no-op, so the batched flush can
+// preserve identity for sessions whose lines didn't change (and for the whole
+// `terminalSessions` array when no session changed). Exported for testing.
+// ============================================================
+type TerminalSessionLike = ControlCenterState['terminalSessions'][number];
+
+export const applyOutputToSession = (
+  session: TerminalSessionLike,
+  data: string,
+  encoding: string,
+): TerminalSessionLike => {
+  let screenFrameStartIndex = 0;
+  for (let index = session.lines.length - 1; index >= 0; index -= 1) {
+    if (session.lines[index].kind === 'command') {
+      screenFrameStartIndex = index + 1;
+      break;
+    }
+  }
+
+  const previousScreenLines = session.lines
+    .slice(screenFrameStartIndex)
+    .filter(item => item.kind === 'stdout')
+    .map(item => item.content);
+  const outputUpdate = terminalDisplayUpdate(data, encoding, previousScreenLines);
+  if (!outputUpdate.lines.length && outputUpdate.mode !== 'replaceScreen') {
+    return session;
+  }
+
+  const nextOutputLines = outputUpdate.lines.map(item => line('stdout', item));
+  let preservedLines = session.lines;
+
+  if (outputUpdate.mode === 'replaceScreen') {
+    preservedLines = [
+      ...session.lines.slice(0, screenFrameStartIndex),
+      ...session.lines
+        .slice(screenFrameStartIndex)
+        .filter(item => item.kind !== 'stdout'),
+    ];
+  } else if (outputUpdate.mode === 'rewriteLastLine') {
+    let lastStdoutIndex = -1;
+    for (let index = session.lines.length - 1; index >= 0; index -= 1) {
+      if (session.lines[index].kind === 'stdout') {
+        lastStdoutIndex = index;
+        break;
+      }
+    }
+    preservedLines =
+      lastStdoutIndex >= 0
+        ? session.lines.filter((_, index) => index !== lastStdoutIndex)
+        : session.lines;
+  }
+
+  return {
+    ...session,
+    lines: tail([...preservedLines, ...nextOutputLines], MAX_TERMINAL_LINES),
+    updatedAt: nowTime(),
+  };
+};
+
 // ============================================================
 // Composition root
 // ------------------------------------------------------------
@@ -144,6 +225,46 @@ export const useControlCenterStore = create<ControlCenterState>()(
       }),
     );
 
+    // Let ./terminalBatching flush buffered `terminal.output` chunks back into
+    // the store without it depending on zustand. One identity-preserving write
+    // per flush window: chunks are grouped by session and applied in arrival
+    // order, and untouched sessions keep their object reference — so a
+    // fine-grained `useTerminalSession(id)` subscriber only re-renders when ITS
+    // terminal actually changed, and the whole `terminalSessions` array keeps
+    // its reference when no session changed.
+    registerTerminalOutputApplier(items =>
+      set(state => {
+        const grouped = new Map<string, TerminalOutputBatchItem[]>();
+        for (const item of items) {
+          const arr = grouped.get(item.sessionId);
+          if (arr) {
+            arr.push(item);
+          } else {
+            grouped.set(item.sessionId, [item]);
+          }
+        }
+        let changed = false;
+        const next = state.terminalSessions.map(ts => {
+          const batch = grouped.get(ts.id);
+          if (!batch) {
+            return ts;
+          }
+          let current: TerminalSessionLike = ts;
+          for (const item of batch) {
+            current = applyOutputToSession(current, item.data, item.encoding);
+          }
+          if (current === ts) {
+            return ts;
+          }
+          changed = true;
+          return current;
+        });
+        return {
+          terminalSessions: changed ? next : state.terminalSessions,
+        };
+      }),
+    );
+
     return {
       ...createRealtimeSlice(set, get, store),
       ...createTerminalSlice(set, get, store),
@@ -169,6 +290,9 @@ export const useControlCenterStore = create<ControlCenterState>()(
         try {
           if (transportEvent.type !== 'ai.delta') {
             flushDeltas();
+          }
+          if (transportEvent.type !== 'terminal.output') {
+            flushTerminalOutput();
           }
 
           switch (transportEvent.type) {
@@ -350,6 +474,32 @@ export const useControlCenterStore = create<ControlCenterState>()(
               });
               return;
 
+            case 'ai.steer.ack':
+              set(state => ({
+                vibeRuns: state.vibeRuns.map(run => {
+                  if (run.id !== transportEvent.sessionId) return run;
+                  const failed =
+                    transportEvent.result === 'error' ||
+                    transportEvent.result === 'unsupported' ||
+                    transportEvent.result === 'not_running';
+                  const transcript = run.transcript.map(message =>
+                    message.id === transportEvent.messageId
+                      ? { ...message, pending: false }
+                      : message,
+                  );
+                  return {
+                    ...run,
+                    transcript,
+                    currentStep: failed
+                      ? transportEvent.error || 'Failed to steer current turn.'
+                      : run.currentStep,
+                    lastActivityMs: activityNowMs(),
+                    updatedAt: formatActivityLabel(activityNowMs()),
+                  };
+                }),
+              }));
+              return;
+
             case 'ai.session.created': {
               const createdMs = activityNowMs();
               set(state => ({
@@ -498,6 +648,12 @@ export const useControlCenterStore = create<ControlCenterState>()(
               return;
 
             case 'terminal.output': {
+              // Route to the live emulator when its screen is mounted; the
+              // emulator owns the rendered output and the store isn't touched.
+              // Otherwise buffer the chunk — a background terminal can spew many
+              // chunks per second, and batching them into one identity-preserving
+              // store write per ~60ms window avoids re-rendering every
+              // terminalSessions subscriber on every chunk.
               const routedToEmulator = routeTerminalOutputToEmulator(
                 transportEvent.sessionId,
                 transportEvent.data,
@@ -506,80 +662,11 @@ export const useControlCenterStore = create<ControlCenterState>()(
               if (routedToEmulator) {
                 return;
               }
-              set(state => ({
-                terminalSessions: state.terminalSessions.map(ts => {
-                  if (ts.id !== transportEvent.sessionId) return ts;
-
-                  let screenFrameStartIndex = 0;
-                  for (
-                    let index = ts.lines.length - 1;
-                    index >= 0;
-                    index -= 1
-                  ) {
-                    if (ts.lines[index].kind === 'command') {
-                      screenFrameStartIndex = index + 1;
-                      break;
-                    }
-                  }
-
-                  const previousScreenLines = ts.lines
-                    .slice(screenFrameStartIndex)
-                    .filter(item => item.kind === 'stdout')
-                    .map(item => item.content);
-                  const outputUpdate = terminalDisplayUpdate(
-                    transportEvent.data,
-                    transportEvent.encoding,
-                    previousScreenLines,
-                  );
-                  if (
-                    !outputUpdate.lines.length &&
-                    outputUpdate.mode !== 'replaceScreen'
-                  ) {
-                    return ts;
-                  }
-
-                  const nextOutputLines = outputUpdate.lines.map(item =>
-                    line('stdout', item),
-                  );
-                  let preservedLines = ts.lines;
-
-                  if (outputUpdate.mode === 'replaceScreen') {
-                    preservedLines = [
-                      ...ts.lines.slice(0, screenFrameStartIndex),
-                      ...ts.lines
-                        .slice(screenFrameStartIndex)
-                        .filter(item => item.kind !== 'stdout'),
-                    ];
-                  } else if (outputUpdate.mode === 'rewriteLastLine') {
-                    let lastStdoutIndex = -1;
-                    for (
-                      let index = ts.lines.length - 1;
-                      index >= 0;
-                      index -= 1
-                    ) {
-                      if (ts.lines[index].kind === 'stdout') {
-                        lastStdoutIndex = index;
-                        break;
-                      }
-                    }
-                    preservedLines =
-                      lastStdoutIndex >= 0
-                        ? ts.lines.filter(
-                            (_, index) => index !== lastStdoutIndex,
-                          )
-                        : ts.lines;
-                  }
-
-                  return {
-                    ...ts,
-                    lines: tail(
-                      [...preservedLines, ...nextOutputLines],
-                      MAX_TERMINAL_LINES,
-                    ),
-                    updatedAt: nowTime(),
-                  };
-                }),
-              }));
+              pushTerminalOutput({
+                sessionId: transportEvent.sessionId,
+                data: transportEvent.data,
+                encoding: transportEvent.encoding,
+              });
               return;
             }
 
