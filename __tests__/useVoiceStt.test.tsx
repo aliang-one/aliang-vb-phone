@@ -76,6 +76,11 @@ const flushMicrotasks = async () => {
   await Promise.resolve();
 };
 
+const waitPastMinRecording = async () => {
+  jest.advanceTimersByTime(450);
+  await flushMicrotasks();
+};
+
 let latest: UseVoiceSttResult;
 
 const Probe = () => {
@@ -264,7 +269,9 @@ describe('useVoiceStt', () => {
     expect(mockSocketInstances[0].sendBinary).not.toHaveBeenCalled();
 
     await act(async () => {
-      await latest.stop();
+      const stopPromise = latest.stop();
+      await waitPastMinRecording();
+      await stopPromise;
       await flushMicrotasks();
     });
     expect(mockVoiceRecorderStop).toHaveBeenCalled();
@@ -323,6 +330,7 @@ describe('useVoiceStt', () => {
     let stopPromise!: Promise<void>;
     await act(async () => {
       stopPromise = latest.stop();
+      await waitPastMinRecording();
       await flushMicrotasks();
     });
     expect(mockSocketInstances[0].sendJson).toHaveBeenLastCalledWith(
@@ -365,12 +373,15 @@ describe('useVoiceStt', () => {
 
     await act(async () => {
       void latest.stop();
+      await waitPastMinRecording();
       await flushMicrotasks();
     });
     expect(latest.status).toBe('stopping');
 
     await act(async () => {
-      await latest.stop();
+      const stopPromise = latest.stop();
+      await waitPastMinRecording();
+      await stopPromise;
       await flushMicrotasks();
     });
     expect(latest.status).toBe('idle');
@@ -388,7 +399,9 @@ describe('useVoiceStt', () => {
     expect(latest.status).toBe('recording');
 
     await act(async () => {
-      await latest.stop();
+      const stopPromise = latest.stop();
+      await waitPastMinRecording();
+      await stopPromise;
       await flushMicrotasks();
     });
     expect(latest.status).toBe('stopping');
@@ -397,5 +410,70 @@ describe('useVoiceStt', () => {
       jest.advanceTimersByTime(3000);
     });
     expect(latest.status).toBe('idle');
+  });
+
+  it('retains the partial transcript when the gateway errors mid-stream', async () => {
+    mount();
+    const received: string[] = [];
+    let startPromise!: Promise<void>;
+    await act(async () => {
+      startPromise = latest.start({ onComplete: t => received.push(t) });
+      await flushMicrotasks();
+      await resolveConnect();
+      mockSocketInstances[0].handlers.onMessage({
+        type: 'stt.started',
+        request_id: 'voice-stt',
+        stt_session_id: 'voice-stt',
+      });
+      await startPromise;
+    });
+    expect(latest.status).toBe('recording');
+
+    await act(async () => {
+      mockSocketInstances[0].handlers.onMessage({
+        type: 'stt.final',
+        text: '帮我建个登录页',
+        sentence_id: 's0',
+      });
+      mockSocketInstances[0].handlers.onMessage({
+        type: 'stt.error',
+        code: 'nls_disconnected',
+        message: '语音识别连接中断',
+      });
+      await flushMicrotasks();
+    });
+
+    // The partial was delivered instead of dropped (honors "已保留已识别内容").
+    expect(received).toEqual(['帮我建个登录页']);
+    expect(latest.status).toBe('idle'); // finished cleanly, not stuck in error
+    expect(latest.errorMessage).toBe('');
+    expect(mockVoiceRecorderStop).toHaveBeenCalled();
+  });
+
+  it('shows a hard error on disconnect when nothing was transcribed', async () => {
+    mount();
+    let startPromise!: Promise<void>;
+    await act(async () => {
+      startPromise = latest.start();
+      await flushMicrotasks();
+      await resolveConnect();
+      mockSocketInstances[0].handlers.onMessage({
+        type: 'stt.started',
+        request_id: 'voice-stt',
+        stt_session_id: 'voice-stt',
+      });
+      await startPromise;
+    });
+    expect(latest.status).toBe('recording');
+
+    await act(async () => {
+      const onClose = mockSocketInstances[0].handlers.onClose!;
+      onClose(1006, '');
+      await flushMicrotasks();
+    });
+
+    expect(latest.status).toBe('error');
+    expect(latest.errorMessage).toBe('语音连接已断开，请重试');
+    expect(mockVoiceRecorderStop).toHaveBeenCalled();
   });
 });

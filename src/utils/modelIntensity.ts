@@ -54,6 +54,58 @@ export const EFFORT_PRESETS: Record<
 export const effortPresetsFor = (provider: EffortProvider) =>
   EFFORT_PRESETS[provider] ?? EFFORT_PRESETS.codex;
 
+// Provider-aware concrete model ids. The live catalog (server) is the source of
+// truth; this hardcoded ladder is the FALLBACK used before the catalog loads or
+// when the fetch fails / the operator hasn't filled the catalog. MUST stay in
+// sync with the server's seeded catalog.
+//
+// CONTRACT (must match the server's seeded catalog exactly):
+//   codex:        gpt-5.4 / gpt-5.5
+//   claude_code:  glm-5.1 / glm-5.2
+export const MODEL_PRESETS_BY_PROVIDER: Record<
+  EffortProvider,
+  Array<{ label: string; value: string }>
+> = {
+  codex: [
+    { label: 'gpt-5.4', value: 'gpt-5.4' },
+    { label: 'gpt-5.5', value: 'gpt-5.5' },
+  ],
+  claude_code: [
+    { label: 'glm-5.1', value: 'glm-5.1' },
+    { label: 'glm-5.2', value: 'glm-5.2' },
+  ],
+};
+
+export const modelPresetsFor = (provider: EffortProvider) =>
+  MODEL_PRESETS_BY_PROVIDER[provider] ?? MODEL_PRESETS_BY_PROVIDER.codex;
+
+/**
+ * Resolve the selectable MODEL options for a provider, preferring the live
+ * server catalog (source of truth) and falling back to the hardcoded
+ * `MODEL_PRESETS_BY_PROVIDER` ladder otherwise. Mirrors `effortOptionsFor`.
+ *
+ * `catalog` is the `provider_catalog` array from `fetchModelOptions()`
+ * (see src/api/modelConfig.ts). Structural type so this util stays api-free.
+ */
+export const catalogModelOptions = (
+  provider: EffortProvider | undefined,
+  catalog?:
+    | ReadonlyArray<{
+        provider: EffortProvider;
+        models: ReadonlyArray<{ label: string; value: string }>;
+      }>
+    | undefined,
+): Array<{ label: string; value: string }> => {
+  const resolved = provider ?? 'codex';
+  if (catalog && catalog.length) {
+    const entry = catalog.find(item => item.provider === resolved);
+    if (entry && entry.models && entry.models.length) {
+      return [...entry.models];
+    }
+  }
+  return modelPresetsFor(resolved);
+};
+
 /**
  * Resolve the selectable effort options for a provider, preferring the live
  * server catalog when supplied (the source of truth) and falling back to the
@@ -112,6 +164,37 @@ export function normalizeProvider(
   return undefined;
 }
 
+export interface ProviderAvailability {
+  codex: boolean;
+  claude_code: boolean;
+}
+
+/**
+ * Map a device's reported tools (`device.tools[]`, sourced from the agent's
+ * `detectAgentTools` → `exec.LookPath`) to which effort-providers are actually
+ * usable on that device. A provider is available when at least one tool whose
+ * id normalizes to it is present with `available !== false`.
+ *
+ * Empty/unknown tool list → both available: the agent may simply not have
+ * reported tools yet, and we must not block session creation in that case.
+ * Structural tool type so this util stays free of device-type dependencies.
+ */
+export function availableProviders(
+  tools:
+    | ReadonlyArray<{ id?: string; available?: boolean }>
+    | undefined,
+): ProviderAvailability {
+  if (!tools || !tools.length) {
+    return { codex: true, claude_code: true };
+  }
+  const has = (provider: EffortProvider) =>
+    tools.some(tool => {
+      if (tool.available === false) return false;
+      return normalizeProvider(tool.id) === provider;
+    });
+  return { codex: has('codex'), claude_code: has('claude_code') };
+}
+
 // ---- LEGACY: tier-as-model-suffix representation (parsing only) -------------
 
 // Legacy reasoning-effort tiers that used to be spliced onto the model name.
@@ -138,15 +221,9 @@ export const effortToIntensity = (effort: string | undefined): Intensity => {
     : 'none';
 };
 
-// Model name presets (concrete model ids). "默认" clears the field (revert to
-// the agent CLI's own default). Free text in the input overrides the chips.
-export const MODEL_PRESETS: Array<{ label: string; value: string }> = [
-  { label: '默认', value: '' },
-  { label: 'glm-5.2', value: 'glm-5.2' },
-  { label: 'gpt-5.2', value: 'gpt-5.2' },
-  { label: 'gpt-5.5', value: 'gpt-5.5' },
-  { label: 'claude-sonnet-4-6', value: 'claude-sonnet-4-6' },
-];
+// Per-provider concrete model presets live in MODEL_PRESETS_BY_PROVIDER above
+// (codex: gpt-5.4/5.5, claude_code: glm-5.1/5.2). "默认" (clear → inherit) is
+// prepended by the UI at each call site. Free text in the input overrides chips.
 
 /** @deprecated LEGACY — fixed tier list; superseded by provider-aware EFFORT_PRESETS. */
 export const INTENSITY_OPTIONS: Array<{ label: string; value: Intensity }> = [

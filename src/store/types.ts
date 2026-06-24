@@ -319,6 +319,15 @@ export interface ControlCenterState {
     content: string,
     mode: 'voice' | 'text',
   ) => Promise<void>;
+  /**
+   * Re-send a failed-to-send user message (`AgentMessage.failed`) directly from
+   * its retryable bubble — NOT through the composer input, so the retry can
+   * never append to / combine with other text. Removes the stale failed bubble
+   * and dispatches a fresh send; a repeat failure re-marks the new bubble failed.
+   */
+  retryAgentMessage: (sessionId: string, messageId: string) => Promise<void>;
+  /** Remove a failed-to-send user bubble the user chose to discard. */
+  dismissFailedMessage: (sessionId: string, messageId: string) => void;
   resolveApproval: (
     approvalId: string,
     decision: 'approved' | 'denied',

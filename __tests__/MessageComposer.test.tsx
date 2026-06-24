@@ -174,7 +174,7 @@ describe('MessageComposer', () => {
     expect(onInterruptTurn).toHaveBeenCalled();
   });
 
-  it('voice recording shows the listening label + a stop control', () => {
+  it('voice recording shows the listening label', () => {
     const root = wrap(
       <MessageComposer
         {...defaultProps({
@@ -185,10 +185,9 @@ describe('MessageComposer', () => {
     );
     const texts = allTexts(root);
     expect(texts.some(t => t.includes('正在聆听'))).toBe(true);
-    expect(() => findByTestID(root, 'composer-stop')).not.toThrow();
   });
 
-  it('voice mode records while held and stops on release', () => {
+  it('voice mode starts on press and stops on release (hold to talk)', () => {
     const onVoiceCapture = jest.fn();
     const onVoiceCaptureStart = jest.fn();
     const onVoiceCaptureEnd = jest.fn();
@@ -202,18 +201,32 @@ describe('MessageComposer', () => {
         })}
       />,
     );
-    expect(allTexts(root).some(t => t === '按住说话')).toBe(true);
+    expect(allTexts(root).some(t => t === '点按开始说话')).toBe(true);
 
     act(() => {
       findByTestID(root, 'composer-voice-hold').props.onPressIn();
     });
     expect(onVoiceCaptureStart).toHaveBeenCalledTimes(1);
     expect(onVoiceCapture).not.toHaveBeenCalled();
+    expect(onVoiceCaptureEnd).not.toHaveBeenCalled();
 
     act(() => {
       findByTestID(root, 'composer-voice-hold').props.onPressOut();
     });
+    // Releasing the finger stops the recording we started (hold-to-talk).
     expect(onVoiceCaptureEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('reserves the voice action slot before recording starts', () => {
+    const root = wrap(
+      <MessageComposer
+        {...defaultProps({
+          mode: 'voice',
+          voiceStt: mockVoiceStt({ status: 'idle' }),
+        })}
+      />,
+    );
+    expect(() => findByTestID(root, 'composer-action-placeholder')).not.toThrow();
   });
 
   it('does not restart capture from the hold target while already active', () => {
@@ -232,7 +245,6 @@ describe('MessageComposer', () => {
 
     act(() => {
       findByTestID(root, 'composer-voice-hold').props.onPressIn();
-      findByTestID(root, 'composer-voice-hold').props.onPressOut();
     });
     expect(onVoiceCaptureStart).not.toHaveBeenCalled();
     expect(onVoiceCaptureEnd).not.toHaveBeenCalled();

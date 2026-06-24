@@ -1,11 +1,14 @@
 import {
   EFFORT_PRESETS,
-  MODEL_PRESETS,
+  MODEL_PRESETS_BY_PROVIDER,
+  availableProviders,
+  catalogModelOptions,
   composeModel,
   effortOptionsFor,
   effortPresetsFor,
   effortToIntensity,
   intensityToEffort,
+  modelPresetsFor,
   normalizeProvider,
   parseModelIntensity,
 } from '../modelIntensity';
@@ -156,8 +159,86 @@ describe('modelIntensity · legacy intensity mapping', () => {
   });
 });
 
-describe('modelIntensity · model presets', () => {
-  it('keeps a leading inherit option for the model picker', () => {
-    expect(MODEL_PRESETS[0]).toEqual({ label: '默认', value: '' });
+describe('modelIntensity · per-provider model presets', () => {
+  it('codex presets are gpt-5.4 / gpt-5.5', () => {
+    expect(MODEL_PRESETS_BY_PROVIDER.codex.map(m => m.value)).toEqual([
+      'gpt-5.4',
+      'gpt-5.5',
+    ]);
+  });
+
+  it('claude_code presets are glm-5.1 / glm-5.2', () => {
+    expect(MODEL_PRESETS_BY_PROVIDER.claude_code.map(m => m.value)).toEqual([
+      'glm-5.1',
+      'glm-5.2',
+    ]);
+  });
+
+  it('modelPresetsFor falls back to codex for unknown provider', () => {
+    expect(modelPresetsFor('codex' as never).map(m => m.value)).toEqual([
+      'gpt-5.4',
+      'gpt-5.5',
+    ]);
+  });
+
+  it('catalogModelOptions prefers the catalog, falls back to presets', () => {
+    const catalog = [
+      {
+        provider: 'codex' as const,
+        models: [{ label: 'gpt-9', value: 'gpt-9' }],
+      },
+    ];
+    expect(catalogModelOptions('codex', catalog).map(m => m.value)).toEqual([
+      'gpt-9',
+    ]);
+    // No codex entry in catalog → fall back to hardcoded presets.
+    expect(catalogModelOptions('codex', []).map(m => m.value)).toEqual([
+      'gpt-5.4',
+      'gpt-5.5',
+    ]);
+    expect(catalogModelOptions('claude_code', undefined).map(m => m.value)).toEqual([
+      'glm-5.1',
+      'glm-5.2',
+    ]);
+  });
+});
+
+describe('modelIntensity · availableProviders', () => {
+  it('both available when tools empty (agent not yet reported)', () => {
+    expect(availableProviders([])).toEqual({ codex: true, claude_code: true });
+    expect(availableProviders(undefined)).toEqual({
+      codex: true,
+      claude_code: true,
+    });
+  });
+
+  it('maps codex/claude tool availability', () => {
+    expect(
+      availableProviders([{ id: 'codex', available: true }]),
+    ).toEqual({ codex: true, claude_code: false });
+    expect(
+      availableProviders([{ id: 'claude', available: true }]),
+    ).toEqual({ codex: false, claude_code: true });
+    expect(
+      availableProviders([{ id: 'claudecode', available: true }]),
+    ).toEqual({ codex: false, claude_code: true });
+  });
+
+  it('respects available===false', () => {
+    expect(
+      availableProviders([
+        { id: 'codex', available: false },
+        { id: 'claude', available: true },
+      ]),
+    ).toEqual({ codex: false, claude_code: true });
+  });
+
+  it('both true when both CLIs present', () => {
+    expect(
+      availableProviders([
+        { id: 'codex', available: true },
+        { id: 'claude', available: true },
+      ]),
+    ).toEqual({ codex: true, claude_code: true });
   });
 });

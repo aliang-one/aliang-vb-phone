@@ -58,6 +58,10 @@ interface TranscriptMessageListProps {
    * 未提供(undefined / null)时所有块都按已 settle 处理(显示「已完成」)。
    */
   liveMessageId?: string;
+  /** Retry a failed-to-send user bubble (only fired for `message.failed`). */
+  onRetryFailed?: (messageId: string) => void;
+  /** Discard a failed-to-send user bubble (only fired for `message.failed`). */
+  onDismissFailed?: (messageId: string) => void;
   /** Position of this row in the visible conversation rail. */
   timelinePosition?: TimelinePosition;
 }
@@ -147,6 +151,8 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
   onCacheActivityDetail,
   orphanActivityMessageIds,
   liveMessageId,
+  onRetryFailed,
+  onDismissFailed,
   timelinePosition = 'middle',
 }) => {
   const { theme, isDark } = useTheme();
@@ -634,6 +640,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
             : [];
 
         if (isUser) {
+          const isFailed = Boolean(message.failed);
           return (
             <View
               key={message.id}
@@ -663,12 +670,65 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                       backgroundColor: isDark
                         ? 'rgba(86, 156, 214, 0.14)'
                         : 'rgba(0, 81, 174, 0.08)',
-                      borderColor: theme.colors.primary,
+                      borderColor: isFailed
+                        ? theme.colors.error
+                        : theme.colors.primary,
                     },
                   ]}
                 >
                   {message.segments.map(renderSegment)}
                 </View>
+                {isFailed ? (
+                  <View style={styles.failedSendRow}>
+                    <Text
+                      style={[
+                        theme.typography.codeSm,
+                        styles.failedSendLabel,
+                        { color: theme.colors.error },
+                      ]}
+                    >
+                      发送失败
+                    </Text>
+                    {onRetryFailed ? (
+                      <TouchableOpacity
+                        activeOpacity={0.6}
+                        accessibilityRole="button"
+                        accessibilityLabel="重试发送"
+                        onPress={() => onRetryFailed(message.sourceMessageIds[0] ?? message.id)}
+                        style={styles.failedSendButton}
+                      >
+                        <Text
+                          style={[
+                            theme.typography.codeSm,
+                            styles.failedSendButtonText,
+                            { color: theme.colors.primary },
+                          ]}
+                        >
+                          重试
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    {onDismissFailed ? (
+                      <TouchableOpacity
+                        activeOpacity={0.6}
+                        accessibilityRole="button"
+                        accessibilityLabel="删除失败消息"
+                        onPress={() => onDismissFailed(message.sourceMessageIds[0] ?? message.id)}
+                        style={styles.failedSendButton}
+                      >
+                        <Text
+                          style={[
+                            theme.typography.codeSm,
+                            styles.failedSendButtonText,
+                            { color: theme.colors.onSurfaceVariant },
+                          ]}
+                        >
+                          删除
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
               <IconBadge
                 name="user"
@@ -954,6 +1014,26 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
     borderTopRightRadius: 6,
     borderTopLeftRadius: 14,
+  },
+  failedSendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 6,
+  },
+  failedSendLabel: {
+    fontWeight: '600',
+  },
+  failedSendButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(127, 127, 127, 0.35)',
+  },
+  failedSendButtonText: {
+    fontWeight: '600',
   },
   userAvatar: {
     marginTop: 18,

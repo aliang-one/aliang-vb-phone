@@ -275,16 +275,48 @@ describe('agentTranscript', () => {
     });
   });
 
-  it('keeps consecutive user prompts together for repeated input bursts', () => {
+  // A user prompt that produced no assistant reply (a failed/errored turn, or a
+  // tool-only turn whose empty prose was dropped) leaves the NEXT user prompt
+  // adjacent to it. Coalescing them would merge two distinct messages into one
+  // bubble ("你好 在吗") — the user's new prompt must stay its own bubble.
+  it('keeps distinct consecutive user prompts as separate bubbles', () => {
     const display = buildDisplayTranscript([
-      message('1', 'user', 'First line'),
-      message('2', 'user', 'Second line'),
-      message('3', 'assistant', 'Combined reply'),
+      message('1', 'user', '你好'),
+      message('2', 'user', '在吗'),
+      message('3', 'assistant', '回复'),
+    ]);
+
+    expect(display).toHaveLength(3);
+    expect(display[0].role).toBe('user');
+    expect(display[0].mergedCount).toBe(1);
+    expect(display[0].sourceMessageIds).toEqual(['1']);
+    expect(display[1].role).toBe('user');
+    expect(display[1].mergedCount).toBe(1);
+    expect(display[1].sourceMessageIds).toEqual(['2']);
+  });
+
+  it('still drops a byte-identical repeat of a user prompt (optimistic + snapshot double-store)', () => {
+    const display = buildDisplayTranscript([
+      message('1', 'user', 'Same prompt'),
+      message('1b', 'user', 'Same prompt'),
+      message('2', 'assistant', 'Reply'),
     ]);
 
     expect(display).toHaveLength(2);
     expect(display[0].role).toBe('user');
-    expect(display[0].mergedCount).toBe(2);
+    expect(display[0].mergedCount).toBe(1);
+  });
+
+  it('propagates the failed flag onto a user display bubble', () => {
+    const display = buildDisplayTranscript([
+      { ...message('1', 'user', '你好'), failed: true },
+      message('2', 'assistant', '回复'),
+    ]);
+
+    expect(display).toHaveLength(2);
+    expect(display[0].role).toBe('user');
+    expect(display[0].failed).toBe(true);
+    expect(display[1].failed).toBeUndefined();
   });
 
   it('keeps display and segment keys unique when upstream repeats an id', () => {

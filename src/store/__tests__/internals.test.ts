@@ -1,4 +1,9 @@
-import type { VibeCodingRun, Device, Project } from '../../data/platformModels';
+import type {
+  VibeCodingRun,
+  Device,
+  Project,
+  AgentMessage,
+} from '../../data/platformModels';
 import {
   attachActiveSessionIds,
   attachDeviceRelations,
@@ -9,6 +14,7 @@ import {
   evictStaleSessionDetail,
   EVENT_DETAIL_CACHE_MAX,
   IDLE_DEMOTE_MS,
+  mergeAgentMessages,
   mergeVibeRunSnapshot,
 } from '../internals';
 
@@ -252,5 +258,48 @@ describe('attachDeviceRelations referential stability', () => {
     ];
     const runs = [makeRun({ id: 's1', deviceId: 'd1', status: 'running' })];
     expect(attachActiveSessionIds(devices, runs)).toBe(devices);
+  });
+});
+
+describe('mergeAgentMessages', () => {
+  // A failed-to-send user message lives only on the client (it never reached
+  // the server, so it has no server id). Server-snapshot merges must not drop
+  // it — otherwise the retryable bubble vanishes the next time the session
+  // state is published.
+  it('preserves a client-only failed user bubble across a server snapshot', () => {
+    const failed: AgentMessage = {
+      id: 'opt_1',
+      role: 'user',
+      content: '你好',
+      timestamp: 't1',
+      failed: true,
+    };
+    const existing: AgentMessage[] = [
+      { id: 'srv_a', role: 'assistant', content: 'prior reply', timestamp: 't0' },
+      failed,
+    ];
+    // Server snapshot lacks the failed optimistic message (it never reached
+    // the server); it must survive the merge.
+    const incoming: AgentMessage[] = [
+      { id: 'srv_a', role: 'assistant', content: 'prior reply', timestamp: 't0' },
+    ];
+    const merged = mergeAgentMessages(existing, incoming);
+    expect(merged.some(m => m.id === 'opt_1' && m.failed === true)).toBe(true);
+  });
+
+  it('keeps the failed flag on a failed user message when the server pushes unrelated updates', () => {
+    const failed: AgentMessage = {
+      id: 'opt_2',
+      role: 'user',
+      content: '在吗',
+      timestamp: 't2',
+      failed: true,
+    };
+    const merged = mergeAgentMessages([failed], [
+      { id: 'srv_b', role: 'assistant', content: 'reply', timestamp: 't3' },
+    ]);
+    const kept = merged.find(m => m.id === 'opt_2');
+    expect(kept).toBeDefined();
+    expect(kept?.failed).toBe(true);
   });
 });

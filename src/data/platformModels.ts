@@ -111,11 +111,21 @@ export type AgentCommandScope = 'builtin' | 'user' | 'project';
  * on-disk command files (`.claude/commands/*.md`) for claude-code and ships a
  * curated built-in baseline for commands the CLIs don't enumerate.
  */
+// How a `/`-command executes in a remote (mobile-driven) session. Mirrors the
+// server's AgentCommandRemote. See server/src/types.ts for the rationale.
+//   'prompt'      — prompt template (custom/user command); sent as a message.
+//   'local'       — interactive REPL builtin (/compact /clear...); the agent
+//                   runs it against its CLI session, replies status + ai.done.
+//   'unsupported' — purely-local builtin (/memory /init...); agent rejects.
+export type AgentCommandRemote = 'prompt' | 'local' | 'unsupported';
+
 export interface AgentCommandInfo {
   name: string;
   description?: string;
   argHint?: string;
   scope?: AgentCommandScope;
+  /** Remote-execution category; absent ≈ 'prompt'. Drives the typeahead badge. */
+  remote?: AgentCommandRemote;
 }
 
 export interface AgentToolInfo {
@@ -398,6 +408,14 @@ export interface AgentMessage {
   timestamp: string;
   pending?: boolean;
   index?: number;
+  /**
+   * Client-only: this user message FAILED to send (the HTTP dispatch threw —
+   * e.g. agent offline). Unlike `pending` (an in-flight optimistic bubble that
+   * the server will confirm), a failed message never reached the server, so it
+   * has no server id and must survive server-snapshot merges as a client-only
+   * retryable bubble. Surfaced in the UI with a retry / dismiss affordance.
+   */
+  failed?: boolean;
 }
 
 export interface AgentTranscriptPage {

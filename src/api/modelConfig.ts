@@ -6,8 +6,9 @@ import type { EffortProvider } from '../utils/modelIntensity';
  *
  * The server (`GET /api/me/model-options`) is the SOURCE OF TRUTH for the
  * model/effort taxonomy and the user's personal preset library. The phone's
- * hardcoded `EFFORT_PRESETS` / `MODEL_PRESETS` (see `modelIntensity.ts`) are a
- * FALLBACK only — used before the catalog loads or when the fetch fails.
+ * hardcoded `EFFORT_PRESETS` / `MODEL_PRESETS_BY_PROVIDER` (see
+ * `modelIntensity.ts`) are a FALLBACK only — used before the catalog loads or
+ * when the fetch fails.
  */
 
 /** Provider discriminant as carried by the catalog (mirrors EffortProvider). */

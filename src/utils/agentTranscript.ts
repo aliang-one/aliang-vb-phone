@@ -27,6 +27,12 @@ export interface DisplayTranscriptMessage {
   mergedCount: number;
   segments: TranscriptSegment[];
   /**
+   * Client-only retry flag carried over from a failed-to-send user message
+   * (see {@link AgentMessage.failed}). Only ever set on user bubbles; the render
+   * site shows a retry / dismiss affordance when truthy.
+   */
+  failed?: boolean;
+  /**
    * Underlying {@link AgentMessage.id}s this (possibly coalesced) display bubble
    * spans. Seeded with the first message's id and extended by `appendSegments`
    * on each merge. The render site uses this to attach the matching
@@ -119,18 +125,22 @@ export const buildDisplayTranscript = (
     const previous = result[result.length - 1];
 
     if (role === 'user') {
-      if (previous?.role === 'user') {
-        appendSegments(previous, message, segments);
-      } else {
-        result.push({
-          id: uniqueId(message.id, usedDisplayIds),
-          role: 'user',
-          timestamp: message.timestamp,
-          mergedCount: 1,
-          segments,
-          sourceMessageIds: [message.id],
-        });
-      }
+      // Each user prompt is its own bubble. A previous design coalesced
+      // consecutive user messages into one ("repeated input bursts"), but that
+      // merged two DISTINCT prompts — e.g. a prompt whose turn failed/errored
+      // (no assistant reply) followed by the user's next prompt — into a single
+      // "你好 在吗" bubble. Keeping them separate preserves the user's intent.
+      // Byte-identical repeats (optimistic + snapshot double-store) are already
+      // dropped by the `lastContent` dedup above.
+      result.push({
+        id: uniqueId(message.id, usedDisplayIds),
+        role: 'user',
+        timestamp: message.timestamp,
+        mergedCount: 1,
+        segments,
+        sourceMessageIds: [message.id],
+        failed: message.failed ? true : undefined,
+      });
       continue;
     }
 

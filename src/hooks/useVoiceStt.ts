@@ -46,6 +46,7 @@ const BITS = 16;
 const STOP_SAFETY_MS = 3_000;
 const LIVE_CAPTION_THROTTLE_MS = 120;
 const MAX_BUFFERED_AUDIO_BYTES = 512_000;
+const MIN_RECORDING_MS = 450;
 
 // Unique per recording: the server uses it as the stt_records primary key +
 // audio filename, so a constant would collide across recordings.
@@ -80,6 +81,7 @@ export function useVoiceStt(): UseVoiceSttResult {
   const startSentRef = useRef(false);
   const recordingRequestedRef = useRef(false);
   const stopRequestedRef = useRef(false);
+  const recordingStartedAtRef = useRef(0);
   // Per-recording request id (server uses it as the stt_records PK + audio name).
   const requestIdRef = useRef('');
 
@@ -233,6 +235,7 @@ export function useVoiceStt(): UseVoiceSttResult {
       setLiveCaptionNow('');
       resetBufferedAudio();
       transcriptRef.current = '';
+      recordingStartedAtRef.current = Date.now();
       recorderStopRequestedRef.current = false;
       onCompleteRef.current = options?.onComplete ?? null;
       recordingRequestedRef.current = true;
@@ -261,20 +264,42 @@ export function useVoiceStt(): UseVoiceSttResult {
           } else if (msg.type === 'stt.completed') {
             finishWith(msg.full_text || transcriptRef.current);
           } else if (msg.type === 'stt.error') {
-            const message = msg.message || '语音识别失败';
             if (!recordingRequestedRef.current) return;
-            failWith(message, { keepSocketOpen: msg.code === 'duration_exceeded' });
+            // A mid-stream error may still have captured real text (e.g. the
+            // NLS gateway dropped after transcribing a sentence). Deliver what
+            // we have rather than discarding it; only surface a hard error when
+            // nothing was transcribed.
+            const partial = transcriptRef.current;
+            if (partial.trim()) {
+              finishWith(partial);
+            } else {
+              failWith(msg.message || '语音识别失败', {
+                keepSocketOpen: msg.code === 'duration_exceeded',
+              });
+            }
           }
         },
         onClose: (code) => {
           if (!recordingRequestedRef.current) return;
           if (code !== 1000) {
-            failWith('语音连接已断开，已保留已识别内容');
+            // Honor the "已保留已识别内容" promise: if we captured anything,
+            // deliver it; otherwise this is a clean disconnect to retry.
+            const partial = transcriptRef.current;
+            if (partial.trim()) {
+              finishWith(partial);
+            } else {
+              failWith('语音连接已断开，请重试');
+            }
           }
         },
         onError: () => {
           if (!recordingRequestedRef.current) return;
-          failWith('语音连接错误');
+          const partial = transcriptRef.current;
+          if (partial.trim()) {
+            finishWith(partial);
+          } else {
+            failWith('语音连接错误');
+          }
         },
       });
       socketRef.current = socket;
@@ -374,6 +399,15 @@ export function useVoiceStt(): UseVoiceSttResult {
     }
     if (!recordingRequestedRef.current && status !== 'recording' && status !== 'connecting') {
       return;
+    }
+    const recordingAge = Date.now() - recordingStartedAtRef.current;
+    if (recordingAge >= 0 && recordingAge < MIN_RECORDING_MS) {
+      await new Promise<void>(resolve =>
+        setTimeout(resolve, MIN_RECORDING_MS - recordingAge),
+      );
+      if (!recordingRequestedRef.current && status !== 'recording' && status !== 'connecting') {
+        return;
+      }
     }
     const socket = socketRef.current;
     recordingRequestedRef.current = false;

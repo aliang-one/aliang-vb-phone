@@ -51,7 +51,7 @@ export interface MessageComposerProps {
   onVoiceCapture: () => void;
   /** Begins press-and-hold voice capture. Falls back to onVoiceCapture. */
   onVoiceCaptureStart?: () => void;
-  /** Ends press-and-hold voice capture. Falls back to onVoiceCapture. */
+  /** Deprecated: release no longer ends capture; use the explicit stop button. */
   onVoiceCaptureEnd?: () => void;
   /** Sends the transcribed voice draft as a user message. */
   onSendVoice: () => void;
@@ -353,6 +353,10 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   };
 
   const handleVoicePressOut = () => {
+    // Hold-to-talk: lifting the finger (or losing the responder) stops a
+    // recording we started via press-in. Gated on voicePressActiveRef so a
+    // stray press-out without a matching press-in (e.g. already recording when
+    // mounted) is a no-op rather than a spurious stop.
     if (!voicePressActiveRef.current) return;
     voicePressActiveRef.current = false;
     (onVoiceCaptureEnd ?? onVoiceCapture)();
@@ -384,6 +388,12 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   };
 
   const renderAction = () => {
+    // Hold-to-talk model: the recording is stopped by lifting the finger off
+    // the hold target (onPressOut -> handleVoicePressOut). There is NO separate
+    // stop button here — it would be unreachable while the finger is holding,
+    // and showing one signals a different (tap-to-stop) model, which confused
+    // the interaction. During a voice recording the slot falls through to the
+    // non-interactive placeholder, unless a turn is streaming (then interrupt).
     if (canInterruptTurn && onInterruptTurn) {
       return (
         <TouchableOpacity
@@ -439,25 +449,13 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
         </TouchableOpacity>
       );
     }
-    // voice mode: show stop only while actively capturing
-    if (isVoiceActive) {
+    if (mode === 'voice') {
       return (
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel="结束录音"
-          onPress={onVoiceCapture}
-          testID="composer-stop"
-          style={[
-            styles.ctrlBtn,
-            {
-              borderRadius: theme.borderRadius.full,
-              backgroundColor: theme.colors.primary,
-              ...(isDark ? theme.glow.primary : {}),
-            },
-          ]}
-        >
-          <ComposerIcon name="stop" size={20} color={theme.colors.onPrimary} />
-        </TouchableOpacity>
+        <View
+          pointerEvents="none"
+          testID="composer-action-placeholder"
+          style={styles.ctrlBtn}
+        />
       );
     }
     return null;
@@ -516,7 +514,8 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
     }
 
     if (!isVoiceActive) {
-      // voice idle — the outer Pressable is the hold-to-record target
+      // voice idle — the outer Pressable starts recording; stopping is explicit
+      // via the right-side stop control after capture begins.
       return (
         <View style={styles.inlineRow}>
           <View
@@ -532,7 +531,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
             <ComposerIcon name="mic" size={18} color={theme.colors.primary} />
           </View>
           <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
-            按住说话
+            点按开始说话
           </Text>
         </View>
       );
@@ -638,7 +637,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
               {mode === 'voice' ? (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={isVoiceActive ? '松开结束录音' : '按住开始录音'}
+                  accessibilityLabel={isVoiceActive ? '录音中' : '点按开始录音'}
                   disabled={composerDisabled}
                   onPressIn={handleVoicePressIn}
                   onPressOut={handleVoicePressOut}

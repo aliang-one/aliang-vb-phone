@@ -60,7 +60,18 @@ export const SlashCommandSuggestions: React.FC<SlashCommandSuggestionsProps> = (
         keyboardShouldPersistTaps="handled"
         nestedScrollEnabled>
         {filtered.map(cmd => {
-          const badge = scopeLabel(cmd.scope);
+          const scopeBadge = scopeLabel(cmd.scope);
+          // remote category: 'local' = interactive REPL builtin (agent runs it,
+          // no model turn); 'unsupported' = can't be driven remotely. Both are
+          // still tappable (the agent replies with the outcome); the label only
+          // sets expectations so users don't think /compact silently succeeded.
+          const remoteLabel =
+            cmd.remote === 'local'
+              ? '本机'
+              : cmd.remote === 'unsupported'
+                ? '本机·不可远程'
+                : null;
+          const dim = cmd.remote === 'unsupported';
           return (
             <TouchableOpacity
               key={`${cmd.scope ?? 'cmd'}-${cmd.name}`}
@@ -69,22 +80,37 @@ export const SlashCommandSuggestions: React.FC<SlashCommandSuggestionsProps> = (
               accessibilityRole="button"
               accessibilityLabel={`插入 /${cmd.name}`}
               onPress={() => onSelect(cmd)}
-              style={[styles.row, { borderBottomColor: theme.colors.outlineVariant }]}>
+              style={[
+                styles.row,
+                { borderBottomColor: theme.colors.outlineVariant },
+                dim && styles.dimmed,
+              ]}>
               <View style={styles.rowMain}>
                 <Text
                   style={[theme.typography.codeSm, { color: accent }, styles.name]}>
                   /{cmd.name}
                   {cmd.argHint ? ` ${cmd.argHint}` : ''}
                 </Text>
-                {badge ? (
-                  <Text
-                    style={[
-                      theme.typography.labelSm,
-                      { color: theme.colors.onSurfaceVariant, opacity: 0.6 },
-                    ]}>
-                    {badge}
-                  </Text>
-                ) : null}
+                <View style={styles.badges}>
+                  {remoteLabel ? (
+                    <Text
+                      style={[
+                        theme.typography.labelSm,
+                        { color: theme.colors.onSurfaceVariant },
+                      ]}>
+                      {remoteLabel}
+                    </Text>
+                  ) : null}
+                  {scopeBadge ? (
+                    <Text
+                      style={[
+                        theme.typography.labelSm,
+                        { color: theme.colors.onSurfaceVariant, opacity: 0.6 },
+                      ]}>
+                      {scopeBadge}
+                    </Text>
+                  ) : null}
+                </View>
               </View>
               {cmd.description ? (
                 <Text
@@ -118,6 +144,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
+  },
+  badges: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  dimmed: {
+    opacity: 0.45,
   },
   name: {},
 });

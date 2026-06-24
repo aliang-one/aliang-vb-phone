@@ -13,9 +13,9 @@ import { GlowButton } from '../shared/GlowButton';
 import { IconBadge } from '../visual/IconBadge';
 import type { AgentCommandInfo } from '../../data/platformModels';
 import {
-  MODEL_PRESETS,
   effortPresetsFor,
   intensityToEffort,
+  modelPresetsFor,
   parseModelIntensity,
   type EffortProvider,
 } from '../../utils/modelIntensity';
@@ -66,6 +66,13 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
 }) => {
   const { theme, isDark } = useTheme();
   const isCodex = provider === 'codex';
+  // Provider-aware model chips (codex: gpt-5.4/5.5, claude_code: glm-5.1/5.2),
+  // led by "默认" (clear → inherit). Hardcoded fallback; matches the server
+  // catalog seed.
+  const modelOptions = [
+    { label: '默认', value: '' },
+    ...modelPresetsFor(provider),
+  ];
   // The parent conditionally mounts this component, so each open is a fresh
   // mount and these drafts initialize from the latest session props — no
   // useEffect re-sync needed (which avoided a post-render setState storm).
@@ -215,7 +222,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
           ]}
         />
         <View style={styles.chipRow}>
-          {MODEL_PRESETS.map(preset => {
+          {modelOptions.map(preset => {
             const active =
               preset.value === ''
                 ? modelBase.trim() === ''
@@ -289,7 +296,15 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
         </View>
         {commands.length ? (
           <View style={styles.commandList}>
-            {commands.map(cmd => (
+            {commands.map(cmd => {
+              const remoteLabel =
+                cmd.remote === 'local'
+                  ? '本机'
+                  : cmd.remote === 'unsupported'
+                    ? '本机·不可远程'
+                    : null;
+              const dim = cmd.remote === 'unsupported';
+              return (
               <TouchableOpacity
                 key={`${cmd.scope ?? 'cmd'}-${cmd.name}`}
                 testID={`tools-cmd-${cmd.name}`}
@@ -297,22 +312,33 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
                 accessibilityRole="button"
                 accessibilityLabel={`插入 /${cmd.name}`}
                 onPress={() => handleInsert(cmd)}
-                style={[styles.commandRow, { borderColor: rowBorder }]}>
+                style={[styles.commandRow, { borderColor: rowBorder }, dim && styles.commandRowDim]}>
                 <View style={styles.commandMain}>
                   <Text
                     style={[theme.typography.codeSm, { color: accent }, styles.commandName]}>
                     /{cmd.name}
                     {cmd.argHint ? ` ${cmd.argHint}` : ''}
                   </Text>
-                  {cmd.scope ? (
-                    <Text
-                      style={[
-                        theme.typography.labelSm,
-                        { color: theme.colors.onSurfaceVariant, opacity: 0.6 },
-                      ]}>
-                      {cmd.scope === 'project' ? '项目' : cmd.scope === 'user' ? '用户' : '内置'}
-                    </Text>
-                  ) : null}
+                  <View style={styles.commandBadges}>
+                    {remoteLabel ? (
+                      <Text
+                        style={[
+                          theme.typography.labelSm,
+                          { color: theme.colors.onSurfaceVariant },
+                        ]}>
+                        {remoteLabel}
+                      </Text>
+                    ) : null}
+                    {cmd.scope ? (
+                      <Text
+                        style={[
+                          theme.typography.labelSm,
+                          { color: theme.colors.onSurfaceVariant, opacity: 0.6 },
+                        ]}>
+                        {cmd.scope === 'project' ? '项目' : cmd.scope === 'user' ? '用户' : '内置'}
+                      </Text>
+                    ) : null}
+                  </View>
                 </View>
                 {cmd.description ? (
                   <Text
@@ -322,7 +348,8 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
                   </Text>
                 ) : null}
               </TouchableOpacity>
-            ))}
+              );
+            })}
           </View>
         ) : (
           <View style={[styles.emptyCommands, { borderColor: rowBorder }]}>
@@ -425,6 +452,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
+  },
+  commandBadges: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  commandRowDim: {
+    opacity: 0.45,
   },
   commandName: {
     fontWeight: '600',

@@ -38,8 +38,8 @@ export interface ServerAiSession {
   title?: string;
   objective?: string;
   model?: string;
-  provider?: 'auto' | 'codex' | 'claude' | 'claudecode';
-  tool?: 'auto' | 'codex' | 'claude' | 'claudecode';
+  provider?: 'codex' | 'claude' | 'claudecode';
+  tool?: 'codex' | 'claude' | 'claudecode';
   risk?: 'low' | 'medium' | 'high';
   /**
    * Reasoning effort. Provider-specific:
@@ -247,8 +247,8 @@ export const createAiSession = (input: {
   title?: string;
   objective?: string;
   model?: string;
-  provider?: 'auto' | 'codex' | 'claude' | 'claudecode';
-  tool?: 'auto' | 'codex' | 'claude' | 'claudecode';
+  provider?: 'codex' | 'claude' | 'claudecode';
+  tool?: 'codex' | 'claude' | 'claudecode';
   risk?: 'low' | 'medium' | 'high';
   effort?: string;
 }): Promise<ServerAiSession> =>

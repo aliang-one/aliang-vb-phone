@@ -120,8 +120,8 @@ describe('ToolsMenu', () => {
     const root = wrap(
       <ToolsMenu
         {...defaultProps({
-          provider: 'codex',
-          model: 'GPT-5 Codex',
+          provider: 'claude_code',
+          model: 'Claude Code',
           onSaveSettings,
         })}
       />,

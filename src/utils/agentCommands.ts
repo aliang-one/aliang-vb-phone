@@ -16,19 +16,19 @@ import type { AgentCommandInfo } from '../data/platformModels';
  */
 export const BUILTIN_AGENT_COMMANDS: Record<'codex' | 'claude_code', AgentCommandInfo[]> = {
   claude_code: [
-    { name: 'clear', description: '清空当前对话上下文', scope: 'builtin' },
-    { name: 'compact', description: '压缩对话历史以节省上下文', scope: 'builtin' },
-    { name: 'model', description: '切换模型', argHint: '<model>', scope: 'builtin' },
-    { name: 'review', description: '审查代码变更', scope: 'builtin' },
-    { name: 'cost', description: '查看本次会话的用量与花费', scope: 'builtin' },
-    { name: 'memory', description: '查看 / 编辑项目记忆 (CLAUDE.md)', scope: 'builtin' },
-    { name: 'init', description: '初始化项目记忆与配置', scope: 'builtin' },
-    { name: 'help', description: '查看可用命令', scope: 'builtin' },
+    { name: 'clear', description: '清空当前对话上下文', scope: 'builtin', remote: 'local' },
+    { name: 'compact', description: '压缩对话历史以节省上下文', scope: 'builtin', remote: 'local' },
+    { name: 'model', description: '切换模型', argHint: '<model>', scope: 'builtin', remote: 'local' },
+    { name: 'review', description: '审查代码变更', scope: 'builtin', remote: 'prompt' },
+    { name: 'cost', description: '查看本次会话的用量与花费', scope: 'builtin', remote: 'local' },
+    { name: 'memory', description: '查看 / 编辑项目记忆 (CLAUDE.md)', scope: 'builtin', remote: 'unsupported' },
+    { name: 'init', description: '初始化项目记忆与配置', scope: 'builtin', remote: 'unsupported' },
+    { name: 'help', description: '查看可用命令', scope: 'builtin', remote: 'local' },
   ],
   codex: [
-    { name: 'diff', description: '查看当前未提交的改动', scope: 'builtin' },
-    { name: 'clear', description: '清空当前对话上下文', scope: 'builtin' },
-    { name: 'model', description: '切换模型', argHint: '<model>', scope: 'builtin' },
+    { name: 'diff', description: '查看当前未提交的改动', scope: 'builtin', remote: 'local' },
+    { name: 'clear', description: '清空当前对话上下文', scope: 'builtin', remote: 'local' },
+    { name: 'model', description: '切换模型', argHint: '<model>', scope: 'builtin', remote: 'local' },
   ],
 };
 

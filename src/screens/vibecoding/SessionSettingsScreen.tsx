@@ -19,7 +19,7 @@ import { GlowButton } from '../../components/shared/GlowButton';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore, useVibeRun } from '../../store/controlCenterStore';
 import {
-  MODEL_PRESETS,
+  catalogModelOptions,
   intensityToEffort,
   parseModelIntensity,
   type EffortProvider,
@@ -51,6 +51,12 @@ export const SessionSettingsScreen: React.FC = () => {
   // fallback before it loads.
   const { providerCatalog } = useModelOptions();
   const effortOptions = catalogEffortOptions(provider, providerCatalog);
+  // Provider-aware model chips (codex: gpt-5.4/5.5, claude_code: glm-5.1/5.2),
+  // led by "默认" (clear → inherit).
+  const modelOptions = [
+    { label: '默认', value: '' },
+    ...catalogModelOptions(provider, providerCatalog),
+  ];
   const effective = session?.effectiveModelConfig;
   const effectiveLabel = effective
     ? [
@@ -141,7 +147,7 @@ export const SessionSettingsScreen: React.FC = () => {
           ]}
         />
         <View style={styles.chipRow}>
-          {MODEL_PRESETS.map(preset => {
+          {modelOptions.map(preset => {
             const active =
               preset.value === ''
                 ? modelBase.trim() === ''

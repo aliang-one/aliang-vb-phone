@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -26,6 +26,10 @@ import { IconBadge } from '../../components/visual/IconBadge';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { catalogEffortOptions, useModelOptions } from '../../hooks/useModelOptions';
+import {
+  availableProviders,
+  catalogModelOptions,
+} from '../../utils/modelIntensity';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type CreateRoute = RouteProp<RootStackParamList, 'CreateVibeCoding'>;
@@ -41,17 +45,6 @@ const providerLabels: Record<AgentProvider, string> = {
   claude_code: 'Claude Code',
   codex: 'Codex',
 };
-
-// Optional model presets. "默认" (value '') leaves it to the agent CLI's own
-// default; the rest are concrete names forwarded as --model. Free text in the
-// input overrides the chips.
-const MODEL_PRESETS: Array<{ label: string; value: string }> = [
-  { label: '默认', value: '' },
-  { label: 'glm-5.2', value: 'glm-5.2' },
-  { label: 'gpt-5.2', value: 'gpt-5.2' },
-  { label: 'gpt-5.5', value: 'gpt-5.5' },
-  { label: 'claude-sonnet-4-6', value: 'claude-sonnet-4-6' },
-];
 
 const uniqueStrings = (items: Array<string | undefined>) =>
   Array.from(new Set(items.filter(Boolean))) as string[];
@@ -90,6 +83,30 @@ export const CreateVibeCodingScreen: React.FC = () => {
   const { providerCatalog, userDefault } = useModelOptions();
   const effortOptions = catalogEffortOptions(provider, providerCatalog);
   const device = devices.find(item => item.id === deviceId) ?? devices[0];
+  // Which providers are actually installed on this device (agent reports via
+  // device.tools[].available). Empty tool list → both available (don't block
+  // creation before the agent reports).
+  const availability = useMemo(
+    () => availableProviders(device?.tools),
+    [device?.tools],
+  );
+  // Per-provider model chips (codex: gpt-5.4/5.5, claude_code: glm-5.1/5.2),
+  // from the live catalog with a hardcoded fallback. Lead with "默认" (clear).
+  const modelOptions = useMemo(
+    () => [
+      { label: '默认', value: '' },
+      ...catalogModelOptions(provider, providerCatalog),
+    ],
+    [provider, providerCatalog],
+  );
+  // Keep the selected provider valid for this device: if it's unavailable (e.g.
+  // defaulted to codex but only claude code is installed), switch to one that is.
+  useEffect(() => {
+    if (availability[provider]) return;
+    if (availability.codex) setProvider('codex');
+    else if (availability.claude_code) setProvider('claude_code');
+  }, [availability, provider]);
+  const noProviderAvailable = !availability.codex && !availability.claude_code;
   const project = useCustomPath
     ? undefined
     : projects.find(item => item.id === projectId);
@@ -415,16 +432,19 @@ export const CreateVibeCodingScreen: React.FC = () => {
         <View style={styles.providerRow}>
           {(['codex', 'claude_code'] as AgentProvider[]).map(item => {
             const active = provider === item;
+            const enabled = availability[item];
             return (
               <TouchableOpacity
                 key={item}
                 activeOpacity={0.75}
+                disabled={!enabled}
                 onPress={() => {
                   setProvider(item);
-                  // Effort levels differ per provider (codex: …/xhigh, claude:
-                  // …/max). Reset to "默认" so we never forward a level the
-                  // newly-selected agent doesn't support.
+                  // Effort levels + model ids differ per provider. Reset both so
+                  // we never forward a level/model the newly-selected agent
+                  // doesn't support.
                   setEffort('');
+                  setModel('');
                 }}
                 style={[
                   styles.providerButton,
@@ -438,6 +458,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
                         ? 'rgba(86, 156, 214, 0.12)'
                         : 'rgba(0, 81, 174, 0.08)'
                       : 'transparent',
+                    opacity: enabled ? 1 : 0.35,
                   },
                 ]}>
                 <IconBadge
@@ -462,6 +483,15 @@ export const CreateVibeCodingScreen: React.FC = () => {
             );
           })}
         </View>
+        {noProviderAvailable ? (
+          <Text
+            style={[
+              theme.typography.labelSm,
+              { color: theme.colors.error, marginTop: 4 },
+            ]}>
+            该设备未安装 codex / claude code,无法创建会话。
+          </Text>
+        ) : null}
 
         <Text
           style={[
@@ -494,7 +524,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
           ]}
         />
         <View style={styles.chipRow}>
-          {MODEL_PRESETS.map(preset => {
+          {modelOptions.map(preset => {
             const active =
               preset.value === ''
                 ? model.trim() === ''
@@ -670,7 +700,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
         <GlowButton
           title="START VIBECODING"
           onPress={handleCreate}
-          disabled={!device || !objective.trim() || selectedPermissions.length === 0 || creating}
+          disabled={!device || noProviderAvailable || !objective.trim() || selectedPermissions.length === 0 || creating}
           loading={creating}
           style={styles.createButton}
         />

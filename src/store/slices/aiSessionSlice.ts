@@ -27,7 +27,7 @@ type AiSessionSlice = Pick<
   | 'startAgentSession' | 'loadAgentSessionDetail' | 'pauseAgentSession'
   | 'interruptAgentSession' | 'resumeAgentSession' | 'terminateAgentSession' | 'updateAgentSession'
   | 'deleteAgentSession' | 'appendAgentMessage' | 'loadEarlierAgentMessages'
-  | 'cacheStructuredDetail'
+  | 'retryAgentMessage' | 'dismissFailedMessage' | 'cacheStructuredDetail'
   | 'markSessionViewed' | 'clearCurrentlyViewedSession' | 'demoteIdleSessions'
 >;
 
@@ -587,18 +587,24 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         }),
       }));
     } catch (error) {
-      // Rollback the optimistic bubble on failure so a failed send doesn't
-      // leave a dangling "sent" message in the transcript.
+      // KEEP the failed message as a client-only retryable bubble
+      // (`failed: true`) instead of dropping it. The composer input is NOT
+      // restored (handled by the screen), so the user's NEXT message can't
+      // accidentally append to this one and ship as a combined prompt. The
+      // bubble's retry / dismiss affordance recovers or discards it.
       set(state => ({
         vibeRuns: state.vibeRuns.map(run => {
           if (run.id !== sessionId) return run;
-          const transcript = run.transcript.filter(item => item.id !== optimisticId);
+          const transcript = run.transcript.map(item =>
+            item.id === optimisticId
+              ? { ...item, pending: false, failed: true }
+              : item,
+          );
           return {
             ...run,
             status: 'idle' as VibeStatus,
-            currentStep: 'Failed to send message.',
+            currentStep: 'Failed to send. Tap the message to retry.',
             transcript,
-            transcriptCount: Math.max((run.transcriptCount ?? 0) - 1, 0),
           };
         }),
       }));
@@ -606,6 +612,51 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     } finally {
       pendingMessageSends.delete(sendKey);
     }
+  },
+
+  retryAgentMessage: async (sessionId, messageId) => {
+    const run = get().vibeRuns.find(item => item.id === sessionId);
+    if (!run) return;
+    const failed = run.transcript.find(message => message.id === messageId && message.failed);
+    if (!failed) return;
+    const content = failed.content;
+    // AgentMessage.mode is wider than the send API's ('voice' | 'text'); a
+    // failed user bubble was originally dispatched as voice or text, so narrow.
+    const mode: 'voice' | 'text' = failed.mode === 'voice' ? 'voice' : 'text';
+    // Drop the stale failed bubble, then dispatch a FRESH send (new optimistic
+    // bubble + HTTP). The retry never touches the composer input, so it cannot
+    // combine with other text; appendAgentMessage re-marks the new bubble
+    // `failed` on a repeat failure, keeping retry idempotent.
+    set(state => ({
+      vibeRuns: state.vibeRuns.map(item => {
+        if (item.id !== sessionId) return item;
+        const transcript = item.transcript.filter(message => message.id !== messageId);
+        return {
+          ...item,
+          transcript,
+          transcriptCount: Math.max((item.transcriptCount ?? 1) - 1, 0),
+        };
+      }),
+    }));
+    try {
+      await get().appendAgentMessage(sessionId, content, mode);
+    } catch {
+      // Failure is already reflected as a `failed` bubble by appendAgentMessage.
+    }
+  },
+
+  dismissFailedMessage: (sessionId, messageId) => {
+    set(state => ({
+      vibeRuns: state.vibeRuns.map(item => {
+        if (item.id !== sessionId) return item;
+        const transcript = item.transcript.filter(message => message.id !== messageId);
+        return {
+          ...item,
+          transcript,
+          transcriptCount: Math.max((item.transcriptCount ?? 1) - 1, 0),
+        };
+      }),
+    }));
   },
 
   cacheStructuredDetail: (sessionId, eventId, detail) => {

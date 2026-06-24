@@ -179,6 +179,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const appendAgentMessage = useControlCenterStore(
     state => state.appendAgentMessage,
   );
+  const retryAgentMessage = useControlCenterStore(
+    state => state.retryAgentMessage,
+  );
+  const dismissFailedMessage = useControlCenterStore(
+    state => state.dismissFailedMessage,
+  );
   const interruptAgentSession = useControlCenterStore(
     state => state.interruptAgentSession,
   );
@@ -926,6 +932,26 @@ export const VibeCodingSessionScreen: React.FC = () => {
       });
   };
 
+  // Retry a failed-to-send user bubble directly from its affordance (never via
+  // the composer input, so it can't combine with other text).
+  const handleRetryFailedMessage = useCallback(
+    (messageId: string) => {
+      if (!session || sendingMessage) return;
+      void retryAgentMessage(session.id, messageId).catch(error => {
+        console.warn('[vibecoding] failed to retry message', error);
+      });
+    },
+    [session, sendingMessage, retryAgentMessage],
+  );
+
+  const handleDismissFailedMessage = useCallback(
+    (messageId: string) => {
+      if (!session) return;
+      dismissFailedMessage(session.id, messageId);
+    },
+    [session, dismissFailedMessage],
+  );
+
   const handleSendText = () => {
     if (deviceOffline || shouldDisableComposerForProvider) return;
     const nextInput = input.trim();
@@ -933,9 +959,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
       return;
     }
     setInput('');
+    // On failure the store keeps the message as a client-only `failed` bubble
+    // (retryable / dismissable). The composer input is intentionally NOT
+    // restored: restoring it let a follow-up message append to the failed text
+    // and ship as one combined prompt ("你好 在吗"). The input stays empty so the
+    // next message is always clean.
     void appendUserMessage(nextInput, 'text').catch(error => {
       console.warn('[vibecoding] failed to send text prompt', error);
-      setInput(current => current || nextInput);
     });
   };
 
@@ -2036,6 +2066,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
                                   messageTimelinePositions.get(message.id) ??
                                   'single'
                                 }
+                                onRetryFailed={handleRetryFailedMessage}
+                                onDismissFailed={handleDismissFailedMessage}
                               />
                             );
                           })}
