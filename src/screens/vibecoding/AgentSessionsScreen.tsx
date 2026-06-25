@@ -26,6 +26,7 @@ import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { useProjectSessions } from '../../hooks/useProjectSessions';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
+import { formatActivityLabel } from '../../store/internals';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type AgentSessionsRoute = RouteProp<RootStackParamList, 'AgentSessions'>;
@@ -47,15 +48,6 @@ export const AgentSessionsScreen: React.FC = () => {
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
   const vibeRuns = useControlCenterStore(state => state.vibeRuns);
-  const pauseAgentSession = useControlCenterStore(
-    state => state.pauseAgentSession,
-  );
-  const resumeAgentSession = useControlCenterStore(
-    state => state.resumeAgentSession,
-  );
-  const terminateAgentSession = useControlCenterStore(
-    state => state.terminateAgentSession,
-  );
 
   // When opened for a specific project, use the project-scoped fetch (full
   // history, decoupled from the globally-capped vibeRuns store). Otherwise
@@ -150,7 +142,16 @@ export const AgentSessionsScreen: React.FC = () => {
             : '';
 
           return (
-            <GlassPanel key={session.id} style={styles.sessionCard}>
+            <TouchableOpacity
+              key={session.id}
+              activeOpacity={0.7}
+              onPress={() =>
+                navigation.navigate('VibeCodingSession', {
+                  sessionId: session.id,
+                })
+              }
+            >
+            <GlassPanel style={styles.sessionCard}>
               <View style={styles.sessionTop}>
                 <IconBadge
                   name={
@@ -225,30 +226,34 @@ export const AgentSessionsScreen: React.FC = () => {
                   </Text>
                 </View>
               ) : null}
-              <View style={styles.sessionActions}>
-                <Action
-                  label="OPEN"
-                  onPress={() =>
-                    navigation.navigate('VibeCodingSession', {
-                      sessionId: session.id,
-                    })
-                  }
-                />
-                <Action
-                  label={session.status === 'paused' ? 'RESUME' : 'PAUSE'}
-                  onPress={() =>
-                    session.status === 'paused'
-                      ? resumeAgentSession(session.id)
-                      : pauseAgentSession(session.id)
-                  }
-                />
-                <Action
-                  label="TERMINATE"
-                  danger
-                  onPress={() => terminateAgentSession(session.id)}
+              <View style={styles.sessionMeta}>
+                <Text
+                  style={[
+                    theme.typography.codeSm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {formatActivityLabel(session.lastActivityMs)}
+                </Text>
+                <Text
+                  style={[
+                    theme.typography.codeSm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {'  ·  '}
+                  {session.transcriptCount ?? 0} 条消息
+                </Text>
+                <View style={styles.metaSpacer} />
+                <IconBadge
+                  name="chevron"
+                  tone="primary"
+                  size={24}
+                  iconSize={14}
                 />
               </View>
             </GlassPanel>
+            </TouchableOpacity>
           );
         })}
         <LoadMoreRow
@@ -258,41 +263,6 @@ export const AgentSessionsScreen: React.FC = () => {
         />
       </ScrollView>
     </SafeAreaWrapper>
-  );
-};
-
-interface ActionProps {
-  label: string;
-  onPress: () => void;
-  danger?: boolean;
-}
-
-const Action: React.FC<ActionProps> = ({ label, onPress, danger }) => {
-  const { theme } = useTheme();
-
-  return (
-    <TouchableOpacity
-      activeOpacity={0.75}
-      onPress={onPress}
-      style={[
-        styles.actionButton,
-        {
-          borderRadius: theme.borderRadius.full,
-          borderColor: danger
-            ? theme.colors.error
-            : theme.colors.outlineVariant,
-        },
-      ]}
-    >
-      <Text
-        style={[
-          theme.typography.codeSm,
-          { color: danger ? theme.colors.error : theme.colors.primary },
-        ]}
-      >
-        {label}
-      </Text>
-    </TouchableOpacity>
   );
 };
 
@@ -411,16 +381,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  sessionActions: {
+  sessionMeta: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  actionButton: {
-    minHeight: 36,
-    borderWidth: 1,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
+    gap: 2,
+    marginTop: 2,
+  },
+  metaSpacer: {
+    flex: 1,
   },
 });

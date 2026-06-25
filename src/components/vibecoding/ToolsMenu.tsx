@@ -132,9 +132,12 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
         effort: effortDraft.trim(),
       });
       setSettingsDirty(false);
+      setSaving(false);
+      // Auto-close on a successful save (clear `saving` first so we don't
+      // setState on the about-to-unmount component).
+      onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败,请重试。');
-    } finally {
       setSaving(false);
     }
   };

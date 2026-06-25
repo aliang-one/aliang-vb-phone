@@ -1,8 +1,10 @@
 import {
   LIVE_TURN_WINDOW_MS,
   deriveSessionPhase,
+  lastUnrepliedUserMessageId,
   liveAssistantMessageId,
   sessionPhaseLabel,
+  shouldLockComposerForProvider,
 } from '../sessionPhase';
 
 describe('deriveSessionPhase (L1 整体相位)', () => {
@@ -94,5 +96,76 @@ describe('liveAssistantMessageId (live 回合信号)', () => {
 
   it('空 transcript → undefined', () => {
     expect(liveAssistantMessageId([], 1000, 1000)).toBeUndefined();
+  });
+});
+
+describe('lastUnrepliedUserMessageId (失败回合定位)', () => {
+  // 用于 case B:消息已送达、agent 报错没回出来。失败回合 = 会话停在一条没有
+  // 后续 assistant 回复的 user 消息上(最后一条是 user)。给它挂「重试」入口。
+  it('最后一条是 user → 返回该 id', () => {
+    expect(
+      lastUnrepliedUserMessageId([{ id: 'u1', role: 'user' }]),
+    ).toBe('u1');
+  });
+
+  it('最后一条是 assistant(已回复)→ undefined', () => {
+    expect(
+      lastUnrepliedUserMessageId([
+        { id: 'u1', role: 'user' },
+        { id: 'a1', role: 'assistant' },
+      ]),
+    ).toBeUndefined();
+  });
+
+  it('多轮:最后一轮 user 还没回 → 返回最后那条 user id', () => {
+    expect(
+      lastUnrepliedUserMessageId([
+        { id: 'u1', role: 'user' },
+        { id: 'a1', role: 'assistant' },
+        { id: 'u2', role: 'user' },
+      ]),
+    ).toBe('u2');
+  });
+
+  it('最后一条是 system(如错误事件行)→ undefined', () => {
+    expect(
+      lastUnrepliedUserMessageId([
+        { id: 'u1', role: 'user' },
+        { id: 's1', role: 'system' },
+      ]),
+    ).toBeUndefined();
+  });
+
+  it('空 → undefined', () => {
+    expect(lastUnrepliedUserMessageId([])).toBeUndefined();
+  });
+});
+
+describe('shouldLockComposerForProvider (composer 锁与相位同源)', () => {
+  // 用户报告的脱节 bug:回合答完后顶部已显「已完成」,但底部 composer 仍锁
+  // 「Claude Code 正在运行」。根因=旧实现裸读陈旧的 session.status='running',
+  // 而顶部用 isLive 压过陈旧 status。锁判定必须与相位同源(用 isSessionLive)。
+  it('claude_code 真在干活(isSessionLive)→ 锁', () => {
+    expect(shouldLockComposerForProvider(true, 'running', 'claude_code')).toBe(true);
+  });
+
+  it('claude_code 待审批(waiting_approval,非 live)→ 锁(沿用旧行为)', () => {
+    expect(shouldLockComposerForProvider(false, 'waiting_approval', 'claude_code')).toBe(true);
+  });
+
+  it('claude_code 回合已 settle(isSessionLive=false,status 陈旧 running)→ 不锁(修 bug)', () => {
+    // 这就是 bug 现场:status 停在陈旧的 running,但回合其实答完了。
+    expect(shouldLockComposerForProvider(false, 'running', 'claude_code')).toBe(false);
+  });
+
+  it('claude_code failed / completed / idle(非 live、非待审批)→ 不锁', () => {
+    expect(shouldLockComposerForProvider(false, 'failed', 'claude_code')).toBe(false);
+    expect(shouldLockComposerForProvider(false, 'completed', 'claude_code')).toBe(false);
+    expect(shouldLockComposerForProvider(false, 'idle', 'claude_code')).toBe(false);
+  });
+
+  it('非 claude_code provider(codex 支持排队)→ 永不锁,即便 live', () => {
+    expect(shouldLockComposerForProvider(true, 'running', 'codex')).toBe(false);
+    expect(shouldLockComposerForProvider(true, 'running', undefined)).toBe(false);
   });
 });

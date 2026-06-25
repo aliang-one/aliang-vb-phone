@@ -89,3 +89,51 @@ export function liveAssistantMessageId(
   }
   return undefined;
 }
+
+/**
+ * Composer 是否因 provider 并发而锁定(claude_code 是单进程 CLI,跑回合时不能并发收新消息)。
+ *
+ * **关键**:用「生命迹象」(isSessionLive)而不是裸 `session.status` 判活。回合答完后
+ * status 常停在陈旧的 `'running'`(settle 推送丢失 / `mergeVibeRunSnapshot` 的
+ * staleDemotion 守卫卡住 running→idle),裸读 status 会让 composer 在顶部已显「已完成」时
+ * 仍锁「Claude Code 正在运行」——与 L1 相位脱节。`isSessionLive` 与 `deriveSessionPhase`
+ * 同源(8s 活动窗口 + active 思考/命令),保证顶部相位与底部 composer 锁对「是否在干活」
+ * 的判定一致:顶部说「已完成」(无生命迹象)时,composer 也必须解锁。
+ *
+ * `waiting_approval` 仍锁:那是 claude_code 卡在权限请求上(服务端主动推送的可靠状态),
+ * 与 settle 的陈旧 running 无关,沿用旧行为不放开。`failed`/`completed`/`idle`(非 live、
+ * 非待审批)→ 不锁。
+ *
+ * 非 `claude_code` provider(如 codex,支持排队并发收消息)→ 永不锁。
+ */
+export function shouldLockComposerForProvider(
+  isSessionLive: boolean,
+  status: VibeStatus | undefined,
+  provider: string | undefined,
+): boolean {
+  if (provider !== 'claude_code') return false;
+  return isSessionLive || status === 'waiting_approval';
+}
+
+/**
+ * 失败回合定位(case B:消息已送达、agent 报错没回出来)。
+ *
+ * 返回 transcript 最后一条 user 消息的 id —— 当且仅当会话停在一条**没有后续
+ * assistant 回复**的 user 消息上(即最后一条是 user)。这种情况意味着这一轮没收到
+ * 回复,可在该消息旁挂「重试」入口,用同内容重开一轮(服务端 claimAiSessionForRun
+ * 会把 error 翻回 running)。
+ *
+ * 最后一条是 assistant(已回复)/ system(事件行)/ 空 → undefined(无失败回合可重试)。
+ *
+ * 用 display transcript(buildDisplayTranscript 输出):空 prose 的 assistant 锚点
+ * 会被 buildDisplayTranscript 丢弃,所以网关 502 这类无回复的失败,最后一条就是
+ * 那条 user 消息。
+ */
+export function lastUnrepliedUserMessageId(
+  transcript: ReadonlyArray<{ id: string; role: string }>,
+): string | undefined {
+  if (transcript.length === 0) return undefined;
+  const last = transcript[transcript.length - 1];
+  if (last.role !== 'user') return undefined;
+  return last.id;
+}

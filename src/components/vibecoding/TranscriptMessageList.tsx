@@ -62,6 +62,17 @@ interface TranscriptMessageListProps {
   onRetryFailed?: (messageId: string) => void;
   /** Discard a failed-to-send user bubble (only fired for `message.failed`). */
   onDismissFailed?: (messageId: string) => void;
+  /**
+   * Turn-failed retry (case B): the user message reached the agent but no reply
+   * came back (session.status 'failed'). When `turnFailedMessageId` matches a
+   * NON-`failed` user bubble, render a small "未收到回复 · 重试" affordance under
+   * it; retry re-sends the same content as a fresh turn (the server's
+   * claimAiSessionForRun flips the session back to running). Distinct from
+   * `onRetryFailed` (case A, client send failure): the message is real, so there
+   * is no "删除" — only 重试.
+   */
+  turnFailedMessageId?: string;
+  onRetryTurn?: (messageId: string) => void;
   /** Position of this row in the visible conversation rail. */
   timelinePosition?: TimelinePosition;
 }
@@ -153,6 +164,8 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
   liveMessageId,
   onRetryFailed,
   onDismissFailed,
+  turnFailedMessageId,
+  onRetryTurn,
   timelinePosition = 'middle',
 }) => {
   const { theme, isDark } = useTheme();
@@ -641,6 +654,12 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
 
         if (isUser) {
           const isFailed = Boolean(message.failed);
+          // case B:消息已送达但 agent 没回出来(会话 failed)。失败气泡(case A,
+          // message.failed)优先,不在此重复渲染入口。
+          const isTurnFailed =
+            !isFailed &&
+            turnFailedMessageId != null &&
+            message.id === turnFailedMessageId;
           return (
             <View
               key={message.id}
@@ -724,6 +743,38 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                           ]}
                         >
                           删除
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                ) : null}
+                {isTurnFailed ? (
+                  <View style={styles.failedSendRow}>
+                    <Text
+                      style={[
+                        theme.typography.codeSm,
+                        styles.failedSendLabel,
+                        { color: theme.colors.error },
+                      ]}
+                    >
+                      未收到回复
+                    </Text>
+                    {onRetryTurn ? (
+                      <TouchableOpacity
+                        activeOpacity={0.6}
+                        accessibilityRole="button"
+                        accessibilityLabel="重试回合"
+                        onPress={() => onRetryTurn(message.id)}
+                        style={styles.failedSendButton}
+                      >
+                        <Text
+                          style={[
+                            theme.typography.codeSm,
+                            styles.failedSendButtonText,
+                            { color: theme.colors.primary },
+                          ]}
+                        >
+                          重试
                         </Text>
                       </TouchableOpacity>
                     ) : null}

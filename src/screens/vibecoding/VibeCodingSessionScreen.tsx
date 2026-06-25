@@ -68,9 +68,11 @@ import {
 } from '../../utils/conversationTurns';
 import {
   deriveSessionPhase,
+  lastUnrepliedUserMessageId,
   liveAssistantMessageId,
   sessionPhaseLabel,
   sessionPhaseType,
+  shouldLockComposerForProvider,
 } from '../../utils/sessionPhase';
 import { deriveLivePulse } from '../../utils/activitySummary';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
@@ -884,10 +886,35 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const effectiveProvider = normalizeProvider(
     session?.effectiveModelConfig?.provider ?? session?.provider,
   );
-  const isConversationActiveForInput =
-    session?.status === 'running' || session?.status === 'waiting_approval';
-  const shouldDisableComposerForProvider =
-    isConversationActiveForInput && effectiveProvider === 'claude_code';
+  // --- live 回合信号(hoist 到此处:composer 锁要先于下面的 handlers 用到 isSessionLive)---
+  // useNowTick 每 30s 触发一次重算,驱动「live 回合 → settle」的翻转(数据流期间 delta
+  // 每 60ms 自带重渲染,窗口判定始终新鲜)。isSessionLive 与 L1 deriveSessionPhase 同源,
+  // 是「claude_code 此刻是否真在干活」的可靠信号——压过常陈旧的 session.status。
+  const now = useNowTick();
+  const liveMessageId = useMemo(
+    () =>
+      liveAssistantMessageId(
+        session?.transcript ?? [],
+        session?.lastActivityMs,
+        now,
+      ),
+    [session?.lastActivityMs, session?.transcript, now],
+  );
+  const isLiveTurn = Boolean(liveMessageId);
+  const livePulse = useMemo(
+    () => deriveLivePulse(session?.structuredEvents ?? [], isLiveTurn),
+    [isLiveTurn, session?.structuredEvents],
+  );
+  const isSessionLive = livePulse?.hasActive ?? isLiveTurn;
+  // Composer 锁:用 isSessionLive 判活(与顶部相位同源),而不是裸 session.status——
+  // 回合答完后 status 常停在陈旧的 'running',裸读会让底部锁「Claude Code 正在运行」
+  // 而顶部已显「已完成」(脱节 bug)。失败会话不锁(发新消息/重试会让服务端把 error
+  // 翻回 running)。详见 utils/sessionPhase.shouldLockComposerForProvider。
+  const shouldDisableComposerForProvider = shouldLockComposerForProvider(
+    isSessionLive,
+    session?.status,
+    effectiveProvider,
+  );
 
   const appendUserMessage = async (
     content: string,
@@ -931,11 +958,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
         setSendingMessage(false);
       }
     }
-    if (
-      !session ||
-      session.status === 'failed' ||
-      shouldDisableComposerForProvider
-    ) {
+    // 失败会话不再阻断发送:失败只是「上一轮没收到回复」,发新消息(或点失败消息旁
+    // 的「重试」)会让服务端 claimAiSessionForRun 把 error 翻回 running。store 的
+    // appendAgentMessage 也会乐观地先把 status 置 running。composer 已解锁,这里
+    // 不能再硬闸 failed——否则按钮看着能点、点下去静默 no-op。
+    if (!session || shouldDisableComposerForProvider) {
       return false;
     }
     const sendKey = `${session.id}:${messageMode}:${normalizedContent}`;
@@ -1032,6 +1059,26 @@ export const VibeCodingSessionScreen: React.FC = () => {
       dismissFailedMessage(session.id, messageId);
     },
     [session, dismissFailedMessage],
+  );
+
+  // case B 失败回合「重试」:消息已送达但 agent 没回出来。用同内容重发一轮,
+  // 服务端 claimAiSessionForRun 会把 error 翻回 running。不丢原消息(它是真实
+  // 送达的,保留在历史)。重试中(sendingMessage)禁用,防重复点。
+  const handleRetryTurn = useCallback(
+    (messageId: string) => {
+      if (!session || sendingMessage) return;
+      const target = transcript.find(message => message.id === messageId);
+      const sourceId = target?.sourceMessageIds[0];
+      const agentMsg = sourceId
+        ? session.transcript.find(message => message.id === sourceId)
+        : undefined;
+      const content = agentMsg?.content?.trim();
+      if (!content) return;
+      void appendAgentMessage(session.id, content, 'text').catch(error => {
+        console.warn('[vibecoding] failed to retry turn', error);
+      });
+    },
+    [session, sendingMessage, transcript, appendAgentMessage],
   );
 
   const handleSendText = () => {
@@ -1187,26 +1234,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
   );
 
   // --- 状态层级派生(L1 整体 / L2 回合 / L3 步骤) ---
-  // useNowTick 每 30s 触发一次重算,驱动「live 回合 → settle」的翻转
-  // (数据流期间 delta 每 60ms 自带重渲染,窗口判定始终新鲜)。
-  const now = useNowTick();
-  const liveMessageId = useMemo(
-    () =>
-      liveAssistantMessageId(
-        session?.transcript ?? [],
-        session?.lastActivityMs,
-        now,
-      ),
-    [session?.lastActivityMs, session?.transcript, now],
-  );
-  const isLiveTurn = Boolean(liveMessageId);
-  const livePulse = useMemo(
-    () => deriveLivePulse(session?.structuredEvents ?? [], isLiveTurn),
-    [isLiveTurn, session?.structuredEvents],
-  );
-  // L1 的生命迹象:和 L2/L3 同源——有 active 思考/started 命令,或最近 delta 在窗口内。
-  // 用于压过 session.status 误报的 completed/closed(会话明明还在干活)。
-  const isSessionLive = livePulse?.hasActive ?? isLiveTurn;
+  // live 回合信号(now / liveMessageId / livePulse / isSessionLive)已 hoist 到文件
+  // 上方——composer 锁要先于 handlers 用到 isSessionLive。这里直接消费。
   const sessionPhase = useMemo(
     () =>
       deriveSessionPhase(
@@ -1216,6 +1245,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
       ),
     [isSessionLive, pendingApprovals.length, session?.status],
   );
+  // case B 失败回合定位:会话 failed 且最后一条是没收到回复的 user 消息 → 在该
+  // 消息旁挂「未收到回复 · 重试」。重发后 status→running,入口自动消失。
+  const failedTurnMessageId =
+    sessionPhase === 'failed'
+      ? lastUnrepliedUserMessageId(transcript)
+      : undefined;
   // Live retry indicator (gateway 5xx being retried). Overrides the generic
   // "处理中…" pulse so the user sees WHY the run is stalled during the
   // (potentially long, 30s–3min) retry window. Clears automatically when the
@@ -1237,13 +1272,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
         : sessionPhase === 'waiting_approval'
           ? '等待审批'
           : retryHeadline ?? livePulse?.headline;
+  // failed 相位不再锁 composer:失败只是「上一轮没收到回复」,会话仍可继续——发新
+  // 消息(或点失败消息旁的「重试」)会经服务端 claimAiSessionForRun 把 error 翻回
+  // running。失败原因由底部气泡 failedLabel(「会话失败 · 网关502…」)承担,这里不阻断输入。
   const composerReadOnlyReason = isDraft
     ? undefined
-    : sessionPhase === 'failed'
-      ? '该会话已失败，当前仅可查看历史。'
-      : shouldDisableComposerForProvider
-        ? 'Claude Code 正在运行，停止后可继续输入。'
-        : undefined;
+    : shouldDisableComposerForProvider
+      ? 'Claude Code 正在运行，停止后可继续输入。'
+      : undefined;
   const serviceThinksRunning =
     session?.status === 'running' || session?.status === 'waiting_approval';
   const canInterruptTurn =
@@ -2164,6 +2200,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
                                 }
                                 onRetryFailed={handleRetryFailedMessage}
                                 onDismissFailed={handleDismissFailedMessage}
+                                turnFailedMessageId={failedTurnMessageId}
+                                onRetryTurn={handleRetryTurn}
                               />
                             );
                           })}

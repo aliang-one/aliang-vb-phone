@@ -31,6 +31,11 @@ const formatBudget = (budget: VibeCodingRun['projectBudget']) =>
       }${budget.limit}`
     : '';
 
+// Temporarily disable the long-press session action menu (rename / refresh /
+// close / pause). Long-pressing a session card now does nothing. Flip back to
+// `true` to re-enable the menu + its handler.
+const SESSION_LONG_PRESS_MENU_ENABLED = false;
+
 interface VibeSessionCardProps {
   session: VibeCodingRun;
   project?: Project;
@@ -251,13 +256,17 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
       <>
         <TouchableOpacity
           onPress={handlePress}
-          onLongPress={() => {
-            setNotice('');
-            setConfirmTerminate(false);
-            setDetailsVisible(false);
-            setRenaming(false);
-            setMenuVisible(true);
-          }}
+          onLongPress={
+            SESSION_LONG_PRESS_MENU_ENABLED
+              ? () => {
+                  setNotice('');
+                  setConfirmTerminate(false);
+                  setDetailsVisible(false);
+                  setRenaming(false);
+                  setMenuVisible(true);
+                }
+              : undefined
+          }
           delayLongPress={360}
           activeOpacity={0.75}
           disabled={disabled}
