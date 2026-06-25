@@ -5,7 +5,7 @@ import {
   fetchCurrentUser,
   login as apiLogin,
   logout as apiLogout,
-  refreshAuthToken,
+  refreshSessionTokens,
   type PlatformUser,
 } from '../src/api/auth';
 import {
@@ -135,13 +135,15 @@ export const useSessionStore = create<SessionState>()(
         const current = get().refreshToken;
         if (!current) return false;
         try {
-          const rotated = await refreshAuthToken(current);
-          // The access/session token value is stable across refresh (the server
-          // extends the local session's expiry server-side); only the sub2api
-          // refresh_token rotates. Strict rotation → persist the new value
-          // immediately so a concurrent refresh never reuses the invalidated old
-          // one (which would nuke the whole token family server-side).
-          set({ refreshToken: rotated });
+          const { token, refreshToken } = await refreshSessionTokens(current);
+          // /api/auth/refresh returns a fresh access JWT AND a rotated
+          // refresh_token. Persist both: the access token is NOT stable across
+          // refresh, so keeping the stale one strands the app — the post-refresh
+          // retry reuses the dead token and 401s again. Strict refresh_token
+          // rotation → persist immediately so a concurrent refresh never reuses
+          // the invalidated old one (which would nuke the whole token family
+          // server-side).
+          set({ token, refreshToken });
           return true;
         } catch {
           // A failed refresh (e.g. refresh_token stale after ≥2 missed

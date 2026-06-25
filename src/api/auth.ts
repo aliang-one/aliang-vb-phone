@@ -98,27 +98,46 @@ export const login = (
     refreshToken: extractRefreshToken(payload),
   }));
 
+export interface RefreshedSession {
+  /** Fresh access JWT (~24h TTL) replacing the stale one that triggered refresh. */
+  token: string;
+  /** Rotated sub2api refresh_token for the next rotation. */
+  refreshToken: string;
+}
+
 /**
- * Rotate the session via the multi-device-safe refresh arbiter. The local
- * session token value is stable across refresh (the server extends its
- * server-side expiry); only the sub2api `refresh_token` rotates, so this
- * returns the NEW refresh_token to persist. Carries `skipRefreshRetry` so the
- * refresh request itself can't recurse into another refresh. Throws on a
- * non-2xx / malformed response — the caller treats that as a failed refresh.
+ * Rotate the session via the multi-device-safe refresh arbiter. The aliang SaaS
+ * `/api/auth/refresh` response carries BOTH a fresh `access_token` (a new ~24h
+ * JWT with an updated `token_version`) and a rotated `refresh_token`. Both must
+ * be persisted: the access token is NOT stable across refresh — keeping the
+ * stale one strands the app on the main screen, because the post-refresh retry
+ * reuses the dead token and 401s again while refresh keeps looking "successful".
+ *
+ * Carries `skipRefreshRetry` so the refresh request itself can't recurse into
+ * another refresh. Throws on a non-2xx / malformed response, or when either
+ * token is missing — the caller treats that as a failed refresh.
  */
-export const refreshAuthToken = (refreshToken: string): Promise<string> =>
+export const refreshSessionTokens = (
+  refreshToken: string,
+): Promise<RefreshedSession> =>
   accountPost<unknown>(
     '/api/auth/refresh',
     { refresh_token: refreshToken },
     { skipRefreshRetry: true },
   ).then(payload => {
+    const root = asRecord(payload) ?? {};
+    const data = unwrapData(payload);
+    const accessToken =
+      asString(root.access_token) ?? asString(data.access_token);
     const rotated =
-      asString((asRecord(payload) ?? {}).refresh_token) ??
-      asString(unwrapData(payload).refresh_token);
+      asString(root.refresh_token) ?? asString(data.refresh_token);
+    if (!accessToken) {
+      throw new Error('Refresh succeeded but no access_token was returned.');
+    }
     if (!rotated) {
       throw new Error('Refresh succeeded but no refresh_token was returned.');
     }
-    return rotated;
+    return { token: accessToken, refreshToken: rotated };
   });
 
 // The Aliang SaaS backend uses stateless JWT auth, so sign-out is purely local:

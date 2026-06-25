@@ -5,7 +5,7 @@ jest.mock('../src/api/auth', () => ({
   fetchCurrentUser: jest.fn(),
   login: jest.fn(),
   logout: jest.fn().mockResolvedValue(undefined),
-  refreshAuthToken: jest.fn(),
+  refreshSessionTokens: jest.fn(),
 }));
 
 jest.mock('../src/api/account', () => ({
@@ -19,43 +19,54 @@ jest.mock('../src/services/platformTransport', () => ({
   },
 }));
 
-import { refreshAuthToken } from '../src/api/auth';
+import { refreshSessionTokens } from '../src/api/auth';
 import { useSessionStore } from '../stores/useSettingsStore';
 
-const refreshAuthTokenMock = refreshAuthToken as jest.MockedFunction<
-  typeof refreshAuthToken
+const refreshSessionTokensMock = refreshSessionTokens as jest.MockedFunction<
+  typeof refreshSessionTokens
 >;
 
 describe('useSessionStore.refreshSession', () => {
   beforeEach(() => {
-    refreshAuthTokenMock.mockReset();
+    refreshSessionTokensMock.mockReset();
     useSessionStore.setState({
       hasHydrated: true,
       user: { id: 'u1', email: 'u@e.com', name: 'U', role: 'operator' },
-      token: 'session-token', // local session token — stable across refresh
+      // A stale access token present BEFORE refresh. The whole point of refresh
+      // is to replace it; if the store kept this value, every post-refresh
+      // request would reuse the dead token and 401 forever.
+      token: 'access-stale',
       refreshToken: 'rt-old',
       operatorName: 'U',
       accountData: null,
     });
   });
 
-  it('rotates the refresh_token and leaves the access/session token unchanged', async () => {
-    refreshAuthTokenMock.mockResolvedValue('rt-new');
+  it('persists BOTH the fresh access token and the rotated refresh_token', async () => {
+    // /api/auth/refresh returns a new 24h access JWT plus a rotated refresh_token.
+    // Both must be persisted: keeping the stale access token strands the app on
+    // the main screen after the old JWT expires (refresh looks "successful" but
+    // the retry reuses the dead token → 401 → silent swallow → stuck on MainTabs).
+    refreshSessionTokensMock.mockResolvedValue({
+      token: 'access-new',
+      refreshToken: 'rt-new',
+    });
 
     const ok = await useSessionStore.getState().refreshSession();
 
     expect(ok).toBe(true);
-    expect(refreshAuthTokenMock).toHaveBeenCalledWith('rt-old');
+    expect(refreshSessionTokensMock).toHaveBeenCalledWith('rt-old');
+    expect(useSessionStore.getState().token).toBe('access-new');
     expect(useSessionStore.getState().refreshToken).toBe('rt-new');
-    expect(useSessionStore.getState().token).toBe('session-token');
   });
 
-  it('returns false and keeps the old refresh_token when refresh throws', async () => {
-    refreshAuthTokenMock.mockRejectedValue(new Error('stale refresh_token'));
+  it('returns false and keeps the old tokens when refresh throws', async () => {
+    refreshSessionTokensMock.mockRejectedValue(new Error('stale refresh_token'));
 
     const ok = await useSessionStore.getState().refreshSession();
 
     expect(ok).toBe(false);
+    expect(useSessionStore.getState().token).toBe('access-stale');
     expect(useSessionStore.getState().refreshToken).toBe('rt-old');
   });
 
@@ -65,6 +76,6 @@ describe('useSessionStore.refreshSession', () => {
     const ok = await useSessionStore.getState().refreshSession();
 
     expect(ok).toBe(false);
-    expect(refreshAuthTokenMock).not.toHaveBeenCalled();
+    expect(refreshSessionTokensMock).not.toHaveBeenCalled();
   });
 });
