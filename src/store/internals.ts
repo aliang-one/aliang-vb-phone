@@ -486,6 +486,15 @@ export function serverAiSessionToVibeRun(
     eventCount: session.event_count ?? events.length,
     filesTouchedCount: session.files_touched_count,
     gitChangedCount: session.git_changed_count,
+    retryActive: session.retry_active ?? false,
+    retryAttempt: session.retry_attempt,
+    retryMax: session.retry_max,
+    retryErrorStatus: session.retry_error_status,
+    retryErrorType: session.retry_error_type,
+    lastErrorStatus: session.last_error_status,
+    lastErrorType: session.last_error_type,
+    lastRetryAttempt: session.last_retry_attempt,
+    lastRetryMax: session.last_retry_max,
     lastMessage,
     // Only mark detail-loaded when there is actual content. An empty array is
     // truthy in JS, so the old `session.transcript || session.events` form
@@ -735,6 +744,10 @@ export function hasMeaningfulVibeRunUpdate(
     existing.eventCount !== incoming.eventCount ||
     existing.filesTouchedCount !== incoming.filesTouchedCount ||
     existing.gitChangedCount !== incoming.gitChangedCount ||
+    existing.retryActive !== incoming.retryActive ||
+    existing.retryAttempt !== incoming.retryAttempt ||
+    existing.retryErrorStatus !== incoming.retryErrorStatus ||
+    existing.lastErrorStatus !== incoming.lastErrorStatus ||
     messageFingerprint(existing.lastMessage) !==
       messageFingerprint(incoming.lastMessage)
   );

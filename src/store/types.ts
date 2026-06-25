@@ -1,4 +1,5 @@
 import type {
+  AgentCommandInfo,
   Device,
   PreviewLink,
   Project,
@@ -295,6 +296,17 @@ export interface ControlCenterState {
     options?: { refresh?: boolean },
   ) => Promise<void>;
   loadEarlierAgentMessages: (sessionId: string) => Promise<void>;
+  /**
+   * On-demand `/`-command discovery for a session. Auto path (ToolsMenu open,
+   * `force=false`) is 1h-gated + in-flight-deduped (cheap). Manual path (input
+   * refresh button, `force=true`) bypasses the 1h gate. The server applies a
+   * 10s floor on top. Returns the effective command list (custom/user/project +
+   * builtin baseline) and mirrors it onto the project's availableCommands.
+   */
+  refreshSessionCommands: (
+    sessionId: string,
+    options?: { force?: boolean },
+  ) => Promise<AgentCommandInfo[]>;
   interruptAgentSession: (sessionId: string) => Promise<void>;
   pauseAgentSession: (sessionId: string) => Promise<void>;
   resumeAgentSession: (sessionId: string) => Promise<void>;

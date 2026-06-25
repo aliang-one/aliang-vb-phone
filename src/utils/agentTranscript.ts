@@ -27,6 +27,16 @@ export interface DisplayTranscriptMessage {
   mergedCount: number;
   segments: TranscriptSegment[];
   /**
+   * Concatenated raw `.content` of the underlying {@link AgentMessage}s this
+   * bubble spans. NOT for display — a cheap, stable change signal so
+   * {@link TranscriptMessageList}'s `React.memo` can skip re-rendering bubbles
+   * whose source content hasn't changed. During streaming the store only grows
+   * the trailing assistant message's content, so only that one bubble's
+   * contentKey changes per flush; every historical bubble keeps an identical
+   * contentKey and is skipped. Extended by `appendSegments` on each merge.
+   */
+  contentKey?: string;
+  /**
    * Client-only retry flag carried over from a failed-to-send user message
    * (see {@link AgentMessage.failed}). Only ever set on user bubbles; the render
    * site shows a retry / dismiss affordance when truthy.
@@ -44,10 +54,26 @@ export interface DisplayTranscriptMessage {
   sourceMessageIds: string[];
 }
 
+// Markdown parsing (parseMessageContentSegments) is by far the most expensive
+// step in buildDisplayTranscript. During streaming the store replaces only the
+// trailing assistant message with a fresh object each flush and leaves every
+// other AgentMessage referentially stable (see applyDeltasToRun in deltaBatch),
+// so a WeakMap keyed on the message object turns the per-flush parse into
+// O(changed) instead of O(total messages). Cache validity rides on object
+// identity: when a message's content changes the store hands back a different
+// object, so a stale entry can never be served. Snapshots (mergeAgentMessages)
+// rebuild every message object and thus miss the cache once — fine, they're
+// infrequent, not per-token.
+const segmentCache = new WeakMap<AgentMessage, TranscriptSegment[]>();
+
 export const parseTranscriptSegments = (
   message: AgentMessage,
 ): TranscriptSegment[] => {
-  return parseMessageContentSegments(message.id, message.content);
+  const cached = segmentCache.get(message);
+  if (cached) return cached;
+  const segments = parseMessageContentSegments(message.id, message.content);
+  segmentCache.set(message, segments);
+  return segments;
 };
 
 const uniqueId = (id: string, used: Set<string>) => {
@@ -83,6 +109,7 @@ const appendSegments = (
   target.endTimestamp = message.timestamp;
   target.mergedCount += 1;
   target.sourceMessageIds.push(message.id);
+  target.contentKey = `${target.contentKey ?? ''}${message.content ?? ''}`;
 };
 
 export const buildDisplayTranscript = (
@@ -138,6 +165,7 @@ export const buildDisplayTranscript = (
         timestamp: message.timestamp,
         mergedCount: 1,
         segments,
+        contentKey: message.content ?? '',
         sourceMessageIds: [message.id],
         failed: message.failed ? true : undefined,
       });
@@ -154,6 +182,7 @@ export const buildDisplayTranscript = (
           timestamp: message.timestamp,
           mergedCount: 1,
           segments,
+          contentKey: message.content ?? '',
           sourceMessageIds: [message.id],
         });
       }
@@ -169,6 +198,7 @@ export const buildDisplayTranscript = (
         timestamp: message.timestamp,
         mergedCount: 1,
         segments,
+        contentKey: message.content ?? '',
         sourceMessageIds: [message.id],
       });
     }

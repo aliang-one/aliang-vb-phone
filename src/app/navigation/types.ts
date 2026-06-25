@@ -15,8 +15,23 @@ export type RootStackParamList = {
   ProjectSettings: { projectId: string; deviceId?: string };
   FileBrowser: { projectId: string; deviceId?: string; sessionId?: string };
   CreateVibeCoding: { deviceId?: string; projectId?: string };
+  // VibeCodingSession doubles as the "new conversation" screen: when opened
+  // with draftConfig and no sessionId, it renders in draft mode (idle, empty
+  // transcript, enabled composer) — no server interaction until the first
+  // message. The first send creates the session with that message.
+  VibeCodingSession: {
+    sessionId?: string;
+    approvalId?: string;
+    draftConfig?: {
+      deviceId: string;
+      projectId?: string;
+      directory: string;
+      provider: string;
+      model?: string;
+      effort?: string;
+    };
+  };
   AgentSessions: { deviceId?: string; projectId?: string } | undefined;
-  VibeCodingSession: { sessionId: string; approvalId?: string };
   SessionSettings: { sessionId: string };
   EventStream:
     | { deviceId?: string; sessionId?: string; scope?: 'conversation' }

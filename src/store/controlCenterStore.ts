@@ -431,6 +431,52 @@ export const useControlCenterStore = create<ControlCenterState>()(
               // Flipping to idle + a "Session completed" event on every turn
               // would make a tool-using run flash done/idle during every tool
               // gap.
+              //
+              // BUT: a turn may have produced an approval / 方案选择 that the
+              // server derived from the assistant reply and pushed as
+              // approval.requested + a paused session state. Those are one-shot
+              // pushes that can be missed (the WS was momentarily gone), and
+              // unlike deltas they don't self-heal — so the user would only see
+              // the approval after a manual re-entry (REST). Re-fetch the
+              // dashboard snapshot (debounced, same as ai.sessions.updated) so
+              // any missed approval/state is recovered at turn-end. The
+              // snapshot's pending_approvals repopulate state.approvals, which
+              // useSessionApprovals renders.
+              //
+              // Finalize any in-flight structured activity so isSessionLive can
+              // settle. ai.done ends THIS streaming turn, so an active thinking
+              // block / a started command that wasn't followed by its own
+              // completion event must not keep deriveLivePulse().hasActive pinned
+              // true — that would pin the top status at 进行中 via the isLive
+              // branch even after the server settles to idle, so the session
+              // shows 进行中 forever after a turn that ended on a thinking/command
+              // event with no trailing done.
+              set(state => ({
+                vibeRuns: state.vibeRuns.map(run => {
+                  if (run.id !== transportEvent.sessionId) return run;
+                  if (!run.structuredEvents?.length) return run;
+                  let changed = false;
+                  const finalized = run.structuredEvents.map(e => {
+                    if (e.kind === 'thinking' && e.active) {
+                      changed = true;
+                      return { ...e, active: false };
+                    }
+                    if (e.kind === 'command' && e.status === 'started') {
+                      changed = true;
+                      return { ...e, status: 'done' as const };
+                    }
+                    return e;
+                  });
+                  return changed ? { ...run, structuredEvents: finalized } : run;
+                }),
+              }));
+              if (get().serverMode) {
+                scheduleRefreshDebounce(() =>
+                  get()
+                    .refreshFromServer()
+                    .catch(() => {}),
+                );
+              }
               return;
 
             case 'ai.error':

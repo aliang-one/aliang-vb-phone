@@ -8,6 +8,7 @@ import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-nati
 import { GlassPanel } from '../shared/GlassPanel';
 import { useTheme } from '../../theme/useTheme';
 import type { AgentCommandInfo } from '../../data/platformModels';
+import { searchCommands } from '../../utils/commandSearch';
 
 const MAX_ROWS = 8;
 
@@ -20,7 +21,8 @@ const scopeLabel = (scope?: string): string | null => {
 
 export interface SlashCommandSuggestionsProps {
   commands: AgentCommandInfo[];
-  /** Lowercased substring to filter command names by ("" = show all). */
+  /** Query typed after the leading `/`. Fuzzy-matched (subsequence) against
+   *  command name + description, ranked by relevance; "" = show all. */
   query: string;
   onSelect: (cmd: AgentCommandInfo) => void;
 }
@@ -33,23 +35,13 @@ export const SlashCommandSuggestions: React.FC<SlashCommandSuggestionsProps> = (
   const { theme } = useTheme();
   const accent = theme.colors.primary;
 
-  // Dedupe by lowercased name (available_commands is already server-deduped,
-  // but the sessionCommands fallback goes through mergeCommands — dedupe
-  // defensively), keep only names containing the query, cap at MAX_ROWS.
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const seen = new Set<string>();
-    const out: AgentCommandInfo[] = [];
-    for (const cmd of commands) {
-      const key = cmd.name.toLowerCase();
-      if (seen.has(key)) continue;
-      if (q && !key.includes(q)) continue;
-      seen.add(key);
-      out.push(cmd);
-      if (out.length >= MAX_ROWS) break;
-    }
-    return out;
-  }, [commands, query]);
+  // Fuzzy subsequence search (name primary, description secondary) ranked by
+  // relevance — maximizes recall (finds /brainstorming from "brnst", not just
+  // prefixes) while ordering the best matches first. Deduped by name, capped.
+  const filtered = useMemo(
+    () => searchCommands(commands, query, MAX_ROWS),
+    [commands, query],
+  );
 
   if (filtered.length === 0) return null;
 

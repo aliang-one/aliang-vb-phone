@@ -5,6 +5,7 @@ import {
   apiPatch,
   apiPost,
 } from './client';
+import type { AgentCommandInfo } from '../data/platformModels';
 
 export interface ServerAiTranscriptPage {
   limit: number;
@@ -93,6 +94,25 @@ export interface ServerAiSession {
   files_touched_count?: number;
   /** git working-tree change count for the project dir during the current/most-recent run. */
   git_changed_count?: number;
+  /**
+   * Live retry indicator: the agent is retrying an upstream (gateway 5xx)
+   * error. Transient on the server (in-memory only); false/absent when not
+   * retrying. Powers the phone's "重试 2/10 · 网关 502" indicator so the
+   * (potentially long) retry window isn't a silent "处理中…".
+   */
+  retry_active?: boolean;
+  retry_attempt?: number;
+  retry_max?: number;
+  retry_error_status?: number;
+  retry_error_type?: string;
+  /**
+   * Structured cause of the most recent terminal failure (ai.error). Persisted
+   * on the server, so the failed-phase renders correctly after a refresh.
+   */
+  last_error_status?: number;
+  last_error_type?: string;
+  last_retry_attempt?: number;
+  last_retry_max?: number;
   last_message?: {
     id: string;
     role: 'user' | 'assistant' | 'system';
@@ -246,6 +266,13 @@ export const createAiSession = (input: {
   mode?: 'chat' | 'vibe' | 'review' | 'agent';
   title?: string;
   objective?: string;
+  /**
+   * First user message. When set, the server creates the session AND dispatches
+   * ai.session.create + ai.message together so the agent starts turn 1
+   * immediately (an empty create would idle forever). Title/objective are
+   * derived from this on the server when not explicitly provided.
+   */
+  message?: string;
   model?: string;
   provider?: 'codex' | 'claude' | 'claudecode';
   tool?: 'codex' | 'claude' | 'claudecode';
@@ -269,6 +296,29 @@ export const sendAiSteer = (
   mode: 'voice' | 'text' = 'text',
 ): Promise<{ message_id: string; status: string }> =>
   apiPost(`/api/ai/sessions/${sessionId}/steers`, { content, attachments, mode });
+
+export interface RefreshSessionCommandsResponse {
+  source: 'cache' | 'persisted' | 'agent' | 'agent-offline';
+  fetched_at: string;
+  commands: AgentCommandInfo[];
+}
+
+/**
+ * On-demand `/`-command discovery for a session. `force` maps to the server's
+ * `refresh` query param: true bypasses the server's 10s floor + the client's
+ * 1h auto-gate (manual refresh button); false is the cheap auto path (ToolsMenu
+ * open) that only fetches when stale and otherwise returns persisted commands.
+ * The store action (refreshSessionCommands) owns the 1h gate + in-flight dedup;
+ * this is just the transport.
+ */
+export const refreshSessionCommands = (
+  sessionId: string,
+  force: boolean,
+): Promise<RefreshSessionCommandsResponse> =>
+  apiPost<RefreshSessionCommandsResponse>(
+    `/api/ai/sessions/${sessionId}/commands/refresh?refresh=${force ? 'true' : 'false'}`,
+    {},
+  );
 
 export const stopAiSession = (
   sessionId: string,

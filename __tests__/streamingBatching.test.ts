@@ -3,7 +3,7 @@
  *
  * `deltaBatch.test.ts` only unit-tests the pure `applyDeltasToRuns` helper. These
  * tests pin the BEHAVIOR AROUND it that lives in the store's transport dispatcher:
- * the module-level `pendingDeltas` buffer, the ~60ms coalescing timer, the
+ * the module-level `pendingDeltas` buffer, the ~100ms coalescing timer, the
  * "flush pending before a different event" ordering rule, and the cancel-on-reset
  * coupling between the realtime slice and the batching state.
  *
@@ -25,7 +25,10 @@ jest.mock('../src/services/platformTransport', () => ({
 
 jest.useFakeTimers();
 
-const DELTA_FLUSH_MS = 60;
+// Mirror of the implementation's DELTA_FLUSH_MS in store/streaming.ts. Kept as a
+// local copy (not imported) because the constant is module-private; if the
+// flush window changes there, update this too.
+const DELTA_FLUSH_MS = 100;
 
 const run = (transcript: VibeCodingRun['transcript'] = []): VibeCodingRun => ({
   id: 's1',

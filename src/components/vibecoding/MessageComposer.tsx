@@ -9,7 +9,7 @@
 //
 // Session-level controls (pause/end) deliberately live OUT of the composer.
 // Current-turn interrupt lives here because it replaces "send" while streaming.
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -27,6 +27,7 @@ import { GlowButton } from '../shared/GlowButton';
 import type { UseVoiceSttResult } from '../../hooks/useVoiceStt';
 import { SlashCommandSuggestions } from './SlashCommandSuggestions';
 import type { AgentCommandInfo } from '../../data/platformModels';
+import { useControlCenterStore } from '../../store/controlCenterStore';
 
 export type ComposerMode = 'voice' | 'text';
 
@@ -38,6 +39,8 @@ export interface MessageComposerProps {
   voiceDraft: string;
   /** Slash commands available for inline `/`-command typeahead in text mode. */
   commands: AgentCommandInfo[];
+  /** Session id — enables the manual `/`-command refresh button (text mode). */
+  sessionId?: string;
   voiceStt: UseVoiceSttResult;
   sendingMessage: boolean;
   interruptingTurn?: boolean;
@@ -267,6 +270,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   onSendText,
   onInterruptTurn,
   onResetVoice,
+  sessionId,
 }) => {
   const { theme, isDark } = useTheme();
   const status = voiceStt.status;
@@ -280,6 +284,20 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   const slashMatch =
     mode === 'text' ? input.match(/^\/([a-zA-Z0-9_-]*)$/) : null;
   const slashQuery = slashMatch ? slashMatch[1].toLowerCase() : '';
+
+  // Manual `/`-command refresh (force=true bypasses the 1h gate + server 10s
+  // floor still applies). Updates project.availableCommands in the store → the
+  // typeahead (SlashCommandSuggestions, fed from availableCommands) re-renders
+  // with freshly discovered commands. In-flight guard prevents spam clicks.
+  const refreshSessionCommandsAction = useControlCenterStore(s => s.refreshSessionCommands);
+  const [refreshingCommands, setRefreshingCommands] = useState(false);
+  const handleRefreshCommands = () => {
+    if (!sessionId || refreshingCommands) return;
+    setRefreshingCommands(true);
+    refreshSessionCommandsAction(sessionId, { force: true }).finally(() => {
+      setRefreshingCommands(false);
+    });
+  };
 
   const containerBg = isDark ? 'rgba(255,255,255,0.045)' : theme.colors.surfaceContainer;
   const ctrlBg: ViewStyle = {
@@ -650,6 +668,29 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
                 renderAnimatedContent()
               )}
             </View>
+            {mode === 'text' && sessionId ? (
+              <TouchableOpacity
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="刷新命令列表"
+                disabled={refreshingCommands}
+                onPress={handleRefreshCommands}
+                testID="composer-refresh-commands"
+                style={[
+                  styles.ctrlBtn,
+                  {
+                    borderRadius: theme.borderRadius.full,
+                    backgroundColor: ctrlBg.backgroundColor,
+                    opacity: refreshingCommands ? 0.5 : 1,
+                  },
+                ]}>
+                <ComposerIcon
+                  name="refresh"
+                  size={18}
+                  color={theme.colors.onSurfaceVariant}
+                />
+              </TouchableOpacity>
+            ) : null}
             {renderAction()}
           </View>
         </View>

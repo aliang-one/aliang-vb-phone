@@ -214,6 +214,17 @@ export interface VibeCodingRun {
   filesTouchedCount?: number;
   /** git working-tree change count for the project dir during the current/most-recent run. */
   gitChangedCount?: number;
+  /** Live retry indicator (gateway 5xx being retried). Transient on the server. */
+  retryActive?: boolean;
+  retryAttempt?: number;
+  retryMax?: number;
+  retryErrorStatus?: number;
+  retryErrorType?: string;
+  /** Structured cause of the most recent terminal failure. Persisted on server. */
+  lastErrorStatus?: number;
+  lastErrorType?: string;
+  lastRetryAttempt?: number;
+  lastRetryMax?: number;
   lastMessage?: AgentMessage;
   detailLoadedAt?: string;
   /**

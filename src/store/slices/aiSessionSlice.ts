@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand';
-import type { VibeCodingRun, VibeStatus } from '../../data/platformModels';
+import type { AgentCommandInfo, VibeCodingRun, VibeStatus } from '../../data/platformModels';
 import { platformTransport } from '../../services/platformTransport';
+import { refreshSessionCommands as refreshSessionCommandsApi } from '../../api/sessions';
 import { normalizeProvider } from '../../utils/modelIntensity';
 import type { ControlCenterState } from '../types';
 import {
@@ -18,7 +19,6 @@ import {
   mergeVibeRunSnapshot,
   nowTime,
   serverAiSessionToVibeRun,
-  shortTime,
 } from '../internals';
 
 type AiSessionSlice = Pick<
@@ -29,9 +29,16 @@ type AiSessionSlice = Pick<
   | 'deleteAgentSession' | 'appendAgentMessage' | 'loadEarlierAgentMessages'
   | 'retryAgentMessage' | 'dismissFailedMessage' | 'cacheStructuredDetail'
   | 'markSessionViewed' | 'clearCurrentlyViewedSession' | 'demoteIdleSessions'
+  | 'refreshSessionCommands'
 >;
 
 const pendingMessageSends = new Set<string>();
+
+// On-demand `/`-command discovery: 1h auto-gate + in-flight dedup, keyed by
+// project (commands are project-scoped). Pure in-memory — a restart re-fetches.
+const COMMANDS_REFRESH_MIN_INTERVAL_MS = 60 * 60 * 1000;
+const lastCommandsRefreshAt = new Map<string, number>();
+const refreshingCommands = new Map<string, Promise<AgentCommandInfo[]>>();
 
 const messageSendKey = (sessionId: string, content: string, mode: 'voice' | 'text') =>
   `${sessionId}:${mode}:${content}`;
@@ -39,6 +46,58 @@ const messageSendKey = (sessionId: string, content: string, mode: 'voice' | 'tex
 export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSessionSlice> = (set, get) => ({
   vibeRuns: [],
   previewLinks: [],
+
+  refreshSessionCommands: async (sessionId, options) => {
+    const force = options?.force ?? false;
+    const run = get().vibeRuns.find(r => r.id === sessionId);
+    const projectId = run?.projectId ?? '';
+    // Key by project (commands are project-scoped); fall back to sessionId.
+    const key = projectId || sessionId;
+
+    // In-flight dedup: reuse a running refresh for the same project so repeated
+    // ToolsMenu opens / button clicks coalesce into ONE request.
+    const inFlight = refreshingCommands.get(key);
+    if (inFlight) return inFlight;
+
+    const promise = (async (): Promise<AgentCommandInfo[]> => {
+      // 1h auto-gate: only the force path (manual button) bypasses it. First
+      // time (no timestamp) counts as stale → ask for fresh data.
+      const last = lastCommandsRefreshAt.get(key) ?? 0;
+      const wantsFetch = force || Date.now() - last > COMMANDS_REFRESH_MIN_INTERVAL_MS;
+      let commands: AgentCommandInfo[];
+      try {
+        const res = await refreshSessionCommandsApi(sessionId, wantsFetch);
+        // Record only genuine agent fetches so the gate reflects real freshness
+        // (cache/persisted/offline responses don't advance it).
+        if (res.source === 'agent') lastCommandsRefreshAt.set(key, Date.now());
+        commands = res.commands ?? [];
+      } catch {
+        // Discovery is best-effort: a 404 (server not yet updated), timeout, or
+        // agent-offline must NOT crash the ToolsMenu auto-refresh or the
+        // composer refresh button. Fall back to whatever the project already has.
+        return get().projects.find(p => p.id === projectId)?.availableCommands ?? [];
+      }
+      // Mirror into the project so the typeahead + ToolsMenu read one source.
+      if (projectId) {
+        set(state => {
+          if (!state.projects.some(p => p.id === projectId)) return {};
+          return {
+            projects: state.projects.map(p =>
+              p.id === projectId ? { ...p, availableCommands: commands } : p,
+            ),
+          };
+        });
+      }
+      return commands;
+    })();
+
+    refreshingCommands.set(key, promise);
+    try {
+      return await promise;
+    } finally {
+      refreshingCommands.delete(key);
+    }
+  },
 
   startAgentSession: async (input) => {
     const provider = input.provider === 'claude_code' ? 'claudecode' : 'codex';
@@ -65,13 +124,17 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
             description: 'Created from mobile VibeCoding.',
           });
         }
+        // Send the objective as the FIRST MESSAGE. The server creates the
+        // session AND dispatches ai.session.create + ai.message together so the
+        // agent starts turn 1 immediately — an empty create (objective as
+        // metadata only) would idle forever, since the agent runs a turn only
+        // on ai.message, never on ai.session.create.
         const session = await platformTransport.createAiSession({
           device_id: input.deviceId,
           project_id: projectId || undefined,
           project_path: input.directory,
           mode: 'vibe',
-          title: input.objective.slice(0, 44) || 'New VibeCoding session',
-          objective: input.objective,
+          message: input.objective,
           model: sentModel,
           provider,
           tool: provider,
@@ -80,46 +143,17 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         });
 
         const sessionId = session.session_id;
-        const project = get().projects.find(item => item.id === projectId);
 
+        // Seed the local run from the SERVER's response: real status (running,
+        // because a turn was just dispatched), real transcript (the first
+        // message the server stored), real currentStep. No fabricated "running"
+        // and no locally-invented first message (which would duplicate the
+        // server's). provider/projectId/directory are client-known overrides.
         const nextRun: VibeCodingRun = {
-          id: sessionId,
-          title: session.title ?? input.objective.slice(0, 44),
-          deviceId: input.deviceId,
+          ...serverAiSessionToVibeRun(session, get().devices, get().projects),
+          provider: input.provider,
           projectId,
           directory: input.directory,
-          status: 'running',
-          objective: input.objective,
-          model: modelLabel,
-          effort: sentEffort,
-          provider: input.provider,
-          effectiveModelConfig: session.effective_model_config ?? undefined,
-          risk: input.provider === 'claude_code' ? 'medium' : 'low',
-          currentStep: `${modelLabel} is reading the project and preparing a plan.`,
-          branch: `agent/${sessionId}`,
-          lastActivityMs: activityNowMs(),
-          updatedAt: formatActivityLabel(activityNowMs()),
-          suggestions: ['Ask for plan', 'Open terminal', 'Pause session'],
-          transcript: [
-            {
-              id: createId('msg'),
-              role: 'user',
-              mode: 'text',
-              content: input.objective,
-              timestamp: shortTime(),
-            },
-          ],
-          events: [
-            {
-              id: createId('agent-event'),
-              type: 'status',
-              title: 'Agent session started',
-              detail: `${modelLabel} started on ${project?.name ?? input.projectId}`,
-              status: 'running',
-              timestamp: shortTime(),
-            },
-          ],
-          structuredEvents: [],
         };
 
         set(state => ({

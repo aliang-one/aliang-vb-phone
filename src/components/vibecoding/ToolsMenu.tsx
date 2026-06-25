@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import {
   parseModelIntensity,
   type EffortProvider,
 } from '../../utils/modelIntensity';
+import { useControlCenterStore } from '../../store/controlCenterStore';
 
 export interface ToolsMenuProps {
   onClose: () => void;
@@ -28,6 +29,8 @@ export interface ToolsMenuProps {
   provider: EffortProvider;
   /** Commands the agent discovered for this session's agent (already filtered). */
   commands: AgentCommandInfo[];
+  /** Session id — drives the on-open auto-refresh of discovered commands. */
+  sessionId?: string;
   /** Current reasoning effort (provider-specific); undefined/'' = no override. */
   effort?: string;
   /**
@@ -63,6 +66,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
   effectiveLabel,
   onSaveSettings,
   onInsertCommand,
+  sessionId,
 }) => {
   const { theme, isDark } = useTheme();
   const isCodex = provider === 'codex';
@@ -86,6 +90,36 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settingsDirty, setSettingsDirty] = useState(false);
+
+  // Auto-sync discovered `/`-commands on open. force=false → the store applies
+  // its 1h gate + in-flight dedup, so within the hour this is a cheap persisted
+  // read (no agent round-trip). Results land in project.availableCommands → the
+  // `commands` prop updates → this menu re-renders live with any new commands.
+  const refreshSessionCommands = useControlCenterStore(s => s.refreshSessionCommands);
+  const [refreshingCommands, setRefreshingCommands] = useState(false);
+  useEffect(() => {
+    if (!sessionId) return;
+    let alive = true;
+    setRefreshingCommands(true);
+    refreshSessionCommands(sessionId, { force: false })
+      .finally(() => {
+        if (alive) setRefreshingCommands(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [sessionId, refreshSessionCommands]);
+
+  // Manual refresh (force=true): bypasses the 1h auto-gate so the user can pull
+  // fresh commands on demand right from the menu where they're viewing them.
+  // (The composer's input-bar refresh button is hidden while this sheet is open.)
+  const handleRefreshCommands = () => {
+    if (!sessionId || refreshingCommands) return;
+    setRefreshingCommands(true);
+    refreshSessionCommands(sessionId, { force: true }).finally(() => {
+      setRefreshingCommands(false);
+    });
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -289,10 +323,23 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
           <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
             快捷指令
           </Text>
-          <Text
-            style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant, opacity: 0.6 }]}>
-            点击插入
-          </Text>
+          <TouchableOpacity
+            activeOpacity={0.6}
+            accessibilityRole="button"
+            accessibilityLabel="刷新命令列表"
+            disabled={refreshingCommands || !sessionId}
+            onPress={handleRefreshCommands}>
+            <Text
+              style={[
+                theme.typography.labelSm,
+                {
+                  color: refreshingCommands ? theme.colors.onSurfaceVariant : theme.colors.primary,
+                  opacity: refreshingCommands ? 0.6 : 1,
+                },
+              ]}>
+              {refreshingCommands ? '刷新中…' : '↻ 刷新'}
+            </Text>
+          </TouchableOpacity>
         </View>
         {commands.length ? (
           <View style={styles.commandList}>

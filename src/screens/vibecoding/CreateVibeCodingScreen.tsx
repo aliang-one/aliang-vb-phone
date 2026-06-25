@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Alert,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -55,10 +54,10 @@ export const CreateVibeCodingScreen: React.FC = () => {
   const route = useRoute<CreateRoute>();
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
-  const startAgentSession = useControlCenterStore(state => state.startAgentSession);
-  // In-flight guard for the create call. startAgentSession can take many
-  // seconds (platform-service discovery when the server is slow/unreachable),
-  // so without this a user taps repeatedly and fires N parallel creates.
+  // In-flight guard so a user can't tap "create" repeatedly and fire N parallel
+  // navigations. "Create" here only OPENS the chat with the chosen config — no
+  // server call. The session + its first message are created when the user sends
+  // the first message from the chat (DraftVibeCoding screen).
   const [creating, setCreating] = useState(false);
   const initialDeviceId = route.params?.deviceId ?? devices[0]?.id ?? '';
   const initialProjectId =
@@ -113,9 +112,6 @@ export const CreateVibeCodingScreen: React.FC = () => {
   const [directory, setDirectory] = useState(
     project?.path ?? device?.authorizedDirectories[0] ?? '~',
   );
-  const [objective, setObjective] = useState(
-    'Polish the mobile command center UI and make active VibeCoding sessions easier to control.',
-  );
   const [selectedPermissions, setSelectedPermissions] = useState(permissions);
 
   const availableProjects = useMemo(
@@ -152,40 +148,29 @@ export const CreateVibeCodingScreen: React.FC = () => {
     );
   };
 
-  const handleCreate = async () => {
-    if (creating) return;
-    if (!device || !objective.trim()) return;
+  const handleCreate = () => {
+    if (creating || !device) return;
     // Project selected → run inside its path (no separate directory). Custom
     // path → use the typed value, falling back to the device's first
     // authorized directory.
     const effectiveDirectory =
       project?.path ?? directory?.trim() ?? device.authorizedDirectories[0] ?? '~';
-
+    // "Create" only OPENS the chat with this config — no server interaction.
+    // The session + its first message are created when the user sends the first
+    // message from the chat (DraftVibeCoding screen). This is why the button is
+    // enabled by config alone (device + provider + permissions), not by a
+    // required "objective"/first-message field.
     setCreating(true);
-    try {
-      const sessionId = await startAgentSession({
+    navigation.replace('VibeCodingSession', {
+      draftConfig: {
         deviceId: device.id,
-        projectId: project?.id ?? '',
+        projectId: project?.id || undefined,
         directory: effectiveDirectory,
         provider,
-        objective: objective.trim(),
-        // '' => omit so the agent uses its own default model (never send a label).
         model: model.trim() || undefined,
-        // '' => omit so the agent/gateway use their own default reasoning effort.
         effort: effort.trim() || undefined,
-      });
-      navigation.replace('VibeCodingSession', { sessionId });
-    } catch (error) {
-      // Failed (e.g. platform service unreachable after discovery). Re-enable
-      // the button so the user can retry, and surface why — otherwise the
-      // rejection is a silent "Uncaught (in promise)" and nothing happens.
-      setCreating(false);
-      const message =
-        error instanceof Error
-          ? error.message
-          : '创建会话失败,请确认设备在线且平台服务可达后重试。';
-      Alert.alert('创建失败', message);
-    }
+      },
+    });
   };
 
   if (!device) {
@@ -634,36 +619,6 @@ export const CreateVibeCodingScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
           ]}>
-          7. OBJECTIVE
-        </Text>
-        <TextInput
-          value={objective}
-          onChangeText={setObjective}
-          multiline
-          placeholder="Describe what the agent should accomplish..."
-          placeholderTextColor={theme.colors.onSurfaceVariant}
-          style={[
-            theme.typography.bodyMd,
-            styles.objectiveInput,
-            {
-              color: theme.colors.onSurface,
-              borderRadius: theme.borderRadius.md,
-              borderColor: isDark
-                ? 'rgba(255,255,255,0.08)'
-                : theme.colors.outlineVariant,
-              backgroundColor: isDark
-                ? 'rgba(255,255,255,0.04)'
-                : theme.colors.surfaceContainerLow,
-            },
-          ]}
-        />
-
-        <Text
-          style={[
-            theme.typography.labelCaps,
-            { color: theme.colors.onSurfaceVariant },
-            styles.sectionTitle,
-          ]}>
           8. PERMISSIONS
         </Text>
         <GlassPanel style={styles.optionPanel}>
@@ -700,7 +655,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
         <GlowButton
           title="START VIBECODING"
           onPress={handleCreate}
-          disabled={!device || noProviderAvailable || !objective.trim() || selectedPermissions.length === 0 || creating}
+          disabled={!device || noProviderAvailable || selectedPermissions.length === 0 || creating}
           loading={creating}
           style={styles.createButton}
         />

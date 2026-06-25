@@ -30,7 +30,6 @@ import {
 type ProviderDraft = EffortProvider | '';
 
 const PROVIDER_OPTIONS: Array<{ label: string; value: ProviderDraft }> = [
-  { label: '自动', value: '' },
   { label: 'Codex', value: 'codex' },
   { label: 'Claude Code', value: 'claude_code' },
 ];
@@ -41,7 +40,7 @@ const providerLabel = (provider?: CatalogProvider | null) =>
 export const UserModelDefaultCard: React.FC = () => {
   const { theme, isDark } = useTheme();
   const { providerCatalog, userDefault, loading, error, refresh } = useModelOptions();
-  const initialProvider = normalizeProvider(userDefault.provider ?? undefined) ?? '';
+  const initialProvider = normalizeProvider(userDefault.provider ?? undefined) ?? 'codex';
   const [provider, setProvider] = useState<ProviderDraft>(initialProvider);
   const [model, setModel] = useState(userDefault.model ?? '');
   const [effort, setEffort] = useState(userDefault.effort ?? '');
@@ -50,7 +49,7 @@ export const UserModelDefaultCard: React.FC = () => {
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    setProvider(normalizeProvider(userDefault.provider ?? undefined) ?? '');
+    setProvider(normalizeProvider(userDefault.provider ?? undefined) ?? 'codex');
     setModel(userDefault.model ?? '');
     setEffort(userDefault.effort ?? '');
   }, [userDefault.provider, userDefault.model, userDefault.effort]);
@@ -66,7 +65,7 @@ export const UserModelDefaultCard: React.FC = () => {
         : [],
     [provider, providerCatalog],
   );
-  const savedProvider = normalizeProvider(userDefault.provider ?? undefined) ?? '';
+  const savedProvider = normalizeProvider(userDefault.provider ?? undefined) ?? 'codex';
   const dirty =
     provider !== savedProvider ||
     model.trim() !== (userDefault.model ?? '') ||
@@ -97,7 +96,7 @@ export const UserModelDefaultCard: React.FC = () => {
         model: model.trim() || null,
         effort: effort.trim() || null,
       });
-      setProvider(normalizeProvider(next.provider ?? undefined) ?? '');
+      setProvider(normalizeProvider(next.provider ?? undefined) ?? 'codex');
       setModel(next.model ?? '');
       setEffort(next.effort ?? '');
       refreshModelOptions();

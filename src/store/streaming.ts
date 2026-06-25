@@ -16,7 +16,14 @@
  */
 import type { DeltaUpdate } from '../utils/deltaBatch';
 
-const DELTA_FLUSH_MS = 60;
+// Coalesce window for streaming `ai.delta` tokens before they're applied to the
+// store in one pass. 100ms balances streaming smoothness (~10 writes/s) against
+// the O(transcript) derivation + re-render each flush triggers in
+// VibeCodingSessionScreen — fewer flushes = less JS-thread pressure while a
+// reply is streaming. Paired with the per-message parse memo in agentTranscript
+// and TranscriptMessageList's React.memo so each flush only re-parses/re-renders
+// the single streaming bubble, not the whole transcript.
+const DELTA_FLUSH_MS = 100;
 const REFRESH_DEBOUNCE_MS = 250;
 
 let pendingDeltas: DeltaUpdate[] = [];

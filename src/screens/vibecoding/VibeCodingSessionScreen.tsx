@@ -44,6 +44,7 @@ import {
   useSessionApprovals,
 } from '../../store/controlCenterStore';
 import type { ApprovalRequest } from '../../store/controlCenterStore';
+import type { AgentProvider } from '../../store/types';
 import { IconBadge, IconName } from '../../components/visual/IconBadge';
 import type {
   AgentBudgetInfo,
@@ -148,20 +149,56 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // Fine-grained selectors: subscribe only to the specific session/project/
   // device/preview the user is viewing, so streaming deltas on OTHER sessions
   // don't trigger re-renders here.
-  const liveSession = useVibeRun(route.params.sessionId);
+  // Draft mode: opened from "Create VibeCoding" with draftConfig but no
+  // sessionId — no session/server interaction until the first message. Render
+  // against a local draft run (status idle — NOT running) so the chat UI shows
+  // with an enabled composer + a "待开始" bubble. The first send creates the
+  // real session; createdSessionId then flips to it, swapping draftRun for live.
+  const draftConfig = route.params.draftConfig;
+  const [createdSessionId, setCreatedSessionId] = useState(route.params.sessionId);
+  const isDraft = !createdSessionId && !!draftConfig;
+  const draftRun = useMemo<VibeCodingRun | null>(
+    () =>
+      isDraft && draftConfig
+        ? {
+            id: '__draft__',
+            title: '新建对话',
+            deviceId: draftConfig.deviceId,
+            projectId: draftConfig.projectId ?? '',
+            directory: draftConfig.directory,
+            status: 'idle',
+            objective: '',
+            model: draftConfig.model ?? '',
+            provider: draftConfig.provider as 'codex' | 'claude_code',
+            effort: draftConfig.effort,
+            risk: 'medium',
+            currentStep: '',
+            branch: '',
+            updatedAt: '',
+            lastActivityMs: 0,
+            suggestions: [],
+            transcript: [],
+            events: [],
+            structuredEvents: [],
+          }
+        : null,
+    [isDraft, draftConfig],
+  );
+  const liveSession = useVibeRun(createdSessionId);
   const cachedSessionRef = useRef<VibeCodingRun | null>(null);
   const session =
     liveSession ??
-    (cachedSessionRef.current?.id === route.params.sessionId
+    draftRun ??
+    (cachedSessionRef.current?.id === createdSessionId
       ? cachedSessionRef.current
       : undefined);
   useEffect(() => {
-    if (liveSession?.id === route.params.sessionId) {
-      cachedSessionRef.current = liveSession;
-    } else if (cachedSessionRef.current?.id !== route.params.sessionId) {
+    if (liveSession?.id === createdSessionId) {
+      cachedSessionRef.current = liveSession ?? null;
+    } else if (cachedSessionRef.current?.id !== createdSessionId) {
       cachedSessionRef.current = null;
     }
-  }, [liveSession, route.params.sessionId]);
+  }, [liveSession, createdSessionId]);
   const project = useProject(session?.projectId);
   const device = useDevice(session?.deviceId);
   const preview = useSessionPreview(session?.id);
@@ -178,6 +215,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const resolveApproval = useControlCenterStore(state => state.resolveApproval);
   const appendAgentMessage = useControlCenterStore(
     state => state.appendAgentMessage,
+  );
+  // Used to create the session from the first message in draft mode.
+  const startAgentSession = useControlCenterStore(
+    state => state.startAgentSession,
   );
   const retryAgentMessage = useControlCenterStore(
     state => state.retryAgentMessage,
@@ -199,10 +240,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // never clears its resident data mid-view (which would flash a reload). Mark
   // on focus, clear on blur/leave. lastViewedAt is retained on blur so the idle
   // threshold clock keeps running for this session.
-  const focusedSessionId = route.params.sessionId;
+  const focusedSessionId = createdSessionId;
   useFocusEffect(
     useCallback(() => {
-      markSessionViewed(focusedSessionId);
+      // Draft mode has no session id yet — nothing to mark as viewed.
+      if (focusedSessionId) markSessionViewed(focusedSessionId);
       return () => {
         clearCurrentlyViewedSession();
       };
@@ -319,7 +361,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // Conversation scrubber (the right-edge magnifier locator). `pendingJumpId`
   // targets already-mounted timeline items; older history loads in chunks.
   const [pendingJumpId, setPendingJumpId] = useState<string | null>(null);
-  const targetSessionId = session?.id ?? route.params.sessionId;
+  // In draft mode there's no real session id yet — leave targetSessionId empty
+  // so the auto-detail-fetch guard (below) skips (no server call until the
+  // first message creates the session).
+  const targetSessionId = isDraft
+    ? createdSessionId
+    : session?.id ?? createdSessionId;
   const transcript = useMemo(
     () => buildDisplayTranscript(session?.transcript ?? []),
     [session?.transcript],
@@ -847,12 +894,47 @@ export const VibeCodingSessionScreen: React.FC = () => {
     messageMode: 'voice' | 'text',
   ) => {
     const normalizedContent = content.trim();
+    if (!normalizedContent || sendLockRef.current) {
+      return false;
+    }
+    // Draft mode: no session yet. The first message CREATES the session — send
+    // ONLY this real message (startAgentSession does create+message). No init /
+    // hint text is ever sent to the server/agent.
+    if (isDraft && draftConfig) {
+      const sendKey = `draft:${messageMode}:${normalizedContent}`;
+      sendLockRef.current = sendKey;
+      pendingScrollToEndRef.current = true;
+      setSendingMessage(true);
+      try {
+        const sessionId = await startAgentSession({
+          deviceId: draftConfig.deviceId,
+          projectId: draftConfig.projectId ?? '',
+          directory: draftConfig.directory,
+          provider: draftConfig.provider as AgentProvider,
+          objective: normalizedContent,
+          model: draftConfig.model,
+          effort: draftConfig.effort,
+        });
+        // Flip from draft to the real session. setCreatedSessionId updates this
+        // instance immediately; navigation.replace fixes the route so a later
+        // back/forward keeps the real sessionId (not the draftConfig route).
+        setCreatedSessionId(sessionId);
+        navigation.replace('VibeCodingSession', { sessionId });
+        return true;
+      } catch (error) {
+        pendingScrollToEndRef.current = false;
+        throw error;
+      } finally {
+        if (sendLockRef.current === sendKey) {
+          sendLockRef.current = null;
+        }
+        setSendingMessage(false);
+      }
+    }
     if (
       !session ||
       session.status === 'failed' ||
-      shouldDisableComposerForProvider ||
-      !normalizedContent ||
-      sendLockRef.current
+      shouldDisableComposerForProvider
     ) {
       return false;
     }
@@ -1134,16 +1216,30 @@ export const VibeCodingSessionScreen: React.FC = () => {
       ),
     [isSessionLive, pendingApprovals.length, session?.status],
   );
-  const bottomPulseHeadline =
-    sessionPhase === 'failed'
-      ? '会话失败'
+  // Live retry indicator (gateway 5xx being retried). Overrides the generic
+  // "处理中…" pulse so the user sees WHY the run is stalled during the
+  // (potentially long, 30s–3min) retry window. Clears automatically when the
+  // server stops retrying (retry_active=false on the next publish).
+  const retryHeadline = session?.retryActive
+    ? `重试 ${session.retryAttempt ?? '?'}${session.retryMax ? `/${session.retryMax}` : ''}${session.retryErrorStatus ? ` · 网关 ${session.retryErrorStatus}` : ''}`
+    : undefined;
+  // Structured failure cause for the failed-phase, so the bubble shows
+  // "会话失败 · 网关 502（重试 10/10）" instead of a bare "会话失败".
+  const failedLabel = session?.lastErrorStatus
+    ? `会话失败 · 网关 ${session.lastErrorStatus}${session.lastRetryMax ? `（重试 ${session.lastRetryAttempt ?? '?'}/${session.lastRetryMax}）` : ''}`
+    : '会话失败';
+  const bottomPulseHeadline = isDraft
+    ? '待开始 · 发送消息开始对话'
+    : sessionPhase === 'failed'
+      ? failedLabel
       : sessionPhase === 'completed'
         ? '上一轮已完成'
         : sessionPhase === 'waiting_approval'
           ? '等待审批'
-          : livePulse?.headline;
-  const composerReadOnlyReason =
-    sessionPhase === 'failed'
+          : retryHeadline ?? livePulse?.headline;
+  const composerReadOnlyReason = isDraft
+    ? undefined
+    : sessionPhase === 'failed'
       ? '该会话已失败，当前仅可查看历史。'
       : shouldDisableComposerForProvider
         ? 'Claude Code 正在运行，停止后可继续输入。'
@@ -1565,8 +1661,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
         rightAction={
           <View style={styles.topStatusCluster}>
             <StatusChip
-              label={sessionPhaseLabel[sessionPhase]}
-              type={sessionPhaseType[sessionPhase]}
+              label={isDraft ? '待开始' : sessionPhaseLabel[sessionPhase]}
+              type={isDraft ? 'neutral' : sessionPhaseType[sessionPhase]}
             />
             <Text
               numberOfLines={1}
@@ -2111,6 +2207,18 @@ export const VibeCodingSessionScreen: React.FC = () => {
                       renderCard={renderApprovalCard}
                     />
                   ) : null}
+                  {session?.retryActive ? (
+                    <View style={styles.retryHintRow}>
+                      <Text
+                        style={[
+                          theme.typography.codeSm,
+                          { color: theme.colors.tertiary },
+                        ]}
+                      >
+                        {`⏳ 网关繁忙，重试中 ${session.retryAttempt ?? '?'}/${session.retryMax ?? '?'}${session.retryErrorStatus ? ` · ${session.retryErrorStatus}` : ''}`}
+                      </Text>
+                    </View>
+                  ) : null}
                   <View style={styles.conversationBoundaryRow}>
                     <View
                       style={[
@@ -2127,12 +2235,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
                         styles.conversationBoundaryNode,
                         styles.conversationBoundaryEndNode,
                         {
-                          backgroundColor:
-                            sessionPhase === 'completed'
-                              ? theme.colors.secondary
-                              : sessionPhase === 'failed'
-                              ? theme.colors.error
-                              : theme.colors.primary,
+                          backgroundColor: isDraft
+                            ? theme.colors.onSurfaceVariant
+                            : sessionPhase === 'completed'
+                            ? theme.colors.secondary
+                            : sessionPhase === 'failed'
+                            ? theme.colors.error
+                            : theme.colors.primary,
                           borderColor: isDark
                             ? 'rgba(17, 20, 23, 0.98)'
                             : theme.colors.surface,
@@ -2144,16 +2253,19 @@ export const VibeCodingSessionScreen: React.FC = () => {
                         theme.typography.labelCaps,
                         styles.conversationBoundaryLabel,
                         {
-                          color:
-                            sessionPhase === 'completed'
-                              ? theme.colors.secondary
-                              : sessionPhase === 'failed'
-                              ? theme.colors.error
-                              : theme.colors.primary,
+                          color: isDraft
+                            ? theme.colors.onSurfaceVariant
+                            : sessionPhase === 'completed'
+                            ? theme.colors.secondary
+                            : sessionPhase === 'failed'
+                            ? theme.colors.error
+                            : theme.colors.primary,
                         },
                       ]}
                     >
-                      {sessionPhase === 'completed'
+                      {isDraft
+                        ? '待开始'
+                        : sessionPhase === 'completed'
                         ? '本轮完成'
                         : sessionPhase === 'failed'
                         ? '会话失败'
@@ -2553,7 +2665,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
               effort={session.effort ?? ''}
               effortOptions={sessionEffortOptions}
               effectiveLabel={effectiveLabel ?? undefined}
-              commands={sessionCommands}
+              commands={
+                project?.availableCommands?.length
+                  ? project.availableCommands
+                  : sessionCommands
+              }
+              sessionId={session.id}
               onSaveSettings={handleSaveToolsSettings}
               onInsertCommand={handleInsertCommand}
             />
@@ -2623,6 +2740,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 ? project.availableCommands
                 : sessionCommands
             }
+            sessionId={session.id}
             voiceStt={voiceStt}
             sendingMessage={sendingMessage}
             interruptingTurn={interruptingTurn}
@@ -2850,6 +2968,11 @@ const styles = StyleSheet.create({
   },
   conversationBoundaryLabel: {
     minWidth: 58,
+  },
+  retryHintRow: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignSelf: 'flex-start',
   },
   turnGroup: {
     gap: 8,

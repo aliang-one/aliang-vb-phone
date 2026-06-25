@@ -40,13 +40,15 @@ describe('deriveSessionPhase (L1 整体相位)', () => {
     expect(deriveSessionPhase('paused', true)).toBe('waiting_approval');
   });
 
-  it('idle 不再映射成 done —— 会话存活期间默认进行中', () => {
-    expect(deriveSessionPhase('idle', false)).toBe('running');
-    expect(deriveSessionPhase('running', false)).toBe('running');
-    expect(deriveSessionPhase('paused', false)).toBe('running');
-    expect(deriveSessionPhase('waiting_user', false)).toBe('running');
-    expect(deriveSessionPhase('testing', false)).toBe('running');
-    expect(deriveSessionPhase('preview_ready', false)).toBe('running');
+  it('回合答完(无活动、无待审批、非真结束)→ 已完成,不卡进行中', () => {
+    // 旧版把 idle/running 都映射成进行中,导致回合答完后顶部永远进行中。现在靠 isLive
+    // 判活:无生命迹象 = 回合 settle = 已完成(status 卡 running 也能收敛)。
+    expect(deriveSessionPhase('idle', false)).toBe('completed');
+    expect(deriveSessionPhase('running', false)).toBe('completed');
+    expect(deriveSessionPhase('paused', false)).toBe('completed');
+    expect(deriveSessionPhase('waiting_user', false)).toBe('completed');
+    expect(deriveSessionPhase('testing', false)).toBe('completed');
+    expect(deriveSessionPhase('preview_ready', false)).toBe('completed');
   });
 
   it('4 个相位都有中文 label', () => {

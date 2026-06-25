@@ -911,11 +911,114 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
   );
 };
 
-// Memoize so that during streaming (~60ms store ticks) only the bubble whose
-// `message`/events/cache actually changed re-renders, not every bubble in the
-// transcript. Effective because callers now pass a stable `message` reference
-// and stable callbacks (handleConversationItemLayout / handleCacheActivityDetail).
-export const TranscriptMessageList = React.memo(TranscriptMessageListBase);
+// Memoize so that during streaming (~100ms store flushes) only the bubble whose
+// content/activity actually changed re-renders, not every bubble in the
+// transcript. The DEFAULT shallow compare is NOT enough on its own:
+// buildDisplayTranscript rebuilds every DisplayTranscriptMessage object on each
+// flush (fresh references even for unchanged bubbles) and the owning screen
+// rebuilds the per-message activity Map/array too. So we compare by VALUE on
+// the props that drive rendered output — the bubble's contentKey (source text),
+// its activity-event signatures (captures command status / thinking-active
+// flips and event additions), the live-message id (drives the "处理中… / 已完成"
+// label), the timeline slot, and the detail-cache reference. Callbacks and
+// activitySessionId don't affect what's rendered, so they're intentionally
+// ignored — their identity churn must not force a re-render.
+const eventSignature = (event: StructuredActivityEvent): string => {
+  // eventId and kind are present on every variant, so read them once before the
+  // exhaustive switch narrows `event` to `never` in the default branch.
+  const base = `${event.eventId}:${event.kind}`;
+  switch (event.kind) {
+    case 'command':
+      return `${base}:${event.status}:${event.exitCode ?? ''}`;
+    case 'thinking':
+      return `${base}:${event.active ? 1 : 0}:${event.chars}`;
+    case 'file_change':
+      return `${base}:${event.changeKind ?? ''}:${event.path ?? ''}`;
+    case 'usage':
+      return `${base}:${event.inputTokens ?? ''}:${event.outputTokens ?? ''}`;
+    case 'task':
+      return `${base}:${event.tasks.length}`;
+    default:
+      return base;
+  }
+};
+
+const activityEventsSignature = (
+  events: StructuredActivityEvent[] | undefined,
+): string =>
+  events && events.length ? events.map(eventSignature).join('|') : '';
+
+const orphanMapSignature = (
+  map: ReadonlyMap<string, StructuredActivityEvent[]> | undefined,
+): string => {
+  if (!map || !map.size) return '';
+  let signature = '';
+  for (const [messageId, events] of map) {
+    signature += `${messageId}:${activityEventsSignature(events)};`;
+  }
+  return signature;
+};
+
+const sameStringList = (
+  a: string[] | undefined,
+  b: string[] | undefined,
+): boolean => {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) return false;
+  }
+  return true;
+};
+
+const areTranscriptPropsEqual = (
+  prev: TranscriptMessageListProps,
+  next: TranscriptMessageListProps,
+): boolean => {
+  // Turn-message path: a content change (streaming growth, coalesced merge,
+  // snapshot re-resolve) must re-render; an identical contentKey means the
+  // source text is byte-identical, so the markdown tree can't differ.
+  const prevMessage = prev.message;
+  const nextMessage = next.message;
+  if (prevMessage || nextMessage) {
+    if (!prevMessage || !nextMessage) return false;
+    if (prevMessage.contentKey !== nextMessage.contentKey) return false;
+    if (prevMessage.failed !== nextMessage.failed) return false;
+  }
+
+  if (
+    activityEventsSignature(prev.messageActivityEvents) !==
+    activityEventsSignature(next.messageActivityEvents)
+  ) {
+    return false;
+  }
+  if (
+    orphanMapSignature(prev.orphanActivityEventsByMessageId) !==
+    orphanMapSignature(next.orphanActivityEventsByMessageId)
+  ) {
+    return false;
+  }
+  if (
+    !sameStringList(prev.orphanActivityMessageIds, next.orphanActivityMessageIds)
+  ) {
+    return false;
+  }
+  // liveMessageId is stable for the whole streaming duration of a turn and only
+  // flips at settle / new-turn boundaries, so this triggers one reconciled
+  // re-render of all bubbles then — never per flush.
+  if (prev.liveMessageId !== next.liveMessageId) return false;
+  if (prev.timelinePosition !== next.timelinePosition) return false;
+  // activityDetailCache is carried by reference through streaming flushes (the
+  // store spreads the run but keeps the cache object), so a ref change means a
+  // detail was actually fetched/cached.
+  if (prev.activityDetailCache !== next.activityDetailCache) return false;
+  return true;
+};
+
+export const TranscriptMessageList = React.memo(
+  TranscriptMessageListBase,
+  areTranscriptPropsEqual,
+);
 
 const styles = StyleSheet.create({
   messageRow: {
