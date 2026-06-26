@@ -1,88 +1,49 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import {
-  Linking,
-  ScrollView,
-  StyleSheet,
+  View,
   Text,
   TextInput,
+  StyleSheet,
+  ScrollView,
   TouchableOpacity,
-  View,
+  Linking,
 } from 'react-native';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCameraPermission } from 'react-native-vision-camera';
+import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { IconBadge } from '../../components/visual/IconBadge';
-import { RootStackParamList } from '../../app/navigation/types';
-import { useTheme } from '../../theme/useTheme';
-import { useControlCenterStore } from '../../store/controlCenterStore';
 import { DeviceCodeScanner } from './DeviceCodeScanner';
+import { RootStackParamList } from '../../app/navigation/types';
+import { useControlCenterStore } from '../../store/controlCenterStore';
+import {
+  extractScanCode,
+  scanLoginConfirm,
+  scanLoginDeny,
+  scanLoginScan,
+} from '../../api/scanLogin';
+import { ApiResponseError } from '../../api/client';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
-interface DeviceDraft {
-  name: string;
-  os: string;
-  host: string;
-  location: string;
-  pairingCode: string;
+type Phase = 'idle' | 'confirming' | 'working' | 'success' | 'error';
+
+// Map an official-website scan-login error to a user-facing Chinese message.
+// 404 = 扫码不存在/过期;409 = 状态不对(已被别处确认/拒绝);401 = 手机未登录。
+function describeScanError(error: unknown): string {
+  if (error instanceof ApiResponseError) {
+    if (error.status === 404) return '二维码不存在或已过期，请重新扫描。';
+    if (error.status === 409) return '该二维码状态已变化，请重新扫描。';
+    if (error.status === 401) return '请先登录手机端后再扫码。';
+    return error.message;
+  }
+  return error instanceof Error ? error.message : '扫码登录失败，请重试。';
 }
-
-const fallbackDraft = (rawValue: string): DeviceDraft => {
-  const suffix = rawValue.replace(/[^a-zA-Z0-9]/g, '').slice(-4) || '0000';
-  return {
-    name: `Scanned Device ${suffix}`,
-    os: 'macOS',
-    host: `relay:scanned-${suffix.toLowerCase()}`,
-    location: 'Remote device',
-    pairingCode: rawValue,
-  };
-};
-
-const parseQueryDraft = (value: string): DeviceDraft | undefined => {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'vibecoding:') {
-      return undefined;
-    }
-
-    return {
-      name: url.searchParams.get('name') || 'Scanned Device',
-      os: url.searchParams.get('os') || 'macOS',
-      host: url.searchParams.get('host') || 'relay:scanned-device',
-      location: url.searchParams.get('location') || 'Remote device',
-      pairingCode: url.searchParams.get('pairingCode') || value,
-    };
-  } catch {
-    return undefined;
-  }
-};
-
-const parseJsonDraft = (value: string): DeviceDraft | undefined => {
-  try {
-    const payload = JSON.parse(value) as Partial<DeviceDraft>;
-    if (!payload.name && !payload.pairingCode) {
-      return undefined;
-    }
-
-    return {
-      name: payload.name || 'Scanned Device',
-      os: payload.os || 'macOS',
-      host: payload.host || 'relay:scanned-device',
-      location: payload.location || 'Remote device',
-      pairingCode: payload.pairingCode || value,
-    };
-  } catch {
-    return undefined;
-  }
-};
-
-const parseDeviceDraft = (rawValue: string) =>
-  parseJsonDraft(rawValue) ?? parseQueryDraft(rawValue) ?? fallbackDraft(rawValue);
 
 export const DeviceCameraScannerScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
@@ -90,62 +51,85 @@ export const DeviceCameraScannerScreen: React.FC = () => {
   const isFocused = useIsFocused();
   const { hasPermission, canRequestPermission, requestPermission, status } =
     useCameraPermission();
-  const devices = useControlCenterStore(state => state.devices);
-  const bindDevice = useControlCenterStore(state => state.bindDevice);
-  const [draft, setDraft] = useState<DeviceDraft | undefined>();
+  const refreshFromServer = useControlCenterStore(state => state.refreshFromServer);
+
+  const [scanCode, setScanCode] = useState<string | undefined>();
+  const [phase, setPhase] = useState<Phase>('idle');
   const [message, setMessage] = useState('');
   const [scannerError, setScannerError] = useState('');
-  const [paused, setPaused] = useState(false);
 
-  const duplicate = useMemo(
-    () =>
-      Boolean(
-        draft &&
-          devices.some(
-            device =>
-              device.name.toLowerCase() === draft.name.trim().toLowerCase(),
-          ),
-      ),
-    [devices, draft],
-  );
+  const reset = () => {
+    setScanCode(undefined);
+    setPhase('idle');
+    setMessage('');
+    setScannerError('');
+  };
 
   const handleRequestPermission = async () => {
     const granted = await requestPermission();
     if (!granted) {
-      setMessage('Camera permission was not granted.');
+      setMessage('未获得摄像头权限。');
     }
   };
 
-  const handleBind = async () => {
-    if (!draft) {
+  // Scan → extract sc_ → POST /auth/scan/scan (pending→scanned) → ask to confirm.
+  const handleScannedValue = async (rawValue?: string) => {
+    const code = extractScanCode(rawValue ?? '');
+    if (!code) {
+      setMessage('无法识别的二维码。请扫描桌面端「扫码登录」显示的二维码。');
       return;
     }
-
-    const result = await bindDevice(draft);
-    if (!result.ok || !result.deviceId) {
-      setMessage(result.error ?? 'Unable to bind this device.');
-      return;
+    if (phase === 'working' || phase === 'confirming') {
+      return; // 一次只处理一个码
     }
-
-    navigation.replace('DeviceDetail', { deviceId: result.deviceId });
-  };
-
-  const handleScannedValue = (rawValue?: string) => {
-    if (!rawValue || paused) {
-      return;
-    }
-
-    setDraft(parseDeviceDraft(rawValue));
+    setScanCode(code);
+    setPhase('working');
     setMessage('');
     setScannerError('');
-    setPaused(true);
+    try {
+      await scanLoginScan(code);
+      setPhase('confirming');
+    } catch (error) {
+      setPhase('error');
+      setMessage(describeScanError(error));
+    }
+  };
+
+  const handleConfirm = async () => {
+    if (!scanCode) return;
+    setPhase('working');
+    setMessage('');
+    try {
+      await scanLoginConfirm(scanCode); // scanned→authorized,桌面 agent 登录并自动注册设备
+      setPhase('success');
+      setMessage('登录成功，设备正在连接，稍后将在列表出现。');
+      // agent 登录后会自动 register_sync 把设备注册到该用户名下;刷新设备列表。
+      void refreshFromServer().catch(() => {});
+      setTimeout(() => navigation.goBack(), 1600);
+    } catch (error) {
+      setPhase('error');
+      setMessage(describeScanError(error));
+    }
+  };
+
+  const handleDeny = async () => {
+    if (!scanCode) {
+      reset();
+      return;
+    }
+    try {
+      await scanLoginDeny(scanCode);
+    } catch {
+      // 忽略拒绝失败,直接回到扫码态
+    }
+    reset();
   };
 
   return (
     <SafeAreaWrapper>
       <TopAppBar
-        title="Scan Device"
-        subtitle="CAMERA PAIRING"
+        title="扫码登录"
+        subtitle="SCAN LOGIN"
         onBack={navigation.goBack}
         rightAction={
           <StatusChip
@@ -159,7 +143,7 @@ export const DeviceCameraScannerScreen: React.FC = () => {
           {hasPermission ? (
             <View style={styles.cameraFrame}>
               <DeviceCodeScanner
-                isActive={isFocused && !paused}
+                isActive={isFocused && phase !== 'working' && phase !== 'confirming'}
                 style={StyleSheet.absoluteFill}
                 onCodeScanned={handleScannedValue}
                 onError={error => setScannerError(error.message)}
@@ -171,14 +155,10 @@ export const DeviceCameraScannerScreen: React.FC = () => {
                 <View style={[styles.corner, styles.cornerBottomRight]} />
                 <View style={[styles.scanLine, { backgroundColor: theme.colors.primary }]} />
               </View>
-              {paused ? (
+              {phase !== 'idle' ? (
                 <TouchableOpacity
                   activeOpacity={0.75}
-                  onPress={() => {
-                    setDraft(undefined);
-                    setPaused(false);
-                    setMessage('');
-                  }}
+                  onPress={reset}
                   style={[
                     styles.rescanButton,
                     {
@@ -187,7 +167,7 @@ export const DeviceCameraScannerScreen: React.FC = () => {
                     },
                   ]}>
                   <Text style={[theme.typography.labelMd, { color: theme.colors.onPrimary }]}>
-                    RESCAN
+                    重新扫描
                   </Text>
                 </TouchableOpacity>
               ) : null}
@@ -196,13 +176,17 @@ export const DeviceCameraScannerScreen: React.FC = () => {
             <View style={styles.permissionPanel}>
               <IconBadge name="scan" tone="primary" size={72} iconSize={36} />
               <Text style={[theme.typography.titleLg, { color: theme.colors.onSurface }]}>
-                Camera access required
+                需要摄像头权限
               </Text>
-              <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant, textAlign: 'center' }]}>
-                Scan the desktop agent QR code to bind this phone with a computer.
+              <Text
+                style={[
+                  theme.typography.bodySm,
+                  { color: theme.colors.onSurfaceVariant, textAlign: 'center' },
+                ]}>
+                扫描桌面端「扫码登录」二维码,确认后即可在该电脑登录并绑定设备。
               </Text>
               <GlowButton
-                title={canRequestPermission ? 'ALLOW CAMERA' : 'OPEN SETTINGS'}
+                title={canRequestPermission ? '允许摄像头' : '打开设置'}
                 onPress={
                   canRequestPermission
                     ? handleRequestPermission
@@ -221,67 +205,101 @@ export const DeviceCameraScannerScreen: React.FC = () => {
           </Text>
         ) : null}
 
-        {draft ? (
-          <GlassPanel style={styles.resultPanel} glowColor={duplicate ? 'error' : 'secondary'}>
+        {scanCode && phase !== 'idle' ? (
+          <GlassPanel
+            style={styles.resultPanel}
+            glowColor={
+              phase === 'success'
+                ? 'secondary'
+                : phase === 'error'
+                ? 'error'
+                : 'primary'
+            }>
             <View style={styles.resultHeader}>
               <IconBadge
-                name={duplicate ? 'warning' : 'device'}
-                tone={duplicate ? 'error' : 'secondary'}
+                name={
+                  phase === 'success'
+                    ? 'check'
+                    : phase === 'error'
+                    ? 'warning'
+                    : 'agent'
+                }
+                tone={
+                  phase === 'success'
+                    ? 'secondary'
+                    : phase === 'error'
+                    ? 'error'
+                    : 'primary'
+                }
                 size={44}
                 iconSize={22}
               />
               <View style={styles.resultTitle}>
                 <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                  {duplicate ? 'Rename before binding' : 'Ready to bind'}
+                  {phase === 'confirming'
+                    ? '确认在桌面端登录?'
+                    : phase === 'working'
+                    ? '处理中…'
+                    : phase === 'success'
+                    ? '登录成功'
+                    : '扫码登录失败'}
                 </Text>
                 <Text
                   numberOfLines={1}
                   style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-                  {draft.pairingCode}
+                  {scanCode}
                 </Text>
               </View>
-              <StatusChip label={duplicate ? 'DUPLICATE' : 'READY'} type={duplicate ? 'error' : 'success'} />
-            </View>
-            <DraftField
-              label="Device name"
-              value={draft.name}
-              onChangeText={value => setDraft(current => current && { ...current, name: value })}
-            />
-            <View style={styles.detailGrid}>
-              <DraftFact label="OS" value={draft.os} />
-              <DraftFact label="Host" value={draft.host} />
-              <DraftFact label="Location" value={draft.location} />
-            </View>
-            {duplicate ? (
-              <TouchableOpacity
-                activeOpacity={0.75}
-                onPress={() =>
-                  setDraft(current =>
-                    current ? { ...current, name: `${current.name} 2` } : current,
-                  )
+              <StatusChip
+                label={
+                  phase === 'confirming'
+                    ? 'PENDING'
+                    : phase === 'working'
+                    ? 'WORKING'
+                    : phase === 'success'
+                    ? 'DONE'
+                    : 'ERROR'
                 }
-                style={[
-                  styles.safeNameButton,
-                  {
-                    borderColor: theme.colors.outlineVariant,
-                    borderRadius: theme.borderRadius.full,
-                  },
-                ]}>
-                <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-                  USE SAFE NAME
-                </Text>
-              </TouchableOpacity>
-            ) : null}
+                type={
+                  phase === 'success'
+                    ? 'success'
+                    : phase === 'error'
+                    ? 'error'
+                    : 'info'
+                }
+              />
+            </View>
             {message ? (
-              <Text style={[theme.typography.bodySm, { color: theme.colors.error }]}>
+              <Text
+                style={[
+                  theme.typography.bodySm,
+                  { color: phase === 'error' ? theme.colors.error : theme.colors.onSurfaceVariant },
+                ]}>
                 {message}
               </Text>
             ) : null}
-            <GlowButton
-              title="BIND THIS DEVICE"
-              onPress={handleBind}
-              disabled={duplicate || !draft.name.trim()}
-            />
+            {phase === 'confirming' ? (
+              <View style={styles.confirmRow}>
+                <GlowButton title="确认登录" onPress={handleConfirm} variant="primary" />
+                <TouchableOpacity
+                  activeOpacity={0.75}
+                  onPress={handleDeny}
+                  style={[
+                    styles.denyButton,
+                    {
+                      borderColor: theme.colors.outlineVariant,
+                      borderRadius: theme.borderRadius.full,
+                    },
+                  ]}>
+                  <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
+                    取消
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+            {phase === 'error' ? (
+              <GlowButton title="重新扫描" onPress={reset} variant="primary" />
+            ) : null}
           </GlassPanel>
         ) : null}
 
@@ -290,18 +308,17 @@ export const DeviceCameraScannerScreen: React.FC = () => {
             <IconBadge name="code" tone="neutral" size={36} iconSize={18} />
             <View style={styles.resultTitle}>
               <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                Manual fallback
+                手动输入
               </Text>
               <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                Paste a QR payload when testing without a physical camera.
+                没有摄像头时,可粘贴 sc_ 扫码进行测试。
               </Text>
             </View>
           </View>
           <TextInput
-            multiline
             autoCapitalize="none"
             autoCorrect={false}
-            placeholder="vibecoding://bind?name=Mac%20Mini&pairingCode=PAIR-1234"
+            placeholder="sc_..."
             placeholderTextColor={theme.colors.onSurfaceVariant}
             onSubmitEditing={event => handleScannedValue(event.nativeEvent.text)}
             style={[
@@ -323,205 +340,113 @@ export const DeviceCameraScannerScreen: React.FC = () => {
   );
 };
 
-interface DraftFieldProps {
-  label: string;
-  value: string;
-  onChangeText: (value: string) => void;
-}
-
-const DraftField: React.FC<DraftFieldProps> = ({
-  label,
-  value,
-  onChangeText,
-}) => {
-  const { theme, isDark } = useTheme();
-
-  return (
-    <View style={styles.draftField}>
-      <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-        {label.toUpperCase()}
-      </Text>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        autoCapitalize="none"
-        autoCorrect={false}
-        style={[
-          theme.typography.codeSm,
-          styles.draftInput,
-          {
-            color: theme.colors.onSurface,
-            borderColor: theme.colors.outlineVariant,
-            backgroundColor: isDark
-              ? 'rgba(255,255,255,0.04)'
-              : theme.colors.surfaceContainer,
-            borderRadius: theme.borderRadius.md,
-          },
-        ]}
-      />
-    </View>
-  );
-};
-
-interface DraftFactProps {
-  label: string;
-  value: string;
-}
-
-const DraftFact: React.FC<DraftFactProps> = ({ label, value }) => {
-  const { theme, isDark } = useTheme();
-
-  return (
-    <View
-      style={[
-        styles.fact,
-        {
-          backgroundColor: isDark
-            ? 'rgba(255,255,255,0.05)'
-            : theme.colors.surfaceContainer,
-        },
-      ]}>
-      <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-        {label}
-      </Text>
-      <Text
-        numberOfLines={1}
-        style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
-        {value}
-      </Text>
-    </View>
-  );
-};
-
 const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
   content: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 40,
-    gap: 12,
+    padding: 16,
+    gap: 14,
   },
   cameraPanel: {
-    minHeight: 360,
+    padding: 0,
+    overflow: 'hidden',
   },
   cameraFrame: {
-    height: 360,
+    height: 320,
     backgroundColor: '#000',
-    position: 'relative',
   },
   scanOverlay: {
     ...StyleSheet.absoluteFill,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   corner: {
     position: 'absolute',
-    width: 44,
-    height: 44,
-    borderColor: 'rgba(255,255,255,0.85)',
+    width: 28,
+    height: 28,
+    borderColor: '#fff',
   },
   cornerTopLeft: {
-    top: 72,
-    left: 42,
+    top: 24,
+    left: 24,
     borderTopWidth: 3,
     borderLeftWidth: 3,
   },
   cornerTopRight: {
-    top: 72,
-    right: 42,
+    top: 24,
+    right: 24,
     borderTopWidth: 3,
     borderRightWidth: 3,
   },
   cornerBottomLeft: {
-    bottom: 72,
-    left: 42,
+    bottom: 24,
+    left: 24,
     borderBottomWidth: 3,
     borderLeftWidth: 3,
   },
   cornerBottomRight: {
-    bottom: 72,
-    right: 42,
+    bottom: 24,
+    right: 24,
     borderBottomWidth: 3,
     borderRightWidth: 3,
   },
   scanLine: {
-    width: '62%',
+    position: 'absolute',
+    left: 24,
+    right: 24,
+    top: '50%',
     height: 2,
-    borderRadius: 1,
+    opacity: 0.7,
   },
   rescanButton: {
     position: 'absolute',
+    bottom: 16,
     alignSelf: 'center',
-    bottom: 18,
     paddingHorizontal: 18,
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
   permissionPanel: {
-    minHeight: 340,
+    height: 320,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 24,
     gap: 12,
+    padding: 24,
   },
   permissionButton: {
-    marginTop: 8,
-    minWidth: 180,
+    marginTop: 4,
   },
   resultPanel: {
-    padding: 12,
+    padding: 16,
     gap: 12,
   },
   resultHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
   },
   resultTitle: {
     flex: 1,
     gap: 3,
   },
-  draftField: {
-    gap: 6,
-  },
-  draftInput: {
-    minHeight: 46,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  detailGrid: {
+  confirmRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  fact: {
-    width: '48%',
-    borderRadius: 8,
-    padding: 10,
-    gap: 4,
-  },
-  safeNameButton: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    minHeight: 36,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
+    gap: 10,
+  },
+  denyButton: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderWidth: 1,
   },
   manualPanel: {
-    padding: 12,
-    gap: 10,
+    padding: 16,
+    gap: 12,
   },
   manualTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
   },
   manualInput: {
-    minHeight: 72,
-    textAlignVertical: 'top',
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 10,

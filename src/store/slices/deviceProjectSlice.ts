@@ -16,7 +16,7 @@ import {
 type DeviceProjectSlice = Pick<
   ControlCenterState,
   | 'devices' | 'projects' | 'projectFiles' | 'scanResults'
-  | 'bindDevice' | 'renameDevice' | 'scanDeviceProjects'
+  | 'renameDevice' | 'scanDeviceProjects'
   | 'createProject' | 'updateProject' | 'deleteProject'
   | 'loadProjectFiles' | 'loadProjectFileContent' | 'dropFileContent'
 >;
@@ -26,46 +26,6 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
   projects: [],
   projectFiles: [],
   scanResults: [],
-
-  bindDevice: async (input) => {
-    const name = input.name.trim();
-    const duplicate = get().devices.some(
-      device => device.name.toLowerCase() === name.toLowerCase(),
-    );
-
-    if (duplicate) {
-      return {
-        ok: false,
-        error: 'A device with this name already exists.',
-      };
-    }
-
-    if (get().serverMode && input.pairingCode) {
-      try {
-        const clientDevice = platformDeviceToClient(
-          await platformTransport.pairDevice(input.pairingCode),
-        );
-        set(state => ({
-          devices: [clientDevice, ...state.devices.filter(d => d.id !== clientDevice.id)],
-          events: [
-            event('device.bound', 'Device bound', `${clientDevice.name} paired successfully.`, 'done', { deviceId: clientDevice.id }),
-            ...state.events,
-          ],
-        }));
-        return { ok: true, deviceId: clientDevice.id };
-      } catch (error) {
-        return {
-          ok: false,
-          error: error instanceof Error ? error.message : 'Pairing failed',
-        };
-      }
-    }
-
-    return {
-      ok: false,
-      error: 'Platform connection is required before binding a device.',
-    };
-  },
 
   renameDevice: async (deviceId, name) => {
     const trimmed = name.trim();

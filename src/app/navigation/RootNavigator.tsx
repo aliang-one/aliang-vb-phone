@@ -8,7 +8,6 @@ import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { RootStackParamList } from './types';
 import { MainTabNavigator } from './MainTabNavigator';
 import { LoginScreen } from '../../screens/auth/LoginScreen';
-import { DeviceBindingScreen } from '../../screens/devices/DeviceBindingScreen';
 import { DeviceCameraScannerScreen } from '../../screens/devices/DeviceCameraScannerScreen';
 import { DeviceDetailScreen } from '../../screens/devices/DeviceDetailScreen';
 import { DeviceTerminalScreen } from '../../screens/devices/DeviceTerminalScreen';
@@ -230,7 +229,6 @@ export const RootNavigator = ({ debugDeviceTerminal }: RootNavigatorProps) => {
             />
           ) : null}
           <Stack.Screen name="MainTabs" component={MainTabNavigator} />
-          <Stack.Screen name="DeviceBinding" component={DeviceBindingScreen} />
           <Stack.Screen name="DeviceCameraScanner" component={DeviceCameraScannerScreen} />
           <Stack.Screen name="DeviceDetail" component={DeviceDetailScreen} />
           <Stack.Screen name="DeviceTerminal" component={DeviceTerminalScreen} />

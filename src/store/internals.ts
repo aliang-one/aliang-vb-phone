@@ -402,6 +402,24 @@ export function aiSessionModelLabel(session: PlatformAiSessionSnapshot) {
   return session.model ?? session.mode;
 }
 
+// The most recent user-role message in a transcript (newest-first scan), or
+// `fallback` when the transcript holds no user message. Backs the session
+// card's "最新提问" preview — the latest thing the user asked.
+const lastUserMessageOf = (
+  messages: ReadonlyArray<VibeCodingRun['lastMessage']> | undefined,
+  fallback: VibeCodingRun['lastMessage'] | undefined,
+): VibeCodingRun['lastMessage'] | undefined => {
+  if (messages) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m && m.role === 'user') {
+        return m;
+      }
+    }
+  }
+  return fallback;
+};
+
 export function serverAiSessionToVibeRun(
   session: PlatformAiSessionSnapshot,
   _devices: Device[],
@@ -447,6 +465,14 @@ export function serverAiSessionToVibeRun(
         timestamp: session.last_message.timestamp,
       }
     : transcript[transcript.length - 1];
+  // Latest user-role message for the card menu's "最新提问" preview. Prefer a
+  // real user turn from the transcript; fall back to last_message when it is
+  // itself a user message (the common list-snapshot case, which omits the
+  // transcript). The UI further falls back to `objective` when this is unset.
+  const lastUserMessage = lastUserMessageOf(
+    transcript,
+    lastMessage && lastMessage.role === 'user' ? lastMessage : undefined,
+  );
 
   return {
     id: session.session_id,
@@ -496,6 +522,7 @@ export function serverAiSessionToVibeRun(
     lastRetryAttempt: session.last_retry_attempt,
     lastRetryMax: session.last_retry_max,
     lastMessage,
+    lastUserMessage,
     // Only mark detail-loaded when there is actual content. An empty array is
     // truthy in JS, so the old `session.transcript || session.events` form
     // marked a snapshot whose arrays were `[]` as "loaded" and suppressed the
@@ -680,12 +707,20 @@ export function mergeVibeRunSnapshot(
   // (> the settle window) could over-retain "running"; the stale-run sweeper
   // and the next refresh eventually correct it.
   const existingActive = ACTIVE_RUN_STATUS.has(existing.status);
-  const incomingDemotes =
-    existingActive && !ACTIVE_RUN_STATUS.has(incoming.status);
+  const incomingActive = ACTIVE_RUN_STATUS.has(incoming.status);
+  const incomingDemotes = existingActive && !incomingActive;
   const incomingFailure = incoming.status === 'failed';
   const staleDemotion =
     incomingDemotes &&
     !incomingFailure &&
+    (incoming.lastActivityMs ?? 0) <= (existing.lastActivityMs ?? 0);
+  // 反向守卫:已结算的会话(existing 非活跃)不被陈旧的活跃快照重新激活。ai.done 已把
+  // status 翻成 idle 并 bump lastActivityMs,此后一个滞后的 running 快照(活动不比本地新)
+  // 不能再翻回 running——否则回合结束会闪回进行中(就是当年要靠 8s 压的那种抖动)。真正的新
+  // 回合(新发送乐观置 running / 服务端更新的更新活动)lastActivityMs 更新,不被拦截。
+  const staleReactivation =
+    !existingActive &&
+    incomingActive &&
     (incoming.lastActivityMs ?? 0) <= (existing.lastActivityMs ?? 0);
   const transcript = incomingHasDetail
     ? mergeAgentMessages(existing.transcript, incoming.transcript)
@@ -696,7 +731,7 @@ export function mergeVibeRunSnapshot(
   return {
     ...existing,
     ...incoming,
-    status: staleDemotion ? existing.status : incoming.status,
+    status: staleDemotion || staleReactivation ? existing.status : incoming.status,
     lastActivityMs,
     updatedAt: formatActivityLabel(lastActivityMs),
     transcript,
@@ -718,6 +753,13 @@ export function mergeVibeRunSnapshot(
         : incoming.lastMessage) ??
       existing.lastMessage ??
       transcript[transcript.length - 1],
+    // Re-derive from the merged transcript so a freshly-loaded history (or a
+    // just-appended user turn) updates the "最新提问" preview; otherwise keep the
+    // last known value so a transcript-less list snapshot doesn't blank it.
+    lastUserMessage: lastUserMessageOf(
+      transcript,
+      incoming.lastUserMessage ?? existing.lastUserMessage,
+    ),
   };
 }
 
@@ -749,7 +791,9 @@ export function hasMeaningfulVibeRunUpdate(
     existing.retryErrorStatus !== incoming.retryErrorStatus ||
     existing.lastErrorStatus !== incoming.lastErrorStatus ||
     messageFingerprint(existing.lastMessage) !==
-      messageFingerprint(incoming.lastMessage)
+      messageFingerprint(incoming.lastMessage) ||
+    messageFingerprint(existing.lastUserMessage) !==
+      messageFingerprint(incoming.lastUserMessage)
   );
 }
 
@@ -773,6 +817,32 @@ export function mapSessionStatus(status: string): VibeStatus {
       return 'idle';
   }
 }
+
+/**
+ * Statuses where the agent is blocked waiting on the user (to approve a tool
+ * use / choose a plan). The server sets `paused` when it derives an approval
+ * from an assistant reply (server `derived.ts`); `waiting_approval` is the
+ * in-memory flag flipped when an `approval.requested` push is applied locally
+ * (controlCenterStore). Either means "an approval may be pending that the
+ * one-shot push dropped" — a candidate for recovery.
+ */
+export const isWaitingApprovalStatus = (
+  status: VibeStatus | undefined,
+): boolean => status === 'paused' || status === 'waiting_approval';
+
+/**
+ * True ONLY on the non-waiting → waiting EDGE. Drives the one-shot dashboard
+ * re-fetch when a session transitions into an approval-pending state, so an
+ * `approval.requested` push dropped by a momentary WS blip is recovered
+ * without waiting for `ai.done` (which a turn paused-for-approval never
+ * emits). Returns false while already waiting (no re-fire), when leaving
+ * waiting, and during normal running activity (thinking / tool use) — those
+ * must NOT trigger a refresh.
+ */
+export const enteredWaitingApproval = (
+  prev: VibeStatus | undefined,
+  next: VibeStatus,
+): boolean => !isWaitingApprovalStatus(prev) && isWaitingApprovalStatus(next);
 
 export function serverApprovalToClient(
   sa: PlatformApprovalSnapshot,

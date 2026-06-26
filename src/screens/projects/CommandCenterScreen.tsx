@@ -639,96 +639,6 @@ export const CommandCenterScreen: React.FC = () => {
           <Text
             style={[
               theme.typography.labelCaps,
-              { color: theme.colors.primary },
-            ]}
-          >
-            ACTIVE PROJECTS
-          </Text>
-          <StatusChip
-            label={`${activeProjects.length} PROJECTS`}
-            type="success"
-          />
-        </View>
-        {activeProjects.length ? (
-          <>
-            {activeProjectList.visibleItems.map(project => {
-              const sessions = vibeRuns.filter(session =>
-                projectMatchesSession(project, session),
-              );
-              const device = getProjectDevice(project);
-              const scan = scanResults.find(
-                item =>
-                  item.projectId === project.id &&
-                  (!device || item.deviceId === device.id),
-              );
-              return (
-                <ProjectWorkspaceCard
-                  key={project.id}
-                  project={project}
-                  device={device}
-                  sessions={sessions}
-                  scan={scan}
-                  activeProject
-                  disabled={device?.status === 'offline'}
-                  onOpen={() =>
-                    navigation.navigate('ProjectDetail', {
-                      projectId: project.id,
-                      deviceId: device?.id,
-                    })
-                  }
-                  onFiles={() =>
-                    navigation.navigate('FileBrowser', {
-                      projectId: project.id,
-                      deviceId: device?.id,
-                    })
-                  }
-                  onTerminal={() =>
-                    device &&
-                    navigation.navigate('DeviceTerminal', {
-                      deviceId: device.id,
-                      directory:
-                        scan?.path ??
-                        project.path ??
-                        device.authorizedDirectories[0],
-                    })
-                  }
-                />
-              );
-            })}
-            <LoadMoreRow
-              visibleCount={activeProjectList.visibleCount}
-              totalCount={activeProjectList.totalCount}
-              onPress={activeProjectList.showMore}
-            />
-          </>
-        ) : (
-          <GlassPanel style={styles.emptyAgentCard}>
-            <IconBadge name="project" tone="neutral" size={42} iconSize={21} />
-            <View style={styles.emptyAgentCopy}>
-              <Text
-                style={[
-                  theme.typography.titleMd,
-                  { color: theme.colors.onSurface },
-                ]}
-              >
-                暂无活跃项目
-              </Text>
-              <Text
-                style={[
-                  theme.typography.bodySm,
-                  { color: theme.colors.onSurfaceVariant },
-                ]}
-              >
-                最近有交互的项目会显示在这里。
-              </Text>
-            </View>
-          </GlassPanel>
-        )}
-
-        <View style={styles.sectionHeader}>
-          <Text
-            style={[
-              theme.typography.labelCaps,
               { color: theme.colors.onSurfaceVariant },
             ]}
           >
@@ -822,6 +732,96 @@ export const CommandCenterScreen: React.FC = () => {
             style={styles.actionMiniTile}
           />
         </View>
+
+        <View style={styles.sectionHeader}>
+          <Text
+            style={[
+              theme.typography.labelCaps,
+              { color: theme.colors.primary },
+            ]}
+          >
+            ACTIVE PROJECTS
+          </Text>
+          <StatusChip
+            label={`${activeProjects.length} PROJECTS`}
+            type="success"
+          />
+        </View>
+        {activeProjects.length ? (
+          <>
+            {activeProjectList.visibleItems.map(project => {
+              const sessions = vibeRuns.filter(session =>
+                projectMatchesSession(project, session),
+              );
+              const device = getProjectDevice(project);
+              const scan = scanResults.find(
+                item =>
+                  item.projectId === project.id &&
+                  (!device || item.deviceId === device.id),
+              );
+              return (
+                <ProjectWorkspaceCard
+                  key={project.id}
+                  project={project}
+                  device={device}
+                  sessions={sessions}
+                  scan={scan}
+                  activeProject
+                  disabled={device?.status === 'offline'}
+                  onOpen={() =>
+                    navigation.navigate('ProjectDetail', {
+                      projectId: project.id,
+                      deviceId: device?.id,
+                    })
+                  }
+                  onFiles={() =>
+                    navigation.navigate('FileBrowser', {
+                      projectId: project.id,
+                      deviceId: device?.id,
+                    })
+                  }
+                  onTerminal={() =>
+                    device &&
+                    navigation.navigate('DeviceTerminal', {
+                      deviceId: device.id,
+                      directory:
+                        scan?.path ??
+                        project.path ??
+                        device.authorizedDirectories[0],
+                    })
+                  }
+                />
+              );
+            })}
+            <LoadMoreRow
+              visibleCount={activeProjectList.visibleCount}
+              totalCount={activeProjectList.totalCount}
+              onPress={activeProjectList.showMore}
+            />
+          </>
+        ) : (
+          <GlassPanel style={styles.emptyAgentCard}>
+            <IconBadge name="project" tone="neutral" size={42} iconSize={21} />
+            <View style={styles.emptyAgentCopy}>
+              <Text
+                style={[
+                  theme.typography.titleMd,
+                  { color: theme.colors.onSurface },
+                ]}
+              >
+                暂无活跃项目
+              </Text>
+              <Text
+                style={[
+                  theme.typography.bodySm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
+                最近有交互的项目会显示在这里。
+              </Text>
+            </View>
+          </GlassPanel>
+        )}
 
         <View style={styles.sectionHeader}>
           <Text

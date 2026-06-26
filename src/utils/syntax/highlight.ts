@@ -11,7 +11,7 @@
  *     extension to a registered Prism grammar (or null → caller falls back to
  *     plain text). Registering only the languages we actually use keeps the
  *     bundle small.
- *  3. A dual-theme token palette. The app's dark theme (cyberLogic) already
+ *  3. A dual-theme token palette. The app's dark theme (darkTheme) already
  *     uses VSCode Dark+ hues, so the dark palette mirrors VSCode; the light
  *     palette mirrors VSCode Light+ for legibility on the white sheet.
  */
@@ -158,7 +158,7 @@ export interface TokenStyle {
 }
 
 /**
- * Dark palette — VSCode Dark+ (matches the cyberLogic theme's existing hues).
+ * Dark palette — VSCode Dark+ (matches the darkTheme theme's existing hues).
  * Tuned for contrast on a #333 surfaceContainerHigh sheet background.
  */
 const DARK_PALETTE: Record<string, TokenStyle> = {

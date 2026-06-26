@@ -16,8 +16,9 @@ import type { VibeStatus } from '../data/platformModels';
  *     structuredEvents)才是可靠信号,故「无生命迹象 ⇒ 已完成」。回合内 API 请求空档
  *     (<8s)isLive 仍 true → 进行中,不会误闪已完成。
  *
- * `isLive` 由调用方用 `livePulse?.hasActive ?? Boolean(liveMessageId)` 传入——和 L2/L3
- * 同源,保证三层对「是否正在干活」的判定一致。
+ * `isLive` 由调用方用 `isSessionTurnActive(...)`(见下)算出——和 L2/L3、底部 composer 锁、
+ * 停止按钮、发送 guard 全部同源,保证五处对「是否正在干活」的判定一致,不再各自裸读
+ * `session.status`(回合 settle 后常停在陈旧的 running)。
  */
 export type SessionPhase = 'running' | 'waiting_approval' | 'completed' | 'failed';
 
@@ -88,6 +89,30 @@ export function liveAssistantMessageId(
     if (transcript[i].role === 'assistant') return transcript[i].id;
   }
   return undefined;
+}
+
+/**
+ * **统一源头**——此刻该会话「是否正在跑一个回合」。供顶部相位 / composer 锁 /
+ * 停止按钮 / 发送 guard / L2-L3 脉冲共用,保证判定一致。
+ *
+ * **事件驱动,只看 `status === 'running'`**。回合边界由确定性事件决定:
+ *  - 开始:发送(`appendAgentMessage`)乐观置 running;`ai.status` 维持 running。
+ *  - 结束:`ai.done` 翻 idle、`ai.error` 翻 failed、中断(`interruptAgentSession`)翻 idle。
+ * 配合 `mergeVibeRunSnapshot` 的双向 stale 守卫(既不让陈旧快照把 running 误降级,也不让
+ * 陈旧快照把已结算的会话误重新激活),status 在回合内稳定为 running、回合结束即时为 idle。
+ *
+ * 故既不抖(回合内 API 请求/工具调用空档不再被误判成完成),也不滞后(不再等 8s 活动窗口
+ * 或服务端 settle 推送)。`--print` headless 一个进程跑完整条 prompt 才发一次 `ai.done`,
+ * 所以 ai.done 即「这条 prompt 确定结束」,可放心当结算源——这正是去掉 8s 鲁棒延迟的依据:
+ * 当年抖动是「用活动新鲜度猜结束」所致,换到事件驱动的 status 后,结束是确定信号,不再需要
+ * debounce。
+ *
+ * `waiting_approval` 不算「在跑」(回合卡在审批上,球在用户侧)——各消费方按需 `|| waiting_approval`
+ * 单独处理(见 `shouldLockComposerForProvider` / `canInterruptTurn` / `appendAgentMessage` guard)。
+ * 终态 failed/completed/idle 自然不在跑。
+ */
+export function isSessionTurnActive(status: VibeStatus): boolean {
+  return status === 'running';
 }
 
 /**

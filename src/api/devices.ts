@@ -82,9 +82,6 @@ export const fetchDeviceAiSessions = (deviceId: string): Promise<ServerAiSession
 export const fetchDeviceTerminalSessions = (deviceId: string): Promise<unknown[]> =>
   apiGet<unknown[]>(`/api/devices/${deviceId}/terminal-sessions`);
 
-export const pairDevice = (uniqueCode: string): Promise<{ device: ServerDevice; device_id: string }> =>
-  apiPost('/api/devices/pair', { unique_code: uniqueCode });
-
 export const updateDeviceSettings = (
   deviceId: string,
   settings: {

@@ -226,6 +226,14 @@ export interface VibeCodingRun {
   lastRetryAttempt?: number;
   lastRetryMax?: number;
   lastMessage?: AgentMessage;
+  /**
+   * Most recent user-role message (the latest thing the user asked), used by the
+   * session card's long-press menu "最新提问" preview. Derived at mapping time
+   * from the transcript when present, else from `last_message` when it's a user
+   * message; undefined when neither is available (UI falls back to `objective`).
+   * Survives snapshot merges like `lastMessage`.
+   */
+  lastUserMessage?: AgentMessage;
   detailLoadedAt?: string;
   /**
    * Server `detail_refresh.status` from the last single-session fetch — lets the

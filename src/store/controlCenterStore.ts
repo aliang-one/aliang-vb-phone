@@ -44,6 +44,8 @@ import {
   tail,
   trimTranscript,
   upsertNotification,
+  enteredWaitingApproval,
+  mapSessionStatus,
 } from './internals';
 import { createRealtimeSlice } from './slices/realtimeSlice';
 import { createTerminalSlice } from './slices/terminalSlice';
@@ -419,65 +421,66 @@ export const useControlCenterStore = create<ControlCenterState>()(
             }
 
             case 'ai.done':
-              // Status-neutral. ai.done ends ONE streaming turn, not the whole
-              // run — for a tool-using agent it often lands mid-task (the model
-              // just emitted a tool_use and will start a new turn when the tool
-              // returns). The server is the status authority: it arms a soft
-              // idle-settle (ALIANG_AI_IDLE_SETTLE_MS) and only publishes
-              // idle/completed when no further activity follows, which arrives
-              // here as 'ai.session.updated' and is merged via
-              // mergeVibeRunSnapshot. Buffered deltas were already flushed above
-              // (flushDeltas runs before the switch), so there's nothing to do.
-              // Flipping to idle + a "Session completed" event on every turn
-              // would make a tool-using run flash done/idle during every tool
-              // gap.
+              // 确定性的回合结束信号。`--print` headless 一个进程跑完整条 prompt 才发一次
+              // ai.done(中途的工具调用都在同一个进程内,不会发 done),所以 ai.done = 「这条
+              // prompt 真结束了」。立即把 status running→idle——这是顶部翻「已完成」、停止按钮
+              // 消失、composer 解锁、发送 guard 放行的统一触发源,不再等 8s 活动窗口或服务端
+              // settle 推送(当年加 8s 是因为用活动新鲜度猜结束会抖;现在结束是确定信号,不需要
+              // debounce)。不覆盖 failed/completed/waiting_approval(审批等待中由 approval 流复位)。
+              // 同时终结残留的活跃结构化事件(思考/started 命令),免得 L3 脉冲在 idle 后还显「思考中」。
               //
-              // BUT: a turn may have produced an approval / 方案选择 that the
-              // server derived from the assistant reply and pushed as
-              // approval.requested + a paused session state. Those are one-shot
-              // pushes that can be missed (the WS was momentarily gone), and
-              // unlike deltas they don't self-heal — so the user would only see
-              // the approval after a manual re-entry (REST). Re-fetch the
-              // dashboard snapshot (debounced, same as ai.sessions.updated) so
-              // any missed approval/state is recovered at turn-end. The
-              // snapshot's pending_approvals repopulate state.approvals, which
-              // useSessionApprovals renders.
-              //
-              // Finalize any in-flight structured activity so isSessionLive can
-              // settle. ai.done ends THIS streaming turn, so an active thinking
-              // block / a started command that wasn't followed by its own
-              // completion event must not keep deriveLivePulse().hasActive pinned
-              // true — that would pin the top status at 进行中 via the isLive
-              // branch even after the server settles to idle, so the session
-              // shows 进行中 forever after a turn that ended on a thinking/command
-              // event with no trailing done.
-              set(state => ({
-                vibeRuns: state.vibeRuns.map(run => {
-                  if (run.id !== transportEvent.sessionId) return run;
-                  if (!run.structuredEvents?.length) return run;
-                  let changed = false;
-                  const finalized = run.structuredEvents.map(e => {
-                    if (e.kind === 'thinking' && e.active) {
-                      changed = true;
-                      return { ...e, active: false };
+              // 一个回合可能产出 approval / 方案选择(server 从 assistant 回复派生后一次性推送,
+              // WS 瞬断会丢、且不像 delta 能自愈)。回合结束去抖拉一次 dashboard,补回错过的 approval
+              // / 状态(pending_approvals 重填 state.approvals,useSessionApprovals 渲染)。
+              {
+                const doneMs = activityNowMs();
+                set(state => ({
+                  vibeRuns: state.vibeRuns.map(run => {
+                    if (run.id !== transportEvent.sessionId) return run;
+                    const settledStatus: VibeStatus =
+                      run.status === 'running' ? 'idle' : run.status;
+                    const activityMs = Math.max(run.lastActivityMs ?? 0, doneMs);
+                    if (!run.structuredEvents?.length) {
+                      return run.status === settledStatus &&
+                        activityMs === (run.lastActivityMs ?? 0)
+                        ? run
+                        : {
+                            ...run,
+                            status: settledStatus,
+                            lastActivityMs: activityMs,
+                            updatedAt: formatActivityLabel(activityMs),
+                          };
                     }
-                    if (e.kind === 'command' && e.status === 'started') {
-                      changed = true;
-                      return { ...e, status: 'done' as const };
-                    }
-                    return e;
-                  });
-                  return changed ? { ...run, structuredEvents: finalized } : run;
-                }),
-              }));
-              if (get().serverMode) {
-                scheduleRefreshDebounce(() =>
-                  get()
-                    .refreshFromServer()
-                    .catch(() => {}),
-                );
+                    let changed = false;
+                    const finalized = run.structuredEvents.map(e => {
+                      if (e.kind === 'thinking' && e.active) {
+                        changed = true;
+                        return { ...e, active: false };
+                      }
+                      if (e.kind === 'command' && e.status === 'started') {
+                        changed = true;
+                        return { ...e, status: 'done' as const };
+                      }
+                      return e;
+                    });
+                    return {
+                      ...run,
+                      status: settledStatus,
+                      lastActivityMs: activityMs,
+                      updatedAt: formatActivityLabel(activityMs),
+                      structuredEvents: changed ? finalized : run.structuredEvents,
+                    };
+                  }),
+                }));
+                if (get().serverMode) {
+                  scheduleRefreshDebounce(() =>
+                    get()
+                      .refreshFromServer()
+                      .catch(() => {}),
+                  );
+                }
+                return;
               }
-              return;
 
             case 'ai.error':
               set(state => {
@@ -520,24 +523,37 @@ export const useControlCenterStore = create<ControlCenterState>()(
               });
               return;
 
-            case 'ai.status':
+            case 'ai.status': {
+              // ai.status carries turn-HALT signals from the agent: "stopped" /
+              // "stopping" / "interrupted" (emitted after ai.stop / ctx cancel,
+              // when the run ends WITHOUT ai.done). These mean the turn ENDED →
+              // idle. It does NOT carry "running" (that's ai.run.started), so we
+              // must NOT force 'running' here — that would re-activate a session
+              // the user just stopped (no 8s window to self-heal it anymore).
+              // failed/completed preserved; other/unknown statuses keep current.
+              const HALT_STATUS = new Set(['stopped', 'stopping', 'interrupted']);
+              const isHalt = HALT_STATUS.has(transportEvent.status);
               set(state => ({
-                vibeRuns: state.vibeRuns.map(item =>
-                  item.id === transportEvent.sessionId
-                    ? {
-                        ...item,
-                        status:
-                          item.status === 'failed' || item.status === 'completed'
-                            ? item.status
-                            : ('running' as VibeStatus),
-                        currentStep: transportEvent.status || item.currentStep,
-                        lastActivityMs: activityNowMs(),
-                        updatedAt: formatActivityLabel(activityNowMs()),
-                      }
-                    : item,
-                ),
+                vibeRuns: state.vibeRuns.map(item => {
+                  if (item.id !== transportEvent.sessionId) return item;
+                  let status: VibeStatus = item.status;
+                  if (item.status === 'failed' || item.status === 'completed') {
+                    status = item.status;
+                  } else if (isHalt) {
+                    status = 'idle';
+                  }
+                  const activityMs = activityNowMs();
+                  return {
+                    ...item,
+                    status,
+                    currentStep: transportEvent.status || item.currentStep,
+                    lastActivityMs: activityMs,
+                    updatedAt: formatActivityLabel(activityMs),
+                  };
+                }),
               }));
               return;
+            }
 
             case 'ai.steer.ack':
               set(state => ({
@@ -602,6 +618,21 @@ export const useControlCenterStore = create<ControlCenterState>()(
             }
 
             case 'ai.session.updated': {
+              // Recovery edge: `approval.requested` is a one-shot push (no
+              // retry-until-ack) that a momentary WS blip can drop, and a turn
+              // paused for approval never emits `ai.done` — so the existing
+              // ai.done self-heal doesn't fire. When this session transitions
+              // INTO a waiting state, re-fetch the dashboard (debounced) so any
+              // missed approval is repopulated from pending_approvals. The
+              // predicate stays silent during normal running activity
+              // (thinking / tool use), which is also 'running'.
+              const updatedSessionId = transportEvent.session.session_id;
+              const prevStatus = get().vibeRuns.find(
+                run => run.id === updatedSessionId,
+              )?.status;
+              const nextStatus = mapSessionStatus(
+                transportEvent.session.status,
+              );
               set(state => {
                 const nextRun = serverAiSessionToVibeRun(
                   transportEvent.session,
@@ -673,6 +704,16 @@ export const useControlCenterStore = create<ControlCenterState>()(
                     : state.events,
                 };
               });
+              if (
+                get().serverMode &&
+                enteredWaitingApproval(prevStatus, nextStatus)
+              ) {
+                scheduleRefreshDebounce(() =>
+                  get()
+                    .refreshFromServer()
+                    .catch(() => {}),
+                );
+              }
               return;
             }
 

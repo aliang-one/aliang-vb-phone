@@ -107,7 +107,7 @@ export interface LivePulse {
 }
 
 export function deriveLivePulse(
-  events: StructuredActivityEvent[],
+  events: ReadonlyArray<StructuredActivityEvent>,
   isLiveTurn: boolean,
 ): LivePulse | null {
   if (!events.length) return null;

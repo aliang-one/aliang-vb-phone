@@ -1,7 +1,7 @@
 import { AppTheme } from '../../types';
 
 // VSCode Dark+ Theme inspired colors
-export const cyberLogic: AppTheme = {
+export const darkTheme: AppTheme = {
   mode: 'dark',
   colors: {
     // Background layers - VSCode classic dark

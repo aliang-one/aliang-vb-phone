@@ -41,8 +41,14 @@ export const DeviceCodeScanner: React.FC<DeviceCodeScannerProps> = ({
     },
   });
 
+  // useCameraDevice returns undefined when there is no matching camera (e.g. the
+  // iOS Simulator has no camera hardware, or the device hasn't been enumerated
+  // on the first render). Throwing here crashed the app — there is no
+  // ErrorBoundary to catch a render-phase throw, so on a release build it was a
+  // hard 闪退. Render nothing instead; the owning screen's camera frame stays
+  // empty until a device is available (or permanently on the Simulator).
   if (!device) {
-    throw new Error('No Camera device available.');
+    return null;
   }
 
   return (

@@ -2,7 +2,6 @@ import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
-  Linking,
   View,
   Text,
   StyleSheet,
@@ -24,13 +23,7 @@ import { IconBadge } from '../../components/visual/IconBadge';
 import { RingMeter } from '../../components/visual/RingMeter';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
-import {
-  checkPlatformService,
-  PLATFORM_SERVICE_BASE_URL,
-  PlatformServiceHealth,
-} from '../../config/localService';
 import { useSessionStore } from '../../../stores/useSettingsStore';
-import { ALIANG_ACCOUNT_BASE_URL } from '../../config/accountService';
 import { ratioPercent, daysUntil, formatDate } from '../../utils/format';
 import type { AccountSubscription } from '../../api/account';
 import { UserModelDefaultCard } from '../../components/account/UserModelDefaultCard';
@@ -57,9 +50,6 @@ export const SettingsScreen: React.FC = () => {
   const resetSessionData = useControlCenterStore(state => state.resetSessionData);
   const wsConnected = useControlCenterStore(state => state.wsConnected);
   const serverMode = useControlCenterStore(state => state.serverMode);
-  const [connectionStatus, setConnectionStatus] =
-    useState<PlatformServiceHealth | null>(null);
-  const [checkingConnection, setCheckingConnection] = useState(false);
   const [refreshingAccount, setRefreshingAccount] = useState(false);
 
   // The Account tab's first visit instantiates a heavy subtree (SVG RingMeters,
@@ -70,7 +60,7 @@ export const SettingsScreen: React.FC = () => {
   // tree instantly.
   const themeOptions = [
     { key: 'system', label: 'SYSTEM' },
-    { key: 'dark', label: 'CYBER' },
+    { key: 'dark', label: 'DARK' },
     { key: 'light', label: 'LIGHT' },
   ] as const;
 
@@ -146,13 +136,6 @@ export const SettingsScreen: React.FC = () => {
 
     return { platformSummary };
   }, [devices, vibeRuns, projects, approvals, notifications]);
-
-  const handleCheckConnection = async () => {
-    setCheckingConnection(true);
-    const result = await checkPlatformService();
-    setConnectionStatus(result);
-    setCheckingConnection(false);
-  };
 
   const handleRefreshAccount = async () => {
     setRefreshingAccount(true);
@@ -405,74 +388,6 @@ export const SettingsScreen: React.FC = () => {
             <UserModelDefaultCard />
 
             {renderSectionTitle('PLATFORM SERVICE')}
-            <GlassPanel style={styles.servicePanel}>
-              <View style={styles.serviceHeader}>
-                <View style={styles.serviceCopy}>
-                  <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                    Platform API
-                  </Text>
-                  <Text
-                    style={[theme.typography.codeSm, { color: theme.colors.primary }]}
-                    numberOfLines={1}>
-                    {PLATFORM_SERVICE_BASE_URL}
-                  </Text>
-                  <Text
-                    style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}
-                    numberOfLines={1}>
-                    {ALIANG_ACCOUNT_BASE_URL}
-                  </Text>
-                </View>
-                <StatusChip
-                  label={
-                    checkingConnection
-                      ? 'CHECKING'
-                      : connectionStatus?.ok
-                      ? 'ONLINE'
-                      : connectionStatus
-                      ? 'OFFLINE'
-                      : 'READY'
-                  }
-                  type={
-                    checkingConnection
-                      ? 'info'
-                      : connectionStatus?.ok
-                      ? 'success'
-                      : connectionStatus
-                      ? 'error'
-                      : 'neutral'
-                  }
-                />
-              </View>
-              {connectionStatus ? (
-                <Text
-                  style={[
-                    theme.typography.labelSm,
-                    {
-                      color: connectionStatus.ok
-                        ? theme.colors.secondary
-                        : theme.colors.error,
-                    },
-                    styles.serviceMessage,
-                  ]}>
-                  {connectionStatus.message} / {connectionStatus.latencyMs}ms
-                </Text>
-              ) : null}
-              <View style={styles.serviceActions}>
-                <GlowButton
-                  title="TEST CONNECTION"
-                  onPress={handleCheckConnection}
-                  loading={checkingConnection}
-                  variant="secondary"
-                  style={styles.serviceButton}
-                />
-                <GlowButton
-                  title="OPEN"
-                  onPress={() => Linking.openURL(PLATFORM_SERVICE_BASE_URL)}
-                  variant="outline"
-                  style={styles.serviceButton}
-                />
-              </View>
-            </GlassPanel>
 
             <UsageSummaryCard summary={platformSummary} />
 
@@ -703,21 +618,6 @@ const styles = StyleSheet.create({
   orderSide: {
     alignItems: 'flex-end',
     gap: 2,
-  },
-  servicePanel: {
-    padding: 14,
-    gap: 12,
-  },
-  serviceHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  serviceCopy: {
-    flex: 1,
-  },
-  serviceMessage: {
-    lineHeight: 18,
   },
   serviceActions: {
     flexDirection: 'row',

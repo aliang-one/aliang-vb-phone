@@ -1,5 +1,4 @@
 import {
-  pairDevice as apiPairDevice,
   updateDeviceSettings as apiUpdateDeviceSettings,
   type ServerDevice,
 } from '../api/devices';
@@ -313,11 +312,6 @@ class PlatformTransport {
 
   send(message: Record<string, unknown>): boolean {
     return getActiveSocket()?.send(message) ?? false;
-  }
-
-  async pairDevice(uniqueCode: string): Promise<PlatformDeviceSnapshot> {
-    const result = await apiPairDevice(uniqueCode);
-    return normalizeServerDevice(result.device);
   }
 
   async updateDeviceSettings(

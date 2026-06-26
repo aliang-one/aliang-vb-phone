@@ -119,4 +119,45 @@ describe('appendAgentMessage', () => {
       pending: false,
     });
   });
+
+  describe('claude_code 并发 guard 与 composer 锁 / 停止按钮同源(status 事件驱动)', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      (platformTransport.sendAiMessage as jest.Mock).mockResolvedValue({
+        message_id: 'server-msg',
+        status: 'running',
+      });
+      useControlCenterStore.setState({ serverMode: true, devices: [] });
+    });
+
+    const setRun = (overrides: Partial<VibeCodingRun>) => {
+      useControlCenterStore.setState({
+        vibeRuns: [{ ...run(), ...overrides }],
+      });
+    };
+
+    it('status=running → 拦截 claude_code 并发(回合确定在跑)', async () => {
+      // 新模型:status 现在事件驱动(ai.done 会即时翻 idle),故 running 即「真在跑」,
+      // guard 与顶部相位/composer 锁/停止按钮同源(isSessionTurnActive)。
+      setRun({ status: 'running', provider: 'claude_code' });
+      await expect(
+        useControlCenterStore.getState().appendAgentMessage('s1', 'next-a', 'text'),
+      ).rejects.toThrow('Claude Code is still running');
+    });
+
+    it('status=idle(ai.done 已结算)→ 不拦截,允许继续发送', async () => {
+      // 回合结束 ai.done 把 status 翻成 idle → guard 即时放行,不再卡 8s。
+      setRun({ status: 'idle', provider: 'claude_code' });
+      await expect(
+        useControlCenterStore.getState().appendAgentMessage('s1', 'next-b', 'text'),
+      ).resolves.toBeUndefined();
+    });
+
+    it('waiting_approval → 拦截(审批期间不可发新消息)', async () => {
+      setRun({ status: 'waiting_approval', provider: 'claude_code' });
+      await expect(
+        useControlCenterStore.getState().appendAgentMessage('s1', 'next-c', 'text'),
+      ).rejects.toThrow('Claude Code is still running');
+    });
+  });
 });

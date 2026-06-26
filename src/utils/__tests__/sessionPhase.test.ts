@@ -1,6 +1,7 @@
 import {
   LIVE_TURN_WINDOW_MS,
   deriveSessionPhase,
+  isSessionTurnActive,
   lastUnrepliedUserMessageId,
   liveAssistantMessageId,
   sessionPhaseLabel,
@@ -167,5 +168,28 @@ describe('shouldLockComposerForProvider (composer 锁与相位同源)', () => {
   it('非 claude_code provider(codex 支持排队)→ 永不锁,即便 live', () => {
     expect(shouldLockComposerForProvider(true, 'running', 'codex')).toBe(false);
     expect(shouldLockComposerForProvider(true, 'running', undefined)).toBe(false);
+  });
+});
+
+describe('isSessionTurnActive (事件驱动:status===running)', () => {
+  // 演进:曾用「8s 活动新鲜度」当「是否在跑」的判据(给当年用活动猜结束的抖动打补丁)。
+  // 现在回合边界由确定性事件驱动——发送/ai.status→running、ai.done→idle、ai.error→failed、
+  // 中断→idle——配合 mergeVibeRunSnapshot 双向 stale 守卫,status 在回合内稳定 running、
+  // 结束即时 idle。故「是否在跑」= status==='running',不再需要时间窗口(不抖、不滞后)。
+  // waiting_approval 不算在跑(各消费方按需 || waiting_approval)。
+  it('status=running → 在跑', () => {
+    expect(isSessionTurnActive('running')).toBe(true);
+  });
+
+  it('idle / completed / failed → 没在跑(回合已结算)', () => {
+    expect(isSessionTurnActive('idle')).toBe(false);
+    expect(isSessionTurnActive('completed')).toBe(false);
+    expect(isSessionTurnActive('failed')).toBe(false);
+  });
+
+  it('waiting_approval / paused / 其它 → 不算在跑(审批/暂停由消费方单独处理)', () => {
+    expect(isSessionTurnActive('waiting_approval')).toBe(false);
+    expect(isSessionTurnActive('paused')).toBe(false);
+    expect(isSessionTurnActive('waiting_user')).toBe(false);
   });
 });

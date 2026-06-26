@@ -205,14 +205,6 @@ interface StartAgentInput {
   effort?: string;
 }
 
-interface BindDeviceInput {
-  name: string;
-  os: string;
-  host: string;
-  location: string;
-  pairingCode: string;
-}
-
 interface BindDeviceResult {
   ok: boolean;
   deviceId?: string;
@@ -253,7 +245,6 @@ export interface ControlCenterState {
   resetSessionData: () => void;
   markStale: () => void;
   handleTransportEvent: (event: PlatformTransportEvent) => void;
-  bindDevice: (input: BindDeviceInput) => Promise<BindDeviceResult>;
   renameDevice: (deviceId: string, name: string) => Promise<BindDeviceResult>;
   scanDeviceProjects: (deviceId: string) => Promise<void>;
   createProject: (input: {

@@ -189,6 +189,29 @@ describe('mergeVibeRunSnapshot preserves client-only lastViewedAt', () => {
   });
 });
 
+describe('mergeVibeRunSnapshot 双向 stale 守卫(事件驱动 status 的配套)', () => {
+  // ai.done 把 status 翻 idle 并 bump lastActivityMs 后,一个滞后的 running 快照不能
+  // 把它再翻回 running——否则回合结束会闪回进行中(就是当年要靠 8s 压的那种抖动)。
+  // 真正的新回合(新发送 / 更新的活动)lastActivityMs 更新,不被拦截。
+  it('不把已结算(idle)的会话被陈旧 running 快照重新激活', () => {
+    const existing = makeRun({ id: 's1', status: 'idle', lastActivityMs: 100 });
+    const incoming = makeRun({ id: 's1', status: 'running', lastActivityMs: 100 });
+    expect(mergeVibeRunSnapshot(existing, incoming).status).toBe('idle');
+  });
+
+  it('更新的活动(newer lastActivityMs)的 running 快照可以重新激活(真新回合)', () => {
+    const existing = makeRun({ id: 's1', status: 'idle', lastActivityMs: 100 });
+    const incoming = makeRun({ id: 's1', status: 'running', lastActivityMs: 200 });
+    expect(mergeVibeRunSnapshot(existing, incoming).status).toBe('running');
+  });
+
+  it('staleDemotion 仍然成立:活跃会话不被陈旧 idle 快照降级', () => {
+    const existing = makeRun({ id: 's1', status: 'running', lastActivityMs: 200 });
+    const incoming = makeRun({ id: 's1', status: 'idle', lastActivityMs: 100 });
+    expect(mergeVibeRunSnapshot(existing, incoming).status).toBe('running');
+  });
+});
+
 // Minimal device/project mocks — only fields the relation helpers touch. Cast
 // through unknown so we don't materialize the full literal.
 const makeDevice = (over: Partial<Device> & { id: string }): Device =>

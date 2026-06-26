@@ -3,6 +3,7 @@ import type { AgentCommandInfo, VibeCodingRun, VibeStatus } from '../../data/pla
 import { platformTransport } from '../../services/platformTransport';
 import { refreshSessionCommands as refreshSessionCommandsApi } from '../../api/sessions';
 import { normalizeProvider } from '../../utils/modelIntensity';
+import { isSessionTurnActive } from '../../utils/sessionPhase';
 import type { ControlCenterState } from '../types';
 import {
   activityNowMs,
@@ -460,12 +461,18 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       throw new Error('Platform connection is required before sending a VibeCoding message.');
     }
     const currentRun = get().vibeRuns.find(run => run.id === sessionId);
-    const isRunning = currentRun?.status === 'running' || currentRun?.status === 'waiting_approval';
     const provider = normalizeProvider(
       currentRun?.effectiveModelConfig?.provider ?? currentRun?.provider,
     );
-    const sendAsSteer = Boolean(isRunning && provider === 'codex');
-    if (isRunning && provider === 'claude_code') {
+    // 「回合是否在跑」走统一源头 isSessionTurnActive(= status==='running'),与顶部相位 /
+    // composer 锁 / 停止按钮同源。status 现在是事件驱动(发送→running、ai.done→idle、
+    // ai.error→failed),回合结束即时 idle,故 guard 也即时放行——不再因陈旧 running 误拦
+    // 「Claude Code is still running」。waiting_approval 是服务端主动推送的可靠态,仍拦。
+    const status = currentRun?.status;
+    const turnActive =
+      isSessionTurnActive(status ?? 'idle') || status === 'waiting_approval';
+    const sendAsSteer = Boolean(turnActive && provider === 'codex');
+    if (turnActive && provider === 'claude_code') {
       pendingMessageSends.delete(sendKey);
       throw new Error('Claude Code is still running. Stop it before sending another message.');
     }

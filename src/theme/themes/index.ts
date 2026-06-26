@@ -1,2 +1,2 @@
-export { cyberLogic } from './cyberLogic';
+export { darkTheme } from './darkTheme';
 export { utilityMinimalist } from './utilityMinimalist';

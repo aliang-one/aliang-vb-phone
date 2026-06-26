@@ -6,7 +6,6 @@ export type RootStackParamList = {
   Login: undefined;
   MainTabs: undefined;
   DebugDeviceTerminalBootstrap: { target: DebugDeviceTerminalTarget };
-  DeviceBinding: undefined;
   DeviceCameraScanner: undefined;
   DeviceDetail: { deviceId: string };
   DeviceTerminal: { deviceId: string; directory?: string; terminalId?: string };

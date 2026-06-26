@@ -67,7 +67,9 @@ import {
   buildConversationTurns,
 } from '../../utils/conversationTurns';
 import {
+  LIVE_TURN_WINDOW_MS,
   deriveSessionPhase,
+  isSessionTurnActive,
   lastUnrepliedUserMessageId,
   liveAssistantMessageId,
   sessionPhaseLabel,
@@ -886,30 +888,34 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const effectiveProvider = normalizeProvider(
     session?.effectiveModelConfig?.provider ?? session?.provider,
   );
-  // --- live 回合信号(hoist 到此处:composer 锁要先于下面的 handlers 用到 isSessionLive)---
-  // useNowTick 每 30s 触发一次重算,驱动「live 回合 → settle」的翻转(数据流期间 delta
-  // 每 60ms 自带重渲染,窗口判定始终新鲜)。isSessionLive 与 L1 deriveSessionPhase 同源,
-  // 是「claude_code 此刻是否真在干活」的可靠信号——压过常陈旧的 session.status。
+  // --- live 回合信号(hoist 到此处:composer 锁 / 停止按钮 / 发送 handlers 都先于此用到)---
+  // 事件驱动:isSessionLive = isSessionTurnActive(status) = status==='running'。回合边界由
+  // 确定性事件决定(发送→running / ai.done→idle / ai.error→failed / 中断→idle),配合
+  // mergeVibeRunSnapshot 的双向 stale 守卫——回合内 status 稳定 running、结束即时 idle。
+  // 不再用 8s 活动窗口:当年抖动是「用活动新鲜度猜结束」所致,换到事件驱动 status 后,
+  // 结束是确定信号(ai.done),不需要 debounce,也就没有 8s 滞后。
   const now = useNowTick();
+  // 统一源头:顶部相位 / composer 锁 / 停止按钮 / 发送 guard / L2-L3 脉冲都看它。
+  const isSessionLive = isSessionTurnActive(session?.status ?? 'idle');
+  // L3「哪条助手消息在流式」的高亮锚点:仅当回合在跑时才高亮最后一条 assistant 消息;
+  // ai.done→idle 后 isSessionLive 即 false,高亮即时消失(不再拖 8s)。
   const liveMessageId = useMemo(
     () =>
-      liveAssistantMessageId(
-        session?.transcript ?? [],
-        session?.lastActivityMs,
-        now,
-      ),
-    [session?.lastActivityMs, session?.transcript, now],
+      isSessionLive
+        ? liveAssistantMessageId(
+            session?.transcript ?? [],
+            session?.lastActivityMs,
+            now,
+          )
+        : undefined,
+    [isSessionLive, session?.lastActivityMs, session?.transcript, now],
   );
-  const isLiveTurn = Boolean(liveMessageId);
   const livePulse = useMemo(
-    () => deriveLivePulse(session?.structuredEvents ?? [], isLiveTurn),
-    [isLiveTurn, session?.structuredEvents],
+    () => deriveLivePulse(session?.structuredEvents ?? [], isSessionLive),
+    [isSessionLive, session?.structuredEvents],
   );
-  const isSessionLive = livePulse?.hasActive ?? isLiveTurn;
-  // Composer 锁:用 isSessionLive 判活(与顶部相位同源),而不是裸 session.status——
-  // 回合答完后 status 常停在陈旧的 'running',裸读会让底部锁「Claude Code 正在运行」
-  // 而顶部已显「已完成」(脱节 bug)。失败会话不锁(发新消息/重试会让服务端把 error
-  // 翻回 running)。详见 utils/sessionPhase.shouldLockComposerForProvider。
+  // Composer 锁:用 isSessionLive 判活(与顶部相位同源)。失败会话不锁(发新消息/重试会让
+  // 服务端把 error 翻回 running)。详见 utils/sessionPhase.shouldLockComposerForProvider。
   const shouldDisableComposerForProvider = shouldLockComposerForProvider(
     isSessionLive,
     session?.status,
@@ -942,11 +948,16 @@ export const VibeCodingSessionScreen: React.FC = () => {
           model: draftConfig.model,
           effort: draftConfig.effort,
         });
-        // Flip from draft to the real session. setCreatedSessionId updates this
-        // instance immediately; navigation.replace fixes the route so a later
-        // back/forward keeps the real sessionId (not the draftConfig route).
+        // Flip from draft to the real session IN PLACE — no remount. setParams
+        // mutates the current route's params so the back-stack / a persisted
+        // nav-state restore keeps the real sessionId (not the draftConfig route),
+        // while setCreatedSessionId swaps this instance draft→live immediately.
+        // NOTE: navigation.replace was used here before, but replace UNMOUNTS
+        // this screen and mounts a fresh one — clearing the input, resetting
+        // scroll, and re-fetching detail — which the user sees as a jarring
+        // "jump to a new same-layout page" right after the first send.
         setCreatedSessionId(sessionId);
-        navigation.replace('VibeCodingSession', { sessionId });
+        navigation.setParams({ sessionId, draftConfig: undefined });
         return true;
       } catch (error) {
         pendingScrollToEndRef.current = false;
@@ -1280,14 +1291,17 @@ export const VibeCodingSessionScreen: React.FC = () => {
     : shouldDisableComposerForProvider
       ? 'Claude Code 正在运行，停止后可继续输入。'
       : undefined;
-  const serviceThinksRunning =
-    session?.status === 'running' || session?.status === 'waiting_approval';
+  // 停止按钮显隐:与顶部相位 / composer 锁同源(看 isSessionLive),不裸读 session.status。
+  // 旧版用 `serviceThinksRunning`(裸 status)会在回合答完后 status 卡陈旧 running 时,
+  // 让停止按钮常驻显示——顶部已「已完成」、输入框已解锁,唯独停止按钮还在(脱节 bug)。
+  // waiting_approval 是服务端主动推送的可靠态(区别于 settle 的陈旧 running),沿用:
+  // 审批等待中仍允许打断回合。
   const canInterruptTurn =
     !deviceOffline &&
     !interruptingTurn &&
     session?.status !== 'failed' &&
     session?.status !== 'completed' &&
-    (isSessionLive || serviceThinksRunning);
+    (isSessionLive || session?.status === 'waiting_approval');
 
   const handleInterruptTurn = useCallback(() => {
     if (!session || !canInterruptTurn) return;

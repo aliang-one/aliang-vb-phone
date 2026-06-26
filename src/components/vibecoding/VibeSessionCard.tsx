@@ -31,10 +31,9 @@ const formatBudget = (budget: VibeCodingRun['projectBudget']) =>
       }${budget.limit}`
     : '';
 
-// Temporarily disable the long-press session action menu (rename / refresh /
-// close / pause). Long-pressing a session card now does nothing. Flip back to
-// `true` to re-enable the menu + its handler.
-const SESSION_LONG_PRESS_MENU_ENABLED = false;
+// Long-press a session card to open its action menu (rename / delete /
+// terminate, with a latest-question preview). Flip to `false` to disable.
+const SESSION_LONG_PRESS_MENU_ENABLED = true;
 
 interface VibeSessionCardProps {
   session: VibeCodingRun;
@@ -76,18 +75,12 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
       }
     };
     const [menuVisible, setMenuVisible] = useState(false);
-    const [detailsVisible, setDetailsVisible] = useState(false);
     const [notice, setNotice] = useState('');
     const [hidden, setHidden] = useState(false);
-    // Two-tap confirm guard for the destructive 结束 (terminate) action.
-    const [confirmTerminate, setConfirmTerminate] = useState(false);
     const [renaming, setRenaming] = useState(false);
     const [renameValue, setRenameValue] = useState('');
     const deleteAgentSession = useControlCenterStore(
       state => state.deleteAgentSession,
-    );
-    const terminateAgentSession = useControlCenterStore(
-      state => state.terminateAgentSession,
     );
     const updateAgentSession = useControlCenterStore(
       state => state.updateAgentSession,
@@ -101,6 +94,18 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
       directory: session.directory,
       projectName: project?.name,
     });
+    // Latest user question for the long-press menu preview. Prefer a just-sent
+    // user lastMessage (live, before the derived field catches up), then the
+    // mapped lastUserMessage, then the objective, so the preview is never empty
+    // even for transcript-less list snapshots.
+    const lastQuestionText =
+      (session.lastMessage?.role === 'user'
+        ? session.lastMessage.content
+        : '') ||
+      session.lastUserMessage?.content ||
+      session.objective ||
+      session.currentStep ||
+      '暂无提问';
     const statusColor =
       session.status === 'waiting_approval'
         ? theme.colors.tertiary
@@ -116,38 +121,22 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
       return null;
     }
 
-    const handleReport = () => {
-      setNotice(
-        `汇报：${vibeStatusLabel[session.status]} / ${session.currentStep}`,
-      );
-    };
-
-    const handleDelete = () => {
+    const handleDelete = async () => {
+      // Optimistically close the menu + hide the card so the list feels
+      // responsive; restore both only if the server rejects the delete.
       setMenuVisible(false);
-      deleteAgentSession(session.id);
       setHidden(true);
-    };
-
-    // Terminate the running agent (sends ai.stop terminate). First tap arms a
-    // confirm; the second tap fires it. Unlike delete the session record stays
-    // (just flips to closed), so we don't hide the card.
-    const handleTerminate = () => {
-      if (!confirmTerminate) {
-        setConfirmTerminate(true);
-        setNotice('再次点击「确认结束」以终止该会话。');
-        return;
+      try {
+        await deleteAgentSession(session.id);
+      } catch {
+        setHidden(false);
+        setMenuVisible(true);
+        setNotice('删除失败，设备可能离线，请重试。');
       }
-      setConfirmTerminate(false);
-      setMenuVisible(false);
-      void terminateAgentSession(session.id).catch(() => {
-        setNotice('结束失败，设备可能离线。');
-      });
     };
 
     const handleRenameStart = () => {
       setRenameValue(session.title || displayTitle);
-      setDetailsVisible(false);
-      setConfirmTerminate(false);
       setNotice('');
       setRenaming(true);
     };
@@ -179,30 +168,6 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
         setNotice('重命名失败，请重试。');
       }
     };
-
-    const renderInfoRow = (label: string, value: string) => (
-      <View style={styles.infoRow}>
-        <Text
-          style={[
-            theme.typography.labelCaps,
-            styles.infoLabel,
-            { color: theme.colors.onSurfaceVariant },
-          ]}
-        >
-          {label}
-        </Text>
-        <Text
-          numberOfLines={1}
-          style={[
-            theme.typography.codeSm,
-            styles.infoValue,
-            { color: theme.colors.onSurface },
-          ]}
-        >
-          {value}
-        </Text>
-      </View>
-    );
 
     const renderMenuAction = (
       label: string,
@@ -260,8 +225,6 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
             SESSION_LONG_PRESS_MENU_ENABLED
               ? () => {
                   setNotice('');
-                  setConfirmTerminate(false);
-                  setDetailsVisible(false);
                   setRenaming(false);
                   setMenuVisible(true);
                 }
@@ -565,14 +528,22 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                     </>
                   ) : (
                     <>
-                      <Text
-                        style={[
-                          theme.typography.labelCaps,
-                          { color: theme.colors.primary },
-                        ]}
-                      >
-                        VIBECODING
-                      </Text>
+                      <View style={styles.menuLabelRow}>
+                        <View
+                          style={[
+                            styles.menuStatusDot,
+                            { backgroundColor: statusColor },
+                          ]}
+                        />
+                        <Text
+                          style={[
+                            theme.typography.labelCaps,
+                            { color: theme.colors.primary },
+                          ]}
+                        >
+                          VIBECODING
+                        </Text>
+                      </View>
                       <Text
                         numberOfLines={2}
                         style={[
@@ -593,52 +564,47 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                 )}
               </View>
               {renaming ? null : (
-                <>
-                  <View style={styles.summaryPanel}>
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        theme.typography.codeSm,
-                        { color: theme.colors.onSurfaceVariant },
-                      ]}
-                    >
-                      {project?.name ?? session.projectId} /{' '}
-                      {device?.name ?? session.deviceId}
-                    </Text>
-                    <Text
-                      numberOfLines={2}
-                      style={[
-                        theme.typography.bodySm,
-                        { color: theme.colors.onSurface },
-                      ]}
-                    >
-                      {session.currentStep}
-                    </Text>
-                  </View>
-                  <View style={styles.reportButtonWrap}>
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={handleReport}
-                      style={[
-                        styles.reportButton,
-                        {
-                          backgroundColor: theme.colors.primary,
-                          ...(isDark ? theme.glow.primary : {}),
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          theme.typography.titleMd,
-                          styles.reportButtonText,
-                          { color: theme.colors.onPrimary },
-                        ]}
-                      >
-                        汇报
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
+                <View
+                  style={[
+                    styles.questionPanel,
+                    {
+                      backgroundColor: isDark
+                        ? 'rgba(255,255,255,0.05)'
+                        : theme.colors.surfaceContainer,
+                      borderLeftColor: statusColor,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      theme.typography.labelCaps,
+                      { color: theme.colors.onSurfaceVariant },
+                    ]}
+                  >
+                    最新提问
+                  </Text>
+                  <Text
+                    numberOfLines={3}
+                    style={[
+                      theme.typography.bodyMd,
+                      styles.questionText,
+                      { color: theme.colors.onSurface },
+                    ]}
+                  >
+                    {lastQuestionText}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      theme.typography.codeSm,
+                      styles.menuMetaText,
+                      { color: theme.colors.onSurfaceVariant },
+                    ]}
+                  >
+                    {project?.name ?? session.projectId} ·{' '}
+                    {device?.name ?? session.deviceId} · {activityLabel}
+                  </Text>
+                </View>
               )}
               {notice ? (
                 <Text
@@ -657,51 +623,9 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                   {renderMenuAction('保存', handleRenameSave, 'primary')}
                 </View>
               ) : (
-                <View style={styles.actionStack}>
-                  <View style={styles.actionGrid}>
-                    {renderMenuAction('重命名', handleRenameStart)}
-                    {renderMenuAction(
-                      detailsVisible ? '收起' : '更多',
-                      () => setDetailsVisible(current => !current),
-                    )}
-                  </View>
-                  {detailsVisible ? (
-                    <View style={styles.morePanel}>
-                      <View style={styles.fullTitleBlock}>
-                        <Text
-                          style={[
-                            theme.typography.labelCaps,
-                            { color: theme.colors.onSurfaceVariant },
-                          ]}
-                        >
-                          完整标题
-                        </Text>
-                        <Text
-                          style={[
-                            theme.typography.bodySm,
-                            { color: theme.colors.onSurface },
-                          ]}
-                        >
-                          {session.title || displayTitle}
-                        </Text>
-                      </View>
-                      {renderInfoRow('DIRECTORY', session.directory)}
-                      {renderInfoRow('BRANCH', session.branch)}
-                      {renderInfoRow('MODEL', session.model)}
-                      {session.projectBudget
-                        ? renderInfoRow('BUDGET', budgetLabel)
-                        : null}
-                      {renderInfoRow('RISK', session.risk.toUpperCase())}
-                    </View>
-                  ) : null}
-                  <View style={styles.actionGrid}>
-                    {renderMenuAction(
-                      confirmTerminate ? '确认结束' : '结束',
-                      handleTerminate,
-                      'danger',
-                    )}
-                    {renderMenuAction('删除', handleDelete, 'danger')}
-                  </View>
+                <View style={styles.actionGrid}>
+                  {renderMenuAction('重命名', handleRenameStart)}
+                  {renderMenuAction('删除', handleDelete, 'danger')}
                 </View>
               )}
             </GlassPanel>
@@ -828,57 +752,38 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 5,
   },
+  menuLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  menuStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
   renameInput: {
     borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  summaryPanel: {
-    gap: 7,
+  questionPanel: {
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderLeftWidth: 3,
   },
-  reportButtonWrap: {
-    alignItems: 'center',
-    paddingVertical: 2,
+  questionText: {
+    fontStyle: 'italic',
   },
-  reportButton: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  reportButtonText: {
-    fontWeight: '700',
-  },
-  morePanel: {
-    gap: 8,
-    paddingTop: 4,
-  },
-  fullTitleBlock: {
-    gap: 4,
-    paddingBottom: 6,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(128,128,128,0.18)',
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  infoLabel: {
-    width: 76,
-  },
-  infoValue: {
-    flex: 1,
-    textAlign: 'right',
+  menuMetaText: {
+    paddingTop: 2,
+    opacity: 0.8,
   },
   noticeText: {
     paddingTop: 2,
-  },
-  actionStack: {
-    gap: 8,
   },
   actionGrid: {
     flexDirection: 'row',
