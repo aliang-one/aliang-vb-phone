@@ -4,16 +4,17 @@ import {
   Pressable,
   View,
   Text,
-  TextInput,
   StyleSheet,
   TouchableOpacity,
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { Device, Project, VibeCodingRun } from '../../data/platformModels';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../../theme/useTheme';
 import { GlassPanel } from '../shared/GlassPanel';
 import { StatusChip } from '../shared/StatusChip';
 import { vibeStatusLabel, vibeStatusType } from './status';
+import { VoiceTextInput } from './VoiceTextInput';
 import {
   useControlCenterStore,
   useDevice,
@@ -133,6 +134,13 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
         setMenuVisible(true);
         setNotice('删除失败，设备可能离线，请重试。');
       }
+    };
+
+    const handleCopyUuid = () => {
+      const uuid = session.sourceSessionId;
+      if (!uuid) return;
+      Clipboard.setString(uuid);
+      setNotice('已复制会话 ID，可在终端 claude --resume <id> 打开。');
     };
 
     const handleRenameStart = () => {
@@ -506,24 +514,17 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                       >
                         重命名
                       </Text>
-                      <TextInput
+                      <VoiceTextInput
                         value={renameValue}
                         onChangeText={setRenameValue}
+                        sessionId={session.id}
+                        projectPath={session.directory ?? project?.path}
                         placeholder="输入新的会话标题"
                         placeholderTextColor={theme.colors.onSurfaceVariant}
-                        autoFocus
-                        selectTextOnFocus
                         maxLength={200}
                         returnKeyType="done"
                         onSubmitEditing={handleRenameSave}
-                        style={[
-                          theme.typography.titleLg,
-                          styles.renameInput,
-                          {
-                            color: theme.colors.onSurface,
-                            borderColor: theme.colors.outlineVariant,
-                          },
-                        ]}
+                        testIDPrefix="rename"
                       />
                     </>
                   ) : (
@@ -604,6 +605,57 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                     {project?.name ?? session.projectId} ·{' '}
                     {device?.name ?? session.deviceId} · {activityLabel}
                   </Text>
+                </View>
+              )}
+              {renaming || !session.sourceSessionId ? null : (
+                <View
+                  style={[
+                    styles.uuidRow,
+                    {
+                      borderColor: theme.colors.outlineVariant,
+                      backgroundColor: isDark
+                        ? 'rgba(255,255,255,0.04)'
+                        : theme.colors.surfaceContainer,
+                    },
+                  ]}
+                >
+                  <View style={styles.uuidInfo}>
+                    <Text
+                      style={[
+                        theme.typography.labelCaps,
+                        { color: theme.colors.onSurfaceVariant },
+                      ]}
+                    >
+                      {session.provider === 'codex' ? 'Codex' : 'Claude'} 会话 ID
+                    </Text>
+                    <Text
+                      numberOfLines={1}
+                      selectable
+                      style={[
+                        theme.typography.codeSm,
+                        { color: theme.colors.onSurfaceVariant },
+                      ]}
+                    >
+                      {session.sourceSessionId}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    activeOpacity={0.76}
+                    onPress={handleCopyUuid}
+                    style={[
+                      styles.copyBtn,
+                      { borderColor: theme.colors.outlineVariant },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        theme.typography.labelMd,
+                        { color: theme.colors.primary },
+                      ]}
+                    >
+                      复制
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               )}
               {notice ? (
@@ -781,6 +833,25 @@ const styles = StyleSheet.create({
   menuMetaText: {
     paddingTop: 2,
     opacity: 0.8,
+  },
+  uuidRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  uuidInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  copyBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
   },
   noticeText: {
     paddingTop: 2,

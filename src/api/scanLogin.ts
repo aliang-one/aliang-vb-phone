@@ -1,4 +1,5 @@
 import { accountPost } from './accountClient';
+import { ALIANG_API_BASE_URL } from '../config/accountService';
 
 /**
  * 手机扫码登录(对接 official-website 的 OAuth device-code 流程)。
@@ -44,14 +45,18 @@ export function extractScanCode(rawValue: string): string | undefined {
   return undefined;
 }
 
+// 扫码端点 `/auth/scan/*` 只在 Go 后端(backend.aliang.one),www 前端不代理它
+// (www 只代理 /api/*),所以这里必须显式指向 Go 后端,否则会拿到 Next.js 的 HTML。
+const SCAN_LOGIN_BASE = { baseUrl: ALIANG_API_BASE_URL };
+
 /** App 侧:扫码 → pending→scanned,绑定手机用户。 */
 export const scanLoginScan = (code: string) =>
-  accountPost<ScanLoginResult>('/auth/scan/scan', { code });
+  accountPost<ScanLoginResult>('/auth/scan/scan', { code }, SCAN_LOGIN_BASE);
 
 /** App 侧:确认登录 → mint st_,scanned→authorized。 */
 export const scanLoginConfirm = (code: string) =>
-  accountPost<ScanLoginResult>('/auth/scan/confirm', { code });
+  accountPost<ScanLoginResult>('/auth/scan/confirm', { code }, SCAN_LOGIN_BASE);
 
 /** App 侧:拒绝登录。 */
 export const scanLoginDeny = (code: string) =>
-  accountPost<ScanLoginResult>('/auth/scan/deny', { code });
+  accountPost<ScanLoginResult>('/auth/scan/deny', { code }, SCAN_LOGIN_BASE);

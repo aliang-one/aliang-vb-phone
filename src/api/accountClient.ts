@@ -47,7 +47,7 @@ export async function accountFetch<T = unknown>(
   path: string,
   options: ApiFetchOptions = {},
 ): Promise<T> {
-  const { headers: optionHeaders, skipRefreshRetry, ...fetchOptions } = options;
+  const { headers: optionHeaders, skipRefreshRetry, baseUrl, ...fetchOptions } = options;
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'Content-Type': 'application/json',
@@ -59,12 +59,17 @@ export async function accountFetch<T = unknown>(
   }
   let lastError: unknown;
 
-  // Try each candidate base URL. An ApiResponseError propagates immediately to
-  // the retry wrapper; a network error falls through to the next candidate.
+  // An explicit baseUrl overrides the candidate list (scan-login targets the Go
+  // backend directly, which isn't proxied by the www frontend). Otherwise try
+  // each candidate base URL; an ApiResponseError propagates immediately to the
+  // retry wrapper, a network error falls through to the next candidate.
+  const baseCandidates = baseUrl
+    ? [normalizeAccountBaseUrl(baseUrl)]
+    : ACCOUNT_BASE_URL_CANDIDATES;
   const runCandidates = async (): Promise<T> => {
-    for (const baseUrl of ACCOUNT_BASE_URL_CANDIDATES) {
+    for (const candidate of baseCandidates) {
       try {
-        const url = `${baseUrl}${path}`;
+        const url = `${candidate}${path}`;
         const response = await Promise.race([
           fetch(url, { ...fetchOptions, headers }),
           timeout(REQUEST_TIMEOUT_MS),

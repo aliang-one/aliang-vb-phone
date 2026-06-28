@@ -41,6 +41,7 @@ export interface ServerAiSession {
   model?: string;
   provider?: 'codex' | 'claude' | 'claudecode';
   tool?: 'codex' | 'claude' | 'claudecode';
+  source_session_id?: string;
   risk?: 'low' | 'medium' | 'high';
   /**
    * Reasoning effort. Provider-specific:

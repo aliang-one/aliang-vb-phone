@@ -67,3 +67,13 @@ jest.mock('react-native-live-audio-stream', () => ({
     removeListener: jest.fn(),
   },
 }));
+
+jest.mock('@react-native-clipboard/clipboard', () => ({
+  __esModule: true,
+  default: {
+    setString: jest.fn(),
+    setStringAsync: jest.fn(() => Promise.resolve()),
+    getString: jest.fn(() => ''),
+    getStringAsync: jest.fn(() => Promise.resolve('')),
+  },
+}));

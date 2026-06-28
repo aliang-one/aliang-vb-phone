@@ -523,6 +523,7 @@ export function serverAiSessionToVibeRun(
     lastRetryMax: session.last_retry_max,
     lastMessage,
     lastUserMessage,
+    sourceSessionId: session.source_session_id || undefined,
     // Only mark detail-loaded when there is actual content. An empty array is
     // truthy in JS, so the old `session.transcript || session.events` form
     // marked a snapshot whose arrays were `[]` as "loaded" and suppressed the
@@ -760,6 +761,10 @@ export function mergeVibeRunSnapshot(
       transcript,
       incoming.lastUserMessage ?? existing.lastUserMessage,
     ),
+    // Preserve the bound CLI session id (Claude uuid) across merges: a
+    // transcript-less list snapshot omits it, so keep the last known value
+    // rather than letting the spread wipe it.
+    sourceSessionId: incoming.sourceSessionId ?? existing.sourceSessionId,
   };
 }
 

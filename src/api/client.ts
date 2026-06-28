@@ -27,6 +27,13 @@ export class ApiResponseError extends Error {
 export type ApiFetchOptions = RequestInit & {
   timeoutMs?: number;
   /**
+   * Override the API base URL for this one request. Used by scan-login, whose
+   * `/auth/scan/*` endpoints live on the Go backend (e.g. backend.aliang.one)
+   * and are NOT proxied by the www frontend (only `/api/*` is). When omitted,
+   * the caller's default base (accountClient → www.aliang.one) is used.
+   */
+  baseUrl?: string;
+  /**
    * Internal: skip the refresh-then-retry path. Set on the refresh request
    * itself so a 401 from `/api/auth/refresh` can't recurse into another refresh.
    */

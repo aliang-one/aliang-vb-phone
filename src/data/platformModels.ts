@@ -234,6 +234,14 @@ export interface VibeCodingRun {
    * Survives snapshot merges like `lastMessage`.
    */
   lastUserMessage?: AgentMessage;
+  /**
+   * The CLI session id (Claude's uuid / codex id) this run is bound to — what
+   * you'd pass to `claude --resume <id>`. Present for agent-discovered (imported)
+   * sessions; for phone-created Claude sessions it's bound once Phase 2 persists
+   * it server-side. Shown in the long-press menu with a copy button. Undefined
+   * when not yet bound.
+   */
+  sourceSessionId?: string;
   detailLoadedAt?: string;
   /**
    * Server `detail_refresh.status` from the last single-session fetch — lets the
