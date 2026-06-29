@@ -8,6 +8,7 @@ import {
   formatBytes,
   nowTime,
   platformDeviceToClient,
+  removeDeviceFromState,
   serverProjectContentToFileEntry,
   serverProjectFileToClient,
   serverProjectToClient,
@@ -16,7 +17,7 @@ import {
 type DeviceProjectSlice = Pick<
   ControlCenterState,
   | 'devices' | 'projects' | 'projectFiles' | 'scanResults'
-  | 'renameDevice' | 'scanDeviceProjects'
+  | 'renameDevice' | 'removeDevice' | 'scanDeviceProjects'
   | 'createProject' | 'updateProject' | 'deleteProject'
   | 'loadProjectFiles' | 'loadProjectFileContent' | 'dropFileContent'
 >;
@@ -64,6 +65,35 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
       ].slice(0, 120),
     }));
 
+    return { ok: true, deviceId };
+  },
+
+  removeDevice: async (deviceId) => {
+    if (!get().serverMode) {
+      return {
+        ok: false,
+        error: 'Platform connection is required before removing a device.',
+      };
+    }
+    const device = get().devices.find(d => d.id === deviceId);
+    try {
+      await platformTransport.unbindDevice(deviceId);
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to remove device.',
+      };
+    }
+    set(state =>
+      removeDeviceFromState(
+        state.devices,
+        state.projects,
+        state.vibeRuns,
+        state.events,
+        deviceId,
+        device?.name ?? 'Device',
+      ),
+    );
     return { ok: true, deviceId };
   },
 

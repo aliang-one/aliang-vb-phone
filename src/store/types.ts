@@ -246,6 +246,7 @@ export interface ControlCenterState {
   markStale: () => void;
   handleTransportEvent: (event: PlatformTransportEvent) => void;
   renameDevice: (deviceId: string, name: string) => Promise<BindDeviceResult>;
+  removeDevice: (deviceId: string) => Promise<BindDeviceResult>;
   scanDeviceProjects: (deviceId: string) => Promise<void>;
   createProject: (input: {
     deviceId: string;
