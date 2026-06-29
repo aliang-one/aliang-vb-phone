@@ -1,4 +1,5 @@
 import {
+  unbindDevice as apiUnbindDevice,
   updateDeviceSettings as apiUpdateDeviceSettings,
   type ServerDevice,
 } from '../api/devices';
@@ -320,6 +321,10 @@ class PlatformTransport {
   ): Promise<PlatformDeviceSnapshot> {
     const result = await apiUpdateDeviceSettings(deviceId, input);
     return normalizeServerDevice(result);
+  }
+
+  unbindDevice(deviceId: string): Promise<{ status: string; device_id: string }> {
+    return apiUnbindDevice(deviceId);
   }
 
   scanDeviceProjects(deviceId: string): Promise<{ status: string; device_id: string }> {
