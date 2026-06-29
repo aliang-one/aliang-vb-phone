@@ -16,6 +16,7 @@ import {
   IDLE_DEMOTE_MS,
   mergeAgentMessages,
   mergeVibeRunSnapshot,
+  removeDeviceFromState,
 } from '../internals';
 
 // Minimal run mock — only fields the helpers touch. Cast through unknown so we
@@ -324,5 +325,30 @@ describe('mergeAgentMessages', () => {
     const kept = merged.find(m => m.id === 'opt_2');
     expect(kept).toBeDefined();
     expect(kept?.failed).toBe(true);
+  });
+});
+
+describe('removeDeviceFromState', () => {
+  it('removes the device, its projects and vibe runs, and emits an event', () => {
+    const devices = [makeDevice({ id: 'd1' }), makeDevice({ id: 'd2' })];
+    const projects = [makeProject({ id: 'p1', deviceId: 'd1' }), makeProject({ id: 'p2', deviceId: 'd2' })];
+    const vibeRuns = [makeRun({ id: 'r1', deviceId: 'd1' })];
+    const result = removeDeviceFromState(devices, projects, vibeRuns, [], 'd1', 'Dev One');
+    expect(result.devices.map(d => d.id)).toEqual(['d2']);
+    expect(result.projects.map(p => p.id)).toEqual(['p2']);
+    expect(result.vibeRuns.map(r => r.id)).toEqual([]);
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0].title).toBe('Device removed');
+    expect(result.events[0].detail).toBe('Dev One');
+    expect(result.events[0].type).toBe('device.bound');
+  });
+
+  it('leaves unrelated devices/projects untouched when deviceId absent', () => {
+    const devices = [makeDevice({ id: 'd2' })];
+    const projects = [makeProject({ id: 'p2', deviceId: 'd2' })];
+    const result = removeDeviceFromState(devices, projects, [], [], 'missing', 'X');
+    expect(result.devices.map(d => d.id)).toEqual(['d2']);
+    expect(result.projects.map(p => p.id)).toEqual(['p2']);
+    expect(result.events).toHaveLength(1);
   });
 });

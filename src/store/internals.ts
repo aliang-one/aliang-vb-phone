@@ -1382,6 +1382,37 @@ export const attachDeviceRelations = (
 ): Device[] =>
   attachActiveSessionIds(attachProjectIds(devices, projects), vibeRuns);
 
+/**
+ * Pure state transition for removing a device after a successful /unbind.
+ * Drops the device, any projects / vibe runs referencing it, re-attaches
+ * relation counts on surviving devices, and prepends a 'Device removed' event.
+ * Tested directly (see internals.test.ts) — the store action is a thin wrapper.
+ */
+export const removeDeviceFromState = (
+  devices: Device[],
+  projects: Project[],
+  vibeRuns: VibeCodingRun[],
+  events: UnifiedEvent[],
+  deviceId: string,
+  deviceName: string,
+): { devices: Device[]; projects: Project[]; vibeRuns: VibeCodingRun[]; events: UnifiedEvent[] } => {
+  const nextProjects = projects.filter(project => project.deviceId !== deviceId);
+  const nextVibeRuns = vibeRuns.filter(run => run.deviceId !== deviceId);
+  return {
+    projects: nextProjects,
+    vibeRuns: nextVibeRuns,
+    devices: attachDeviceRelations(
+      devices.filter(device => device.id !== deviceId),
+      nextProjects,
+      nextVibeRuns,
+    ),
+    events: [
+      event('device.bound', 'Device removed', deviceName, 'done', { deviceId }),
+      ...events,
+    ].slice(0, 120),
+  };
+};
+
 export function stateFromSnapshot(
   snapshot: Awaited<ReturnType<typeof platformTransport.loadSnapshot>>,
   previousRuns: VibeCodingRun[],
