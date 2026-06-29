@@ -16,7 +16,7 @@ import { StatusChip } from '../../components/shared/StatusChip';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { TerminalCard } from '../../components/terminals/TerminalCard';
 import { RootStackParamList } from '../../app/navigation/types';
-import { useControlCenterStore } from '../../store/controlCenterStore';
+import { useControlCenterStore, useStableVibeRuns } from '../../store/controlCenterStore';
 import { IconBadge } from '../../components/visual/IconBadge';
 import { RingMeter } from '../../components/visual/RingMeter';
 import { VibeStatus } from '../../data/platformModels';
@@ -82,7 +82,7 @@ export const DeviceDetailScreen: React.FC = () => {
   const route = useRoute<DeviceRoute>();
   const devices = useControlCenterStore(state => state.devices);
   const projectsStore = useControlCenterStore(state => state.projects);
-  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
+  const vibeRuns = useStableVibeRuns();
   const events = useControlCenterStore(state => state.events);
   const approvals = useControlCenterStore(state => state.approvals);
   const scanResults = useControlCenterStore(state => state.scanResults);

@@ -22,7 +22,7 @@ import { ActionTile } from '../../components/visual/ActionTile';
 import { IconBadge } from '../../components/visual/IconBadge';
 import { RingMeter } from '../../components/visual/RingMeter';
 import { RootStackParamList } from '../../app/navigation/types';
-import { useControlCenterStore } from '../../store/controlCenterStore';
+import { useControlCenterStore, useStableVibeRuns } from '../../store/controlCenterStore';
 import { useSessionStore } from '../../../stores/useSettingsStore';
 import { ratioPercent, daysUntil, formatDate } from '../../utils/format';
 import type { AccountSubscription } from '../../api/account';
@@ -37,7 +37,7 @@ export const SettingsScreen: React.FC = () => {
   const { theme, isDark, mode, setMode } = useTheme();
   const navigation = useNavigation<Navigation>();
   const devices = useControlCenterStore(state => state.devices);
-  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
+  const vibeRuns = useStableVibeRuns();
   const projects = useControlCenterStore(state => state.projects);
   const approvals = useControlCenterStore(state => state.approvals);
   const notifications = useControlCenterStore(state => state.notifications);

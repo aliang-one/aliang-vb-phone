@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand';
 import { platformTransport } from '../../services/platformTransport';
 import { cancelDeltaBatch, cancelRefreshDebounce } from '../streaming';
+import { cancelStructuredBatch } from '../structuredBatching';
 import { cancelTerminalBatch } from '../terminalBatching';
 import type { ControlCenterState } from '../types';
 import { emptySessionData, stateFromSnapshot } from '../internals';
@@ -42,6 +43,7 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
   initializeFromServer: async (token) => {
     platformTransport.disconnect();
     cancelDeltaBatch();
+    cancelStructuredBatch();
     cancelTerminalBatch();
     cancelRefreshDebounce();
     set(state => {
@@ -83,6 +85,7 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
       console.warn('[store] Failed to initialize from server:', error);
       platformTransport.disconnect();
       cancelDeltaBatch();
+    cancelStructuredBatch();
       cancelRefreshDebounce();
       set({ wsConnected: false, serverMode: false });
       throw error instanceof Error
@@ -127,6 +130,7 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
   disconnectFromServer: () => {
     platformTransport.disconnect();
     cancelDeltaBatch();
+    cancelStructuredBatch();
     cancelTerminalBatch();
     cancelRefreshDebounce();
     set({ wsConnected: false, serverMode: false });
@@ -135,6 +139,7 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
   resetSessionData: () => {
     platformTransport.disconnect();
     cancelDeltaBatch();
+    cancelStructuredBatch();
     cancelTerminalBatch();
     cancelRefreshDebounce();
     set({

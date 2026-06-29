@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { useControlCenterStore } from '../store/controlCenterStore';
+import { useStableVibeRuns } from '../store/controlCenterStore';
 import { serverAiSessionToVibeRun } from '../store/internals';
 import { fetchProjectAiSessions } from '../api/projects';
 
@@ -34,7 +34,7 @@ export function useProjectSessions(
   opts?: { limit?: number },
 ): UseProjectSessionsResult {
   const limit = opts?.limit;
-  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
+  const vibeRuns = useStableVibeRuns();
   const [fetched, setFetched] = useState<ProjectSessionRun[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(false);

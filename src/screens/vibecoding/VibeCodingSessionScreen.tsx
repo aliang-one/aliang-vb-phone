@@ -388,21 +388,36 @@ export const VibeCodingSessionScreen: React.FC = () => {
     }
     return byMessageId;
   }, [session?.structuredEvents]);
-  const activityEventsByDisplayMessageId = useMemo(() => {
-    const byDisplayMessageId = new Map<string, StructuredActivityEvent[]>();
+  // Reverse lookup (source AgentMessage.id → coalesced display message id),
+  // built from the transcript. Depends ONLY on transcript, so it recomputes
+  // rarely — Phase 1 keeps the transcript array referentially stable while only
+  // structuredEvents change during streaming/thinking. This lets the display
+  // activity map below be O(M) instead of walking the whole transcript.
+  const sourceToDisplayMessageId = useMemo(() => {
+    const bySourceId = new Map<string, string>();
     for (const message of transcript) {
       if (message.role !== 'assistant') continue;
-      const events: StructuredActivityEvent[] = [];
-      for (const messageId of message.sourceMessageIds) {
-        const sourceEvents = activityEventsByMessageId.get(messageId);
-        if (sourceEvents) events.push(...sourceEvents);
-      }
-      if (events.length) {
-        byDisplayMessageId.set(message.id, events);
+      for (const sourceId of message.sourceMessageIds) {
+        bySourceId.set(sourceId, message.id);
       }
     }
+    return bySourceId;
+  }, [transcript]);
+  // O(M) (M = structuredEvents) instead of O(n): iterate the per-source-id
+  // activity map and land each event on its display bubble via the reverse
+  // lookup. Source ids with no display bubble (tool-only turns whose empty prose
+  // was dropped) are skipped here — they're surfaced as orphan activity below.
+  const activityEventsByDisplayMessageId = useMemo(() => {
+    const byDisplayMessageId = new Map<string, StructuredActivityEvent[]>();
+    for (const [sourceMessageId, events] of activityEventsByMessageId) {
+      const displayId = sourceToDisplayMessageId.get(sourceMessageId);
+      if (!displayId) continue;
+      const existing = byDisplayMessageId.get(displayId);
+      if (existing) existing.push(...events);
+      else byDisplayMessageId.set(displayId, events.slice());
+    }
     return byDisplayMessageId;
-  }, [activityEventsByMessageId, transcript]);
+  }, [activityEventsByMessageId, sourceToDisplayMessageId]);
   const conversationTurns = useMemo(
     () => buildConversationTurns(transcript),
     [transcript],

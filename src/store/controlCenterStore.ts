@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { useMemo } from 'react';
-import type { PreviewLink, VibeStatus } from '../data/platformModels';
+import { shallow, useShallow } from 'zustand/shallow';
+import type { PreviewLink, VibeCodingRun, VibeStatus } from '../data/platformModels';
 import { routeTerminalOutputToEmulator } from '../components/terminal/TerminalEmulator';
 import { applyDeltasToRuns } from '../utils/deltaBatch';
 import { terminalDisplayUpdate } from '../utils/terminalOutput';
@@ -10,6 +11,13 @@ import {
   registerDeltaApplier,
   scheduleRefreshDebounce,
 } from './streaming';
+import {
+  flushStructuredEvents,
+  isStructuredTransportEvent,
+  pushStructuredEvent,
+  registerStructuredApplier,
+  type StructuredTransportEvent,
+} from './structuredBatching';
 import {
   flushTerminalOutput,
   pushTerminalOutput,
@@ -81,6 +89,78 @@ export const useVibeRun = (sessionId: string | undefined) =>
   useControlCenterStore(state =>
     sessionId ? state.vibeRuns.find(run => run.id === sessionId) : undefined,
   );
+
+// ============================================================
+// Churn-stable list subscription (useStableVibeRuns)
+// ------------------------------------------------------------
+// List screens (VibeCodingListScreen / DeviceDetailScreen / etc.) used to read
+// `state.vibeRuns` directly. That array's reference flips on EVERY store write
+// — including a thinking/streaming flush, which only mutates one run's
+// `structuredEvents`. So a single session thinking forced ALL seven list
+// subscribers to re-render dozens of times/sec for nothing the lists display
+// (VibeSessionCard renders only metadata — status/currentStep/branch/... —
+// never structuredEvents). That saturated the JS thread and starved the
+// tap→navigate transition → "tapping into a thinking session is laggy".
+//
+// `toStableRun` returns the SAME run object reference across updates that only
+// touched the high-frequency bulk arrays (structuredEvents / events /
+// transcript), by caching per-id and reusing the cached run whenever its
+// metadata fingerprint is unchanged. `useStableVibeRuns` pairs that with
+// `useShallow`, so a list screen re-renders ONLY when a VISIBLE metadata field
+// actually changes — never per thinking token / streaming delta.
+//
+// The cached run's bulk arrays may be stale (frozen at the last metadata
+// change); that is fine because list screens/cards render metadata only, and
+// the live conversation screen reads via `useVibeRun` (the live per-id
+// selector) — so no stale content is ever shown. Bounded by the global session
+// cap; stale entries for removed sessions are a negligible fixed cost.
+// ============================================================
+
+// The high-frequency bulk arrays lists never display — excluded from the
+// metadata fingerprint so churn on them doesn't invalidate list subscriptions.
+const VIBE_RUN_BULK_KEYS = [
+  'structuredEvents',
+  'events',
+  'transcript',
+] as const;
+
+const stableRunCache = new Map<
+  string,
+  { meta: Record<string, unknown>; run: VibeCodingRun }
+>();
+
+/** Metadata fingerprint of a run — every field EXCEPT the bulk arrays. Built by
+ *  shallow-copy + delete (not destructuring) so it auto-includes any future
+ *  metadata field without an explicit allow-list to maintain. */
+function vibeRunMeta(run: VibeCodingRun): Record<string, unknown> {
+  const meta: Record<string, unknown> = { ...run };
+  for (const key of VIBE_RUN_BULK_KEYS) {
+    delete meta[key];
+  }
+  return meta;
+}
+
+/** Return a run object that is referentially stable across updates touching only
+ *  the bulk arrays. Exposed for testing. */
+export function toStableRun(run: VibeCodingRun): VibeCodingRun {
+  const meta = vibeRunMeta(run);
+  const cached = stableRunCache.get(run.id);
+  if (cached !== undefined && shallow(cached.meta, meta)) {
+    return cached.run;
+  }
+  stableRunCache.set(run.id, { meta, run });
+  return run;
+}
+
+/** Subscribe to all AI sessions as referentially-stable run objects for LIST
+ *  rendering. Re-renders the subscriber ONLY when a visible metadata field
+ *  changes — NOT per thinking token / streaming delta. Prefer this over
+ *  `state.vibeRuns` in any screen that renders a session list/cards. */
+export function useStableVibeRuns(): VibeCodingRun[] {
+  return useControlCenterStore(
+    useShallow(state => state.vibeRuns.map(toStableRun)),
+  );
+}
 
 /** Subscribe to approvals for one session, sorted newest-first. */
 export const useSessionApprovals = (sessionId: string | undefined) => {
@@ -227,6 +307,37 @@ export const useControlCenterStore = create<ControlCenterState>()(
       }),
     );
 
+    // Let ./structuredBatching flush buffered structured activity events
+    // (ai.command/file_change/thinking/usage/task) back into the store without
+    // it depending on zustand. The agent emits these — especially ai.thinking —
+    // at LLM-token rate (dozens/sec during a thinking phase), so one
+    // identity-preserving write per flush window turns a per-token re-render
+    // storm into ~10/sec. Events are grouped by session and folded in arrival
+    // order via applyStructuredEvent (upsert by eventId); untouched runs keep
+    // their object reference so a fine-grained useVibeRun(id) subscriber on
+    // another session doesn't re-render.
+    registerStructuredApplier((events: StructuredTransportEvent[]) =>
+      set(state => {
+        const bySession = new Map<string, StructuredTransportEvent[]>();
+        for (const ev of events) {
+          const arr = bySession.get(ev.sessionId);
+          if (arr) arr.push(ev);
+          else bySession.set(ev.sessionId, [ev]);
+        }
+        let changed = false;
+        const next = state.vibeRuns.map(run => {
+          const mine = bySession.get(run.id);
+          if (!mine) return run;
+          changed = true;
+          return mine.reduce(
+            (current, ev) => applyStructuredEvent(current, ev),
+            run,
+          );
+        });
+        return { vibeRuns: changed ? evictOverflowVibeRuns(next) : state.vibeRuns };
+      }),
+    );
+
     // Let ./terminalBatching flush buffered `terminal.output` chunks back into
     // the store without it depending on zustand. One identity-preserving write
     // per flush window: chunks are grouped by session and applied in arrival
@@ -295,6 +406,13 @@ export const useControlCenterStore = create<ControlCenterState>()(
           }
           if (transportEvent.type !== 'terminal.output') {
             flushTerminalOutput();
+          }
+          // Structured activity is buffered the same way — flush it before any
+          // NON-structured event so ordering is preserved (e.g. ai.done must see
+          // the final thinking/command state). A structured event itself stays
+          // buffered and is handled by its own case below.
+          if (!isStructuredTransportEvent(transportEvent)) {
+            flushStructuredEvents();
           }
 
           switch (transportEvent.type) {
@@ -603,17 +721,13 @@ export const useControlCenterStore = create<ControlCenterState>()(
             case 'ai.thinking':
             case 'ai.usage':
             case 'ai.task': {
-              // All 5 structured-activity transport types funnel through
-              // applyStructuredEvent, which dispatches on type internally
-              // (command two-state merge, task replace, others overlay) and
-              // upserts onto run.structuredEvents by eventId.
-              set(state => ({
-                vibeRuns: state.vibeRuns.map(run =>
-                  run.id === transportEvent.sessionId
-                    ? applyStructuredEvent(run, transportEvent)
-                    : run,
-                ),
-              }));
+              // Buffer the event; pushStructuredEvent schedules a single
+              // coalesced flush per window so subscribed screens re-render once
+              // per flush instead of once per token (esp. ai.thinking, which
+              // arrives at LLM-token rate). The flush folds the batch in arrival
+              // order via applyStructuredEvent (upsert by eventId) — see the
+              // applier registered at store creation.
+              pushStructuredEvent(transportEvent);
               return;
             }
 

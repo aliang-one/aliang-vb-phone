@@ -24,7 +24,7 @@ import { IconBadge, IconName } from '../../components/visual/IconBadge';
 import { ProjectWorkspaceCard } from '../../components/cards/ProjectWorkspaceCard';
 import { Project, VibeCodingRun } from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
-import { useControlCenterStore } from '../../store/controlCenterStore';
+import { useControlCenterStore, useStableVibeRuns } from '../../store/controlCenterStore';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { newestFirst } from '../../utils/timeSort';
@@ -116,7 +116,7 @@ export const CommandCenterScreen: React.FC = () => {
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
   const previewLinks = useControlCenterStore(state => state.previewLinks);
-  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
+  const vibeRuns = useStableVibeRuns();
   const approvals = useControlCenterStore(state => state.approvals);
   const notifications = useControlCenterStore(state => state.notifications);
   const events = useControlCenterStore(state => state.events);

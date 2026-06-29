@@ -28,7 +28,7 @@ import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { TerminalCard } from '../../components/terminals/TerminalCard';
 import { VibeStatus } from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
-import { useControlCenterStore } from '../../store/controlCenterStore';
+import { useControlCenterStore, useStableVibeRuns } from '../../store/controlCenterStore';
 import { ACTIVE_RUN_STATUS } from '../../store/internals';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
@@ -167,7 +167,7 @@ export const VibeCodingListScreen: React.FC = () => {
   const { width } = useWindowDimensions();
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
-  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
+  const vibeRuns = useStableVibeRuns();
   const refreshFromServer = useControlCenterStore(
     state => state.refreshFromServer,
   );

@@ -20,7 +20,7 @@ import {
 import { NewSessionButton } from '../../components/vibecoding/NewSessionButton';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useTheme } from '../../theme/useTheme';
-import { useControlCenterStore } from '../../store/controlCenterStore';
+import { useControlCenterStore, useStableVibeRuns } from '../../store/controlCenterStore';
 import { IconBadge } from '../../components/visual/IconBadge';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
@@ -47,7 +47,7 @@ export const AgentSessionsScreen: React.FC = () => {
   const route = useRoute<AgentSessionsRoute>();
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
-  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
+  const vibeRuns = useStableVibeRuns();
 
   // When opened for a specific project, use the project-scoped fetch (full
   // history, decoupled from the globally-capped vibeRuns store). Otherwise

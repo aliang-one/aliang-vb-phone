@@ -11,6 +11,7 @@ import { useTheme } from '../../theme/useTheme';
 import {
   PushNotificationItem,
   useControlCenterStore,
+  useStableVibeRuns,
 } from '../../store/controlCenterStore';
 import { IconBadge, IconName } from '../../components/visual/IconBadge';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
@@ -52,7 +53,7 @@ export const NotificationCenterScreen: React.FC = () => {
   const navigation = useNavigation<Navigation>();
   const notifications = useControlCenterStore(state => state.notifications);
   const devices = useControlCenterStore(state => state.devices);
-  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
+  const vibeRuns = useStableVibeRuns();
   const deviceStatusIndex = useMemo(
     () => buildDeviceStatusIndex(devices),
     [devices],
