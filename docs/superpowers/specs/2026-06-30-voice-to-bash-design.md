@@ -176,7 +176,7 @@ recording ──stop──► transcribing ──endpoint──► confirming �
                     (error + retry)
 ```
 
-- `recording`:复用 `useVoiceStt({ onComplete, sessionId, projectPath })`。点按切换(点 mic 开始、点"停止"结束),实时字幕(`liveCaption`)。`onComplete(transcript)` → 进 `transcribing`。
+- `recording`:复用 `useVoiceStt()`(hook 无参)+ `start({ onComplete, sessionId, projectPath })`。点按切换(点 mic 开始、点"停止"结束),实时字幕(`liveCaption`)。`onComplete(transcript)` → 进 `transcribing`。
 - `transcribing`:`apiPost('/api/ai/command-gen', { text, deviceId, cwd, mode, sessionId, projectId })` → `{ command, dangerous }` → 进 `confirming`。失败 → 错误态 + 重试/取消。
 - `confirming`:可编辑 `TextInput`(mono)预填 `command`;`dangerous` 或本地 `isUnsafeSuggestion(command)` 命中 → 红字警告 + "确认运行"需二次点按;按钮 `取消 / 重录 / 确认运行`。确认 → `onConfirm(command)` → 关闭。(本地危险检测需把 `isUnsafeSuggestion` / `DANGEROUS_COMMANDS` 从 `utils/terminalSuggestions.ts` 导出复用 —— 当前为模块内非导出。)
 - 卸载/取消 → `useVoiceStt.cancel()`。

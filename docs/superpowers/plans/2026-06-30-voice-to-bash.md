@@ -387,13 +387,16 @@ export async function generateCommand(input: GenInput): Promise<GenResult> {
 async function runTool(input: GenInput, name: string, args: Record<string, unknown>): Promise<string> {
   rememberAudit({ userId: input.userId, deviceId: input.deviceId, sessionId: input.sessionId, projectId: input.projectId, eventType: 'command_gen.tool', metadata: { tool: name, args } });
   try {
+    // NOTE: the reused file.list/file.read RPCs read `project_path` on the agent
+    // side (confirmed: agent_detail.go resolveAgentProjectPath(remoteString(msg,"project_path")));
+    // the NEW git.status/env.info handlers read `cwd` (authored fresh). Confirm in G1.
     switch (name) {
       case 'list_dir':
-        return stringify(await requestAgentPayload(input.userId, input.deviceId, 'file.list', { cwd: input.cwd, path: String(args.path ?? '.') }));
+        return stringify(await requestAgentPayload(input.userId, input.deviceId, 'file.list', { project_path: input.cwd, path: String(args.path ?? '.') }));
       case 'read_file': {
         const path = String(args.path ?? '');
         if (isSensitivePath(path)) return 'error: sensitive_path_denied';
-        const r = await requestAgentPayload(input.userId, input.deviceId, 'file.read', { cwd: input.cwd, path });
+        const r = await requestAgentPayload(input.userId, input.deviceId, 'file.read', { project_path: input.cwd, path });
         const text = stringify(r); // agent may return base64; keep simple — cap length
         return text.slice(0, MAX_READ_BYTES);
       }
@@ -568,7 +571,7 @@ export const generateCommand = (input: {
   - local `isUnsafeSuggestion` command (user-edited to `rm -rf x`) triggers second confirm.
   - Cancel calls `useVoiceStt.cancel()`.
   - Endpoint failure → error state with retry.
-- [ ] **Step 2: Implement.** State machine `recording | transcribing | confirming | error`. Props: `{ visible, mode, deviceId, cwd, deviceOs?, sessionId?, projectId?, onClose, onConfirm }`. Use `useVoiceStt({ onComplete: async transcript => { setStatus('transcribing'); const r = await generateCommand({...}); setCommand(r.command); setDangerous(r.dangerous || isUnsafeSuggestion(r.command)); setStatus('confirming'); } })`. Tap mic to start, tap "停止" → `stop()`. Confirming: editable `TextInput` (mono) + danger red text + `取消 / 重录 / 确认运行`. `onConfirm(command)`. On close/unmount: `cancel()`. (Render in a `<Modal>`; reuse `GlassPanel` + theme typography for house style.)
+- [ ] **Step 2: Implement.** State machine `recording | transcribing | confirming | error`. Props: `{ visible, mode, deviceId, cwd, deviceOs?, sessionId?, projectId?, onClose, onConfirm }`. The hook takes **no args**: `const stt = useVoiceStt();`. Wire recording with `stt.start({ onComplete: async transcript => { setStatus('transcribing'); const r = await generateCommand({ text: transcript, deviceId, cwd, mode, sessionId, projectId }); setCommand(r.command); setDangerous(r.dangerous || isUnsafeSuggestion(r.command)); setStatus('confirming'); }, sessionId, projectPath })`. Tap mic → `stt.start(...)`, tap "停止" → `stt.stop()`. Live caption from `stt.liveCaption`, errors from `stt.errorMessage`. Confirming view: editable `TextInput` (mono) + danger red text + `取消 / 重录 / 确认运行`. `onConfirm(command)`. On close/unmount: `stt.cancel()`. (Render in a `<Modal>`; reuse `GlassPanel` + theme typography for house style.)
 - [ ] **Step 3: Run — pass.** (Use `jest.useFakeTimers()` + unmount in `afterEach` — `useVoiceStt` uses animated state.)
 - [ ] **Step 4: Commit:** `feat(phone): VoiceToBashModal shared voice→bash confirm`.
 
@@ -595,7 +598,7 @@ export const generateCommand = (input: {
 - Modify: `src/screens/devices/DeviceTerminalScreen.tsx`
 - Test: `__tests__/DeviceTerminal.initialCommand.test.tsx`
 
-- [ ] **Step 1: Recon.** In `DeviceTerminalScreen`, find the EXECUTE path (the handler behind the on-screen EXECUTE button / `getTerminalInteractionState` `canExecute`) — the function that writes the command string to the pty (likely a store action or a terminal-WS `send` with `command + '\r'`). Record its name.
+- [ ] **Step 1: Recon.** In `DeviceTerminalScreen`, find the EXECUTE path — `sendToTerminal(data)`, which writes via `terminalBridgeRef.current?.sendText(...)`. To run a full command you send `${command}\r`. Confirm its exact signature in recon (P5/P6 both rely on it).
 - [ ] **Step 2: Failing test** — when route has `initialCommand` and the terminal becomes input-available, the send function is called once with `command + '\r'`; not called again on re-render; not called when no `initialCommand`.
 - [ ] **Step 3: Implement.** Read `route.params.initialCommand`; in an effect gated on `terminalInputEnabled && initialCommand && !ranRef.current`, call the send function with `${initialCommand}\r`, then set `ranRef.current = true` and clear the param (`navigation.setParams({ initialCommand: undefined })`).
 - [ ] **Step 4: Run — pass.**
@@ -612,7 +615,7 @@ export const generateCommand = (input: {
 - Test: `__tests__/DeviceTerminal.voiceFab.test.tsx`
 
 - [ ] **Step 1: Failing test** — a voice FAB renders at the right end of the suggestion/input bar; enabled only when `terminalInputEnabled`; tap opens `VoiceToBashModal` (live mode, current device/cwd); `onConfirm(cmd)` calls the pty send function with `cmd + '\r'` and closes.
-- [ ] **Step 2: Implement.** Add a small voice FAB (NEW-TERM capsule styling, icon) as the last element of the suggestion/input row. On press → open modal `{ mode:'live', deviceId: terminal.deviceId, cwd: terminal.directory, deviceOs, sessionId, projectId }`. `onConfirm` → reuse the same send path from P5 to write `command + '\r'` → close modal.
+- [ ] **Step 2: Implement.** Add a small voice FAB (NEW-TERM capsule styling, icon) as the last element of the suggestion/input row. On press → open modal `{ mode:'live', deviceId: terminal.deviceId, cwd: terminal.directory, deviceOs, sessionId, projectId }`. `onConfirm` → call `sendToTerminal(command + '\r')` (same path P5 uses) → close modal.
 - [ ] **Step 3: Run — pass.** Full phone suite: `tsc --noEmit` + `jest` (expect baseline flake count unchanged).
 - [ ] **Step 4: Commit:** `feat(phone): in-terminal voice FAB → voice→bash → pty`.
 
