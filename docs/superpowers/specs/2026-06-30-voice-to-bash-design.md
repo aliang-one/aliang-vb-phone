@@ -76,7 +76,7 @@ commandGen: {
 };
 ```
 
-持久化在 `server_settings` 行(sqlite + pg 镜像,照 STT 字段的方式加列)。`modules/routes/admin.ts` 的 `GET/PUT /api/admin/settings` 扩 `commandGen` 字段;admin web 加一页配置(base URL / key / model / 模板 / 上限)。未配置或 `enabled=false` → 端点返回 503 + 明确提示。
+持久化在 `server_settings` 行(sqlite + pg 镜像)。**明确取舍**:用**单个 JSON 列** `command_gen`(TEXT,存整块配置)而非像 STT 那样逐字段加列 —— 这些字段总是一起读写、且含多行模板,单 JSON 列比 7 个零散列更简洁(这是对"照 STT 持久化位"的有意偏离,STT 字段少才逐列)。`modules/routes/admin.ts` 的 `GET/PUT /api/admin/settings` 增 `commandGen` 字段(读写时整块 JSON 序列化);admin web 加一页配置(base URL / key / model / 模板 / 上限)。未配置或 `enabled=false` → 端点返回 503 + 明确提示。
 
 ### 4.2 LLM client(`server/src/commandGen/llmClient.ts`,新增)
 
@@ -113,6 +113,8 @@ OpenAI 兼容 `POST {baseUrl}/chat/completions`,body 含 `{ model, messages, too
 详见 §7。服务端职责:持密钥、跑 `DANGEROUS_COMMANDS` 复检、审计日志(每次工具调用 + 最终命令落 audit/session)。
 
 ## 5. Go agent 设计(`cmd/aliang` / agent 模块)
+
+> ⚠️ Go agent 源码在**独立仓库**(`aliang` / `cmd/aliang`),不在当前工作区(本区只有 Node 服务端 + 手机)。实现计划第一步需打开该仓,确认现有 WS handler 的接入点 —— `agent.tool.invoke`/`result` 应复用其已有的请求/响应通道(服务端侧 `modules/agent/request.ts` 的 `requestAgentPayload`/`resolvePendingAgentRequest` 模式已确认存在;agent 侧的对应注册需到 Go 仓核实)。
 
 ### 5.1 工具集(只读,全部加护栏)
 
@@ -176,7 +178,7 @@ recording ──stop──► transcribing ──endpoint──► confirming �
 
 - `recording`:复用 `useVoiceStt({ onComplete, sessionId, projectPath })`。点按切换(点 mic 开始、点"停止"结束),实时字幕(`liveCaption`)。`onComplete(transcript)` → 进 `transcribing`。
 - `transcribing`:`apiPost('/api/ai/command-gen', { text, deviceId, cwd, mode, sessionId, projectId })` → `{ command, dangerous }` → 进 `confirming`。失败 → 错误态 + 重试/取消。
-- `confirming`:可编辑 `TextInput`(mono)预填 `command`;`dangerous` 或本地 `isUnsafeSuggestion(command)` 命中 → 红字警告 + "确认运行"需二次点按;按钮 `取消 / 重录 / 确认运行`。确认 → `onConfirm(command)` → 关闭。
+- `confirming`:可编辑 `TextInput`(mono)预填 `command`;`dangerous` 或本地 `isUnsafeSuggestion(command)` 命中 → 红字警告 + "确认运行"需二次点按;按钮 `取消 / 重录 / 确认运行`。确认 → `onConfirm(command)` → 关闭。(本地危险检测需把 `isUnsafeSuggestion` / `DANGEROUS_COMMANDS` 从 `utils/terminalSuggestions.ts` 导出复用 —— 当前为模块内非导出。)
 - 卸载/取消 → `useVoiceStt.cancel()`。
 
 ### 8.2 入口 A:长按 NEW TERM(`VibeCodingListScreen.tsx`)
