@@ -34,6 +34,14 @@ export function changeBadgeLetter(c: SessionFileChange): string {
   return 'M'; // edit / unknown
 }
 
+/** 徽章配色（固定语义色，深/浅主题都可读）。 */
+function badgeColor(c: SessionFileChange): string {
+  if (c.renamedFrom) return '#2196f3'; // R - 蓝
+  if (c.changeKind === 'create') return '#4caf50'; // A - 绿
+  if (c.changeKind === 'delete') return '#f44336'; // D - 红
+  return '#ffb300'; // M - 琥珀
+}
+
 /**
  * 把一条 file_change 的 detail（`fetchStructuredEventDetail` 的返回）投影成
  * 视图可直接渲染的状态：无 text → empty；有 text → 解析后的行 + ready。
@@ -70,10 +78,15 @@ export const ChangeReviewView: React.FC<ChangeReviewViewProps> = ({
   const { theme } = useTheme();
   const total = changes.length;
 
+  const mainColor = theme.colors.onSurface;
+  const subColor = theme.colors.onSurfaceVariant;
+
   if (total === 0) {
     return (
       <View style={styles.empty}>
-        <Text style={theme.typography.bodyMd}>AI 还没有改动文件</Text>
+        <Text style={[theme.typography.bodyMd, { color: mainColor }]}>
+          AI 还没有改动文件
+        </Text>
       </View>
     );
   }
@@ -86,34 +99,75 @@ export const ChangeReviewView: React.FC<ChangeReviewViewProps> = ({
     <View style={{ flex: 1 }}>
       <View style={styles.header}>
         <TouchableOpacity testID="cr-prev-top" onPress={onPrev} disabled={atStart}>
-          <Text style={{ opacity: atStart ? 0.3 : 1 }}>{'‹'}</Text>
+          <Text
+            style={{
+              color: theme.colors.primary,
+              opacity: atStart ? 0.3 : 1,
+              fontSize: 22,
+            }}>
+            {'‹'}
+          </Text>
         </TouchableOpacity>
-        <Text>{`${index + 1}/${total}`}</Text>
+        <Text style={[theme.typography.labelSm, { color: subColor }]}>
+          {`${index + 1}/${total}`}
+        </Text>
         <TouchableOpacity testID="cr-next-top" onPress={onNext} disabled={atEnd}>
-          <Text style={{ opacity: atEnd ? 0.3 : 1 }}>{'›'}</Text>
+          <Text
+            style={{
+              color: theme.colors.primary,
+              opacity: atEnd ? 0.3 : 1,
+              fontSize: 22,
+            }}>
+            {'›'}
+          </Text>
         </TouchableOpacity>
-        <Text style={styles.badge}>{changeBadgeLetter(current)}</Text>
-        <Text style={styles.name} numberOfLines={1}>
+        <Text style={[styles.badge, { color: badgeColor(current) }]}>
+          {changeBadgeLetter(current)}
+        </Text>
+        <Text
+          style={[theme.typography.bodyMd, styles.name, { color: mainColor }]}
+          numberOfLines={1}>
           {baseName(current.path)}
         </Text>
-        <Text>{`+${current.added ?? 0}`}</Text>
-        <Text>{`-${current.removed ?? 0}`}</Text>
+        <Text style={[theme.typography.codeSm, { color: '#4caf50' }]}>
+          {`+${current.added ?? 0}`}
+        </Text>
+        <Text style={[theme.typography.codeSm, { color: '#f44336' }]}>
+          {`-${current.removed ?? 0}`}
+        </Text>
       </View>
 
       <View style={{ flex: 1 }}>
-        {diffState === 'loading' && <Text>加载中…</Text>}
+        {diffState === 'loading' && (
+          <View style={{ padding: 12 }}>
+            <Text style={[theme.typography.bodyMd, { color: subColor }]}>加载中…</Text>
+          </View>
+        )}
         {diffState === 'ready' && (
           <>
             <CodeDiffViewer lines={diffLines} />
-            {truncated && <Text>diff 已截断，仅显示前 16KB</Text>}
+            {truncated && (
+              <Text
+                style={[theme.typography.labelSm, { color: subColor, padding: 8 }]}>
+                diff 已截断，仅显示前 16KB
+              </Text>
+            )}
           </>
         )}
-        {diffState === 'empty' && <Text>无 diff</Text>}
+        {diffState === 'empty' && (
+          <View style={{ padding: 12 }}>
+            <Text style={[theme.typography.bodyMd, { color: subColor }]}>无 diff</Text>
+          </View>
+        )}
         {diffState === 'error' && (
-          <View>
-            <Text>加载 diff 失败</Text>
-            <TouchableOpacity testID="cr-retry" onPress={onRetry}>
-              <Text>重试</Text>
+          <View style={{ padding: 12 }}>
+            <Text style={[theme.typography.bodyMd, { color: mainColor }]}>
+              加载 diff 失败
+            </Text>
+            <TouchableOpacity testID="cr-retry" onPress={onRetry} style={{ marginTop: 8 }}>
+              <Text style={[theme.typography.labelSm, { color: theme.colors.primary }]}>
+                重试
+              </Text>
             </TouchableOpacity>
           </View>
         )}
@@ -121,10 +175,22 @@ export const ChangeReviewView: React.FC<ChangeReviewViewProps> = ({
 
       <View style={styles.footer}>
         <TouchableOpacity testID="cr-prev" onPress={onPrev} disabled={atStart}>
-          <Text style={{ opacity: atStart ? 0.3 : 1 }}>上一个</Text>
+          <Text
+            style={[
+              theme.typography.labelSm,
+              { color: mainColor, opacity: atStart ? 0.3 : 1 },
+            ]}>
+            上一个
+          </Text>
         </TouchableOpacity>
         <TouchableOpacity testID="cr-next" onPress={onNext} disabled={atEnd}>
-          <Text style={{ opacity: atEnd ? 0.3 : 1 }}>下一个</Text>
+          <Text
+            style={[
+              theme.typography.labelSm,
+              { color: mainColor, opacity: atEnd ? 0.3 : 1 },
+            ]}>
+            下一个
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
