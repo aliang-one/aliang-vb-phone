@@ -28,7 +28,7 @@ type ReviewRoute = RouteProp<RootStackParamList, 'ChangeReview'>;
 export const ChangeReviewScreen: React.FC = () => {
   const navigation = useNavigation();
   const route = useRoute<ReviewRoute>();
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const { projectId } = route.params;
   const vibeRuns = useControlCenterStore(state => state.vibeRuns);
   const loadAgentSessionDetail = useControlCenterStore(
@@ -155,8 +155,32 @@ export const ChangeReviewScreen: React.FC = () => {
                 key={s.id}
                 testID={`cr-session-${s.id}`}
                 onPress={() => setSelectedId(s.id)}
-                style={[styles.sessionChip, active && styles.sessionChipActive]}>
-                <Text style={theme.typography.labelSm} numberOfLines={1}>
+                style={[
+                  styles.sessionChip,
+                  active && styles.sessionChipActive,
+                  {
+                    borderWidth: 1,
+                    borderRadius: 999,
+                    borderColor: active
+                      ? theme.colors.primary
+                      : theme.colors.outlineVariant,
+                    backgroundColor: active
+                      ? isDark
+                        ? 'rgba(86,156,214,0.14)'
+                        : 'rgba(0,81,174,0.08)'
+                      : 'transparent',
+                  },
+                ]}>
+                <Text
+                  style={[
+                    theme.typography.labelSm,
+                    {
+                      color: active
+                        ? theme.colors.primary
+                        : theme.colors.onSurfaceVariant,
+                    },
+                  ]}
+                  numberOfLines={1}>
                   {s.title || s.objective || s.id}
                 </Text>
               </TouchableOpacity>
