@@ -54,6 +54,7 @@ import {
 import { terminalShortcutGroups } from '../../utils/terminalKeySequences';
 import { buildTerminalSuggestions } from '../../utils/terminalSuggestions';
 import { describeDeviceError } from '../../utils/deviceError';
+import { VoiceToBashModal } from '../../components/terminal/VoiceToBashModal';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DeviceTerminalRoute = RouteProp<RootStackParamList, 'DeviceTerminal'>;
@@ -196,6 +197,10 @@ export const DeviceTerminalScreen: React.FC = () => {
   const [keyboardProxyFocused, setKeyboardProxyFocused] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [floatingControlsHeight, setFloatingControlsHeight] = useState(0);
+  // Entry B (in-terminal voice FAB → voice→bash → pty): drives the shared
+  // VoiceToBashModal in live mode; the confirmed command is injected into the
+  // current pty via the same sendToTerminal path the EXECUTE/suggestion chips use.
+  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
   const quickDirectoryInitializedRef = useRef(Boolean(route.params.directory));
   const [focusedDirectory, setFocusedDirectory] = useState(
     route.params.directory ?? '~',
@@ -1304,6 +1309,37 @@ export const DeviceTerminalScreen: React.FC = () => {
                       ))}
                     </View>
                   ))}
+                  <TouchableOpacity
+                    testID="terminal-voice-fab"
+                    activeOpacity={0.74}
+                    accessibilityRole="button"
+                    accessibilityLabel="Voice to bash"
+                    accessibilityState={{ disabled: !terminalInputEnabled }}
+                    hitSlop={terminalControlHitSlop}
+                    disabled={!terminalInputEnabled}
+                    onPress={() => {
+                      if (!terminalInputEnabled) return;
+                      setVoiceModalOpen(true);
+                    }}
+                    style={[
+                      styles.voiceFab,
+                      {
+                        backgroundColor: elevatedSurfaceColor,
+                        borderColor: outlineColor,
+                      },
+                      !terminalInputEnabled && styles.disabledControl,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        theme.typography.labelCaps,
+                        styles.quickActionText,
+                        { color: theme.colors.primary },
+                      ]}
+                    >
+                      语音
+                    </Text>
+                  </TouchableOpacity>
                 </ScrollView>
               </View>
             ) : null}
@@ -1338,6 +1374,21 @@ export const DeviceTerminalScreen: React.FC = () => {
           ) : null}
         </View>
       </View>
+      {terminal ? (
+        <VoiceToBashModal
+          visible={voiceModalOpen}
+          mode="live"
+          deviceId={terminal.deviceId}
+          cwd={terminal.directory}
+          deviceOs={device.os}
+          sessionId={terminal.id}
+          onClose={() => setVoiceModalOpen(false)}
+          onConfirm={command => {
+            setVoiceModalOpen(false);
+            sendToTerminal(`${command}\r`, { focus: false });
+          }}
+        />
+      ) : null}
     </SafeAreaWrapper>
   );
 };
@@ -1643,6 +1694,15 @@ const styles = StyleSheet.create({
   },
   disabledControl: {
     opacity: 0.45,
+  },
+  voiceFab: {
+    minWidth: 54,
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderRadius: 999,
   },
   approvalButton: {
     minHeight: 36,
