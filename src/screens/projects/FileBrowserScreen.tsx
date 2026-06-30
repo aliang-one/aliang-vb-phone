@@ -31,6 +31,7 @@ import { describeDeviceError } from '../../utils/deviceError';
 import {
   changeReviewCount,
   latestSessionForProject,
+  sessionsForProject,
 } from '../../utils/diff/sessionChanges';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -140,7 +141,9 @@ export const FileBrowserScreen: React.FC = () => {
     () => latestSessionForProject(vibeRuns, route.params.projectId),
     [vibeRuns, route.params.projectId],
   );
-  const aiChangedCount = useMemo(() => changeReviewCount(latestSession), [latestSession]);
+  // 入口显隐/计数：优先项目级 gitChangedCount（列表快照常驻、不依赖会话匹配、
+  // 与项目卡同源）；缺失时回退到会话级 changeReviewCount。
+  const aiChangedCount = project?.gitChangedCount ?? changeReviewCount(latestSession);
   const openChangeReview = useCallback(() => {
     navigation.navigate('ChangeReview', {
       projectId: route.params.projectId,
@@ -482,6 +485,14 @@ export const FileBrowserScreen: React.FC = () => {
           />
         }
       />
+      {/* TEMP DEBUG: 诊断 change-review banner 为何不显示 —— 定位后删除 */}
+      <View
+        testID="cr-debug"
+        style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#FFE082' }}>
+        <Text style={{ color: '#000', fontSize: 11 }}>
+          {`CR-DEBUG pgit=${project.gitChangedCount ?? 'undef'} runs=${vibeRuns.length} matched=${sessionsForProject(vibeRuns, route.params.projectId).length} latest=${latestSession?.id?.slice(-6) ?? 'none'} ftc=${latestSession?.filesTouchedCount ?? 'undef'} st=${latestSession?.structuredEvents.length ?? 0} aiCnt=${aiChangedCount}`}
+        </Text>
+      </View>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <DeferredMount>
         {aiChangedCount > 0 && (
