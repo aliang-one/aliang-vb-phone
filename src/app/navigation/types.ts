@@ -8,7 +8,12 @@ export type RootStackParamList = {
   DebugDeviceTerminalBootstrap: { target: DebugDeviceTerminalTarget };
   DeviceCameraScanner: undefined;
   DeviceDetail: { deviceId: string };
-  DeviceTerminal: { deviceId: string; directory?: string; terminalId?: string };
+  DeviceTerminal: {
+    deviceId: string;
+    directory?: string;
+    terminalId?: string;
+    initialCommand?: string;
+  };
   ProjectScan: { deviceId: string };
   ProjectDetail: { projectId: string; deviceId?: string };
   ProjectSettings: { projectId: string; deviceId?: string };

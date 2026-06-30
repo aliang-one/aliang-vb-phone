@@ -26,6 +26,7 @@ import { DeferredMount } from '../../components/shared/DeferredMount';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { TerminalCard } from '../../components/terminals/TerminalCard';
+import { VoiceToBashModal } from '../../components/terminal/VoiceToBashModal';
 import { VibeStatus } from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore, useStableVibeRuns } from '../../store/controlCenterStore';
@@ -326,6 +327,28 @@ export const VibeCodingListScreen: React.FC = () => {
     });
   }, [navigation, newTerminalDevice]);
 
+  // Voice → bash on the NEW TERM capsule: long-press records a spoken command,
+  // the modal turns it into an editable bash line, and on confirm we open a
+  // fresh terminal seeded with that command. Short tap (onPress) still creates
+  // an empty terminal via handleCreateTerminal.
+  const [voiceModal, setVoiceModal] = useState(false);
+  const openVoiceModal = useCallback(() => {
+    if (!newTerminalDevice) return;
+    setVoiceModal(true);
+  }, [newTerminalDevice]);
+  const handleVoiceConfirm = useCallback(
+    (command: string) => {
+      setVoiceModal(false);
+      if (!newTerminalDevice) return;
+      navigation.navigate('DeviceTerminal', {
+        deviceId: newTerminalDevice.id,
+        directory: newTerminalDevice.authorizedDirectories[0] ?? '~',
+        initialCommand: command,
+      });
+    },
+    [navigation, newTerminalDevice],
+  );
+
   const goToTab = (index: number) => {
     setActiveTab(index);
     // progress updates via onScroll while the pager animates — keeps the
@@ -572,9 +595,11 @@ export const VibeCodingListScreen: React.FC = () => {
         <TouchableOpacity
           accessibilityRole="button"
           accessibilityLabel="New terminal"
+          testID="new-term-fab"
           activeOpacity={0.85}
           disabled={!newTerminalDevice}
           onPress={handleCreateTerminal}
+          onLongPress={openVoiceModal}
           style={[
             styles.newTermFab,
             { backgroundColor: theme.colors.primary },
@@ -600,6 +625,16 @@ export const VibeCodingListScreen: React.FC = () => {
           </Text>
         </TouchableOpacity>
       ) : null}
+
+      <VoiceToBashModal
+        visible={voiceModal}
+        mode="initial"
+        deviceId={newTerminalDevice?.id ?? ''}
+        cwd={newTerminalDevice?.authorizedDirectories?.[0] ?? '~'}
+        deviceOs={newTerminalDevice?.os}
+        onClose={() => setVoiceModal(false)}
+        onConfirm={handleVoiceConfirm}
+      />
     </SafeAreaWrapper>
   );
 };
