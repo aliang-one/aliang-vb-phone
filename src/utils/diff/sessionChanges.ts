@@ -77,5 +77,12 @@ export function latestSessionForProject(
  */
 export function changeReviewCount(session: VibeCodingRun | undefined): number {
   if (!session) return 0;
-  return session.filesTouchedCount ?? collectFileChanges(session.structuredEvents).length;
+  // 三档 resident 计数，按可靠性排序：会话级 gitChangedCount（publicAiSession
+ // line git_changed_count，列表快照常带）→ filesTouchedCount → 已水合的
+  // structuredEvents。三者都可能为空，所以调用方还应用「有匹配会话」兜底显隐。
+  return (
+    session.gitChangedCount ??
+    session.filesTouchedCount ??
+    collectFileChanges(session.structuredEvents).length
+  );
 }

@@ -130,4 +130,18 @@ describe('changeReviewCount', () => {
     });
     expect(changeReviewCount(run)).toBe(3);
   });
+
+  test('session.gitChangedCount 最优先（列表快照常带的字段）', () => {
+    const run = makeRun({
+      id: 's',
+      projectId: 'P',
+      lastActivityMs: 1,
+      gitChangedCount: 7,
+      filesTouchedCount: 5,
+      structuredEvents: [
+        { kind: 'file_change', eventId: 'e1', messageId: 'm1', itemId: 'i1', path: 'a.ts' },
+      ],
+    });
+    expect(changeReviewCount(run)).toBe(7);
+  });
 });

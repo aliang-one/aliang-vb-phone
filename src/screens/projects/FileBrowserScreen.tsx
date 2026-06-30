@@ -136,14 +136,19 @@ export const FileBrowserScreen: React.FC = () => {
     scanResult?.path ?? project?.path ?? device?.authorizedDirectories[0] ?? '~';
   const effectivePath = currentPath || terminalDirectory;
   const deviceOnline = device?.status === 'online';
-  // 「审核 AI 改动」入口：本项目最新会话改过的文件数（去重后）。0 则隐藏入口。
+  // 「审核 AI 改动」入口。列表快照里的计数信号（project.gitChangedCount /
+  // filesTouchedCount / structuredEvents）对这个项目常为空，所以显隐靠「有匹配的
+  // AI 会话」兜底（matchedCount>0）；计数文案仅在有数时显示。review 屏入屏再水合。
+  const matchedCount = useMemo(
+    () => sessionsForProject(vibeRuns, route.params.projectId).length,
+    [vibeRuns, route.params.projectId],
+  );
   const latestSession = useMemo(
     () => latestSessionForProject(vibeRuns, route.params.projectId),
     [vibeRuns, route.params.projectId],
   );
-  // 入口显隐/计数：优先项目级 gitChangedCount（列表快照常驻、不依赖会话匹配、
-  // 与项目卡同源）；缺失时回退到会话级 changeReviewCount。
-  const aiChangedCount = project?.gitChangedCount ?? changeReviewCount(latestSession);
+  const aiChangedCount = changeReviewCount(latestSession);
+  const showChangeReview = matchedCount > 0 || aiChangedCount > 0;
   const openChangeReview = useCallback(() => {
     navigation.navigate('ChangeReview', {
       projectId: route.params.projectId,
@@ -490,12 +495,12 @@ export const FileBrowserScreen: React.FC = () => {
         testID="cr-debug"
         style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#FFE082' }}>
         <Text style={{ color: '#000', fontSize: 11 }}>
-          {`CR-DEBUG pgit=${project.gitChangedCount ?? 'undef'} runs=${vibeRuns.length} matched=${sessionsForProject(vibeRuns, route.params.projectId).length} latest=${latestSession?.id?.slice(-6) ?? 'none'} ftc=${latestSession?.filesTouchedCount ?? 'undef'} st=${latestSession?.structuredEvents.length ?? 0} aiCnt=${aiChangedCount}`}
+          {`CR-DEBUG matched=${matchedCount} sgit=${latestSession?.gitChangedCount ?? 'undef'} ftc=${latestSession?.filesTouchedCount ?? 'undef'} st=${latestSession?.structuredEvents.length ?? 0} aiCnt=${aiChangedCount} show=${showChangeReview}`}
         </Text>
       </View>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <DeferredMount>
-        {aiChangedCount > 0 && (
+        {showChangeReview && (
           <TouchableOpacity
             testID="file-browser-change-review"
             activeOpacity={0.7}
@@ -522,7 +527,9 @@ export const FileBrowserScreen: React.FC = () => {
               </Text>
               <Text
                 style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                {`最新会话改了 ${aiChangedCount} 个文件 · 逐文件 diff`}
+                {aiChangedCount > 0
+                  ? `最新会话改了 ${aiChangedCount} 个文件 · 逐文件 diff`
+                  : '查看本会话改动 · 逐文件 diff'}
               </Text>
             </View>
             <Text style={[theme.typography.titleLg, { color: theme.colors.primary }]}>
@@ -530,6 +537,49 @@ export const FileBrowserScreen: React.FC = () => {
             </Text>
           </TouchableOpacity>
         )}
+        {/* Status filters — 顶部（原在文件列表底部） */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ paddingHorizontal: 4, marginBottom: 8 }}>
+          {filters.map(item => {
+            const active = item.value === filter;
+            return (
+              <TouchableOpacity
+                key={item.value}
+                activeOpacity={0.7}
+                onPress={() => setFilter(item.value)}
+                style={[
+                  styles.filterChip,
+                  { marginRight: 6 },
+                  {
+                    borderColor: active
+                      ? theme.colors.primary
+                      : isDark
+                        ? 'rgba(255,255,255,0.12)'
+                        : theme.colors.outlineVariant,
+                    backgroundColor: active
+                      ? isDark
+                        ? 'rgba(86,156,214,0.14)'
+                        : 'rgba(0,81,174,0.08)'
+                      : 'transparent',
+                  },
+                ]}>
+                <Text
+                  style={[
+                    theme.typography.labelCaps,
+                    {
+                      color: active
+                        ? theme.colors.primary
+                        : theme.colors.onSurfaceVariant,
+                    },
+                  ]}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
         {/* Project identity + device status + action toolbar */}
         <GlassPanel style={styles.hero}>
           <View style={styles.heroTop}>
@@ -794,54 +844,6 @@ export const FileBrowserScreen: React.FC = () => {
                 />
               </>
             )}
-          </View>
-
-          {/* Footer: status filters */}
-          <View
-            style={[
-              styles.windowFooter,
-              {
-                borderTopColor: isDark
-                  ? 'rgba(255,255,255,0.08)'
-                  : theme.colors.outlineVariant,
-              },
-            ]}>
-            {filters.map(item => {
-              const active = item.value === filter;
-              return (
-                <TouchableOpacity
-                  key={item.value}
-                  activeOpacity={0.7}
-                  onPress={() => setFilter(item.value)}
-                  style={[
-                    styles.filterChip,
-                    {
-                      borderColor: active
-                        ? theme.colors.primary
-                        : isDark
-                        ? 'rgba(255,255,255,0.12)'
-                        : theme.colors.outlineVariant,
-                      backgroundColor: active
-                        ? isDark
-                          ? 'rgba(86,156,214,0.14)'
-                          : 'rgba(0,81,174,0.08)'
-                        : 'transparent',
-                    },
-                  ]}>
-                  <Text
-                    style={[
-                      theme.typography.labelCaps,
-                      {
-                        color: active
-                          ? theme.colors.primary
-                          : theme.colors.onSurfaceVariant,
-                      },
-                    ]}>
-                    {item.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
           </View>
         </GlassPanel>
 
