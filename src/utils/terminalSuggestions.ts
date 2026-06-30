@@ -16,7 +16,7 @@ const FALLBACK_COMMANDS = [
 ];
 
 const INTERACTIVE_COMMANDS = /^(?:vim|vi|nano|less|more|top|htop|ssh|mysql|psql|python|node|irb|pry)(?:\s|$)/;
-const DANGEROUS_COMMANDS = /\b(?:rm\s+-rf|sudo\s+rm|mkfs|diskutil\s+erase|shutdown|reboot|halt|poweroff)\b/;
+export const DANGEROUS_COMMANDS = /\b(?:rm\s+-rf|sudo\s+rm|mkfs|diskutil\s+erase|shutdown|reboot|halt|poweroff)\b/;
 const SECRET_MARKERS = /<redacted>|token=|password=|passwd=|secret=|api[_-]?key=/i;
 
 export function buildTerminalSuggestions({
@@ -54,7 +54,7 @@ export function buildTerminalSuggestions({
   return suggestions.slice(0, max);
 }
 
-function isUnsafeSuggestion(command: string) {
+export function isUnsafeSuggestion(command: string) {
   return (
     INTERACTIVE_COMMANDS.test(command) ||
     DANGEROUS_COMMANDS.test(command) ||
