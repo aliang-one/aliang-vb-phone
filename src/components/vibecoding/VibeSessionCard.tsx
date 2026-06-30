@@ -24,6 +24,7 @@ import { formatActivityLabel } from '../../store/internals';
 import { useNowTick } from '../../hooks/useNowTick';
 import { IconBadge } from '../visual/IconBadge';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
+import { providerLabel } from '../../utils/modelIntensity';
 
 const formatBudget = (budget: VibeCodingRun['projectBudget']) =>
   budget
@@ -626,7 +627,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                         { color: theme.colors.onSurfaceVariant },
                       ]}
                     >
-                      {session.provider === 'codex' ? 'Codex' : 'Claude'} 会话 ID
+                      {session.provider ? providerLabel(session.provider) : 'Agent'} 会话 ID
                     </Text>
                     <Text
                       numberOfLines={1}

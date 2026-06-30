@@ -1,6 +1,7 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { DebugDeviceTerminalTarget } from '../debugInitialProps';
+import type { EffortProvider } from '../../utils/modelIntensity';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -30,7 +31,7 @@ export type RootStackParamList = {
       deviceId: string;
       projectId?: string;
       directory: string;
-      provider: string;
+      provider: EffortProvider;
       model?: string;
       effort?: string;
     };

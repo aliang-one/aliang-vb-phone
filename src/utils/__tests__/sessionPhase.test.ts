@@ -165,7 +165,13 @@ describe('shouldLockComposerForProvider (composer 锁与相位同源)', () => {
     expect(shouldLockComposerForProvider(false, 'idle', 'claude_code')).toBe(false);
   });
 
-  it('非 claude_code provider(codex 支持排队)→ 永不锁,即便 live', () => {
+  it('opencode 使用单回合锁,和 claude_code 一致', () => {
+    expect(shouldLockComposerForProvider(true, 'running', 'opencode')).toBe(true);
+    expect(shouldLockComposerForProvider(false, 'waiting_approval', 'opencode')).toBe(true);
+    expect(shouldLockComposerForProvider(false, 'running', 'opencode')).toBe(false);
+  });
+
+  it('codex 支持排队→ 永不锁,即便 live', () => {
     expect(shouldLockComposerForProvider(true, 'running', 'codex')).toBe(false);
     expect(shouldLockComposerForProvider(true, 'running', undefined)).toBe(false);
   });

@@ -17,6 +17,7 @@ import {
   intensityToEffort,
   modelPresetsFor,
   parseModelIntensity,
+  providerLabel,
   type EffortProvider,
 } from '../../utils/modelIntensity';
 import { useControlCenterStore } from '../../store/controlCenterStore';
@@ -147,7 +148,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
     onClose();
   };
 
-  const agentLabel = isCodex ? 'Codex' : 'Claude Code';
+  const agentLabel = providerLabel(provider);
   const accent = theme.colors.primary;
   const idleBorder = isDark ? 'rgba(255,255,255,0.08)' : theme.colors.outlineVariant;
   const rowBorder = isDark ? 'rgba(255,255,255,0.06)' : theme.colors.outlineVariant;

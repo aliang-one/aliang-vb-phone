@@ -39,8 +39,8 @@ export interface ServerAiSession {
   title?: string;
   objective?: string;
   model?: string;
-  provider?: 'codex' | 'claude' | 'claudecode';
-  tool?: 'codex' | 'claude' | 'claudecode';
+  provider?: 'codex' | 'claude' | 'claudecode' | 'opencode';
+  tool?: 'codex' | 'claude' | 'claudecode' | 'opencode';
   source_session_id?: string;
   risk?: 'low' | 'medium' | 'high';
   /**
@@ -275,8 +275,8 @@ export const createAiSession = (input: {
    */
   message?: string;
   model?: string;
-  provider?: 'codex' | 'claude' | 'claudecode';
-  tool?: 'codex' | 'claude' | 'claudecode';
+  provider?: 'codex' | 'claude' | 'claudecode' | 'opencode';
+  tool?: 'codex' | 'claude' | 'claudecode' | 'opencode';
   risk?: 'low' | 'medium' | 'high';
   effort?: string;
 }): Promise<ServerAiSession> =>

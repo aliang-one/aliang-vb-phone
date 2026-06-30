@@ -21,7 +21,9 @@ import {
   type ModelOptions,
 } from '../../api/modelConfig';
 import {
+  EFFORT_PROVIDERS,
   normalizeProvider,
+  providerLabel,
   type EffortProvider,
 } from '../../utils/modelIntensity';
 
@@ -32,8 +34,7 @@ const newPresetId = (): string =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 const PROVIDER_OPTIONS: Array<{ label: string; value: EffortProvider }> = [
-  { label: 'Codex', value: 'codex' },
-  { label: 'Claude Code', value: 'claude_code' },
+  ...EFFORT_PROVIDERS.map(value => ({ label: providerLabel(value), value })),
 ];
 
 interface DraftState {

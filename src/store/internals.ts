@@ -9,7 +9,7 @@ import type {
   VibeStatus,
 } from '../data/platformModels';
 import { envelopeToActivity } from '../data/platformModels';
-import { normalizeProvider } from '../utils/modelIntensity';
+import { normalizeProvider, providerLabel } from '../utils/modelIntensity';
 import { sameRemotePath } from '../utils/remotePath';
 import {
   platformTransport,
@@ -401,8 +401,7 @@ export function projectToScanResult(project: Project): ProjectScanResult {
 export function aiSessionModelLabel(session: PlatformAiSessionSnapshot) {
   const provider = normalizeProvider(session.provider, session.tool);
   if (provider === 'codex') return session.model ?? 'GPT-5 Codex';
-  if (provider === 'claude_code')
-    return session.model ?? 'Claude Code';
+  if (provider) return session.model ?? providerLabel(provider);
   return session.model ?? session.mode;
 }
 

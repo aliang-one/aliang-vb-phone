@@ -16,15 +16,16 @@ import {
   type CatalogProvider,
 } from '../../api/modelConfig';
 import {
+  EFFORT_PROVIDERS,
   normalizeProvider,
+  providerLabel,
   type EffortProvider,
 } from '../../utils/modelIntensity';
 import type { Device } from '../../data/platformModels';
 
 const PROVIDER_OPTIONS: Array<{ label: string; value: EffortProvider | '' }> = [
   { label: '默认', value: '' },
-  { label: 'Codex', value: 'codex' },
-  { label: 'Claude Code', value: 'claude_code' },
+  ...EFFORT_PROVIDERS.map(value => ({ label: providerLabel(value), value })),
 ];
 
 interface DeviceRowProps {
@@ -215,7 +216,7 @@ const DeviceRow: React.FC<DeviceRowProps> = ({
 
       {/* 有效 preview */}
       <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }, styles.effective]}>
-        有效: {effectiveProvider} · model={effectiveModel} · effort={effectiveEffort}
+        有效: {providerLabel(effectiveProvider)} · model={effectiveModel} · effort={effectiveEffort}
       </Text>
 
       {error ? (

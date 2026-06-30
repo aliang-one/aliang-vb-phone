@@ -49,6 +49,7 @@ const uniqueStrings = (items: string[]) =>
 const TOOL_LABELS: Record<string, string> = {
   'claude-code': 'Claude Code',
   codex: 'Codex',
+  opencode: 'OpenCode',
   'local-agent': 'Local Agent',
   'local-terminal': 'Local Terminal',
   'project-files': 'Project Files',

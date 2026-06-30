@@ -26,8 +26,10 @@ import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { catalogEffortOptions, useModelOptions } from '../../hooks/useModelOptions';
 import {
+  EFFORT_PROVIDERS,
   availableProviders,
   catalogModelOptions,
+  providerLabel,
 } from '../../utils/modelIntensity';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -39,11 +41,6 @@ const permissions = [
   'Run local commands with approval',
   'Expose preview ports as short links',
 ];
-
-const providerLabels: Record<AgentProvider, string> = {
-  claude_code: 'Claude Code',
-  codex: 'Codex',
-};
 
 const uniqueStrings = (items: Array<string | undefined>) =>
   Array.from(new Set(items.filter(Boolean))) as string[];
@@ -76,20 +73,20 @@ export const CreateVibeCodingScreen: React.FC = () => {
   const [provider, setProvider] = useState<AgentProvider>('codex');
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState('');
-  // Live catalog drives the EFFORT chips for the selected provider (codex 4,
-  // claude 6); falls back to the hardcoded ladder before it loads. "默认" =
+  // Live catalog drives the EFFORT chips for the selected provider; falls back
+  // to the hardcoded ladder before it loads. "默认" =
   // inherit (don't specify), which is the default selection.
   const { providerCatalog, userDefault } = useModelOptions();
   const effortOptions = catalogEffortOptions(provider, providerCatalog);
   const device = devices.find(item => item.id === deviceId) ?? devices[0];
   // Which providers are actually installed on this device (agent reports via
-  // device.tools[].available). Empty tool list → both available (don't block
+  // device.tools[].available). Empty tool list → all providers available (don't block
   // creation before the agent reports).
   const availability = useMemo(
     () => availableProviders(device?.tools),
     [device?.tools],
   );
-  // Per-provider model chips (codex: gpt-5.4/5.5, claude_code: glm-5.1/5.2),
+  // Per-provider model chips (codex / claude_code / opencode),
   // from the live catalog with a hardcoded fallback. Lead with "默认" (clear).
   const modelOptions = useMemo(
     () => [
@@ -104,8 +101,9 @@ export const CreateVibeCodingScreen: React.FC = () => {
     if (availability[provider]) return;
     if (availability.codex) setProvider('codex');
     else if (availability.claude_code) setProvider('claude_code');
+    else if (availability.opencode) setProvider('opencode');
   }, [availability, provider]);
-  const noProviderAvailable = !availability.codex && !availability.claude_code;
+  const noProviderAvailable = !EFFORT_PROVIDERS.some(item => availability[item]);
   const project = useCustomPath
     ? undefined
     : projects.find(item => item.id === projectId);
@@ -415,7 +413,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
           4. AGENT PROVIDER
         </Text>
         <View style={styles.providerRow}>
-          {(['codex', 'claude_code'] as AgentProvider[]).map(item => {
+          {EFFORT_PROVIDERS.map(item => {
             const active = provider === item;
             const enabled = availability[item];
             return (
@@ -462,7 +460,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
                         : theme.colors.onSurfaceVariant,
                     },
                   ]}>
-                  {providerLabels[item]}
+                  {providerLabel(item)}
                 </Text>
               </TouchableOpacity>
             );
@@ -474,7 +472,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
               theme.typography.labelSm,
               { color: theme.colors.error, marginTop: 4 },
             ]}>
-            该设备未安装 codex / claude code,无法创建会话。
+            该设备未安装 codex / claude code / opencode,无法创建会话。
           </Text>
         ) : null}
 
@@ -610,7 +608,9 @@ export const CreateVibeCodingScreen: React.FC = () => {
           ]}>
           {provider === 'codex'
             ? 'Codex 推理强度：codex 用 xhigh；留空继承用户默认。'
-            : 'Claude 推理强度：claude 用 max；留空继承用户默认。'}
+            : provider === 'opencode'
+              ? 'OpenCode 模型使用 provider/model；留空继承用户默认。'
+              : 'Claude 推理强度：claude 用 max；留空继承用户默认。'}
         </Text>
 
         <Text
@@ -648,7 +648,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
             READY TO START
           </Text>
           <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-            {providerLabels[provider]} will run {project?.name ?? 'device workspace'} on {device.name} inside {directory || '~'}.
+            {providerLabel(provider)} will run {project?.name ?? 'device workspace'} on {device.name} inside {directory || '~'}.
           </Text>
         </GlassPanel>
 

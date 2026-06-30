@@ -1,4 +1,5 @@
 import {
+  EFFORT_PROVIDERS,
   EFFORT_PRESETS,
   MODEL_PRESETS_BY_PROVIDER,
   availableProviders,
@@ -36,8 +37,14 @@ describe('modelIntensity · effort taxonomy', () => {
     ]);
   });
 
+  it('opencode has exactly low/medium/high (+ inherit)', () => {
+    const values = EFFORT_PRESETS.opencode.map(o => o.value);
+    expect(values[0]).toBe('');
+    expect(values.slice(1)).toEqual(['low', 'medium', 'high']);
+  });
+
   it('each option carries a non-empty label', () => {
-    for (const provider of ['codex', 'claude_code'] as const) {
+    for (const provider of EFFORT_PROVIDERS) {
       for (const option of EFFORT_PRESETS[provider]) {
         expect(option.label.length).toBeGreaterThan(0);
       }
@@ -47,6 +54,7 @@ describe('modelIntensity · effort taxonomy', () => {
   it('effortPresetsFor returns the matching ladder and falls back to codex', () => {
     expect(effortPresetsFor('codex')).toBe(EFFORT_PRESETS.codex);
     expect(effortPresetsFor('claude_code')).toBe(EFFORT_PRESETS.claude_code);
+    expect(effortPresetsFor('opencode')).toBe(EFFORT_PRESETS.opencode);
   });
 });
 
@@ -56,6 +64,7 @@ describe('modelIntensity · effortOptionsFor (catalog-aware)', () => {
     expect(effortOptionsFor('claude_code')).toEqual(
       EFFORT_PRESETS.claude_code,
     );
+    expect(effortOptionsFor('opencode')).toEqual(EFFORT_PRESETS.opencode);
   });
 
   it('falls back when the catalog lacks the provider', () => {
@@ -114,8 +123,12 @@ describe('modelIntensity · provider normalization', () => {
     expect(normalizeProvider('claudecode')).toBe('claude_code');
     expect(normalizeProvider('claude_code')).toBe('claude_code');
     expect(normalizeProvider('claude-code')).toBe('claude_code');
+    expect(normalizeProvider('opencode')).toBe('opencode');
+    expect(normalizeProvider('open_code')).toBe('opencode');
+    expect(normalizeProvider('open-code')).toBe('opencode');
     expect(normalizeProvider('auto', 'codex')).toBe('codex');
     expect(normalizeProvider('auto', 'claudecode')).toBe('claude_code');
+    expect(normalizeProvider('auto', 'opencode')).toBe('opencode');
     expect(normalizeProvider('unknown')).toBeUndefined();
     expect(normalizeProvider(undefined, undefined)).toBeUndefined();
   });
@@ -174,6 +187,13 @@ describe('modelIntensity · per-provider model presets', () => {
     ]);
   });
 
+  it('opencode presets use provider/model ids', () => {
+    expect(MODEL_PRESETS_BY_PROVIDER.opencode.map(m => m.value)).toEqual([
+      'anthropic/claude-sonnet-4-5',
+      'openai/gpt-5',
+    ]);
+  });
+
   it('modelPresetsFor falls back to codex for unknown provider', () => {
     expect(modelPresetsFor('codex' as never).map(m => m.value)).toEqual([
       'gpt-5.4',
@@ -200,28 +220,36 @@ describe('modelIntensity · per-provider model presets', () => {
       'glm-5.1',
       'glm-5.2',
     ]);
+    expect(catalogModelOptions('opencode', undefined).map(m => m.value)).toEqual([
+      'anthropic/claude-sonnet-4-5',
+      'openai/gpt-5',
+    ]);
   });
 });
 
 describe('modelIntensity · availableProviders', () => {
-  it('both available when tools empty (agent not yet reported)', () => {
-    expect(availableProviders([])).toEqual({ codex: true, claude_code: true });
+  it('all providers available when tools empty (agent not yet reported)', () => {
+    expect(availableProviders([])).toEqual({ codex: true, claude_code: true, opencode: true });
     expect(availableProviders(undefined)).toEqual({
       codex: true,
       claude_code: true,
+      opencode: true,
     });
   });
 
-  it('maps codex/claude tool availability', () => {
+  it('maps codex/claude/opencode tool availability', () => {
     expect(
       availableProviders([{ id: 'codex', available: true }]),
-    ).toEqual({ codex: true, claude_code: false });
+    ).toEqual({ codex: true, claude_code: false, opencode: false });
     expect(
       availableProviders([{ id: 'claude', available: true }]),
-    ).toEqual({ codex: false, claude_code: true });
+    ).toEqual({ codex: false, claude_code: true, opencode: false });
     expect(
       availableProviders([{ id: 'claudecode', available: true }]),
-    ).toEqual({ codex: false, claude_code: true });
+    ).toEqual({ codex: false, claude_code: true, opencode: false });
+    expect(
+      availableProviders([{ id: 'opencode', available: true }]),
+    ).toEqual({ codex: false, claude_code: false, opencode: true });
   });
 
   it('respects available===false', () => {
@@ -229,16 +257,18 @@ describe('modelIntensity · availableProviders', () => {
       availableProviders([
         { id: 'codex', available: false },
         { id: 'claude', available: true },
+        { id: 'opencode', available: false },
       ]),
-    ).toEqual({ codex: false, claude_code: true });
+    ).toEqual({ codex: false, claude_code: true, opencode: false });
   });
 
-  it('both true when both CLIs present', () => {
+  it('all true when all CLIs present', () => {
     expect(
       availableProviders([
         { id: 'codex', available: true },
         { id: 'claude', available: true },
+        { id: 'opencode', available: true },
       ]),
-    ).toEqual({ codex: true, claude_code: true });
+    ).toEqual({ codex: true, claude_code: true, opencode: true });
   });
 });

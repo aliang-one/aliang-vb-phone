@@ -113,7 +113,7 @@ export function isSessionTurnActive(status: VibeStatus): boolean {
 }
 
 /**
- * Composer 是否因 provider 并发而锁定(claude_code 是单进程 CLI,跑回合时不能并发收新消息)。
+ * Composer 是否因 provider 并发而锁定(Claude Code / OpenCode 是单进程 CLI,跑回合时不能并发收新消息)。
  *
  * **关键**:用「生命迹象」(isSessionLive)而不是裸 `session.status` 判活。回合答完后
  * status 常停在陈旧的 `'running'`(settle 推送丢失 / `mergeVibeRunSnapshot` 的
@@ -122,18 +122,18 @@ export function isSessionTurnActive(status: VibeStatus): boolean {
  * 同源(8s 活动窗口 + active 思考/命令),保证顶部相位与底部 composer 锁对「是否在干活」
  * 的判定一致:顶部说「已完成」(无生命迹象)时,composer 也必须解锁。
  *
- * `waiting_approval` 仍锁:那是 claude_code 卡在权限请求上(服务端主动推送的可靠状态),
+ * `waiting_approval` 仍锁:那是单进程 CLI 卡在权限请求上(服务端主动推送的可靠状态),
  * 与 settle 的陈旧 running 无关,沿用旧行为不放开。`failed`/`completed`/`idle`(非 live、
  * 非待审批)→ 不锁。
  *
- * 非 `claude_code` provider(如 codex,支持排队并发收消息)→ 永不锁。
+ * 非单进程 provider(如 codex,支持排队并发收消息)→ 永不锁。
  */
 export function shouldLockComposerForProvider(
   isSessionLive: boolean,
   status: VibeStatus | undefined,
   provider: string | undefined,
 ): boolean {
-  if (provider !== 'claude_code') return false;
+  if (provider !== 'claude_code' && provider !== 'opencode') return false;
   return isSessionLive || status === 'waiting_approval';
 }
 

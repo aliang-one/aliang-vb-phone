@@ -34,6 +34,7 @@ const fallbackModelOptions: ModelOptions = {
   provider_catalog: [
     { provider: 'codex', models: [], efforts: effortPresetsFor('codex') },
     { provider: 'claude_code', models: [], efforts: effortPresetsFor('claude_code') },
+    { provider: 'opencode', models: [], efforts: effortPresetsFor('opencode') },
   ],
   presets: [],
   user_default: {

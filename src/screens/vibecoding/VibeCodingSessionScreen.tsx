@@ -312,7 +312,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
             status: 'idle',
             objective: '',
             model: draftConfig.model ?? '',
-            provider: draftConfig.provider as 'codex' | 'claude_code',
+            provider: draftConfig.provider,
             effort: draftConfig.effort,
             risk: 'medium',
             currentStep: '',
@@ -1278,9 +1278,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
       session?.provider ??
       (session?.model?.toLowerCase().includes('codex')
         ? 'codex'
-        : 'claude_code');
+        : session?.model?.toLowerCase().includes('opencode')
+          ? 'opencode'
+          : 'claude_code');
     const variants =
-      provider === 'codex' ? ['codex'] : ['claude-code', 'claudecode', 'claude'];
+      provider === 'codex'
+        ? ['codex']
+        : provider === 'opencode'
+          ? ['opencode', 'open-code', 'open_code']
+          : ['claude-code', 'claudecode', 'claude'];
     const tool = (device?.tools ?? []).find(item => {
       const id = (item?.id ?? '').toLowerCase().replace(/^ai:/, '');
       return variants.includes(id);
@@ -1790,7 +1796,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // provider-aware effort presets and the agent command-tool lookup.
   const sessionProvider =
     session.provider ??
-    (session.model.toLowerCase().includes('codex') ? 'codex' : 'claude_code');
+    (session.model.toLowerCase().includes('codex')
+      ? 'codex'
+      : session.model.toLowerCase().includes('opencode')
+        ? 'opencode'
+        : 'claude_code');
   const isCodexSession = sessionProvider === 'codex';
   // Live model/effort catalog (shared, cached) — drives the ToolsMenu effort
   // chips so they render the provider's catalog efforts (codex 4, claude 6),

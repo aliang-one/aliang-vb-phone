@@ -2,9 +2,9 @@ import type { StateCreator } from 'zustand';
 import type { AgentCommandInfo, VibeCodingRun, VibeStatus } from '../../data/platformModels';
 import { platformTransport } from '../../services/platformTransport';
 import { refreshSessionCommands as refreshSessionCommandsApi } from '../../api/sessions';
-import { normalizeProvider } from '../../utils/modelIntensity';
+import { normalizeProvider, providerLabel } from '../../utils/modelIntensity';
 import { isSessionTurnActive } from '../../utils/sessionPhase';
-import type { ControlCenterState } from '../types';
+import type { AgentProvider, ControlCenterState } from '../types';
 import {
   activityNowMs,
   attachDeviceRelations,
@@ -43,6 +43,16 @@ const refreshingCommands = new Map<string, Promise<AgentCommandInfo[]>>();
 
 const messageSendKey = (sessionId: string, content: string, mode: 'voice' | 'text') =>
   `${sessionId}:${mode}:${content}`;
+
+const providerWireValue = (provider: AgentProvider): 'codex' | 'claudecode' | 'opencode' =>
+  provider === 'claude_code'
+    ? 'claudecode'
+    : provider === 'opencode'
+      ? 'opencode'
+      : 'codex';
+
+const providerDefaultModelLabel = (provider: AgentProvider): string =>
+  provider === 'codex' ? 'GPT-5 Codex' : providerLabel(provider);
 
 export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSessionSlice> = (set, get) => ({
   vibeRuns: [],
@@ -101,7 +111,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
   },
 
   startAgentSession: async (input) => {
-    const provider = input.provider === 'claude_code' ? 'claudecode' : 'codex';
+    const provider = providerWireValue(input.provider);
     // Concrete model name forwarded to the agent CLI as `--model` (e.g.
     // "glm-5.2-xhigh"). Empty/omitted => the CLI's own default model is used.
     // Do NOT send a display label — the gateway forwards `model` verbatim, so a
@@ -112,7 +122,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     // Presentation label for VibeCodingRun.model / UI copy only (falls back to
     // the provider name when no concrete model is set). NOT sent to the agent.
     const modelLabel =
-      sentModel ?? (input.provider === 'claude_code' ? 'Claude Code' : 'GPT-5 Codex');
+      sentModel ?? providerDefaultModelLabel(input.provider);
 
     if (get().serverMode) {
       try {
@@ -472,9 +482,9 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     const turnActive =
       isSessionTurnActive(status ?? 'idle') || status === 'waiting_approval';
     const sendAsSteer = Boolean(turnActive && provider === 'codex');
-    if (turnActive && provider === 'claude_code') {
+    if (turnActive && (provider === 'claude_code' || provider === 'opencode')) {
       pendingMessageSends.delete(sendKey);
-      throw new Error('Claude Code is still running. Stop it before sending another message.');
+      throw new Error(`${providerLabel(provider)} is still running. Stop it before sending another message.`);
     }
     // OPTIMISTIC UPDATE — render the user's message and flip the session to
     // "running / waiting for AI" BEFORE the HTTP round trip. The optimistic

@@ -57,7 +57,7 @@ export interface ServerProject {
   /** Project-scoped model/effort choices per provider tab. */
   model_config?: ProjectProviderModelConfig;
   /** Legacy single-provider override; kept for older server payloads. */
-  provider?: 'codex' | 'claude_code' | null;
+  provider?: 'codex' | 'claude_code' | 'opencode' | null;
   model?: string | null;
   effort?: string | null;
   last_active_at?: string;

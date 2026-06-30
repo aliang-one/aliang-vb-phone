@@ -24,7 +24,7 @@ export type TerminalSessionStatus =
   | 'stopped'
   | 'waiting_approval';
 
-export type AgentProvider = 'claude_code' | 'codex';
+export type AgentProvider = 'claude_code' | 'codex' | 'opencode';
 
 export type UnifiedEventType =
   | 'terminal.output'

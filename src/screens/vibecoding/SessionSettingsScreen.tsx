@@ -22,6 +22,7 @@ import {
   catalogModelOptions,
   intensityToEffort,
   parseModelIntensity,
+  providerLabel,
   type EffortProvider,
 } from '../../utils/modelIntensity';
 import { catalogEffortOptions, useModelOptions } from '../../hooks/useModelOptions';
@@ -35,7 +36,12 @@ const resolveProvider = (
   provider?: EffortProvider,
   model?: string,
 ): EffortProvider =>
-  provider ?? (model?.toLowerCase().includes('codex') ? 'codex' : 'claude_code');
+  provider ??
+  (model?.toLowerCase().includes('codex')
+    ? 'codex'
+    : model?.toLowerCase().includes('opencode')
+      ? 'opencode'
+      : 'claude_code');
 
 export const SessionSettingsScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
@@ -246,7 +252,7 @@ export const SessionSettingsScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.hint,
           ]}>
-          EFFORT 作为独立字段下发,网关据此设置推理强度({provider === 'codex' ? 'Codex' : 'Claude'} 档位:{effortOptions.filter(o => o.value).map(o => o.value).join('/')});选「默认」则继承用户默认。与模型互相独立,无需先选模型。
+          EFFORT 作为独立字段下发,网关据此设置推理强度({providerLabel(provider)} 档位:{effortOptions.filter(o => o.value).map(o => o.value).join('/')});选「默认」则继承用户默认。与模型互相独立,无需先选模型。
         </Text>
 
         {effectiveLabel ? (

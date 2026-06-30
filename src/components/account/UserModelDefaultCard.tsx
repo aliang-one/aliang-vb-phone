@@ -23,19 +23,20 @@ import {
   useModelOptions,
 } from '../../hooks/useModelOptions';
 import {
+  EFFORT_PROVIDERS,
   normalizeProvider,
+  providerLabel as formatProviderLabel,
   type EffortProvider,
 } from '../../utils/modelIntensity';
 
 type ProviderDraft = EffortProvider | '';
 
 const PROVIDER_OPTIONS: Array<{ label: string; value: ProviderDraft }> = [
-  { label: 'Codex', value: 'codex' },
-  { label: 'Claude Code', value: 'claude_code' },
+  ...EFFORT_PROVIDERS.map(value => ({ label: formatProviderLabel(value), value })),
 ];
 
 const providerLabel = (provider?: CatalogProvider | null) =>
-  provider === 'claude_code' ? 'Claude Code' : provider === 'codex' ? 'Codex' : '未设置';
+  provider ? formatProviderLabel(provider) : '未设置';
 
 export const UserModelDefaultCard: React.FC = () => {
   const { theme, isDark } = useTheme();

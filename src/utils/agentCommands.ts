@@ -1,4 +1,5 @@
 import type { AgentCommandInfo } from '../data/platformModels';
+import type { EffortProvider } from './modelIntensity';
 
 /**
  * Universal `/`-command baseline per provider.
@@ -14,7 +15,7 @@ import type { AgentCommandInfo } from '../data/platformModels';
  * (local-agent.ts `BUILTIN_COMMANDS`) — when the agent reports its builtins
  * they are deduped against this list, so the two never double-show.
  */
-export const BUILTIN_AGENT_COMMANDS: Record<'codex' | 'claude_code', AgentCommandInfo[]> = {
+export const BUILTIN_AGENT_COMMANDS: Record<EffortProvider, AgentCommandInfo[]> = {
   claude_code: [
     { name: 'clear', description: '清空当前对话上下文', scope: 'builtin', remote: 'local' },
     { name: 'compact', description: '压缩对话历史以节省上下文', scope: 'builtin', remote: 'local' },
@@ -30,10 +31,17 @@ export const BUILTIN_AGENT_COMMANDS: Record<'codex' | 'claude_code', AgentComman
     { name: 'clear', description: '清空当前对话上下文', scope: 'builtin', remote: 'local' },
     { name: 'model', description: '切换模型', argHint: '<model>', scope: 'builtin', remote: 'local' },
   ],
+  opencode: [
+    { name: 'init', description: '初始化 OpenCode 项目配置', scope: 'builtin', remote: 'prompt' },
+    { name: 'help', description: '查看 OpenCode 可用命令', scope: 'builtin', remote: 'local' },
+    { name: 'model', description: '切换模型', argHint: '<provider/model>', scope: 'builtin', remote: 'local' },
+    { name: 'undo', description: '撤销上一步变更', scope: 'builtin', remote: 'local' },
+    { name: 'redo', description: '重做上一步撤销', scope: 'builtin', remote: 'local' },
+  ],
 };
 
 export const builtinCommandsFor = (
-  provider: 'codex' | 'claude_code',
+  provider: EffortProvider,
 ): AgentCommandInfo[] => BUILTIN_AGENT_COMMANDS[provider] ?? BUILTIN_AGENT_COMMANDS.claude_code;
 
 /**
@@ -45,7 +53,7 @@ export const builtinCommandsFor = (
  * (e.g. the production Go agent before it implements command discovery).
  */
 export const mergeCommands = (
-  provider: 'codex' | 'claude_code',
+  provider: EffortProvider,
   agentCommands: AgentCommandInfo[] | undefined,
 ): AgentCommandInfo[] => {
   const agent = agentCommands ?? [];

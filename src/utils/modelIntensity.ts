@@ -8,7 +8,7 @@
 // splice an effort tier into the model string.
 //
 // `effort` is provider-specific (codex: low/medium/high/xhigh; claude_code:
-// low/medium/high/xhigh/max/ultracode). Provider-aware presets live below as a
+// low/medium/high/xhigh/max/ultracode; opencode: low/medium/high). Provider-aware presets live below as a
 // fallback ladder; the live catalog is fetched at runtime (effortOptionsFor).
 //
 // The `Intensity` / `INTENSITY_*` / `parseModelIntensity` / `composeModel`
@@ -18,7 +18,16 @@
 // (b) keep existing imports compiling. Do NOT use composeModel for new saves.
 
 /** Provider discriminant for effort presets (mirrors AgentProvider). */
-export type EffortProvider = 'codex' | 'claude_code';
+export type EffortProvider = 'codex' | 'claude_code' | 'opencode';
+
+export const EFFORT_PROVIDERS: EffortProvider[] = ['codex', 'claude_code', 'opencode'];
+
+export const providerLabel = (provider: EffortProvider): string =>
+  provider === 'codex'
+    ? 'Codex'
+    : provider === 'opencode'
+      ? 'OpenCode'
+      : 'Claude Code';
 
 // Provider-aware reasoning-effort presets. "默认" (value '') means no override
 // — the server/CLI default reasoning level is used. This hardcoded ladder is a
@@ -29,6 +38,7 @@ export type EffortProvider = 'codex' | 'claude_code';
 // CONTRACT (must match the server's seeded catalog exactly):
 //   codex:        low / medium / high / xhigh
 //   claude_code:  low / medium / high / xhigh / max / ultracode
+//   opencode:     low / medium / high
 export const EFFORT_PRESETS: Record<
   EffortProvider,
   Array<{ label: string; value: string }>
@@ -49,6 +59,12 @@ export const EFFORT_PRESETS: Record<
     { label: 'max', value: 'max' },
     { label: 'ultracode', value: 'ultracode' },
   ],
+  opencode: [
+    { label: '默认', value: '' },
+    { label: 'low', value: 'low' },
+    { label: 'medium', value: 'medium' },
+    { label: 'high', value: 'high' },
+  ],
 };
 
 export const effortPresetsFor = (provider: EffortProvider) =>
@@ -62,6 +78,7 @@ export const effortPresetsFor = (provider: EffortProvider) =>
 // CONTRACT (must match the server's seeded catalog exactly):
 //   codex:        gpt-5.4 / gpt-5.5
 //   claude_code:  glm-5.1 / glm-5.2
+//   opencode:     anthropic/claude-sonnet-4-5 / openai/gpt-5
 export const MODEL_PRESETS_BY_PROVIDER: Record<
   EffortProvider,
   Array<{ label: string; value: string }>
@@ -73,6 +90,10 @@ export const MODEL_PRESETS_BY_PROVIDER: Record<
   claude_code: [
     { label: 'glm-5.1', value: 'glm-5.1' },
     { label: 'glm-5.2', value: 'glm-5.2' },
+  ],
+  opencode: [
+    { label: 'anthropic/claude-sonnet-4-5', value: 'anthropic/claude-sonnet-4-5' },
+    { label: 'openai/gpt-5', value: 'openai/gpt-5' },
   ],
 };
 
@@ -153,6 +174,13 @@ export function normalizeProvider(
     const value = (candidate ?? '').trim().toLowerCase();
     if (value === 'codex') return 'codex';
     if (
+      value === 'opencode' ||
+      value === 'open_code' ||
+      value === 'open-code'
+    ) {
+      return 'opencode';
+    }
+    if (
       value === 'claude' ||
       value === 'claudecode' ||
       value === 'claude_code' ||
@@ -167,6 +195,7 @@ export function normalizeProvider(
 export interface ProviderAvailability {
   codex: boolean;
   claude_code: boolean;
+  opencode: boolean;
 }
 
 /**
@@ -175,7 +204,7 @@ export interface ProviderAvailability {
  * usable on that device. A provider is available when at least one tool whose
  * id normalizes to it is present with `available !== false`.
  *
- * Empty/unknown tool list → both available: the agent may simply not have
+ * Empty/unknown tool list → all providers available: the agent may simply not have
  * reported tools yet, and we must not block session creation in that case.
  * Structural tool type so this util stays free of device-type dependencies.
  */
@@ -185,14 +214,14 @@ export function availableProviders(
     | undefined,
 ): ProviderAvailability {
   if (!tools || !tools.length) {
-    return { codex: true, claude_code: true };
+    return { codex: true, claude_code: true, opencode: true };
   }
   const has = (provider: EffortProvider) =>
     tools.some(tool => {
       if (tool.available === false) return false;
       return normalizeProvider(tool.id) === provider;
     });
-  return { codex: has('codex'), claude_code: has('claude_code') };
+  return { codex: has('codex'), claude_code: has('claude_code'), opencode: has('opencode') };
 }
 
 // ---- LEGACY: tier-as-model-suffix representation (parsing only) -------------
@@ -237,7 +266,7 @@ export const INTENSITY_OPTIONS: Array<{ label: string; value: Intensity }> = [
 // `VibeCodingRun.model` is a DISPLAY label: when no concrete model is set it
 // falls back to one of these provider names (see aiSessionModelLabel in
 // internals.ts). Treat those as "no explicit model".
-export const PROVIDER_DEFAULT_LABELS = new Set(['Claude Code', 'GPT-5 Codex']);
+export const PROVIDER_DEFAULT_LABELS = new Set(['Claude Code', 'GPT-5 Codex', 'OpenCode']);
 
 /**
  * Split a (possibly legacy baked) model string into base name + intensity

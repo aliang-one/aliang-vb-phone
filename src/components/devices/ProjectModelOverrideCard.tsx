@@ -18,7 +18,9 @@ import {
   type ProviderModelSelection,
 } from '../../api/modelConfig';
 import {
+  EFFORT_PROVIDERS,
   normalizeProvider,
+  providerLabel,
   type EffortProvider,
 } from '../../utils/modelIntensity';
 
@@ -36,14 +38,17 @@ interface ProjectModelSelectionCardProps {
 type Drafts = Record<EffortProvider, { model: string; effort: string }>;
 
 const PROVIDER_TABS: Array<{ label: string; value: EffortProvider }> = [
-  { label: 'Codex', value: 'codex' },
-  { label: 'Claude Code', value: 'claude_code' },
+  ...EFFORT_PROVIDERS.map(value => ({ label: providerLabel(value), value })),
 ];
 
-const emptyDrafts = (): Drafts => ({
-  codex: { model: '', effort: '' },
-  claude_code: { model: '', effort: '' },
-});
+const emptyDrafts = (): Drafts =>
+  EFFORT_PROVIDERS.reduce(
+    (acc, provider) => ({
+      ...acc,
+      [provider]: { model: '', effort: '' },
+    }),
+    {} as Drafts,
+  );
 
 const draftsFromConfig = (
   config?: ProjectProviderModelConfig,
@@ -66,16 +71,17 @@ const draftsFromConfig = (
   return next;
 };
 
-const normalizeDrafts = (drafts: Drafts): Drafts => ({
-  codex: {
-    model: drafts.codex.model.trim(),
-    effort: drafts.codex.effort.trim(),
-  },
-  claude_code: {
-    model: drafts.claude_code.model.trim(),
-    effort: drafts.claude_code.effort.trim(),
-  },
-});
+const normalizeDrafts = (drafts: Drafts): Drafts =>
+  EFFORT_PROVIDERS.reduce(
+    (acc, provider) => ({
+      ...acc,
+      [provider]: {
+        model: drafts[provider].model.trim(),
+        effort: drafts[provider].effort.trim(),
+      },
+    }),
+    {} as Drafts,
+  );
 
 const serializeConfig = (drafts: Drafts): ProjectProviderModelConfig => {
   const trimmed = normalizeDrafts(drafts);
@@ -99,11 +105,8 @@ const hasSameDrafts = (a: Drafts, b: Drafts) =>
       a[tab.value].effort === b[tab.value].effort,
   );
 
-const providerLabel = (provider: EffortProvider) =>
-  provider === 'codex' ? 'Codex' : 'Claude Code';
-
 /**
- * Project-scoped model selection editor. Codex and Claude Code are separate
+ * Project-scoped model selection editor. Each agent provider has a separate
  * tabs; each provider keeps its own model/effort picks. A newly-created session
  * reads the tab matching that session's provider.
  */

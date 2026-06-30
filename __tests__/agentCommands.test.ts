@@ -12,6 +12,12 @@ describe('agentCommands', () => {
 
     const codex = mergeCommands('codex', undefined);
     expect(codex.some(c => c.name === 'diff')).toBe(true);
+
+    const opencode = mergeCommands('opencode', undefined);
+    expect(opencode.map(c => c.name)).toEqual(
+      builtinCommandsFor('opencode').map(c => c.name),
+    );
+    expect(opencode.some(c => c.name === 'model')).toBe(true);
   });
 
   it('puts agent commands first and appends builtins that are missing', () => {
@@ -41,5 +47,6 @@ describe('agentCommands', () => {
   it('is never empty for a known provider', () => {
     expect(mergeCommands('claude_code', []).length).toBeGreaterThan(0);
     expect(mergeCommands('codex', []).length).toBeGreaterThan(0);
+    expect(mergeCommands('opencode', []).length).toBeGreaterThan(0);
   });
 });
