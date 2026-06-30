@@ -1,4 +1,4 @@
-import { collectFileChanges, sessionsForProject, latestSessionForProject } from './sessionChanges';
+import { collectFileChanges, sessionsForProject, latestSessionForProject, changeReviewCount } from './sessionChanges';
 import type { StructuredActivityEvent, VibeCodingRun } from '../../data/platformModels';
 
 function makeRun(
@@ -90,5 +90,44 @@ describe('latestSessionForProject', () => {
 
   test('无匹配返回 undefined', () => {
     expect(latestSessionForProject([], 'P')).toBeUndefined();
+  });
+});
+
+describe('changeReviewCount', () => {
+  // 关键 bug 修复：列表快照不带 structured_events,所以 banner 的显隐/计数必须
+  // 用列表里就有的 resident filesTouchedCount,不能依赖 structuredEvents。
+  test('undefined 会话 → 0', () => {
+    expect(changeReviewCount(undefined)).toBe(0);
+  });
+
+  test('用 resident filesTouchedCount,即使 structuredEvents 为空(列表快照场景)', () => {
+    const run = makeRun({ id: 's', projectId: 'P', lastActivityMs: 1, filesTouchedCount: 5 });
+    expect(changeReviewCount(run)).toBe(5);
+  });
+
+  test('filesTouchedCount 缺失时回退到 structuredEvents 长度(已水合时)', () => {
+    const run = makeRun({
+      id: 's',
+      projectId: 'P',
+      lastActivityMs: 1,
+      structuredEvents: [
+        { kind: 'file_change', eventId: 'e1', messageId: 'm1', itemId: 'i1', path: 'a.ts', changeKind: 'edit' },
+        { kind: 'file_change', eventId: 'e2', messageId: 'm2', itemId: 'i2', path: 'b.ts', changeKind: 'create' },
+      ],
+    });
+    expect(changeReviewCount(run)).toBe(2);
+  });
+
+  test('filesTouchedCount 优先于 structuredEvents', () => {
+    const run = makeRun({
+      id: 's',
+      projectId: 'P',
+      lastActivityMs: 1,
+      filesTouchedCount: 3,
+      structuredEvents: [
+        { kind: 'file_change', eventId: 'e1', messageId: 'm1', itemId: 'i1', path: 'a.ts' },
+      ],
+    });
+    expect(changeReviewCount(run)).toBe(3);
   });
 });

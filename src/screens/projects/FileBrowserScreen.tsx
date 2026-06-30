@@ -29,7 +29,7 @@ import { CodeHighlight } from '../../components/shared/CodeHighlight';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { describeDeviceError } from '../../utils/deviceError';
 import {
-  collectFileChanges,
+  changeReviewCount,
   latestSessionForProject,
 } from '../../utils/diff/sessionChanges';
 
@@ -140,10 +140,7 @@ export const FileBrowserScreen: React.FC = () => {
     () => latestSessionForProject(vibeRuns, route.params.projectId),
     [vibeRuns, route.params.projectId],
   );
-  const aiChangedCount = useMemo(
-    () => (latestSession ? collectFileChanges(latestSession.structuredEvents).length : 0),
-    [latestSession],
-  );
+  const aiChangedCount = useMemo(() => changeReviewCount(latestSession), [latestSession]);
   const openChangeReview = useCallback(() => {
     navigation.navigate('ChangeReview', {
       projectId: route.params.projectId,

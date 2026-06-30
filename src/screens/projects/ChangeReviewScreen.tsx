@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
@@ -31,6 +31,9 @@ export const ChangeReviewScreen: React.FC = () => {
   const { theme } = useTheme();
   const { projectId } = route.params;
   const vibeRuns = useControlCenterStore(state => state.vibeRuns);
+  const loadAgentSessionDetail = useControlCenterStore(
+    state => state.loadAgentSessionDetail,
+  );
 
   const sessions = useMemo(
     () => sessionsForProject(vibeRuns, projectId),
@@ -43,6 +46,21 @@ export const ChangeReviewScreen: React.FC = () => {
     () => (selected ? collectFileChanges(selected.structuredEvents) : []),
     [selected],
   );
+
+  // 会话列表快照不带 structured_events（publicAiSession 没这字段），所以入屏/
+  // 切会话时必须主动拉详情水合，否则 collectFileChanges 拿不到 file_change。
+  const [hydrating, setHydrating] = useState(() => Boolean(sessions[0]));
+  useEffect(() => {
+    if (!selected) return;
+    let cancelled = false;
+    setHydrating(true);
+    loadAgentSessionDetail(selected.id).finally(() => {
+      if (!cancelled) setHydrating(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.id, loadAgentSessionDetail]);
 
   const [index, setIndex] = useState(0);
   const [diffLines, setDiffLines] = useState<DiffLine[]>([]);
@@ -136,16 +154,22 @@ export const ChangeReviewScreen: React.FC = () => {
         </ScrollView>
       )}
       <View style={{ flex: 1 }}>
-        <ChangeReviewView
-          changes={changes}
-          index={safeIndex}
-          diffLines={diffLines}
-          diffState={changes.length ? diffState : 'idle'}
-          truncated={truncated}
-          onPrev={onPrev}
-          onNext={onNext}
-          onRetry={onRetry}
-        />
+        {hydrating && changes.length === 0 ? (
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator />
+          </View>
+        ) : (
+          <ChangeReviewView
+            changes={changes}
+            index={safeIndex}
+            diffLines={diffLines}
+            diffState={changes.length ? diffState : 'idle'}
+            truncated={truncated}
+            onPrev={onPrev}
+            onNext={onNext}
+            onRetry={onRetry}
+          />
+        )}
       </View>
     </SafeAreaWrapper>
   );

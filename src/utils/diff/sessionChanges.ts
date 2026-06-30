@@ -65,3 +65,17 @@ export function latestSessionForProject(
 ): VibeCodingRun | undefined {
   return sessionsForProject(runs, projectId)[0];
 }
+
+/**
+ * 「审核 AI 改动」入口的显隐/计数依据。
+ *
+ * ⚠️ 必须用列表快照里就有的 resident 字段：会话列表的 `publicAiSession`
+ * 序列化**不带** `structured_events`（只有单会话详情才带，还会被 idle 内存
+ * 降界清空），所以 `structuredEvents` 对未打开过的会话恒为 `[]`。改用 agent
+ * 上报、列表里常驻的 `filesTouchedCount`；仅当它缺失（旧会话）时才回退到
+ * 已水合的 `structuredEvents` 长度。
+ */
+export function changeReviewCount(session: VibeCodingRun | undefined): number {
+  if (!session) return 0;
+  return session.filesTouchedCount ?? collectFileChanges(session.structuredEvents).length;
+}
