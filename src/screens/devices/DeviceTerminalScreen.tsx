@@ -163,6 +163,8 @@ export const DeviceTerminalScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
   const route = useRoute<DeviceTerminalRoute>();
+  const initialCommand = route.params.initialCommand;
+  const ranInitialRef = useRef(false);
   const terminalBridgeRef = useRef<TerminalEmulatorHandle | null>(null);
   const keyboardProxyRef = useRef<TextInput>(null);
   const keyboardProxyStateRef = useRef(createTerminalKeyboardProxyState());
@@ -450,6 +452,20 @@ export const DeviceTerminalScreen: React.FC = () => {
 
     return () => clearTimeout(timer);
   }, [keyboardLiftInset, terminalViewportInset]);
+
+  // Entry A (long-press NEW TERM → voice→bash): run the routed command exactly
+  // once when the pty becomes input-available, then clear the param so a later
+  // re-render (or hot reload) never re-runs it. ranInitialRef guarantees
+  // single-fire even if setParams is async/batched.
+  useEffect(() => {
+    if (!terminalInputEnabled) return;
+    if (!initialCommand) return;
+    if (ranInitialRef.current) return;
+
+    ranInitialRef.current = true;
+    sendToTerminal(`${initialCommand}\r`, { focus: false });
+    navigation.setParams({ initialCommand: undefined });
+  }, [terminalInputEnabled, initialCommand]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleBack = () => {
     if (navigation.canGoBack()) {
