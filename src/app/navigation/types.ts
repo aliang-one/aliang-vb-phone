@@ -19,6 +19,7 @@ export type RootStackParamList = {
   ProjectDetail: { projectId: string; deviceId?: string };
   ProjectSettings: { projectId: string; deviceId?: string };
   FileBrowser: { projectId: string; deviceId?: string; sessionId?: string };
+  ChangeReview: { projectId: string; deviceId?: string };
   CreateVibeCoding: { deviceId?: string; projectId?: string };
   // VibeCodingSession doubles as the "new conversation" screen: when opened
   // with draftConfig and no sessionId, it renders in draft mode (idle, empty

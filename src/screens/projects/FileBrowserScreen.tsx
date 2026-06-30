@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -28,6 +28,10 @@ import { BottomSheet } from '../../components/shared/BottomSheet';
 import { CodeHighlight } from '../../components/shared/CodeHighlight';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { describeDeviceError } from '../../utils/deviceError';
+import {
+  collectFileChanges,
+  latestSessionForProject,
+} from '../../utils/diff/sessionChanges';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type FileRoute = RouteProp<RootStackParamList, 'FileBrowser'>;
@@ -104,6 +108,7 @@ export const FileBrowserScreen: React.FC = () => {
   const scanResults = useControlCenterStore(state => state.scanResults);
   const loadProjectFiles = useControlCenterStore(state => state.loadProjectFiles);
   const loadProjectFileContent = useControlCenterStore(state => state.loadProjectFileContent);
+  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
   const [filter, setFilter] = useState<FileFilter>('all');
   const [currentPath, setCurrentPath] = useState('');
   const [selectedPath, setSelectedPath] = useState('');
@@ -130,6 +135,21 @@ export const FileBrowserScreen: React.FC = () => {
     scanResult?.path ?? project?.path ?? device?.authorizedDirectories[0] ?? '~';
   const effectivePath = currentPath || terminalDirectory;
   const deviceOnline = device?.status === 'online';
+  // 「审核 AI 改动」入口：本项目最新会话改过的文件数（去重后）。0 则隐藏入口。
+  const latestSession = useMemo(
+    () => latestSessionForProject(vibeRuns, route.params.projectId),
+    [vibeRuns, route.params.projectId],
+  );
+  const aiChangedCount = useMemo(
+    () => (latestSession ? collectFileChanges(latestSession.structuredEvents).length : 0),
+    [latestSession],
+  );
+  const openChangeReview = useCallback(() => {
+    navigation.navigate('ChangeReview', {
+      projectId: route.params.projectId,
+      deviceId: device?.id,
+    });
+  }, [navigation, route.params.projectId, device?.id]);
   const fileError = useMemo(() => (error ? humanizeFileError(error) : null), [error]);
   const projectFiles = useMemo(
     () =>
@@ -467,6 +487,41 @@ export const FileBrowserScreen: React.FC = () => {
       />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <DeferredMount>
+        {aiChangedCount > 0 && (
+          <TouchableOpacity
+            testID="file-browser-change-review"
+            activeOpacity={0.7}
+            onPress={openChangeReview}
+            style={[
+              {
+                flexDirection: 'row',
+                alignItems: 'center',
+                padding: 12,
+                borderRadius: 12,
+                borderWidth: 1,
+                marginBottom: 12,
+              },
+              {
+                borderColor: theme.colors.primary,
+                backgroundColor: isDark
+                  ? 'rgba(86,156,214,0.12)'
+                  : 'rgba(0,81,174,0.06)',
+              },
+            ]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+                审核 AI 改动
+              </Text>
+              <Text
+                style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                {`最新会话改了 ${aiChangedCount} 个文件 · 逐文件 diff`}
+              </Text>
+            </View>
+            <Text style={[theme.typography.titleLg, { color: theme.colors.primary }]}>
+              {'›'}
+            </Text>
+          </TouchableOpacity>
+        )}
         {/* Project identity + device status + action toolbar */}
         <GlassPanel style={styles.hero}>
           <View style={styles.heroTop}>
