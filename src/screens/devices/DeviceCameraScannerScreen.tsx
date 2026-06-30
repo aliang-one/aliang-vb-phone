@@ -139,7 +139,25 @@ export const DeviceCameraScannerScreen: React.FC = () => {
         }
       />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
-        <GlassPanel glowColor="primary" style={styles.cameraPanel}>
+        {/* Plain View, NOT GlassPanel: the scanner preview is an Android
+            SurfaceView (CameraX PreviewView), and a SurfaceView renders BLACK
+            when an ancestor clips it with overflow:'hidden' + borderRadius —
+            GlassPanel always applies both, so the scan-login camera was black
+            on Xiaomi/MIUI (frames flowed to the surface but were never shown).
+            Keep this container unclipped; give it a border/bg manually. */}
+        <View
+          style={[
+            styles.cameraPanel,
+            {
+              backgroundColor: isDark
+                ? 'rgba(255, 255, 255, 0.04)'
+                : theme.colors.surfaceContainerLow,
+              borderColor: isDark
+                ? 'rgba(255, 255, 255, 0.08)'
+                : theme.colors.outlineVariant,
+              borderRadius: theme.borderRadius.md,
+            },
+          ]}>
           {hasPermission ? (
             <View style={styles.cameraFrame}>
               <DeviceCodeScanner
@@ -197,7 +215,7 @@ export const DeviceCameraScannerScreen: React.FC = () => {
               />
             </View>
           )}
-        </GlassPanel>
+        </View>
 
         {scannerError ? (
           <Text style={[theme.typography.bodySm, { color: theme.colors.error }]}>
@@ -348,9 +366,13 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 14,
   },
+  // Camera preview container. MUST stay unclipped (no overflow:'hidden'):
+  // the scanner is an Android SurfaceView (CameraX PreviewView); clipping it
+  // with overflow:'hidden' + borderRadius renders the preview BLACK. bg/border
+  // are set inline on the element so this style intentionally has no clip.
   cameraPanel: {
     padding: 0,
-    overflow: 'hidden',
+    borderWidth: 1,
   },
   cameraFrame: {
     height: 320,

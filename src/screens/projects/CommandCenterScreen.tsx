@@ -25,6 +25,7 @@ import { ProjectWorkspaceCard } from '../../components/cards/ProjectWorkspaceCar
 import { Project, VibeCodingRun } from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore, useStableVibeRuns } from '../../store/controlCenterStore';
+import { useShallow } from 'zustand/shallow';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { newestFirst } from '../../utils/timeSort';
@@ -117,9 +118,20 @@ export const CommandCenterScreen: React.FC = () => {
   const projects = useControlCenterStore(state => state.projects);
   const previewLinks = useControlCenterStore(state => state.previewLinks);
   const vibeRuns = useStableVibeRuns();
-  const approvals = useControlCenterStore(state => state.approvals);
   const notifications = useControlCenterStore(state => state.notifications);
-  const events = useControlCenterStore(state => state.events);
+  // Only conversation-lifecycle / approval events drive the home feed. Filtering
+  // at the selector (via useShallow) keeps high-frequency agent.delta / terminal
+  // events from re-rendering the entire home screen on every token.
+  const feedEvents = useControlCenterStore(
+    useShallow(state =>
+      state.events.filter(
+        event =>
+          event.type === 'agent.session.started' ||
+          event.type === 'agent.session.completed' ||
+          event.type === 'approval.requested',
+      ),
+    ),
+  );
   const scanResults = useControlCenterStore(state => state.scanResults);
   const wsConnected = useControlCenterStore(state => state.wsConnected);
   const serverMode = useControlCenterStore(state => state.serverMode);
@@ -202,7 +214,7 @@ export const CommandCenterScreen: React.FC = () => {
         timeLabel: formatConversationRelativeShort(ms, nowMs),
       });
     };
-    for (const evt of events) {
+    for (const evt of feedEvents) {
       if (evt.type === 'agent.session.started') {
         push(
           evt.id,
@@ -259,7 +271,7 @@ export const CommandCenterScreen: React.FC = () => {
       );
     }
     return items.sort((left, right) => right.ms - left.ms).slice(0, 12);
-  }, [events, activeAgentRuns]);
+  }, [feedEvents, activeAgentRuns]);
   const visibleConversationFeed = conversationFeed.slice(
     0,
     HOME_CONVERSATION_EVENT_LIMIT,
@@ -279,9 +291,10 @@ export const CommandCenterScreen: React.FC = () => {
       ),
     [projects, deviceStatusIndex],
   );
-  const pendingApprovals = useMemo(
-    () => approvals.filter(item => item.status === 'pending'),
-    [approvals],
+  const pendingApprovals = useControlCenterStore(
+    useShallow(state =>
+      state.approvals.filter(item => item.status === 'pending'),
+    ),
   );
   const unreadNotifications = useMemo(
     () => notifications.filter(item => !item.read),
@@ -714,7 +727,7 @@ export const CommandCenterScreen: React.FC = () => {
           <ActionTile
             icon="event"
             label="Events"
-            value={`${events.length}`}
+            value={`${feedEvents.length}`}
             caption="事件"
             tone="info"
             mini

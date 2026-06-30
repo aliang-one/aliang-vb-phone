@@ -128,6 +128,8 @@ export type PlatformTransportEvent =
   | { type: 'device.updated'; device: PlatformDeviceSnapshot; raw: Record<string, unknown> }
   | { type: 'device.removed'; deviceId: string; raw: Record<string, unknown> }
   | { type: 'ai.delta'; sessionId: string; delta: string; currentStep: string; messageId?: string; raw: Record<string, unknown> }
+  | { type: 'ai.run.started'; sessionId: string; messageId?: string; raw: Record<string, unknown> }
+  | { type: 'ai.run.progress'; sessionId: string; messageId?: string; raw: Record<string, unknown> }
   | { type: 'ai.done'; sessionId: string; detail: string; raw: Record<string, unknown> }
   | { type: 'ai.status'; sessionId: string; status: string; raw: Record<string, unknown> }
   | { type: 'ai.error'; sessionId: string; error: string; raw: Record<string, unknown> }
@@ -456,6 +458,24 @@ class PlatformTransport {
         sessionId: String(message.session_id ?? ''),
         delta: String(message.delta ?? ''),
         currentStep: String(message.current_step ?? ''),
+        messageId: asString(message.message_id),
+        raw: message,
+      };
+    }
+
+    if (type === 'ai.run.started') {
+      return {
+        type: 'ai.run.started',
+        sessionId: String(message.session_id ?? ''),
+        messageId: asString(message.message_id),
+        raw: message,
+      };
+    }
+
+    if (type === 'ai.run.progress') {
+      return {
+        type: 'ai.run.progress',
+        sessionId: String(message.session_id ?? ''),
         messageId: asString(message.message_id),
         raw: message,
       };

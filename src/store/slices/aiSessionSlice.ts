@@ -733,8 +733,13 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
 
   // Clear the currently-viewed marker (chat screen blur / unmount). lastViewedAt
   // is retained so the idle threshold clock keeps running for that session.
-  clearCurrentlyViewedSession: () => {
-    set({ currentlyViewedSessionId: undefined });
+  clearCurrentlyViewedSession: sessionId => {
+    set(state => {
+      if (sessionId && state.currentlyViewedSessionId !== sessionId) {
+        return {};
+      }
+      return { currentlyViewedSessionId: undefined };
+    });
   },
 
   // Demote sessions the user hasn't viewed within the idle threshold (and that

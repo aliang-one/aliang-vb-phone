@@ -33,17 +33,37 @@ export type TranscriptMarkdownInline =
   | { kind: 'text'; content: string }
   | { kind: 'strong'; children: TranscriptMarkdownInline[] }
   | { kind: 'emphasis'; children: TranscriptMarkdownInline[] }
+  | { kind: 'strikethrough'; children: TranscriptMarkdownInline[] }
   | { kind: 'inlineCode'; content: string }
   | { kind: 'link'; url: string; children: TranscriptMarkdownInline[] }
+  | { kind: 'image'; alt: string; url: string }
   | { kind: 'commandName'; content: string }
   | { kind: 'commandArgs'; content: string };
+
+/** GFM 表格每列对齐:null = 默认左对齐。 */
+export type TableAlign = 'left' | 'center' | 'right' | null;
+
+export interface TranscriptListItem {
+  /** 缩进层级:0 = 顶级,每 2 个空格(或 1 个 tab) +1。 */
+  depth: number;
+  /** 任务列表勾选状态;缺省 = 普通列表项。 */
+  checkbox?: 'unchecked' | 'checked';
+  children: TranscriptMarkdownInline[];
+}
 
 export type TranscriptMarkdownBlock =
   | { kind: 'paragraph'; children: TranscriptMarkdownInline[] }
   | { kind: 'heading'; level: number; children: TranscriptMarkdownInline[] }
   | { kind: 'quote'; children: TranscriptMarkdownInline[] }
-  | { kind: 'list'; ordered: boolean; items: TranscriptMarkdownInline[][] }
+  | { kind: 'list'; ordered: boolean; items: TranscriptListItem[] }
   | { kind: 'code'; language?: string; content: string }
+  | {
+      kind: 'table';
+      align: TableAlign[];
+      headers: TranscriptMarkdownInline[][];
+      rows: TranscriptMarkdownInline[][][];
+    }
+  | { kind: 'thematicBreak' }
   | {
       kind: 'folded';
       label: string;
@@ -273,6 +293,7 @@ const summarizeContent = (value: string) => {
 const AUTO_FOLD_CODE_LINES = 12;
 const AUTO_FOLD_CODE_CHARS = 800;
 const AUTO_FOLD_LIST_ITEMS = 8;
+const AUTO_FOLD_TABLE_ROWS = 10;
 const AUTO_FOLD_PARAGRAPH_LINES = 8;
 const AUTO_FOLD_PARAGRAPH_CHARS = 900;
 const AUTO_FOLD_SECTION_LINES = 6;
@@ -298,8 +319,11 @@ const inlineNodesText = (nodes: TranscriptMarkdownInline[]): string =>
       switch (node.kind) {
         case 'strong':
         case 'emphasis':
+        case 'strikethrough':
         case 'link':
           return inlineNodesText(node.children);
+        case 'image':
+          return node.alt;
         default:
           return node.content;
       }
@@ -313,7 +337,21 @@ const blockText = (block: TranscriptMarkdownBlock): string => {
     case 'quote':
       return inlineNodesText(block.children);
     case 'list':
-      return block.items.map((item, index) => `${index + 1}. ${inlineNodesText(item)}`).join('\n');
+      return block.items
+        .map(
+          (item, index) =>
+            `${'  '.repeat(item.depth)}${item.checkbox ? `[${item.checkbox === 'checked' ? 'x' : ' '}] ` : `${index + 1}. `}${inlineNodesText(item.children)}`,
+        )
+        .join('\n');
+    case 'table':
+      return [
+        block.headers.map(cells => inlineNodesText(cells)).join(' | '),
+        ...block.rows.map(row =>
+          row.map(cells => inlineNodesText(cells)).join(' | '),
+        ),
+      ].join('\n');
+    case 'thematicBreak':
+      return '---';
     case 'code':
       return block.content;
     case 'folded':
@@ -415,6 +453,13 @@ const autoFoldMarkdownBlocks = (
       continue;
     }
 
+    if (block.kind === 'table' && block.rows.length > AUTO_FOLD_TABLE_ROWS) {
+      const content = blockText(block);
+      result.push(createFoldedMarkdownBlock(foldLabel('Table', content), content, [block], 'neutral'));
+      index += 1;
+      continue;
+    }
+
     if ((block.kind === 'paragraph' || block.kind === 'quote') && shouldFoldParagraphBlock(block)) {
       const content = blockText(block);
       const warning = /\[WARNING\]|\[ERROR\]|Vue warn|Traceback|Exception/i.test(content);
@@ -478,6 +523,8 @@ const parseInlineMarkdown = (
       value.indexOf('`', start),
       value.indexOf('**', start),
       value.indexOf('__', start),
+      value.indexOf('~~', start),
+      value.indexOf('![', start),
       value.indexOf('[', start),
       value.indexOf('*', start),
       value.indexOf('_', start),
@@ -530,6 +577,36 @@ const parseInlineMarkdown = (
         });
         index = end + 2;
         continue;
+      }
+    }
+
+    if (remaining.startsWith('~~')) {
+      const end = value.indexOf('~~', index + 2);
+      if (end > index + 2) {
+        nodes.push({
+          kind: 'strikethrough',
+          children: parseInlineMarkdown(
+            value.slice(index + 2, end),
+            inlineTags,
+          ),
+        });
+        index = end + 2;
+        continue;
+      }
+    }
+
+    if (remaining.startsWith('![')) {
+      const closeLabel = value.indexOf(']', index + 2);
+      const openUrl = closeLabel >= 0 ? closeLabel + 1 : -1;
+      if (openUrl >= 0 && value[openUrl] === '(') {
+        const closeUrl = value.indexOf(')', openUrl + 1);
+        if (closeUrl > openUrl + 1) {
+          const alt = value.slice(index + 2, closeLabel);
+          const url = value.slice(openUrl + 1, closeUrl).trim();
+          nodes.push({ kind: 'image', alt, url });
+          index = closeUrl + 1;
+          continue;
+        }
       }
     }
 
@@ -586,6 +663,26 @@ const parseInlineMarkdown = (
 
 const lineStartsCodeFence = (line: string) => /^```/.test(line.trim());
 
+const lineStartsThematicBreak = (line: string) =>
+  /^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line);
+
+/** 按 `|` 拆分一行表格单元格,去掉首尾可选的外管道。 */
+const splitTableRow = (line: string): string[] => {
+  let body = line.trim();
+  if (body.startsWith('|')) body = body.slice(1);
+  if (body.endsWith('|')) body = body.slice(0, -1);
+  return body.split('|').map(cell => cell.trim());
+};
+
+const cellAlign = (cell: string): TableAlign => {
+  const left = cell.startsWith(':');
+  const right = cell.endsWith(':');
+  if (left && right) return 'center';
+  if (right) return 'right';
+  if (left) return 'left';
+  return null;
+};
+
 const lineStartsHeading = (line: string) => /^#{1,6}\s+/.test(line.trim());
 
 const lineStartsQuote = (line: string) => /^>\s?/.test(line.trim());
@@ -599,6 +696,7 @@ const lineStartsList = (line: string) =>
 
 const lineStartsBlock = (line: string) =>
   lineStartsCodeFence(line) ||
+  lineStartsThematicBreak(line) ||
   lineStartsHeading(line) ||
   lineStartsQuote(line) ||
   lineStartsList(line);
@@ -639,6 +737,43 @@ export const parseMarkdownBlocks = (
       continue;
     }
 
+    if (lineStartsThematicBreak(line)) {
+      blocks.push({ kind: 'thematicBreak' });
+      index += 1;
+      continue;
+    }
+
+    if (line.includes('|') && index + 1 < lines.length) {
+      const headerCells = splitTableRow(line);
+      const sepCells = splitTableRow(lines[index + 1]);
+      if (
+        headerCells.length >= 1 &&
+        sepCells.length === headerCells.length &&
+        sepCells.every(cell => /^:?-+:?$/.test(cell))
+      ) {
+        const align = sepCells.map(cellAlign);
+        const headers = headerCells.map(cell =>
+          parseInlineMarkdown(cell, inlineTags),
+        );
+        index += 2;
+        const rows: TranscriptMarkdownInline[][][] = [];
+        while (
+          index < lines.length &&
+          !isBlank(lines[index]) &&
+          lines[index].includes('|')
+        ) {
+          const rowCells = splitTableRow(lines[index]);
+          const padded = headers.map((_, i) =>
+            parseInlineMarkdown(rowCells[i] ?? '', inlineTags),
+          );
+          rows.push(padded);
+          index += 1;
+        }
+        blocks.push({ kind: 'table', align, headers, rows });
+        continue;
+      }
+    }
+
     if (lineStartsHeading(line)) {
       const match = trimmed.match(/^(#{1,6})\s+(.+)$/);
       if (match) {
@@ -669,13 +804,31 @@ export const parseMarkdownBlocks = (
     const ordered = orderedListMatch(line);
     if (unordered || ordered) {
       const isOrdered = Boolean(ordered);
-      const items: TranscriptMarkdownInline[][] = [];
+      const items: TranscriptListItem[] = [];
       while (index < lines.length) {
         const currentMatch = isOrdered
           ? orderedListMatch(lines[index])
           : unorderedListMatch(lines[index]);
         if (!currentMatch) break;
-        items.push(parseInlineMarkdown(currentMatch[1], inlineTags));
+        const indentMatch = lines[index].match(/^(\s*)/);
+        const indentWidth = indentMatch
+          ? indentMatch[1].replace(/\t/g, '  ').length
+          : 0;
+        const depth = Math.floor(indentWidth / 2);
+        const rawContent = currentMatch[1];
+        const taskMatch = rawContent.match(/^\[([ xX])\]\s+(.*)$/);
+        items.push({
+          depth,
+          checkbox: taskMatch
+            ? taskMatch[1].toLowerCase() === 'x'
+              ? 'checked'
+              : 'unchecked'
+            : undefined,
+          children: parseInlineMarkdown(
+            taskMatch ? taskMatch[2] : rawContent,
+            inlineTags,
+          ),
+        });
         index += 1;
       }
       blocks.push({ kind: 'list', ordered: isOrdered, items });

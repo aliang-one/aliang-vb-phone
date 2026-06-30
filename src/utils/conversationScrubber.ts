@@ -27,6 +27,11 @@ const inlineToText = (node: TranscriptMarkdownInline): string => {
   ) {
     return node.content;
   }
+  // Images carry alt text (no children, no content) — must be handled before
+  // the container branch below or node.children is undefined.
+  if (node.kind === 'image') {
+    return node.alt;
+  }
   // Container nodes recurse into children (links drop their URL on purpose —
   // the visible anchor text is what the reader saw).
   return node.children.map(inlineToText).join('');
@@ -37,7 +42,13 @@ const blockToText = (block: TranscriptMarkdownBlock): string => {
     return block.children.map(inlineToText).join('');
   }
   if (block.kind === 'list') {
-    return block.items.map(item => item.map(inlineToText).join('')).join(', ');
+    return block.items.map(item => item.children.map(inlineToText).join('')).join(', ');
+  }
+  if (block.kind === 'table') {
+    return block.headers.map(cells => cells.map(inlineToText).join('')).join(' | ');
+  }
+  if (block.kind === 'thematicBreak') {
+    return '---';
   }
   // code block: keep the raw source — for a user prompt this is rare, for an
   // assistant reply it's often the most informative snippet.

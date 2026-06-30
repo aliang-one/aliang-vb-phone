@@ -114,7 +114,11 @@ export const VoiceTextInput: React.FC<VoiceTextInputProps> = ({
   placeholder = '输入新的会话标题',
   placeholderTextColor,
   maxLength = 200,
-  autoFocus = true,
+  // Voice-first: do NOT autofocus — opening the rename modal keeps the keyboard
+  // dismissed so the mic (the default affordance) leads. Typing stays available
+  // by tapping the field (graceful degradation). Hosts can pass autoFocus={true}
+  // to force the keyboard-open behavior.
+  autoFocus = false,
   returnKeyType = 'done',
   onSubmitEditing,
   testIDPrefix = 'rename',
@@ -190,24 +194,6 @@ export const VoiceTextInput: React.FC<VoiceTextInputProps> = ({
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
-        <Pressable
-          testID={`${testIDPrefix}-mic`}
-          accessibilityRole="button"
-          accessibilityLabel={isActive ? '录音中，松开结束' : '按住麦克风说话'}
-          onPressIn={handleMicPressIn}
-          onPressOut={handleMicPressOut}
-          style={[
-            styles.micBtn,
-            {
-              borderRadius: theme.borderRadius.full,
-              backgroundColor: isActive ? theme.colors.primary : micIdleTint,
-              borderColor: isError ? theme.colors.error : `${theme.colors.primary}55`,
-            },
-          ]}
-        >
-          {isRecording && <PulseRing color={theme.colors.primary} size={MIC_BTN} />}
-          <MicIcon size={MIC_SIZE} color={micIconColor} />
-        </Pressable>
         <TextInput
           testID={`${testIDPrefix}-input`}
           value={displayValue}
@@ -230,6 +216,24 @@ export const VoiceTextInput: React.FC<VoiceTextInputProps> = ({
             style,
           ]}
         />
+        <Pressable
+          testID={`${testIDPrefix}-mic`}
+          accessibilityRole="button"
+          accessibilityLabel={isActive ? '录音中，松开结束' : '按住麦克风说话'}
+          onPressIn={handleMicPressIn}
+          onPressOut={handleMicPressOut}
+          style={[
+            styles.micBtn,
+            {
+              borderRadius: theme.borderRadius.full,
+              backgroundColor: isActive ? theme.colors.primary : micIdleTint,
+              borderColor: isError ? theme.colors.error : `${theme.colors.primary}55`,
+            },
+          ]}
+        >
+          {isRecording && <PulseRing color={theme.colors.primary} size={MIC_BTN} />}
+          <MicIcon size={MIC_SIZE} color={micIconColor} />
+        </Pressable>
       </View>
       <View style={styles.caption}>
         {isError ? (

@@ -6,10 +6,10 @@ import {
   TouchableOpacity,
   Modal,
   Pressable,
-  TextInput,
   ScrollView,
 } from 'react-native';
 import { Device } from '../../data/platformModels';
+import { VoiceTextInput } from './VoiceTextInput';
 import { useTheme } from '../../theme/useTheme';
 import { GlassPanel } from '../shared/GlassPanel';
 import { StatusChip } from '../shared/StatusChip';
@@ -174,7 +174,7 @@ export const DeviceControlCard = React.memo<DeviceControlCardProps>(
                   <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
                     新名称
                   </Text>
-                  <TextInput
+                  <VoiceTextInput
                     value={renameValue}
                     onChangeText={setRenameValue}
                     placeholder="输入新的设备名称"
@@ -182,8 +182,7 @@ export const DeviceControlCard = React.memo<DeviceControlCardProps>(
                     maxLength={64}
                     returnKeyType="done"
                     onSubmitEditing={handleRenameSave}
-                    style={[styles.renameInput, { color: theme.colors.onSurface, borderColor: theme.colors.primary }]}
-                    autoFocus
+                    testIDPrefix="device-rename"
                   />
                   <View style={styles.actionGrid}>
                     {renderMenuAction('取消', handleRenameCancel)}

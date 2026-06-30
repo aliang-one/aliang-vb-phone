@@ -1,7 +1,11 @@
-import React from 'react';
+import React, { useMemo } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
-import { useCameraDevice } from 'react-native-vision-camera';
-import { CodeScanner } from 'react-native-vision-camera-barcode-scanner';
+import { Camera, useCameraDevices } from 'react-native-vision-camera';
+import {
+  useBarcodeScannerOutput,
+} from 'react-native-vision-camera-barcode-scanner';
+import type { TargetBarcodeFormat } from 'react-native-vision-camera-barcode-scanner';
 
 interface DeviceCodeScannerProps {
   isActive: boolean;
@@ -10,34 +14,56 @@ interface DeviceCodeScannerProps {
   onError: (error: Error) => void;
 }
 
+const barcodeFormats: TargetBarcodeFormat[] = ['all-formats'];
+
 export const DeviceCodeScanner: React.FC<DeviceCodeScannerProps> = ({
   isActive,
   style,
   onCodeScanned,
   onError,
 }) => {
-  // CodeScanner internally calls useCameraDevice('back') and THROWS
-  // "No Camera device available!" when it returns null. On a real device that
-  // null means vision-camera's native (Nitro) Camera module isn't delivering
-  // devices to JS — typically a stale/incomplete APK build or a Nitro linkage
-  // problem, NOT a missing camera. The throw is uncaught (no ErrorBoundary) so
-  // it was a hard 闪退. Probe the device ourselves and skip rendering CodeScanner
-  // when null so it degrades to the screen's manual-paste fallback instead of
-  // crashing. (The underlying "no device" still needs a clean native rebuild.)
-  const device = useCameraDevice('back');
+  const devices = useCameraDevices();
+  const device = useMemo(
+    () =>
+      devices.find(candidate => candidate.position === 'back') ??
+      devices.find(candidate => candidate.position === 'unspecified') ??
+      devices[0],
+    [devices],
+  );
+  const barcodeOutput = useBarcodeScannerOutput({
+    barcodeFormats,
+    onBarcodeScanned: barcodes =>
+      onCodeScanned(barcodes[0]?.rawValue ?? barcodes[0]?.displayValue),
+    onError,
+  });
+
   if (device == null) {
-    return null;
+    return (
+      <View style={[style, styles.placeholder]}>
+        <Text style={styles.placeholderText}>正在启动摄像头…</Text>
+      </View>
+    );
   }
 
   return (
-    <CodeScanner
+    <Camera
       isActive={isActive}
       style={style}
-      barcodeFormats={['all-formats']}
-      onBarcodeScanned={barcodes =>
-        onCodeScanned(barcodes[0]?.rawValue ?? barcodes[0]?.displayValue)
-      }
+      device={device}
+      implementationMode="compatible"
+      outputs={[barcodeOutput]}
       onError={onError}
     />
   );
 };
+
+const styles = StyleSheet.create({
+  placeholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  placeholderText: {
+    color: 'rgba(255, 255, 255, 0.72)',
+    fontSize: 13,
+  },
+});

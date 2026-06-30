@@ -1,6 +1,6 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import {
-  ScrollView,
+  FlatList,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -21,6 +21,7 @@ import { NewSessionButton } from '../../components/vibecoding/NewSessionButton';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useTheme } from '../../theme/useTheme';
 import { useControlCenterStore, useStableVibeRuns } from '../../store/controlCenterStore';
+import type { VibeCodingRun } from '../../data/platformModels';
 import { IconBadge } from '../../components/visual/IconBadge';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
@@ -42,7 +43,7 @@ const activeSessionStatuses = [
 ];
 
 export const AgentSessionsScreen: React.FC = () => {
-  const { theme, isDark } = useTheme();
+  const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
   const route = useRoute<AgentSessionsRoute>();
   const devices = useControlCenterStore(state => state.devices);
@@ -86,6 +87,12 @@ export const AgentSessionsScreen: React.FC = () => {
     ? devices.find(d => d.id === route.params?.deviceId)
     : devices[0];
 
+  const handleOpenSession = useCallback(
+    (sessionId: string) =>
+      navigation.navigate('VibeCodingSession', { sessionId }),
+    [navigation],
+  );
+
   return (
     <SafeAreaWrapper>
       <TopAppBar
@@ -93,178 +100,157 @@ export const AgentSessionsScreen: React.FC = () => {
         subtitle={device?.name ?? 'ALL DEVICES'}
         onBack={navigation.goBack}
       />
-      <ScrollView
+      <FlatList
         style={styles.scrollView}
         contentContainerStyle={styles.content}
-      >
-        <View style={styles.summary}>
-          <StatusChip label={`${activeSessions.length} ACTIVE`} type="success" />
-          <StatusChip label={`${sessions.length} TOTAL`} type="info" />
-          <StatusChip label={`${onlineDevices} AGENTS`} type="info" />
-        </View>
-
-        <NewSessionButton
-          onPress={() =>
-            navigation.navigate('CreateVibeCoding', {
-              deviceId: route.params?.deviceId,
-              projectId: route.params?.projectId,
-            })
-          }
-          disabled={devices.length === 0}
-        />
-
-        <Text
-          style={[
-            theme.typography.labelCaps,
-            { color: theme.colors.onSurfaceVariant },
-            styles.sectionTitle,
-          ]}>
-          ACTIVE AND RECENT SESSIONS
-        </Text>
-
-        {sessionList.visibleItems.map(session => {
+        data={sessionList.visibleItems}
+        keyExtractor={session => session.id}
+        renderItem={({ item: session }) => {
           const sessionProject = projects.find(
             item => item.id === session.projectId,
           );
           const sessionDevice = devices.find(
             item => item.id === session.deviceId,
           );
-          const displayTitle = formatVibeSessionTitle(session.title, {
-            directory: session.directory,
-            projectName: sessionProject?.name,
-          });
-          const budgetLabel = session.projectBudget
-            ? `${
-                session.projectBudget.currencySymbol
-              }${session.projectBudget.used.toFixed(1)} / ${
-                session.projectBudget.currencySymbol
-              }${session.projectBudget.limit}`
-            : '';
-
           return (
-            <TouchableOpacity
-              key={session.id}
-              activeOpacity={0.7}
+            <SessionCard
+              session={session}
+              projectName={sessionProject?.name ?? session.projectId}
+              deviceName={sessionDevice?.name ?? session.deviceId}
+              onOpen={handleOpenSession}
+            />
+          );
+        }}
+        removeClippedSubviews
+        initialNumToRender={10}
+        maxToRenderPerBatch={12}
+        windowSize={7}
+        ListHeaderComponent={
+          <View>
+            <View style={styles.summary}>
+              <StatusChip label={`${activeSessions.length} ACTIVE`} type="success" />
+              <StatusChip label={`${sessions.length} TOTAL`} type="info" />
+              <StatusChip label={`${onlineDevices} AGENTS`} type="info" />
+            </View>
+
+            <NewSessionButton
               onPress={() =>
-                navigation.navigate('VibeCodingSession', {
-                  sessionId: session.id,
+                navigation.navigate('CreateVibeCoding', {
+                  deviceId: route.params?.deviceId,
+                  projectId: route.params?.projectId,
                 })
               }
-            >
-            <GlassPanel style={styles.sessionCard}>
-              <View style={styles.sessionTop}>
-                <IconBadge
-                  name={
-                    session.model.toLowerCase().includes('codex')
-                      ? 'code'
-                      : 'agent'
-                  }
-                  tone={session.status === 'paused' ? 'neutral' : 'primary'}
-                  size={40}
-                  iconSize={20}
-                />
-                <View style={styles.titleBlock}>
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      theme.typography.titleMd,
-                      { color: theme.colors.onSurface },
-                    ]}
-                  >
-                    {displayTitle}
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      theme.typography.codeSm,
-                      { color: theme.colors.onSurfaceVariant },
-                    ]}
-                  >
-                    {session.model} /{' '}
-                    {sessionProject?.name ?? session.projectId} /{' '}
-                    {sessionDevice?.name ?? session.deviceId}
-                  </Text>
-                </View>
-                <StatusChip
-                  label={vibeStatusLabel[session.status]}
-                  type={vibeStatusType[session.status]}
-                />
-              </View>
-              <Text
-                numberOfLines={2}
-                style={[
-                  theme.typography.bodySm,
-                  { color: theme.colors.onSurfaceVariant },
-                ]}
-              >
-                {session.currentStep}
-              </Text>
-              {session.projectBudget ? (
-                <View
-                  style={[
-                    styles.budgetPill,
-                    {
-                      backgroundColor: isDark
-                        ? 'rgba(106, 153, 85, 0.12)'
-                        : 'rgba(0, 120, 84, 0.08)',
-                    },
-                  ]}
-                >
-                  <IconBadge
-                    name="quota"
-                    tone="secondary"
-                    size={24}
-                    iconSize={13}
-                  />
-                  <Text
-                    style={[
-                      theme.typography.labelSm,
-                      { color: isDark ? '#6A9955' : theme.colors.secondary },
-                    ]}
-                  >
-                    Codex budget {budgetLabel}
-                  </Text>
-                </View>
-              ) : null}
-              <View style={styles.sessionMeta}>
-                <Text
-                  style={[
-                    theme.typography.codeSm,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}
-                >
-                  {formatActivityLabel(session.lastActivityMs)}
-                </Text>
-                <Text
-                  style={[
-                    theme.typography.codeSm,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}
-                >
-                  {'  ·  '}
-                  {session.transcriptCount ?? 0} 条消息
-                </Text>
-                <View style={styles.metaSpacer} />
-                <IconBadge
-                  name="chevron"
-                  tone="primary"
-                  size={24}
-                  iconSize={14}
-                />
-              </View>
-            </GlassPanel>
-            </TouchableOpacity>
-          );
-        })}
-        <LoadMoreRow
-          visibleCount={sessionList.visibleCount}
-          totalCount={sessionList.totalCount}
-          onPress={sessionList.showMore}
-        />
-      </ScrollView>
+              disabled={devices.length === 0}
+            />
+
+            <Text
+              style={[
+                theme.typography.labelCaps,
+                { color: theme.colors.onSurfaceVariant },
+                styles.sectionTitle,
+              ]}>
+              ACTIVE AND RECENT SESSIONS
+            </Text>
+          </View>
+        }
+        ListFooterComponent={
+          <LoadMoreRow
+            visibleCount={sessionList.visibleCount}
+            totalCount={sessionList.totalCount}
+            onPress={sessionList.showMore}
+          />
+        }
+      />
     </SafeAreaWrapper>
   );
 };
+
+interface SessionCardProps {
+  session: VibeCodingRun;
+  projectName: string;
+  deviceName: string;
+  onOpen: (sessionId: string) => void;
+}
+
+const SessionCard: React.FC<SessionCardProps> = React.memo(
+  ({ session, projectName, deviceName, onOpen }) => {
+    const { theme, isDark } = useTheme();
+    const displayTitle = formatVibeSessionTitle(session.title, {
+      directory: session.directory,
+      projectName,
+    });
+    const budgetLabel = session.projectBudget
+      ? `${session.projectBudget.currencySymbol}${session.projectBudget.used.toFixed(1)} / ${session.projectBudget.currencySymbol}${session.projectBudget.limit}`
+      : '';
+    return (
+      <TouchableOpacity activeOpacity={0.7} onPress={() => onOpen(session.id)}>
+        <GlassPanel style={styles.sessionCard}>
+          <View style={styles.sessionTop}>
+            <IconBadge
+              name={session.model.toLowerCase().includes('codex') ? 'code' : 'agent'}
+              tone={session.status === 'paused' ? 'neutral' : 'primary'}
+              size={40}
+              iconSize={20}
+            />
+            <View style={styles.titleBlock}>
+              <Text
+                numberOfLines={1}
+                style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+                {displayTitle}
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+                {session.model} / {projectName} / {deviceName}
+              </Text>
+            </View>
+            <StatusChip
+              label={vibeStatusLabel[session.status]}
+              type={vibeStatusType[session.status]}
+            />
+          </View>
+          <Text
+            numberOfLines={2}
+            style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+            {session.currentStep}
+          </Text>
+          {session.projectBudget ? (
+            <View
+              style={[
+                styles.budgetPill,
+                {
+                  backgroundColor: isDark
+                    ? 'rgba(106, 153, 85, 0.12)'
+                    : 'rgba(0, 120, 84, 0.08)',
+                },
+              ]}>
+              <IconBadge name="quota" tone="secondary" size={24} iconSize={13} />
+              <Text
+                style={[
+                  theme.typography.labelSm,
+                  { color: isDark ? '#6A9955' : theme.colors.secondary },
+                ]}>
+                Codex budget {budgetLabel}
+              </Text>
+            </View>
+          ) : null}
+          <View style={styles.sessionMeta}>
+            <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+              {formatActivityLabel(session.lastActivityMs)}
+            </Text>
+            <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+              {'  ·  '}
+              {session.transcriptCount ?? 0} 条消息
+            </Text>
+            <View style={styles.metaSpacer} />
+            <IconBadge name="chevron" tone="primary" size={24} iconSize={14} />
+          </View>
+        </GlassPanel>
+      </TouchableOpacity>
+    );
+  },
+);
+SessionCard.displayName = 'SessionCard';
 
 const styles = StyleSheet.create({
   scrollView: {

@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useMemo } from 'react';
+import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
@@ -49,7 +49,7 @@ const notificationIcon: Record<PushNotificationItem['type'], IconName> = {
 };
 
 export const NotificationCenterScreen: React.FC = () => {
-  const { theme, isDark } = useTheme();
+  const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
   const notifications = useControlCenterStore(state => state.notifications);
   const devices = useControlCenterStore(state => state.devices);
@@ -76,25 +76,28 @@ export const NotificationCenterScreen: React.FC = () => {
     },
   );
 
-  const handleOpen = (item: PushNotificationItem) => {
-    void markNotificationRead(item.id).catch(error => {
-      console.warn('[notifications] failed to mark read', error);
-    });
+  const handleOpen = useCallback(
+    (item: PushNotificationItem) => {
+      void markNotificationRead(item.id).catch(error => {
+        console.warn('[notifications] failed to mark read', error);
+      });
 
-    if (item.type === 'approval' && item.approvalId) {
-      navigation.navigate('ApprovalCenter');
-      return;
-    }
+      if (item.type === 'approval' && item.approvalId) {
+        navigation.navigate('ApprovalCenter');
+        return;
+      }
 
-    if (item.sessionId) {
-      navigation.navigate('VibeCodingSession', { sessionId: item.sessionId });
-      return;
-    }
+      if (item.sessionId) {
+        navigation.navigate('VibeCodingSession', { sessionId: item.sessionId });
+        return;
+      }
 
-    if (item.deviceId) {
-      navigation.navigate('DeviceDetail', { deviceId: item.deviceId });
-    }
-  };
+      if (item.deviceId) {
+        navigation.navigate('DeviceDetail', { deviceId: item.deviceId });
+      }
+    },
+    [markNotificationRead, navigation],
+  );
 
   return (
     <SafeAreaWrapper>
@@ -104,27 +107,12 @@ export const NotificationCenterScreen: React.FC = () => {
         onBack={navigation.goBack}
         rightAction={<StatusChip label={`${unreadCount} UNREAD`} type={unreadCount ? 'warning' : 'success'} />}
       />
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
-        <TouchableOpacity
-          activeOpacity={0.75}
-          onPress={() => {
-            void markAllNotificationsRead().catch(error => {
-              console.warn('[notifications] failed to mark all read', error);
-            });
-          }}
-          style={[
-            styles.markAllButton,
-            {
-              borderColor: theme.colors.outlineVariant,
-              borderRadius: theme.borderRadius.full,
-            },
-          ]}>
-          <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-            MARK ALL READ
-          </Text>
-        </TouchableOpacity>
-
-        {notificationList.visibleItems.map(item => {
+      <FlatList
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+        data={notificationList.visibleItems}
+        keyExtractor={item => item.id}
+        renderItem={({ item }) => {
           const device = devices.find(deviceItem => deviceItem.id === item.deviceId);
           const itemDeviceId =
             item.deviceId ??
@@ -133,82 +121,124 @@ export const NotificationCenterScreen: React.FC = () => {
             deviceStatusIndex.get(itemDeviceId ?? ''),
           );
           return (
-            <TouchableOpacity
-              key={item.id}
-              activeOpacity={0.75}
-              onPress={() => handleOpen(item)}>
-              <GlassPanel
-                glowColor={!item.read ? 'secondary' : 'none'}
-                style={[
-                  styles.notificationCard,
-                  {
-                    opacity: itemOffline ? 0.5 : item.read ? 0.72 : 1,
-                    backgroundColor:
-                      !item.read && isDark
-                        ? 'rgba(255,255,255,0.065)'
-                        : undefined,
-                  },
-                ]}>
-                <View style={styles.cardHeader}>
-                  <IconBadge
-                    name={notificationIcon[item.type]}
-                    tone={
-                      item.type === 'error'
-                        ? 'error'
-                        : item.type === 'approval'
-                        ? 'tertiary'
-                        : item.type === 'completed'
-                        ? 'secondary'
-                        : 'neutral'
-                    }
-                    size={42}
-                    iconSize={21}
-                  />
-                  <View style={styles.titleBlock}>
-                    <Text
-                      style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
-                      {notificationTypeLabel[item.type].toUpperCase()}
-                    </Text>
-                    <Text
-                      numberOfLines={2}
-                      style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                      {item.title}
-                    </Text>
-                  </View>
-                  <StatusChip
-                    label={item.read ? 'READ' : 'NEW'}
-                    type={item.read ? 'neutral' : notificationTypeChip[item.type]}
-                  />
-                </View>
-                <Text
-                  numberOfLines={3}
-                  style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-                  {item.body}
-                </Text>
-                <View style={styles.metaRow}>
-                  <Text
-                    numberOfLines={1}
-                    style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-                    {device?.name ?? item.deviceId ?? 'all devices'}
-                    {itemOffline ? ' · 离线' : ''}
-                  </Text>
-                  <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-                    {item.createdAt}
-                  </Text>
-                </View>
-              </GlassPanel>
-            </TouchableOpacity>
+            <NotificationCard
+              item={item}
+              deviceName={device?.name ?? item.deviceId ?? 'all devices'}
+              itemOffline={itemOffline}
+              onOpen={handleOpen}
+            />
           );
-        })}
-        <LoadMoreRow
-          visibleCount={notificationList.visibleCount}
-          totalCount={notificationList.totalCount}
-          onPress={notificationList.showMore}
-        />
-      </ScrollView>
+        }}
+        removeClippedSubviews
+        initialNumToRender={12}
+        maxToRenderPerBatch={16}
+        windowSize={7}
+        ListHeaderComponent={
+          <TouchableOpacity
+            activeOpacity={0.75}
+            onPress={() => {
+              void markAllNotificationsRead().catch(error => {
+                console.warn('[notifications] failed to mark all read', error);
+              });
+            }}
+            style={[
+              styles.markAllButton,
+              {
+                borderColor: theme.colors.outlineVariant,
+                borderRadius: theme.borderRadius.full,
+              },
+            ]}>
+            <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+              MARK ALL READ
+            </Text>
+          </TouchableOpacity>
+        }
+        ListFooterComponent={
+          <LoadMoreRow
+            visibleCount={notificationList.visibleCount}
+            totalCount={notificationList.totalCount}
+            onPress={notificationList.showMore}
+          />
+        }
+      />
     </SafeAreaWrapper>
   );
 };
+
+interface NotificationCardProps {
+  item: PushNotificationItem;
+  deviceName: string;
+  itemOffline: boolean;
+  onOpen: (item: PushNotificationItem) => void;
+}
+
+const NotificationCard: React.FC<NotificationCardProps> = React.memo(
+  ({ item, deviceName, itemOffline, onOpen }) => {
+    const { theme, isDark } = useTheme();
+    return (
+      <TouchableOpacity activeOpacity={0.75} onPress={() => onOpen(item)}>
+        <GlassPanel
+          glowColor={!item.read ? 'secondary' : 'none'}
+          style={[
+            styles.notificationCard,
+            {
+              opacity: itemOffline ? 0.5 : item.read ? 0.72 : 1,
+              backgroundColor:
+                !item.read && isDark ? 'rgba(255,255,255,0.065)' : undefined,
+            },
+          ]}>
+          <View style={styles.cardHeader}>
+            <IconBadge
+              name={notificationIcon[item.type]}
+              tone={
+                item.type === 'error'
+                  ? 'error'
+                  : item.type === 'approval'
+                  ? 'tertiary'
+                  : item.type === 'completed'
+                  ? 'secondary'
+                  : 'neutral'
+              }
+              size={42}
+              iconSize={21}
+            />
+            <View style={styles.titleBlock}>
+              <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
+                {notificationTypeLabel[item.type].toUpperCase()}
+              </Text>
+              <Text
+                numberOfLines={2}
+                style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+                {item.title}
+              </Text>
+            </View>
+            <StatusChip
+              label={item.read ? 'READ' : 'NEW'}
+              type={item.read ? 'neutral' : notificationTypeChip[item.type]}
+            />
+          </View>
+          <Text
+            numberOfLines={3}
+            style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+            {item.body}
+          </Text>
+          <View style={styles.metaRow}>
+            <Text
+              numberOfLines={1}
+              style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+              {deviceName}
+              {itemOffline ? ' · 离线' : ''}
+            </Text>
+            <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+              {item.createdAt}
+            </Text>
+          </View>
+        </GlassPanel>
+      </TouchableOpacity>
+    );
+  },
+);
+NotificationCard.displayName = 'NotificationCard';
 
 const styles = StyleSheet.create({
   scrollView: {

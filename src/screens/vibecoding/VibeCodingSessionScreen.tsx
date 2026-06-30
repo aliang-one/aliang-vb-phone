@@ -42,6 +42,9 @@ import {
   useDevice,
   useSessionPreview,
   useSessionApprovals,
+  useApproval,
+  useApprovalIds,
+  useSessionApprovalEvents,
 } from '../../store/controlCenterStore';
 import type { ApprovalRequest } from '../../store/controlCenterStore';
 import type { AgentProvider } from '../../store/types';
@@ -65,6 +68,7 @@ import {
 import { deriveTurnScrubberStops } from '../../utils/conversationScrubber';
 import {
   buildConversationTurns,
+  type ConversationTurn,
 } from '../../utils/conversationTurns';
 import {
   LIVE_TURN_WINDOW_MS,
@@ -146,6 +150,141 @@ const formatConversationBoundaryTime = (timestamp?: string) => {
   ).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 };
 
+interface ConversationScrubberLayerProps {
+  visibleTurns: ConversationTurn[];
+  messageLayouts: Record<string, { top: number; height: number }>;
+  conversationTop: number;
+  viewportHeight: number;
+  onCommit: (stopId: string) => void;
+  /** Lets the owning screen feed the live ScrollView scrollY into this layer
+   *  WITHOUT making scrollY screen-level state (which would re-render the whole
+   *  ~3200-line screen on every throttled scroll tick). The layer registers its
+   *  setter on mount; the screen calls it from its throttled onScroll. Only this
+   *  layer re-renders on scroll — the rest of the screen stays still. */
+  registerScrollY: (fn: (y: number) => void) => () => void;
+}
+
+// Isolates the scrubber's scroll-following focus calculation (the ONLY consumer
+// of scrollY) from the giant session screen, so scrolling no longer re-renders
+// the entire screen — only this small overlay layer. messageLayouts is passed in
+// (it stays screen-level: low-frequency onLayout, shared with preserveFocus).
+const ConversationScrubberLayer: React.FC<ConversationScrubberLayerProps> = React.memo(
+  ({ visibleTurns, messageLayouts, conversationTop, viewportHeight, onCommit, registerScrollY }) => {
+    const [scrollY, setScrollY] = useState(0);
+    useEffect(() => registerScrollY(setScrollY), [registerScrollY]);
+
+    const visibleTurnIds = useMemo(
+      () => new Set(visibleTurns.map(turn => turn.id)),
+      [visibleTurns],
+    );
+    const activeRailTurnId = useMemo(() => {
+      if (!visibleTurns.length) return undefined;
+      const fallbackId = visibleTurns[visibleTurns.length - 1]?.id;
+      if (!viewportHeight) return fallbackId;
+
+      const focusY =
+        scrollY + Math.min(Math.max(viewportHeight * 0.46, 160), 380);
+      let activeId = fallbackId;
+      let activeDistance = Number.POSITIVE_INFINITY;
+
+      for (const turn of visibleTurns) {
+        const layout = messageLayouts[turn.id];
+        if (!layout) continue;
+        // Absolute position in the scroll content = container offset + message offset.
+        const center = conversationTop + layout.top + layout.height / 2;
+        const distance = Math.abs(center - focusY);
+        if (distance < activeDistance) {
+          activeDistance = distance;
+          activeId = turn.id;
+        }
+      }
+
+      return activeId;
+    }, [
+      messageLayouts,
+      scrollY,
+      viewportHeight,
+      visibleTurns,
+      conversationTop,
+    ]);
+    const conversationRailItems = useMemo(() => {
+      if (!visibleTurns.length) return [];
+      const maxMarks = 16;
+      const activeIndex = activeRailTurnId
+        ? visibleTurns.findIndex(turn => turn.id === activeRailTurnId)
+        : -1;
+      const indices = new Set<number>();
+
+      if (visibleTurns.length <= maxMarks) {
+        visibleTurns.forEach((_, index) => indices.add(index));
+      } else {
+        const slots = activeIndex >= 0 ? maxMarks - 1 : maxMarks;
+        const denominator = Math.max(1, slots - 1);
+        for (let index = 0; index < slots; index += 1) {
+          indices.add(
+            Math.round((index * (visibleTurns.length - 1)) / denominator),
+          );
+        }
+        if (activeIndex >= 0) indices.add(activeIndex);
+      }
+
+      return Array.from(indices)
+        .sort((left, right) => left - right)
+        .map(index => {
+          const turn = visibleTurns[index];
+          return {
+            turn,
+            active: turn.id === activeRailTurnId,
+            visible: visibleTurnIds.has(turn.id),
+          };
+        });
+    }, [activeRailTurnId, visibleTurns, visibleTurnIds]);
+    const scrubberStops = useMemo(
+      () => deriveTurnScrubberStops(visibleTurns),
+      [visibleTurns],
+    );
+    // The user-turn stop nearest the viewport's focus message — the scrubber's
+    // idle preview position. Falls back to the latest stop when the active
+    // message can't be resolved (e.g. before any layout has landed).
+    const activeScrubberStopId = useMemo(() => {
+      if (!scrubberStops.length) return undefined;
+      const fallbackId = scrubberStops[scrubberStops.length - 1].id;
+      if (!activeRailTurnId) return fallbackId;
+      const activeIndex = visibleTurns.findIndex(
+        turn => turn.id === activeRailTurnId,
+      );
+      if (activeIndex < 0) return fallbackId;
+      const stopIds = new Set(scrubberStops.map(stop => stop.id));
+      let nearestId = fallbackId;
+      let nearestDistance = Number.POSITIVE_INFINITY;
+      visibleTurns.forEach((turn, index) => {
+        if (!stopIds.has(turn.id)) return;
+        const distance = Math.abs(index - activeIndex);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestId = turn.id;
+        }
+      });
+      return nearestId;
+    }, [scrubberStops, activeRailTurnId, visibleTurns]);
+
+    return (
+      <ConversationScrubber
+        collapsedMarks={conversationRailItems.map(({ turn, active, visible }) => ({
+          id: turn.id,
+          role: turn.role,
+          active,
+          visible,
+        }))}
+        stops={scrubberStops}
+        activeStopId={activeScrubberStopId}
+        onCommit={onCommit}
+      />
+    );
+  },
+);
+ConversationScrubberLayer.displayName = 'ConversationScrubberLayer';
+
 export const VibeCodingSessionScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
@@ -207,8 +346,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const device = useDevice(session?.deviceId);
   const preview = useSessionPreview(session?.id);
   const sessionApprovals = useSessionApprovals(session?.id);
-  const allApprovals = useControlCenterStore(state => state.approvals);
-  const globalEvents = useControlCenterStore(state => state.events);
   const wsConnected = useControlCenterStore(state => state.wsConnected);
   const loadAgentSessionDetail = useControlCenterStore(
     state => state.loadAgentSessionDetail,
@@ -248,9 +385,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
   useFocusEffect(
     useCallback(() => {
       // Draft mode has no session id yet — nothing to mark as viewed.
-      if (focusedSessionId) markSessionViewed(focusedSessionId);
+      if (!focusedSessionId) return undefined;
+      markSessionViewed(focusedSessionId);
       return () => {
-        clearCurrentlyViewedSession();
+        clearCurrentlyViewedSession(focusedSessionId);
       };
     }, [focusedSessionId, markSessionViewed, clearCurrentlyViewedSession]),
   );
@@ -264,6 +402,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const [mode, setMode] = useState<'voice' | 'text'>('voice');
   const [input, setInput] = useState('');
   const [voiceDraft, setVoiceDraft] = useState('');
+  // One-shot: focus the text composer (pop the keyboard) after the voice draft
+  // is transferred into the text field via "编辑". Reset on focus so subsequent
+  // manual mode toggles don't auto-focus.
+  const [autoFocusText, setAutoFocusText] = useState(false);
   const voiceStt = useVoiceStt();
   const { providerCatalog } = useModelOptions();
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -280,11 +422,20 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // Transient "已是最早的消息" notice: shown when the user pulls at the top but
   // there is no earlier history to load (and the conversation isn't blank).
   const [noMoreEarlierHint, setNoMoreEarlierHint] = useState(false);
-  const [scrollY, setScrollY] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
 
   const scrollViewRef = useRef<ScrollView | null>(null);
   const scrollYRef = useRef(0);
+  // Scrubber scroll subscription: ConversationScrubberLayer registers its
+  // setScrollY here; handleScroll calls it (throttled) so scrolling re-renders
+  // ONLY the scrubber layer — not this whole ~3200-line screen.
+  const scrollYSubscriberRef = useRef<(y: number) => void>(() => {});
+  const registerScrollY = useCallback((fn: (y: number) => void) => {
+    scrollYSubscriberRef.current = fn;
+    return () => {
+      scrollYSubscriberRef.current = () => {};
+    };
+  }, []);
   const followTailRef = useRef(true);
   const pendingScrollToEndRef = useRef(false);
   const lastScrollSetRef = useRef(0);
@@ -293,6 +444,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
   );
   const scrollToEndTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendLockRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
+  const targetSessionIdRef = useRef<string | undefined>(undefined);
+  const detailLoadRequestRef = useRef(0);
+  const detailLoadInFlightRef = useRef<string | null>(null);
   // Guards the mount auto-fetch against re-firing when a transient-empty
   // (skipped_offline / failed) detail result leaves `hasDetail` false. Without
   // it the fetch effect would loop on every render once the store no longer
@@ -317,10 +472,28 @@ export const VibeCodingSessionScreen: React.FC = () => {
     id: string;
     decision: 'approved' | 'denied';
   } | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const focusedApprovalId = route.params.approvalId;
+  // Fine-grained approval subscriptions, replacing the old global
+  // `state.approvals` / `state.events` subscriptions (which re-rendered this
+  // screen on ANY approval/event mutation, including other sessions'). Each of
+  // these re-renders only when its own slice changes.
+  const focusedApproval = useApproval(focusedApprovalId);
+  const sessionApprovalEvents = useSessionApprovalEvents(
+    session?.id,
+    focusedApprovalId,
+  );
+  const allApprovalIds = useApprovalIds();
   const resolvableApprovalIds = useMemo(
-    () => new Set(allApprovals.map(approval => approval.id)),
-    [allApprovals],
+    () => new Set(allApprovalIds),
+    [allApprovalIds],
   );
 
   const scheduleScrollToEnd = useCallback((animated = true) => {
@@ -347,12 +520,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
         clearTimeout(trailingScrollTimer.current);
         trailingScrollTimer.current = null;
       }
-      setScrollY(y);
+      scrollYSubscriberRef.current(y);
     } else if (!trailingScrollTimer.current) {
       trailingScrollTimer.current = setTimeout(() => {
         trailingScrollTimer.current = null;
         lastScrollSetRef.current = Date.now();
-        setScrollY(scrollYRef.current);
+        scrollYSubscriberRef.current(scrollYRef.current);
       }, SCROLL_THROTTLE_MS);
     }
   };
@@ -371,6 +544,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const targetSessionId = isDraft
     ? createdSessionId
     : session?.id ?? createdSessionId;
+  useEffect(() => {
+    targetSessionIdRef.current = targetSessionId;
+  }, [targetSessionId]);
   const transcript = useMemo(
     () => buildDisplayTranscript(session?.transcript ?? []),
     [session?.transcript],
@@ -467,100 +643,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
     () => visibleTurns.map(turn => turn.id).join('|'),
     [visibleTurns],
   );
-  const visibleTurnIds = useMemo(
-    () => new Set(visibleTurns.map(turn => turn.id)),
-    [visibleTurns],
-  );
-  const activeRailTurnId = useMemo(() => {
-    if (!visibleTurns.length) return undefined;
-    const fallbackId = visibleTurns[visibleTurns.length - 1]?.id;
-    if (!viewportHeight) return fallbackId;
-
-    const focusY =
-      scrollY + Math.min(Math.max(viewportHeight * 0.46, 160), 380);
-    let activeId = fallbackId;
-    let activeDistance = Number.POSITIVE_INFINITY;
-
-    for (const turn of visibleTurns) {
-      const layout = messageLayouts[turn.id];
-      if (!layout) continue;
-      // Absolute position in the scroll content = container offset + message offset.
-      const center = conversationTop + layout.top + layout.height / 2;
-      const distance = Math.abs(center - focusY);
-      if (distance < activeDistance) {
-        activeDistance = distance;
-        activeId = turn.id;
-      }
-    }
-
-    return activeId;
-  }, [
-    messageLayouts,
-    scrollY,
-    viewportHeight,
-    visibleTurns,
-    conversationTop,
-  ]);
-  const conversationRailItems = useMemo(() => {
-    if (!visibleTurns.length) return [];
-    const maxMarks = 16;
-    const activeIndex = activeRailTurnId
-      ? visibleTurns.findIndex(turn => turn.id === activeRailTurnId)
-      : -1;
-    const indices = new Set<number>();
-
-    if (visibleTurns.length <= maxMarks) {
-      visibleTurns.forEach((_, index) => indices.add(index));
-    } else {
-      const slots = activeIndex >= 0 ? maxMarks - 1 : maxMarks;
-      const denominator = Math.max(1, slots - 1);
-      for (let index = 0; index < slots; index += 1) {
-        indices.add(
-          Math.round((index * (visibleTurns.length - 1)) / denominator),
-        );
-      }
-      if (activeIndex >= 0) indices.add(activeIndex);
-    }
-
-    return Array.from(indices)
-      .sort((left, right) => left - right)
-      .map(index => {
-        const turn = visibleTurns[index];
-        return {
-          turn,
-          active: turn.id === activeRailTurnId,
-          visible: visibleTurnIds.has(turn.id),
-        };
-      });
-  }, [activeRailTurnId, visibleTurns, visibleTurnIds]);
-  const scrubberStops = useMemo(
-    () => deriveTurnScrubberStops(visibleTurns),
-    [visibleTurns],
-  );
-  // The user-turn stop nearest the viewport's focus message — the scrubber's
-  // idle preview position. Falls back to the latest stop when the active
-  // message can't be resolved (e.g. before any layout has landed).
-  const activeScrubberStopId = useMemo(() => {
-    if (!scrubberStops.length) return undefined;
-    const fallbackId = scrubberStops[scrubberStops.length - 1].id;
-    if (!activeRailTurnId) return fallbackId;
-    const activeIndex = visibleTurns.findIndex(
-      turn => turn.id === activeRailTurnId,
-    );
-    if (activeIndex < 0) return fallbackId;
-    const stopIds = new Set(scrubberStops.map(stop => stop.id));
-    let nearestId = fallbackId;
-    let nearestDistance = Number.POSITIVE_INFINITY;
-    visibleTurns.forEach((turn, index) => {
-      if (!stopIds.has(turn.id)) return;
-      const distance = Math.abs(index - activeIndex);
-      if (distance < nearestDistance) {
-        nearestDistance = distance;
-        nearestId = turn.id;
-      }
-    });
-    return nearestId;
-  }, [scrubberStops, activeRailTurnId, visibleTurns]);
 
   // First-fetch guard: skip the auto-load only when we already hold the
   // transcript detail (a prior fetch set detailLoadedAt, or a hot window
@@ -570,9 +652,20 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const hasDetail = Boolean(
     session?.detailLoadedAt || session?.transcript.length,
   );
+  const detailFetchUnavailable =
+    session?.detailRefreshStatus === 'failed' ||
+    session?.detailRefreshStatus === 'skipped_offline';
 
   useEffect(() => {
-    if (!targetSessionId || hasDetail || loadingDetail || detailError) return;
+    if (hasDetail) {
+      autoFetchRef.current = false;
+    }
+  }, [hasDetail, targetSessionId]);
+
+  useEffect(() => {
+    if (!targetSessionId || hasDetail || detailError || detailFetchUnavailable)
+      return;
+    if (detailLoadInFlightRef.current === targetSessionId) return;
     // A transient-empty result no longer stamps detailLoadedAt, so hasDetail
     // stays false after such a fetch — without this guard the effect would
     // re-fire immediately and loop. One auto-attempt per mount is enough; live
@@ -580,8 +673,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
     if (autoFetchRef.current) return;
     autoFetchRef.current = true;
 
-    let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const requestId = detailLoadRequestRef.current + 1;
+    detailLoadRequestRef.current = requestId;
+    detailLoadInFlightRef.current = targetSessionId;
     setLoadingDetail(true);
     setDetailError('');
 
@@ -595,7 +690,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
 
     void Promise.race([detailLoad, timeout])
       .catch(error => {
-        if (!cancelled) {
+        if (
+          mountedRef.current &&
+          detailLoadRequestRef.current === requestId &&
+          targetSessionIdRef.current === targetSessionId
+        ) {
           setDetailError(
             error instanceof Error
               ? error.message
@@ -605,20 +704,36 @@ export const VibeCodingSessionScreen: React.FC = () => {
       })
       .finally(() => {
         if (timeoutId) clearTimeout(timeoutId);
-        if (!cancelled) setLoadingDetail(false);
+        if (detailLoadRequestRef.current === requestId) {
+          detailLoadInFlightRef.current = null;
+        }
+        if (
+          mountedRef.current &&
+          detailLoadRequestRef.current === requestId &&
+          targetSessionIdRef.current === targetSessionId
+        ) {
+          setLoadingDetail(false);
+        }
       });
 
     return () => {
-      cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
   }, [
     detailError,
+    detailFetchUnavailable,
     hasDetail,
     loadAgentSessionDetail,
-    loadingDetail,
     targetSessionId,
   ]);
+
+  useEffect(() => {
+    if (!loadingDetail || !detailFetchUnavailable) return;
+    if (targetSessionIdRef.current !== targetSessionId) return;
+    detailLoadRequestRef.current += 1;
+    detailLoadInFlightRef.current = null;
+    setLoadingDetail(false);
+  }, [detailFetchUnavailable, loadingDetail, targetSessionId]);
 
   // Pull-to-refresh + retry entry point. Unlike the mount auto-load (which runs
   // once and respects the server's page cache), this forces `refresh: true` so
@@ -756,7 +871,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
 
   useEffect(() => {
     setTimelineExpanded(false);
-    setScrollY(0);
+    scrollYSubscriberRef.current(0);
     scrollYRef.current = 0;
     followTailRef.current = true;
     pendingScrollToEndRef.current = true;
@@ -806,6 +921,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
 
   useEffect(
     () => () => {
+      mountedRef.current = false;
       if (trailingScrollTimer.current) {
         clearTimeout(trailingScrollTimer.current);
       }
@@ -1067,6 +1183,19 @@ export const VibeCodingSessionScreen: React.FC = () => {
       });
   };
 
+  // 编辑: transfer the voice transcript into the text composer so it can be
+  // revised before sending. Clears the draft (a true move, not a copy) so it
+  // can't reappear when toggling back to voice mode, then switches to text mode
+  // and arms a one-shot auto-focus to bring up the keyboard.
+  const handleEditVoice = () => {
+    const draft = voiceDraft.trim();
+    if (!draft) return;
+    setInput(draft);
+    setVoiceDraft('');
+    setMode('text');
+    setAutoFocusText(true);
+  };
+
   // Retry a failed-to-send user bubble directly from its affordance (never via
   // the composer input, so it can't combine with other text).
   const handleRetryFailedMessage = useCallback(
@@ -1195,22 +1324,16 @@ export const VibeCodingSessionScreen: React.FC = () => {
     };
 
     sessionApprovals.forEach(addApproval);
-    addApproval(allApprovals.find(approval => approval.id === focusedApprovalId));
-    globalEvents
-      .filter(
-        event =>
-          event.type === 'approval.requested' &&
-          (event.sessionId === session.id || event.approvalId === focusedApprovalId),
-      )
-      .forEach(event => {
-        addFallback({
-          id: fallbackId(event.id, event.approvalId),
-          title: event.title,
-          detail: event.detail,
-          status: event.status,
-          timestamp: event.timestamp,
-        });
+    addApproval(focusedApproval);
+    sessionApprovalEvents.forEach(event => {
+      addFallback({
+        id: fallbackId(event.id, event.approvalId),
+        title: event.title,
+        detail: event.detail,
+        status: event.status,
+        timestamp: event.timestamp,
       });
+    });
     session.events
       .filter(event => event.type === 'approval')
       .forEach(event => {
@@ -1227,13 +1350,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
       (left, right) =>
         Date.parse(right.createdAt) - Date.parse(left.createdAt),
     );
-  }, [
-    allApprovals,
-    focusedApprovalId,
-    globalEvents,
-    session,
-    sessionApprovals,
-  ]);
+  }, [focusedApproval, sessionApprovalEvents, session, sessionApprovals]);
   const pendingApprovals = useMemo(
     () => approvals.filter(approval => approval.status === 'pending'),
     [approvals],
@@ -1559,7 +1676,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
                   disabled={deviceOffline || Boolean(
                     resolvingApproval && resolvingApproval.id !== approval.id,
                   )}
-                  style={styles.approvalOptionAction}
+                  style={
+                    optionDecision === 'denied'
+                      ? styles.approvalOptionAction
+                      : styles.approvalOptionActionApprove
+                  }
                 />
               );
             })}
@@ -1576,7 +1697,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               disabled={deviceOffline || Boolean(
                 resolvingApproval && resolvingApproval.id !== approval.id,
               )}
-              style={styles.approvalAction}
+              style={styles.approvalActionApprove}
             />
             <GlowButton
               title="DENY"
@@ -1586,7 +1707,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               disabled={deviceOffline || Boolean(
                 resolvingApproval && resolvingApproval.id !== approval.id,
               )}
-              style={styles.approvalAction}
+              style={styles.approvalActionDeny}
             />
           </View>
         ) : null}
@@ -2699,16 +2820,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
           </View>
         ) : null}
 
-        <ConversationScrubber
-          collapsedMarks={conversationRailItems.map(({ turn, active, visible }) => ({
-            id: turn.id,
-            role: turn.role,
-            active,
-            visible,
-          }))}
-          stops={scrubberStops}
-          activeStopId={activeScrubberStopId}
+        <ConversationScrubberLayer
+          visibleTurns={visibleTurns}
+          messageLayouts={messageLayouts}
+          conversationTop={conversationTop}
+          viewportHeight={viewportHeight}
           onCommit={handleScrubberCommit}
+          registerScrollY={registerScrollY}
         />
 
         <View
@@ -2814,9 +2932,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
             canInterruptTurn={canInterruptTurn}
             deviceOffline={deviceOffline}
             readOnlyReason={composerReadOnlyReason}
+            autoFocusText={autoFocusText}
             toolsMenuVisible={toolsMenuVisible}
             onToggleTools={() => setToolsMenuVisible(value => !value)}
             onTextInputFocus={() => {
+              setAutoFocusText(false);
               pendingScrollToEndRef.current = true;
               scheduleScrollToEnd(true);
             }}
@@ -2826,9 +2946,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
             onSendVoice={handleSendVoice}
             onSendText={handleSendText}
             onInterruptTurn={handleInterruptTurn}
-            onResetVoice={() => {
-              setVoiceDraft('');
-            }}
+            onEditVoice={handleEditVoice}
           />
         </View>
       </KeyboardAvoidingView>
@@ -3067,13 +3185,24 @@ const styles = StyleSheet.create({
   },
   approvalActions: {
     flexDirection: 'row',
+    alignItems: 'flex-end',
     gap: 8,
   },
-  approvalAction: {
+  // APPROVE is the primary CTA — give it more width (2:1) and extra height so
+  // it reads as the bigger, dominant action; DENY stays compact beside it.
+  approvalActionApprove: {
+    flex: 2,
+    minHeight: 56,
+  },
+  approvalActionDeny: {
     flex: 1,
   },
   approvalOptionActions: {
     gap: 8,
+  },
+  approvalOptionActionApprove: {
+    alignSelf: 'stretch',
+    minHeight: 56,
   },
   approvalOptionAction: {
     alignSelf: 'stretch',

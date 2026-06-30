@@ -354,7 +354,7 @@ export interface ControlCenterState {
    */
   markSessionViewed: (sessionId: string) => void;
   /** Clear the currently-viewed marker (chat screen blur/unmount). */
-  clearCurrentlyViewedSession: () => void;
+  clearCurrentlyViewedSession: (sessionId?: string) => void;
   /**
    * Demote sessions not viewed within the idle threshold (and not active /
    * currently viewed) — clears their resident transcript/structuredEvents/

@@ -5,20 +5,18 @@ import type { VibeStatus } from '../data/platformModels';
  *
  * 判定优先级:
  *  1. `failed`  → 失败(真终态)
- *  2. `isLive`(此刻有生命迹象:最近 delta 在 8s 窗口内,或有 active 思考 / started 命令)
- *     → `running`(进行中)。生命迹象是真相,压过 status 误报的 completed/closed——一个
- *     略微陈旧的快照会在会话仍活跃时把 status 推成 completed,此刻顶部若信 status 就错了。
+ *  2. `isLive` → `running`(进行中)。`isLive` 由调用方传入 = `isSessionTurnActive(status)`
+ *     = `status === 'running'`(事件驱动,见 isSessionTurnActive)。status 在静默期
+ *     (subagent / 长 bash / API 重试——无 ai.delta 流动的窗口)由 `ai.run.progress` 心跳
+ *     维持 running,故顶部不会在长任务中途误闪已完成。
  *  3. `completed` → 已完成(会话真关闭;即使有陈旧 pending approval 也优先展示完成)。
  *  4. 有 pending approval → 待审批(需用户动作)。
- *  5. 否则(无生命迹象、无待审批、非真结束)→ 已完成(回合 settle:agent 答完、球回到用户,
- *     会话仍可继续)。**不依赖 status 的 running/idle 区分**:settle 推送可能丢失或被
- *     staleDemotion 守卫卡住使 status 停在 running,而 isLive(8s 窗口 + ai.done 收尾
- *     structuredEvents)才是可靠信号,故「无生命迹象 ⇒ 已完成」。回合内 API 请求空档
- *     (<8s)isLive 仍 true → 进行中,不会误闪已完成。
+ *  5. 否则(status 非 running、无待审批、非真结束)→ 已完成(回合 settle:agent 答完、球回到
+ *     用户,会话仍可继续)。status 是事件驱动的(ai.done→idle / ai.status halt→idle 即结算),
+ *     到达此处即回合真结束,不靠活动新鲜度猜测。
  *
- * `isLive` 由调用方用 `isSessionTurnActive(...)`(见下)算出——和 L2/L3、底部 composer 锁、
- * 停止按钮、发送 guard 全部同源,保证五处对「是否正在干活」的判定一致,不再各自裸读
- * `session.status`(回合 settle 后常停在陈旧的 running)。
+ * 与 L2/L3 的区分:`LIVE_TURN_WINDOW_MS`(8s)只用于定位「当前正在流式的助手气泡」
+ * (liveAssistantMessageId / 底部脉冲),不参与 L1 相位——L1 只认事件驱动的 status。
  */
 export type SessionPhase = 'running' | 'waiting_approval' | 'completed' | 'failed';
 
@@ -35,13 +33,11 @@ export function deriveSessionPhase(
   // still shows 进行中.)
   if (status === 'completed') return 'completed';
   if (hasPendingApproval) return 'waiting_approval';
-  // No life signs + nothing pending + not failed/closed ⇒ the turn settled
-  // (agent answered, ball back with the user). Show 已完成, NOT 进行中.
-  // We deliberately ignore the running↔idle distinction in status here: a
-  // settle publish can be dropped or held back by mergeVibeRunSnapshot's
-  // staleDemotion guard, leaving status pinned at 'running' after the turn
-  // ended. isLive (8s window + ai.done-finalized structuredEvents) is the
-  // reliable signal, so "no life signs" ⇒ 已完成 regardless of status.
+  // No life signs (status not running) + nothing pending + not failed/closed ⇒
+  // the turn settled (agent answered, ball back with the user). Show 已完成.
+  // status is event-driven — ai.run.started / ai.run.progress keep it running
+  // through quiet gaps, ai.done / ai.status(halt) end it — so reaching here means
+  // the turn genuinely ended; no 8s activity-window guess involved.
   return 'completed';
 }
 
@@ -96,7 +92,8 @@ export function liveAssistantMessageId(
  * 停止按钮 / 发送 guard / L2-L3 脉冲共用,保证判定一致。
  *
  * **事件驱动,只看 `status === 'running'`**。回合边界由确定性事件决定:
- *  - 开始:发送(`appendAgentMessage`)乐观置 running;`ai.status` 维持 running。
+ *  - 开始:发送(`appendAgentMessage`)乐观置 running;`ai.run.started` 显式置 running;
+ *    `ai.run.progress`(subagent / 长 bash / API 重试等静默期的心跳)维持 / 恢复 running。
  *  - 结束:`ai.done` 翻 idle、`ai.error` 翻 failed、中断(`interruptAgentSession`)翻 idle。
  * 配合 `mergeVibeRunSnapshot` 的双向 stale 守卫(既不让陈旧快照把 running 误降级,也不让
  * 陈旧快照把已结算的会话误重新激活),status 在回合内稳定为 running、回合结束即时为 idle。

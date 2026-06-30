@@ -238,4 +238,30 @@ describe('VoiceTextInput', () => {
     currentRenderer = undefined; // already unmounted; skip afterEach's unmount
     expect(mockCancel).toHaveBeenCalledTimes(1);
   });
+
+  it('places the mic to the RIGHT of the text field', () => {
+    const root = render(baseProps());
+    const mic = micOf(root);
+    const row = mic.parent;
+    const children = (row?.children ?? []) as Array<{
+      type: unknown;
+      props: { testID?: string };
+    }>;
+    const inputIdx = children.findIndex(child => child.type === TextInput);
+    const micIdx = children.findIndex(
+      child => child.props?.testID === 'rename-mic',
+    );
+    expect(inputIdx).toBeGreaterThanOrEqual(0);
+    expect(micIdx).toBeGreaterThan(inputIdx); // mic after the field → right side
+  });
+
+  it('does NOT autofocus by default — voice leads, typing is opt-in', () => {
+    const root = render(baseProps());
+    expect(inputOf(root).props.autoFocus).toBe(false);
+  });
+
+  it('still honors an explicit autoFocus={true}', () => {
+    const root = render(baseProps({ autoFocus: true }));
+    expect(inputOf(root).props.autoFocus).toBe(true);
+  });
 });

@@ -241,18 +241,24 @@ describe('agentTranscript', () => {
         kind: 'list',
         ordered: false,
         items: [
-          [
-            { kind: 'strong', children: [{ kind: 'text', content: 'Done' }] },
-            { kind: 'text', content: ' with ' },
-            { kind: 'inlineCode', content: 'npm test' },
-          ],
-          [
-            {
-              kind: 'link',
-              url: 'https://example.com',
-              children: [{ kind: 'text', content: 'Open docs' }],
-            },
-          ],
+          {
+            depth: 0,
+            children: [
+              { kind: 'strong', children: [{ kind: 'text', content: 'Done' }] },
+              { kind: 'text', content: ' with ' },
+              { kind: 'inlineCode', content: 'npm test' },
+            ],
+          },
+          {
+            depth: 0,
+            children: [
+              {
+                kind: 'link',
+                url: 'https://example.com',
+                children: [{ kind: 'text', content: 'Open docs' }],
+              },
+            ],
+          },
         ],
       },
       {

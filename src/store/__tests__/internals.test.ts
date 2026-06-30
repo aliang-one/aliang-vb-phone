@@ -179,6 +179,39 @@ describe('evictStaleSessionDetail clears structured activity too', () => {
     const kept = out.find(r => r.id === 's8')!;
     expect(kept.structuredEvents).toHaveLength(1);
   });
+
+  it('uses recent view time before activity time when choosing detail to evict', () => {
+    const recentlyViewedOldActivity = makeRun({
+      id: 'recently-viewed',
+      status: 'completed',
+      detailLoadedAt: '100',
+      lastActivityMs: 1,
+      lastViewedAt: 10_000,
+      structuredEvents: [
+        { kind: 'command', eventId: 'recent' } as unknown as VibeCodingRun['structuredEvents'][number],
+      ],
+    });
+    const runs = [
+      recentlyViewedOldActivity,
+      ...Array.from({ length: 8 }, (_, i) =>
+        makeRun({
+          id: `older-view-${i}`,
+          status: 'completed',
+          detailLoadedAt: String(200 + i),
+          lastActivityMs: 1_000 + i,
+          lastViewedAt: 100 + i,
+          structuredEvents: [
+            { kind: 'command', eventId: `e${i}` } as unknown as VibeCodingRun['structuredEvents'][number],
+          ],
+        }),
+      ),
+    ];
+
+    const out = evictStaleSessionDetail(runs);
+
+    expect(out.find(r => r.id === 'recently-viewed')?.structuredEvents).toHaveLength(1);
+    expect(out.find(r => r.id === 'older-view-0')?.structuredEvents).toEqual([]);
+  });
 });
 
 describe('mergeVibeRunSnapshot preserves client-only lastViewedAt', () => {

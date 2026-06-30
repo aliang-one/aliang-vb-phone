@@ -111,7 +111,7 @@ const defaultProps = (
   onVoiceCapture: jest.fn(),
   onSendVoice: jest.fn(),
   onSendText: jest.fn(),
-  onResetVoice: jest.fn(),
+  onEditVoice: jest.fn(),
   ...overrides,
 });
 
@@ -250,7 +250,7 @@ describe('MessageComposer', () => {
     expect(onVoiceCaptureEnd).not.toHaveBeenCalled();
   });
 
-  it('voice draft (方案A) offers 发送 + 重置 directly — no AI 润色', () => {
+  it('voice draft (方案A) offers 发送 + 编辑 directly — no AI 润色', () => {
     const onSendVoice = jest.fn();
     const root = wrap(
       <MessageComposer
@@ -266,7 +266,9 @@ describe('MessageComposer', () => {
     // The transcribed text itself is what's shown (方案A: 原样发送).
     expect(texts.some(t => t === '帮我加一个登录页')).toBe(true);
     expect(texts.some(t => t === '发送')).toBe(true);
-    expect(texts.some(t => t === '重置')).toBe(true);
+    expect(texts.some(t => t === '编辑')).toBe(true);
+    // 重置 is gone — superseded by 编辑 (re-recording via the mic toggle replaces it).
+    expect(texts.some(t => t === '重置')).toBe(false);
     // AI 润色 is gone until 方案B lands.
     expect(texts.some(t => t === 'AI 润色')).toBe(false);
 
@@ -276,21 +278,21 @@ describe('MessageComposer', () => {
     expect(onSendVoice).toHaveBeenCalled();
   });
 
-  it('tapping 重置 clears the voice draft via onResetVoice', () => {
-    const onResetVoice = jest.fn();
+  it('tapping 编辑 transfers the draft for editing via onEditVoice', () => {
+    const onEditVoice = jest.fn();
     const root = wrap(
       <MessageComposer
         {...defaultProps({
           mode: 'voice',
           voiceDraft: 'raw transcript',
-          onResetVoice,
+          onEditVoice,
         })}
       />,
     );
     act(() => {
-      btnByLabel(root, '重置')!.props.onPress();
+      btnByLabel(root, '编辑')!.props.onPress();
     });
-    expect(onResetVoice).toHaveBeenCalled();
+    expect(onEditVoice).toHaveBeenCalled();
   });
 
   it('typing "/" shows all command suggestions', () => {

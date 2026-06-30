@@ -528,23 +528,6 @@ export const VibeCodingListScreen: React.FC = () => {
                     label={`${activeTerminals.length} ACTIVE`}
                     type="info"
                   />
-                  <TouchableOpacity
-                    activeOpacity={0.75}
-                    disabled={!newTerminalDevice}
-                    onPress={handleCreateTerminal}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <Text
-                      style={[
-                        theme.typography.codeSm,
-                        {
-                          color: newTerminalDevice
-                            ? theme.colors.primary
-                            : theme.colors.onSurfaceVariant,
-                        },
-                      ]}>
-                      NEW TERM
-                    </Text>
-                  </TouchableOpacity>
                 </View>
               </View>
               {activeTerminals.map(({ terminal, device }) => (
@@ -584,6 +567,39 @@ export const VibeCodingListScreen: React.FC = () => {
         </View>
       </ScrollView>
       </DeferredMount>
+
+      {activeTab === 1 ? (
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="New terminal"
+          activeOpacity={0.85}
+          disabled={!newTerminalDevice}
+          onPress={handleCreateTerminal}
+          style={[
+            styles.newTermFab,
+            { backgroundColor: theme.colors.primary },
+            !newTerminalDevice ? styles.newTermFabDisabled : null,
+          ]}>
+          <Text
+            style={[styles.newTermFabPlus, { color: theme.colors.onPrimary }]}>
+            ＋
+          </Text>
+          <View
+            style={[
+              styles.newTermFabDivider,
+              { backgroundColor: theme.colors.onPrimary },
+            ]}
+          />
+          <Text
+            style={[
+              theme.typography.codeSm,
+              styles.newTermFabLabel,
+              { color: theme.colors.onPrimary },
+            ]}>
+            NEW
+          </Text>
+        </TouchableOpacity>
+      ) : null}
     </SafeAreaWrapper>
   );
 };
@@ -636,6 +652,40 @@ const styles = StyleSheet.create({
   },
   pager: {
     flex: 1,
+  },
+  // Floating "NEW TERM" capsule — vertical, overlays the Terminals page, bottom-right.
+  newTermFab: {
+    position: 'absolute',
+    bottom: 24,
+    right: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+  },
+  newTermFabDisabled: {
+    opacity: 0.4,
+  },
+  newTermFabPlus: {
+    fontSize: 22,
+    fontWeight: '600',
+    lineHeight: 24,
+  },
+  newTermFabDivider: {
+    width: 18,
+    height: 1,
+    marginVertical: 8,
+    opacity: 0.45,
+  },
+  newTermFabLabel: {
+    letterSpacing: 2,
+    lineHeight: 16,
   },
   deferredPlaceholder: {
     flex: 1,

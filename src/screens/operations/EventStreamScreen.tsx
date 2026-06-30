@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FlatList, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -11,6 +11,7 @@ import { RootStackParamList } from '../../app/navigation/types';
 import { useTheme } from '../../theme/useTheme';
 import { IconBadge, IconName } from '../../components/visual/IconBadge';
 import {
+  UnifiedEvent,
   UnifiedEventStatus,
   UnifiedEventType,
   useControlCenterStore,
@@ -113,110 +114,66 @@ export const EventStreamScreen: React.FC = () => {
         onBack={navigation.goBack}
         rightAction={<StatusChip label={`${filtered.length}`} type="info" />}
       />
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filters}>
-          {filters.map(item => {
-            const active = item.value === filter;
-            return (
-              <TouchableOpacity
-                key={item.value}
-                activeOpacity={0.75}
-                onPress={() => setFilter(item.value)}
-                style={[
-                  styles.filterChip,
-                  {
-                    borderRadius: theme.borderRadius.full,
-                    borderColor: active
-                      ? theme.colors.primary
-                      : theme.colors.outlineVariant,
-                    backgroundColor: active
-                      ? isDark
-                        ? 'rgba(86, 156, 214, 0.12)'
-                        : 'rgba(0, 81, 174, 0.08)'
-                      : 'transparent',
-                  },
-                ]}>
-                <Text
+      <FlatList
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+        data={eventList.visibleItems}
+        keyExtractor={item => item.id}
+        renderItem={({ item }) => <EventCard item={item} />}
+        removeClippedSubviews
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
+        windowSize={7}
+        ListHeaderComponent={
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filters}>
+            {filters.map(item => {
+              const active = item.value === filter;
+              return (
+                <TouchableOpacity
+                  key={item.value}
+                  activeOpacity={0.75}
+                  onPress={() => setFilter(item.value)}
                   style={[
-                    theme.typography.labelSm,
+                    styles.filterChip,
                     {
-                      color: active
+                      borderRadius: theme.borderRadius.full,
+                      borderColor: active
                         ? theme.colors.primary
-                        : theme.colors.onSurfaceVariant,
+                        : theme.colors.outlineVariant,
+                      backgroundColor: active
+                        ? isDark
+                          ? 'rgba(86, 156, 214, 0.12)'
+                          : 'rgba(0, 81, 174, 0.08)'
+                        : 'transparent',
                     },
                   ]}>
-                  {item.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
-        {eventList.visibleItems.map(item => (
-          <GlassPanel key={item.id} style={styles.eventCard}>
-            <View style={styles.eventTop}>
-              <IconBadge
-                name={eventIcon[item.type]}
-                tone={item.status === 'failed' ? 'error' : item.status === 'waiting' ? 'tertiary' : 'primary'}
-                size={40}
-                iconSize={20}
-              />
-              <View style={styles.titleBlock}>
-                <Text
-                  numberOfLines={1}
-                  style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                  {item.title}
-                </Text>
-                <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-                  {item.type}
-                </Text>
-              </View>
-              <StatusChip
-                label={item.status.toUpperCase()}
-                type={eventStatusType[item.status]}
-              />
-            </View>
-            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-              {item.detail}
-            </Text>
-            <View style={styles.metaGrid}>
-              <Meta label="TIME" value={item.timestamp} />
-              <Meta label="DEVICE" value={item.deviceId ?? 'none'} />
-              <Meta label="SESSION" value={item.sessionId ?? 'none'} />
-              <Meta label="TERMINAL" value={item.terminalId ?? 'none'} />
-            </View>
-            {item.payload ? (
-              <View
-                style={[
-                  styles.payloadBox,
-                  {
-                    borderColor: theme.colors.outlineVariant,
-                    borderRadius: theme.borderRadius.md,
-                  },
-                ]}>
-                {Object.entries(item.payload).map(([key, value]) => (
                   <Text
-                    key={key}
                     style={[
-                      theme.typography.codeSm,
-                      { color: theme.colors.onSurfaceVariant },
+                      theme.typography.labelSm,
+                      {
+                        color: active
+                          ? theme.colors.primary
+                          : theme.colors.onSurfaceVariant,
+                      },
                     ]}>
-                    {key}: {String(value)}
+                    {item.label}
                   </Text>
-                ))}
-              </View>
-            ) : null}
-          </GlassPanel>
-        ))}
-        <LoadMoreRow
-          visibleCount={eventList.visibleCount}
-          totalCount={eventList.totalCount}
-          onPress={eventList.showMore}
-        />
-      </ScrollView>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        }
+        ListFooterComponent={
+          <LoadMoreRow
+            visibleCount={eventList.visibleCount}
+            totalCount={eventList.totalCount}
+            onPress={eventList.showMore}
+          />
+        }
+      />
     </SafeAreaWrapper>
   );
 };
@@ -242,6 +199,70 @@ const Meta: React.FC<MetaProps> = ({ label, value }) => {
     </View>
   );
 };
+
+const EventCard: React.FC<{ item: UnifiedEvent }> = React.memo(({ item }) => {
+  const { theme } = useTheme();
+  return (
+    <GlassPanel style={styles.eventCard}>
+      <View style={styles.eventTop}>
+        <IconBadge
+          name={eventIcon[item.type]}
+          tone={
+            item.status === 'failed'
+              ? 'error'
+              : item.status === 'waiting'
+                ? 'tertiary'
+                : 'primary'
+          }
+          size={40}
+          iconSize={20}
+        />
+        <View style={styles.titleBlock}>
+          <Text
+            numberOfLines={1}
+            style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+            {item.title}
+          </Text>
+          <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+            {item.type}
+          </Text>
+        </View>
+        <StatusChip
+          label={item.status.toUpperCase()}
+          type={eventStatusType[item.status]}
+        />
+      </View>
+      <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+        {item.detail}
+      </Text>
+      <View style={styles.metaGrid}>
+        <Meta label="TIME" value={item.timestamp} />
+        <Meta label="DEVICE" value={item.deviceId ?? 'none'} />
+        <Meta label="SESSION" value={item.sessionId ?? 'none'} />
+        <Meta label="TERMINAL" value={item.terminalId ?? 'none'} />
+      </View>
+      {item.payload ? (
+        <View
+          style={[
+            styles.payloadBox,
+            {
+              borderColor: theme.colors.outlineVariant,
+              borderRadius: theme.borderRadius.md,
+            },
+          ]}>
+          {Object.entries(item.payload).map(([key, value]) => (
+            <Text
+              key={key}
+              style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+              {key}: {String(value)}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+    </GlassPanel>
+  );
+});
+EventCard.displayName = 'EventCard';
 
 const styles = StyleSheet.create({
   scrollView: {

@@ -104,7 +104,7 @@ export const MAX_APPROVALS = 50; // Pending/resolved approvals limit
 // --- Bounded memory for AI session structured activity (see bounded-memory spec) ---
 export const STRUCTURED_EVENTS_CAP = 200; // per session: keep newest N structured activity events
 export const EVENT_DETAIL_CACHE_MAX = 30; // per session: keep newest N fetched heavy details (FIFO)
-export const IDLE_DEMOTE_MS = 3 * 60 * 1000; // session not viewed for this long (and inactive) gets demoted
+export const IDLE_DEMOTE_MS = 30 * 60 * 1000; // inactive viewed sessions demote only after a quiet window
 export const IDLE_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // coarse fallback sweeper cadence
 export const tail = <T>(list: T[], limit: number): T[] =>
   list.length <= limit ? list : list.slice(list.length - limit);
@@ -151,7 +151,11 @@ export function evictStaleSessionDetail(
   const toEvict = new Set(
     detailed
       .filter(run => !ACTIVE_RUN_STATUS.has(run.status))
-      .sort((a, b) => (a.lastActivityMs ?? 0) - (b.lastActivityMs ?? 0))
+      .sort(
+        (a, b) =>
+          (a.lastViewedAt ?? a.lastActivityMs ?? 0) -
+          (b.lastViewedAt ?? b.lastActivityMs ?? 0),
+      )
       .slice(0, overflow)
       .map(run => run.id),
   );

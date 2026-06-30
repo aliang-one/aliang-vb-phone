@@ -47,6 +47,9 @@ export interface MessageComposerProps {
   canInterruptTurn?: boolean;
   deviceOffline: boolean;
   readOnlyReason?: string;
+  /** One-shot: focus the text input on mount/prop-true. Used to pop the keyboard
+      after "编辑" transfers a voice draft into the text field. */
+  autoFocusText?: boolean;
   toolsMenuVisible: boolean;
   onToggleTools: () => void;
   onTextInputFocus?: () => void;
@@ -60,7 +63,8 @@ export interface MessageComposerProps {
   onSendVoice: () => void;
   onSendText: () => void;
   onInterruptTurn?: () => void;
-  onResetVoice: () => void;
+  /** Moves the voice draft into the text input for editing (switches to text mode). */
+  onEditVoice: () => void;
 }
 
 // ---------- icons (inline SVG; no shared icon lib ships mic/keyboard/send) ----------
@@ -260,6 +264,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   canInterruptTurn = false,
   deviceOffline,
   readOnlyReason,
+  autoFocusText,
   toolsMenuVisible,
   onToggleTools,
   onTextInputFocus,
@@ -269,7 +274,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   onSendVoice,
   onSendText,
   onInterruptTurn,
-  onResetVoice,
+  onEditVoice,
   sessionId,
 }) => {
   const { theme, isDark } = useTheme();
@@ -505,6 +510,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
           value={input}
           onChangeText={onInputChange}
           onFocus={onTextInputFocus}
+          autoFocus={autoFocusText}
           placeholder="Send a direction..."
           placeholderTextColor={theme.colors.onSurfaceVariant}
           multiline
@@ -727,8 +733,8 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
               style={styles.draftBtn}
             />
             <GlowButton
-              title="重置"
-              onPress={onResetVoice}
+              title="编辑"
+              onPress={onEditVoice}
               variant="outline"
               style={styles.draftBtn}
             />

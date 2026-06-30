@@ -109,6 +109,7 @@ const inlinePlainText = (nodes: TranscriptMarkdownInline[]): string =>
       if (node.kind === 'inlineCode') return node.content;
       if (node.kind === 'commandName') return node.content;
       if (node.kind === 'commandArgs') return node.content;
+      if (node.kind === 'image') return node.alt;
       return inlinePlainText(node.children);
     })
     .join('');
@@ -121,6 +122,9 @@ const markdownBlockSummary = (
   if (block.kind === 'paragraph') return compactText(inlinePlainText(block.children));
   if (block.kind === 'quote') return compactText(inlinePlainText(block.children));
   if (block.kind === 'list') return `${block.items.length} items`;
+  if (block.kind === 'table')
+    return `${block.rows.length + 1} 行表格`;
+  if (block.kind === 'thematicBreak') return undefined;
 
   const language = block.language ? `${block.language.toUpperCase()} code` : 'Code';
   return `${language} · ${countLines(block.content)} lines`;
@@ -280,6 +284,16 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
       );
     }
 
+    if (node.kind === 'strikethrough') {
+      return (
+        <Text key={key} style={styles.strikethroughText}>
+          {node.children.map((child, index) =>
+            renderInline(child, `${key}:strike:${index}`),
+          )}
+        </Text>
+      );
+    }
+
     if (node.kind === 'inlineCode') {
       return (
         <Text
@@ -309,6 +323,20 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
           {node.children.map((child, index) =>
             renderInline(child, `${key}:link:${index}`),
           )}
+        </Text>
+      );
+    }
+
+    if (node.kind === 'image') {
+      // 安全策略:消息里的 URL 是 AI 产出的任意地址,不直接加载远程图
+      // (避免 IP 泄露/无超时/大图爆内存)。渲染为「[alt] url」占位文本,
+      // 与 link 一致为纯样式文本(长按可复制)。
+      return (
+        <Text key={key} style={styles.imageChip}>
+          {node.alt ? `[${node.alt}] ` : '[image] '}
+          <Text style={[styles.linkText, { color: theme.colors.primary }]}>
+            {node.url}
+          </Text>
         </Text>
       );
     }
@@ -475,16 +503,28 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
       return (
         <View key={key} style={styles.markdownList}>
           {block.items.map((item, index) => (
-            <View key={`${key}:item:${index}`} style={styles.markdownListItem}>
-              <Text
-                style={[
-                  theme.typography.bodyMd,
-                  styles.markdownListMarker,
-                  { color: theme.colors.onSurfaceVariant },
-                ]}
-              >
-                {block.ordered ? `${index + 1}.` : '•'}
-              </Text>
+            <View
+              key={`${key}:item:${index}`}
+              style={[
+                styles.markdownListItem,
+                { paddingLeft: item.depth * 14 },
+              ]}
+            >
+              {item.checkbox ? (
+                <Text style={styles.checkboxMarker}>
+                  {item.checkbox === 'checked' ? '☑' : '☐'}
+                </Text>
+              ) : (
+                <Text
+                  style={[
+                    theme.typography.bodyMd,
+                    styles.markdownListMarker,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {block.ordered ? `${index + 1}.` : '•'}
+                </Text>
+              )}
               <Text
                 selectable
                 style={[
@@ -493,10 +533,87 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                   { color: theme.colors.onSurface },
                 ]}
               >
-                {renderInlineList(item, `${key}:item:${index}`)}
+                {renderInlineList(item.children, `${key}:item:${index}`)}
               </Text>
             </View>
           ))}
+        </View>
+      );
+    }
+
+    if (block.kind === 'thematicBreak') {
+      return (
+        <View
+          key={key}
+          style={[
+            styles.thematicBreak,
+            { backgroundColor: theme.colors.outlineVariant },
+          ]}
+        />
+      );
+    }
+
+    if (block.kind === 'table') {
+      const colCount = block.headers.length;
+      const renderRow = (
+        cells: TranscriptMarkdownInline[][],
+        rowIndex: number,
+        isHeader: boolean,
+      ) => (
+        <View
+          key={`row:${rowIndex}`}
+          style={[
+            styles.tableRow,
+            isHeader && {
+              backgroundColor: isDark
+                ? 'rgba(255,255,255,0.06)'
+                : 'rgba(0,0,0,0.04)',
+            },
+            {
+              borderTopWidth: rowIndex === 0 ? 0 : 1,
+              borderTopColor: theme.colors.outlineVariant,
+            },
+          ]}
+        >
+          {Array.from({ length: colCount }).map((_, ci) => (
+            <Text
+              key={`cell:${ci}`}
+              selectable
+              style={[
+                theme.typography.bodySm,
+                styles.tableCell,
+                isHeader && styles.tableHeaderCell,
+                {
+                  textAlign: block.align[ci] ?? 'left',
+                  color: theme.colors.onSurface,
+                  borderRightWidth: ci === colCount - 1 ? 0 : 1,
+                  borderRightColor: theme.colors.outlineVariant,
+                },
+              ]}
+            >
+              {renderInlineList(
+                cells[ci] ?? [],
+                `${key}:row:${rowIndex}:cell:${ci}`,
+              )}
+            </Text>
+          ))}
+        </View>
+      );
+      return (
+        <View
+          key={key}
+          style={[
+            styles.tableBlock,
+            {
+              borderColor: theme.colors.outlineVariant,
+              backgroundColor: isDark
+                ? 'rgba(255,255,255,0.02)'
+                : theme.colors.surfaceContainer,
+            },
+          ]}
+        >
+          {renderRow(block.headers, 0, true)}
+          {block.rows.map((row, ri) => renderRow(row, ri + 1, false))}
         </View>
       );
     }
@@ -1276,6 +1393,35 @@ const styles = StyleSheet.create({
   },
   markdownListText: {
     flex: 1,
+  },
+  strikethroughText: {
+    textDecorationLine: 'line-through',
+  },
+  imageChip: {
+    fontStyle: 'italic',
+  },
+  checkboxMarker: {
+    minWidth: 18,
+    textAlign: 'center',
+  },
+  thematicBreak: {
+    height: 1,
+    marginVertical: 8,
+  },
+  tableBlock: {
+    borderWidth: 1,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  tableRow: {
+    flexDirection: 'row',
+  },
+  tableCell: {
+    flex: 1,
+    padding: 6,
+  },
+  tableHeaderCell: {
+    fontWeight: '700',
   },
   codeBlock: {
     borderWidth: 1,

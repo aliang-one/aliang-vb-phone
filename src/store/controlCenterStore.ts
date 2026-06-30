@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { useMemo } from 'react';
 import { shallow, useShallow } from 'zustand/shallow';
 import type { PreviewLink, VibeCodingRun, VibeStatus } from '../data/platformModels';
 import { routeTerminalOutputToEmulator } from '../components/terminal/TerminalEmulator';
@@ -162,23 +161,58 @@ export function useStableVibeRuns(): VibeCodingRun[] {
   );
 }
 
-/** Subscribe to approvals for one session, sorted newest-first. */
-export const useSessionApprovals = (sessionId: string | undefined) => {
-  const approvals = useControlCenterStore(state => state.approvals);
-
-  return useMemo(
-    () =>
+/** Subscribe to approvals for one session, sorted newest-first. Referentially
+ *  stable via shallow element compare — re-renders ONLY when this session's
+ *  approvals change, not when any other session's approval mutates. */
+export const useSessionApprovals = (sessionId: string | undefined) =>
+  useControlCenterStore(
+    useShallow(state =>
       sessionId
-        ? approvals
+        ? state.approvals
             .filter(item => item.sessionId === sessionId)
             .sort(
               (left, right) =>
                 Date.parse(right.createdAt) - Date.parse(left.createdAt),
             )
         : EMPTY_SESSION_APPROVALS,
-    [approvals, sessionId],
+    ),
   );
-};
+
+/** Subscribe to a single approval by id. Re-renders ONLY when this approval's
+ *  fields change (shallow) — not on any other approval mutation in the store. */
+export const useApproval = (approvalId: string | undefined) =>
+  useControlCenterStore(
+    useShallow(state =>
+      approvalId
+        ? state.approvals.find(approval => approval.id === approvalId)
+        : undefined,
+    ),
+  );
+
+/** Subscribe to the id list of ALL approvals. Re-renders ONLY when an approval
+ *  is added or removed — NOT when an existing approval's non-id fields (summary,
+ *  status, …) change. Used to answer "is this approval still resolvable?". */
+export const useApprovalIds = () =>
+  useControlCenterStore(useShallow(state => state.approvals.map(item => item.id)));
+
+/** Subscribe to `approval.requested` events relevant to one session (its own
+ *  events, plus events tied to a focused approval id). Referentially stable via
+ *  shallow element compare — re-renders ONLY when this session's approval events
+ *  change, not on every global event. */
+export const useSessionApprovalEvents = (
+  sessionId: string | undefined,
+  focusedApprovalId: string | undefined,
+) =>
+  useControlCenterStore(
+    useShallow(state =>
+      state.events.filter(
+        event =>
+          event.type === 'approval.requested' &&
+          (event.sessionId === sessionId ||
+            (!!focusedApprovalId && event.approvalId === focusedApprovalId)),
+      ),
+    ),
+  );
 
 /** Subscribe to a single project by id. */
 export const useProject = (projectId: string | undefined) =>
@@ -524,6 +558,41 @@ export const useControlCenterStore = create<ControlCenterState>()(
                 ].slice(0, 120),
               }));
               return;
+
+            // ai.run.started (turn start) and ai.run.progress (the ~10s heartbeat
+            // the agent ticks during quiet tool/subagent/API-retry gaps, when no
+            // ai.delta flows — the ONLY "still alive" signal in those windows) are
+            // the run-lifecycle signals that keep the phone's 进行中 honest.
+            // Both refresh lastActivityMs (the basis of mergeVibeRunSnapshot's
+            // stale-demotion guard: without a current timestamp a server idle
+            // snapshot whose lastActivityMs is newer than our stagnant local one
+            // demotes a turn that is still running) and (re)assert running. The
+            // optimistic running set on send can otherwise be demoted by a stale
+            // snapshot before the first ai.delta, and a long quiet gap would
+            // otherwise show 已完成 while the agent is still working. Terminal
+            // (failed/completed) and waiting_approval are preserved.
+            case 'ai.run.started':
+            case 'ai.run.progress': {
+              set(state => ({
+                vibeRuns: state.vibeRuns.map(item => {
+                  if (item.id !== transportEvent.sessionId) return item;
+                  const status: VibeStatus =
+                    item.status === 'failed' ||
+                    item.status === 'completed' ||
+                    item.status === 'waiting_approval'
+                      ? item.status
+                      : 'running';
+                  const activityMs = activityNowMs();
+                  return {
+                    ...item,
+                    status,
+                    lastActivityMs: activityMs,
+                    updatedAt: formatActivityLabel(activityMs),
+                  };
+                }),
+              }));
+              return;
+            }
 
             case 'ai.delta': {
               // Buffer the token; pushDelta schedules a single coalesced flush per
