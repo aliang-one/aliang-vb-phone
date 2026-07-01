@@ -86,6 +86,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
 
   const [phase, setPhase] = useState<VoiceToBashPhase>('idle');
   const [command, setCommand] = useState('');
+  const [transcript, setTranscript] = useState('');
   const [dangerous, setDangerous] = useState(false);
   const [error, setError] = useState('');
   // Second-confirm gate: the first tap on 确认运行 when dangerous only arms
@@ -115,37 +116,49 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   // hold-to-talk press before any recording begins.
   const resetToIdle = useCallback(() => {
     setCommand('');
+    setTranscript('');
     setDangerous(false);
     setError('');
     armConfirmDanger(false);
     setPhase('idle');
   }, [armConfirmDanger]);
 
-  const handleTranscript = useCallback(
-    async (transcript: string) => {
-      setPhase('transcribing');
-      try {
-        const result = await generateCommand({
-          text: transcript,
-          deviceId,
-          cwd,
-          mode,
-          sessionId,
-          projectId,
-        });
-        setCommand(result.command);
-        setDangerous(Boolean(result.dangerous));
-        armConfirmDanger(false);
-        setPhase('confirming');
-      } catch (e) {
-        const message =
-          e instanceof Error && e.message ? e.message : '生成命令失败，请重试';
-        setError(message);
-        setPhase('error');
-      }
-    },
-    [deviceId, cwd, mode, sessionId, projectId],
-  );
+  // STT finalized: land in the review phase with the transcript pre-filled in
+  // an editable TextInput. The AI generateCommand call is GATED behind 确认发送
+  // so the user can fix transcription errors before spending a server round.
+  const handleTranscript = useCallback((finalTranscript: string) => {
+    setTranscript(finalTranscript);
+    setPhase('review');
+  }, []);
+
+  // Review → AI: feed the (possibly edited) transcript to the command-gen
+  // endpoint, then drop into the existing command-edit confirming phase. Set
+  // phase to 'generating' while the request is in flight (P5 replaces this
+  // minimal body with a live timeline).
+  const handleSend = useCallback(async () => {
+    const text = transcript.trim();
+    if (!text) return;
+    setPhase('generating');
+    try {
+      const result = await generateCommand({
+        text,
+        deviceId,
+        cwd,
+        mode,
+        sessionId,
+        projectId,
+      });
+      setCommand(result.command);
+      setDangerous(Boolean(result.dangerous));
+      armConfirmDanger(false);
+      setPhase('confirming');
+    } catch (e) {
+      const message =
+        e instanceof Error && e.message ? e.message : '生成命令失败，请重试';
+      setError(message);
+      setPhase('error');
+    }
+  }, [transcript, deviceId, cwd, mode, sessionId, projectId, armConfirmDanger]);
 
   const startRecording = useCallback(() => {
     setPhase('recording');
@@ -324,6 +337,86 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
                 <ActivityIndicator color={theme.colors.primary} />
                 <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface, marginLeft: 8 }]}>
                   识别中…
+                </Text>
+              </View>
+              <View style={styles.footerRow}>
+                <Pressable testID="v2b-cancel" onPress={handleClose} style={styles.textBtn}>
+                  <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
+                    取消
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+
+          {phase === 'review' && (
+            <View style={styles.body}>
+              <Text style={[theme.typography.titleMd, styles.titleText, { color: theme.colors.onSurface }]}>
+                确认转写
+              </Text>
+              <Text
+                style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}
+              >
+                识别结果如下，可编辑后发送给 AI 生成命令。
+              </Text>
+              <TextInput
+                testID="v2b-transcript"
+                value={transcript}
+                onChangeText={setTranscript}
+                multiline
+                autoFocus
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={[
+                  theme.typography.bodyMd,
+                  styles.commandInput,
+                  {
+                    color: theme.colors.onSurface,
+                    borderColor: theme.colors.outlineVariant,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : theme.colors.surfaceContainerLow,
+                  },
+                ]}
+              />
+              <View style={styles.footerRow}>
+                <Pressable testID="v2b-cancel" onPress={handleClose} style={styles.textBtn}>
+                  <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
+                    取消
+                  </Text>
+                </Pressable>
+                <Pressable testID="v2b-rerecord-review" onPress={handleRerecord} style={styles.textBtn}>
+                  <Text style={[theme.typography.labelMd, { color: theme.colors.primary }]}>
+                    重录
+                  </Text>
+                </Pressable>
+                <Pressable
+                  testID="v2b-confirm-send"
+                  accessibilityRole="button"
+                  accessibilityLabel="确认发送"
+                  onPress={handleSend}
+                  disabled={!transcript.trim()}
+                  style={[
+                    styles.primaryBtn,
+                    {
+                      borderRadius: theme.borderRadius.md,
+                      backgroundColor: theme.colors.primary,
+                      opacity: transcript.trim() ? 1 : 0.5,
+                    },
+                  ]}
+                >
+                  <Text style={[theme.typography.labelMd, { color: theme.colors.onPrimary }]}>
+                    确认发送
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+
+          {phase === 'generating' && (
+            <View style={styles.body}>
+              <View style={styles.spinnerRow}>
+                <ActivityIndicator color={theme.colors.primary} />
+                <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface, marginLeft: 8 }]}>
+                  生成中…
                 </Text>
               </View>
               <View style={styles.footerRow}>

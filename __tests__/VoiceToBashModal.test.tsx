@@ -142,10 +142,11 @@ const latestStartOptions = () =>
     projectPath?: string;
   };
 
-// Drive the full record → transcript → endpoint chain: simulate a hold-to-talk
-// press (onPressIn fires start), then release (onPressOut fires stop), then fire
-// the hook's captured onComplete (simulating finalized STT), then flush the mocked
-// generateCommand promise so the confirm view mounts.
+// Drive the record → transcript → review chain: simulate a hold-to-talk press
+// (onPressIn fires start), then release (onPressOut fires stop), then fire the
+// hook's captured onComplete (simulating finalized STT). After P4 this lands at
+// the review phase (editable transcript) WITHOUT yet calling generateCommand —
+// call driveReviewToConfirm() below to press 确认发送 and flush the AI promise.
 const driveTranscript = async (
   root: ReactTestRenderer.ReactTestRenderer,
   props: PropsLike,
@@ -171,12 +172,31 @@ const driveTranscript = async (
     pressOut();
   });
   expect(mockStop).toHaveBeenCalledTimes(1);
-  // onComplete resolves the transcript into the generateCommand promise.
+  // onComplete hands the transcript to the review phase (no AI call yet).
   await act(async () => {
     opts.onComplete(transcript);
     // The real hook flips back to idle once it delivers the transcript.
     setState('idle');
     rerender(props);
+    await Promise.resolve();
+  });
+};
+
+// From the review phase, press 确认发送 (optionally with an edited transcript)
+// and flush the mocked generateCommand promise so the confirming view mounts.
+const driveReviewToConfirm = async (
+  root: ReactTestRenderer.ReactTestRenderer,
+  props: PropsLike,
+  editedText?: string,
+) => {
+  if (editedText !== undefined) {
+    act(() => {
+      (el(root, 'v2b-transcript').props as { onChangeText: (t: string) => void }).onChangeText(editedText);
+    });
+    rerender(props);
+  }
+  await act(async () => {
+    (el(root, 'v2b-confirm-send').props as { onPress: () => void }).onPress();
     await Promise.resolve();
     await Promise.resolve();
   });
@@ -240,6 +260,7 @@ describe('VoiceToBashModal', () => {
     const root = render(props);
 
     await driveTranscript(root, props, 'show git status');
+    await driveReviewToConfirm(root, props);
 
     // Confirming view shows the generated command in the editable field.
     expect(() => commandInputOf(root)).not.toThrow();
@@ -259,6 +280,7 @@ describe('VoiceToBashModal', () => {
     const root = render(props);
 
     await driveTranscript(root, props, '删掉 node_modules');
+    await driveReviewToConfirm(root, props);
 
     // Danger warning surfaces.
     expect(() => el(root, 'v2b-danger')).not.toThrow();
@@ -284,6 +306,7 @@ describe('VoiceToBashModal', () => {
     const root = render(props);
 
     await driveTranscript(root, props, 'list files');
+    await driveReviewToConfirm(root, props);
     // Safe initially.
     expect(() => el(root, 'v2b-danger')).toThrow();
 
@@ -307,6 +330,72 @@ describe('VoiceToBashModal', () => {
     expect(props.onConfirm).toHaveBeenCalledWith('rm -rf x');
   });
 
+  it('review phase: STT transcript lands pre-filled in an editable TextInput', async () => {
+    const props = baseProps();
+    const root = render(props);
+
+    await driveTranscript(root, props, 'show git status');
+
+    // Review body mounted with the transcript TextInput.
+    const transcriptEl = el(root, 'v2b-transcript') as unknown as {
+      props: { value: string; onChangeText: (t: string) => void; multiline?: boolean };
+    };
+    expect(transcriptEl.props.value).toBe('show git status');
+    // The AI call must NOT have fired yet — review gates generateCommand.
+    expect(mockGenerateCommand).not.toHaveBeenCalled();
+  });
+
+  it('review phase: editing the TextInput changes its value', async () => {
+    const props = baseProps();
+    const root = render(props);
+
+    await driveTranscript(root, props, 'show git status');
+
+    const transcriptEl = el(root, 'v2b-transcript') as unknown as {
+      props: { value: string; onChangeText: (t: string) => void };
+    };
+    act(() => {
+      transcriptEl.props.onChangeText('show git log --oneline');
+    });
+    rerender(props);
+    expect(el(root, 'v2b-transcript').props.value).toBe('show git log --oneline');
+  });
+
+  it('review phase: 确认发送 calls generateCommand with the (possibly edited) text', async () => {
+    mockGenerateCommand.mockResolvedValue({ command: 'git status --short', dangerous: false });
+    const props = baseProps();
+    const root = render(props);
+
+    await driveTranscript(root, props, 'show git status');
+    // Edit before sending.
+    await driveReviewToConfirm(root, props, 'show git log --oneline');
+
+    // generateCommand received the EDITED text, not the raw STT transcript.
+    expect(mockGenerateCommand).toHaveBeenCalledTimes(1);
+    expect(mockGenerateCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'show git log --oneline' }),
+    );
+    // Landed at the command-edit confirming phase.
+    expect(commandInputOf(root).props.value).toBe('git status --short');
+  });
+
+  it('review phase: 重录 returns to idle without calling generateCommand', async () => {
+    const props = baseProps();
+    const root = render(props);
+
+    await driveTranscript(root, props, 'show git status');
+    expect(mockGenerateCommand).not.toHaveBeenCalled();
+
+    act(() => {
+      (el(root, 'v2b-rerecord-review').props as { onPress: () => void }).onPress();
+    });
+    rerender(props);
+
+    // Back to idle (mic pad visible again), no AI call made.
+    expect(() => el(root, 'v2b-mic-pad')).not.toThrow();
+    expect(mockGenerateCommand).not.toHaveBeenCalled();
+  });
+
   it('cancel calls stt.cancel() and onClose', () => {
     const props = baseProps();
     const root = render(props);
@@ -323,6 +412,7 @@ describe('VoiceToBashModal', () => {
     const root = render(props);
 
     await driveTranscript(root, props, 'anything');
+    await driveReviewToConfirm(root, props);
 
     expect(() => el(root, 'v2b-error')).not.toThrow();
     expect(allTexts(root).some(t => t.includes('upstream 502'))).toBe(true);
