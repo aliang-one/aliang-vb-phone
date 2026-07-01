@@ -80,6 +80,7 @@ yarn-error.log
 
 # Local code-intel / tooling artifacts (regenerable, machine-specific — do not commit)
 .codegraph/
+.cgmcp/
 .od-skills/
 
 # Git worktrees (isolated dev workspaces)
