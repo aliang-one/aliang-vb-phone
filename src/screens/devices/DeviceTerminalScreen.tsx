@@ -201,6 +201,14 @@ export const DeviceTerminalScreen: React.FC = () => {
   // VoiceToBashModal in live mode; the confirmed command is injected into the
   // current pty via the same sendToTerminal path the EXECUTE/suggestion chips use.
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
+  // Persistent 语音命令 banner: holds the most recent voice→bash command that
+  // executed on this screen (both the routed initialCommand and the live-mode
+  // FAB confirmation land here). Kept in its OWN state (NOT derived from the
+  // route param) so it survives navigation.setParams clearing initialCommand,
+  // and is only cleared via the ✕ dismiss button.
+  const [voiceCommandBanner, setVoiceCommandBanner] = useState<string | null>(
+    null,
+  );
   const quickDirectoryInitializedRef = useRef(Boolean(route.params.directory));
   const [focusedDirectory, setFocusedDirectory] = useState(
     route.params.directory ?? '~',
@@ -469,6 +477,7 @@ export const DeviceTerminalScreen: React.FC = () => {
 
     ranInitialRef.current = true;
     sendToTerminal(`${initialCommand}\r`, { focus: false });
+    setVoiceCommandBanner(initialCommand);
     navigation.setParams({ initialCommand: undefined });
   }, [terminalInputEnabled, initialCommand]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -768,6 +777,60 @@ export const DeviceTerminalScreen: React.FC = () => {
                   )}
                 </View>
               </View>
+
+              {voiceCommandBanner ? (
+                <View
+                  testID="terminal-voice-banner"
+                  style={[
+                    styles.voiceBanner,
+                    {
+                      backgroundColor: theme.colors.primaryContainer,
+                      borderColor: theme.colors.primary,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.voiceBannerAccent,
+                      { backgroundColor: theme.colors.primary },
+                    ]}
+                  />
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      theme.typography.codeSm,
+                      styles.voiceBannerText,
+                      { color: theme.colors.onSurface },
+                    ]}
+                  >
+                    语音命令: {voiceCommandBanner}
+                  </Text>
+                  <TouchableOpacity
+                    testID="terminal-voice-banner-dismiss"
+                    accessibilityRole="button"
+                    accessibilityLabel="Dismiss voice command banner"
+                    hitSlop={terminalControlHitSlop}
+                    onPress={() => setVoiceCommandBanner(null)}
+                    style={[
+                      styles.voiceBannerDismiss,
+                      {
+                        borderColor: theme.colors.primary,
+                        backgroundColor: theme.colors.surfaceContainerLowest,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        theme.typography.codeMd,
+                        styles.voiceBannerDismissText,
+                        { color: theme.colors.primary },
+                      ]}
+                    >
+                      ✕
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
 
               {!topPanelCollapsed ? (
                 <View testID="terminal-top-grid" style={styles.topGrid}>
@@ -1386,6 +1449,7 @@ export const DeviceTerminalScreen: React.FC = () => {
           onConfirm={command => {
             setVoiceModalOpen(false);
             sendToTerminal(`${command}\r`, { focus: false });
+            setVoiceCommandBanner(command);
           }}
         />
       ) : null}
@@ -1713,6 +1777,40 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   approvalText: {
+    letterSpacing: 0,
+  },
+  voiceBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingLeft: 10,
+    paddingRight: 6,
+    paddingVertical: 6,
+  },
+  voiceBannerAccent: {
+    width: 3,
+    alignSelf: 'stretch',
+    borderRadius: 2,
+    marginRight: 2,
+  },
+  voiceBannerText: {
+    flex: 1,
+    minWidth: 0,
+    letterSpacing: 0,
+  },
+  voiceBannerDismiss: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  voiceBannerDismissText: {
+    fontWeight: '700',
+    lineHeight: 18,
     letterSpacing: 0,
   },
 });

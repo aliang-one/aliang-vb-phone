@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
+import { Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { DeviceTerminalScreen } from '../src/screens/devices/DeviceTerminalScreen';
 import { ThemeContext } from '../src/theme/ThemeContext';
@@ -222,5 +223,87 @@ describe('DeviceTerminalScreen initialCommand auto-run', () => {
 
     expect(mockTerminalSendText).not.toHaveBeenCalled();
     expect(mockSetParams).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the routed command in a persistent 语音命令 banner', async () => {
+    mockRouteParams = {
+      deviceId: 'device-1',
+      directory: '~/project',
+      terminalId: 'term-1',
+      initialCommand: 'git status --short',
+    };
+
+    await act(async () => {
+      renderScreen();
+    });
+
+    // Banner reflects the routed command. NOTE: react-test-renderer's
+    // findAll(predicate) over-counts matching nodes, so query by View type
+    // then filter on testID (reliable, matches the in-tree count exactly).
+    const banner = () =>
+      screen!.root
+        .findAllByType(View)
+        .filter(n => n.props.testID === 'terminal-voice-banner');
+    expect(banner().length).toBe(1);
+    // The command text is rendered inside the banner; collect all Text leaves
+    // and assert the command appears (avoid JSON.stringify on RTR nodes — it
+    // throws on the circular Provider ref).
+    const textLeaves = banner()[0]
+      .findAllByType(Text)
+      .map((n: any) => String(n.props.children ?? ''))
+      .join(' ');
+    expect(textLeaves).toContain('git status --short');
+
+    // ...and persists even after the route param is cleared (own state, not
+    // derived from the param).
+    expect(mockRouteParams.initialCommand).toBeUndefined();
+    expect(banner().length).toBe(1);
+  });
+
+  it('clears the 语音命令 banner when the dismiss button is pressed', async () => {
+    mockRouteParams = {
+      deviceId: 'device-1',
+      directory: '~/project',
+      terminalId: 'term-1',
+      initialCommand: 'npm test',
+    };
+
+    await act(async () => {
+      renderScreen();
+    });
+
+    const queryBanner = () =>
+      screen!.root
+        .findAllByType(View)
+        .filter(n => n.props.testID === 'terminal-voice-banner');
+    expect(queryBanner().length).toBe(1);
+
+    const dismiss = screen!.root.findAllByType(TouchableOpacity).find(
+      n => n.props.testID === 'terminal-voice-banner-dismiss',
+    );
+
+    await act(async () => {
+      dismiss!.props.onPress();
+    });
+
+    expect(queryBanner().length).toBe(0);
+  });
+
+  it('does not render the 语音命令 banner when no initialCommand was provided', async () => {
+    mockRouteParams = {
+      deviceId: 'device-1',
+      directory: '~/project',
+      terminalId: 'term-1',
+    };
+
+    await act(async () => {
+      renderScreen();
+    });
+
+    const queryBanner = () =>
+      screen!.root
+        .findAllByType(View)
+        .filter(n => n.props.testID === 'terminal-voice-banner');
+    expect(queryBanner().length).toBe(0);
   });
 });
