@@ -4,6 +4,10 @@ import {
   notifySessionInvalidated,
   refreshSession,
 } from '../api/sessionAuth';
+import {
+  dispatchCommandGenEvent,
+  type CommandGenLiveEvent,
+} from './commandGenEvents';
 
 export type WsMessageHandler = (message: Record<string, unknown>) => void;
 export type WsConnectionState = 'connecting' | 'connected' | 'disconnected';
@@ -121,6 +125,13 @@ export class MobileWebSocket {
         if (parsed.type === 'pong' || parsed.type === 'presence.ack') {
           this.markAlive();
           return;
+        }
+        // Transient command-generation live-loop timeline. This is a parallel,
+        // lightweight tap: the store handler below still receives every message
+        // (including these). The registry is for short-lived, view-scoped
+        // consumers (e.g. VoiceToBashModal) that don't want full WS ownership.
+        if (typeof parsed.type === 'string' && parsed.type.startsWith('commandGen.')) {
+          dispatchCommandGenEvent(parsed as CommandGenLiveEvent);
         }
         this.handler(parsed);
       } catch {
