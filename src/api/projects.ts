@@ -206,6 +206,28 @@ export const fetchProjectFiles = (
     })}`,
   );
 
+/** One file's uncommitted change with its unified-diff text (agent-reported). */
+export interface WorkingTreeFileDiff {
+  path: string;
+  status: 'modified' | 'added' | 'deleted';
+  diff: string;
+  added?: number;
+  removed?: number;
+}
+
+export interface WorkingTreeDiffResult {
+  entries: WorkingTreeFileDiff[];
+  path?: string;
+}
+
+/** Live working-tree diff (staged + unstaged + untracked) for change review. */
+export const fetchWorkingTreeDiff = (
+  projectId: string,
+): Promise<WorkingTreeDiffResult> =>
+  apiGet<WorkingTreeDiffResult>(
+    `/api/projects/${encodeURIComponent(projectId)}/working-tree-diff`,
+  );
+
 export const fetchProjectFileContent = (
   projectId: string,
   path: string,

@@ -92,7 +92,7 @@ describe('ChangeReviewView', () => {
         />,
       );
     });
-    expect(collectStrings(r!.root)).toContain('AI 还没有改动文件');
+    expect(collectStrings(r!.root)).toContain('没有未提交的改动');
   });
 
   it('loading 态显示加载中', () => {

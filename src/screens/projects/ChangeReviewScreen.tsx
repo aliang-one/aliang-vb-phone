@@ -1,247 +1,147 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { RootStackParamList } from '../../app/navigation/types';
-import { useControlCenterStore } from '../../store/controlCenterStore';
 import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
-import { ChangeReviewView, deriveDiffView } from '../../components/projects/ChangeReviewView';
+import { ChangeReviewView } from '../../components/projects/ChangeReviewView';
 import type { DiffLoadState } from '../../components/projects/ChangeReviewView';
 import type { DiffLine } from '../../data/platformModels';
-import {
-  collectFileChanges,
-  pickChangesWithDiff,
-  sessionsForProject,
-} from '../../utils/diff/sessionChanges';
 import type { SessionFileChange } from '../../utils/diff/sessionChanges';
-import { fetchStructuredEventDetail } from '../../api/sessions';
+import { parseUnifiedDiff } from '../../utils/diff/parseUnifiedDiff';
+import { fetchWorkingTreeDiff } from '../../api/projects';
+import type { WorkingTreeFileDiff } from '../../api/projects';
+import { describeDeviceError } from '../../utils/deviceError';
 
 type ReviewRoute = RouteProp<RootStackParamList, 'ChangeReview'>;
 
+// 把 live-git 状态词表对齐到 ChangeReviewView 的徽章词表。
+const statusToChangeKind = (s: string): string => {
+  if (s === 'added') return 'create';
+  if (s === 'deleted') return 'delete';
+  return 'edit'; // modified / unknown
+};
+
 /**
- * 「AI 改动审核」屏：从文件浏览器进入，翻页审核本项目会话里 AI 改过的文件。
+ * 「改动审核」屏：展示本项目**当前工作区未提交的 git diff**（已跟踪改动 +
+ * 未跟踪新文件），翻页逐文件审核。覆盖手改 + AI 未提交的改动；AI 已 commit
+ * 的不在此（那是 git log）。
  *
- * 纯接线：路由取 projectId → store 取 vibeRuns → `sessionsForProject`/
- * `collectFileChanges` 算文件列表 → `fetchStructuredEventDetail` 拉每个文件的
- * diff（本地按 eventId 缓存）→ `deriveDiffView` 投影 → `ChangeReviewView` 渲染。
- * 数据链路、解析、视图均有单测覆盖；本文件只是把它们粘起来。
+ * 数据源是 agent 的 `git diff HEAD`（经 server `/working-tree-diff`）——不再
+ * 是 AI 会话的 file_change 事件，所以手动改的文件也会出现。
  */
 export const ChangeReviewScreen: React.FC = () => {
   const navigation = useNavigation();
   const route = useRoute<ReviewRoute>();
-  const { theme, isDark } = useTheme();
+  const { theme } = useTheme();
   const { projectId } = route.params;
-  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
-  const loadAgentSessionDetail = useControlCenterStore(
-    state => state.loadAgentSessionDetail,
-  );
 
-  const sessions = useMemo(
-    () => sessionsForProject(vibeRuns, projectId),
-    [vibeRuns, projectId],
-  );
-  const [selectedId, setSelectedId] = useState<string | undefined>(sessions[0]?.id);
-  const selected = sessions.find(s => s.id === selectedId) ?? sessions[0];
+  const [entries, setEntries] = useState<WorkingTreeFileDiff[] | null>(null);
+  const [error, setError] = useState('');
+  const [index, setIndex] = useState(0);
+  const [reloadTick, setReloadTick] = useState(0);
 
-  // 只展示真正有 diff 的文件。入屏/切会话时：水合 structuredEvents（列表快照不
-  // 带）→ 预取该会话所有 file_change 的 detail → 用 pickChangesWithDiff 过滤掉
-  // 无 diff 的（否则审核页会出现「无 diff」空泡）→ 缓存以便翻页即时命中。
-  // 单个 loading 标志贯穿全程（避免空态闪烁）。
-  const [changes, setChanges] = useState<SessionFileChange[]>([]);
-  const [loading, setLoading] = useState(() => Boolean(sessions[0]));
-  // eventId 全局唯一（se_<sha>），做缓存键；翻页命中即免重取。
-  const cacheRef = useRef<Record<string, { text?: string; truncated: boolean }>>({});
   useEffect(() => {
-    if (!selected) {
-      setChanges([]);
-      setLoading(false);
-      return;
-    }
     let cancelled = false;
-    setLoading(true);
-    const sessionId = selected.id;
-    loadAgentSessionDetail(sessionId)
-      .then(() => {
-        // structuredEvents 现已水合入 store；直接读该会话的 file_change。
-        const run = useControlCenterStore.getState().vibeRuns.find(r => r.id === sessionId);
-        const fcs = collectFileChanges(run?.structuredEvents ?? []);
-        if (fcs.length === 0) {
-          if (!cancelled) {
-            setChanges([]);
-            setLoading(false);
-          }
-          return;
-        }
-        return Promise.all(
-          fcs.map(fc =>
-            fetchStructuredEventDetail(sessionId, fc.eventId)
-              .then(detail => ({ fc, detail }))
-              .catch(() => null),
-          ),
-        ).then(results => {
-          if (cancelled) return;
-          for (const r of results) {
-            if (r) cacheRef.current[r.fc.eventId] = r.detail;
-          }
-          setChanges(pickChangesWithDiff(results));
-          setLoading(false);
-        });
+    setError('');
+    setEntries(null);
+    fetchWorkingTreeDiff(projectId)
+      .then(r => {
+        if (!cancelled) setEntries(r.entries ?? []);
       })
-      .catch(() => {
+      .catch(e => {
         if (!cancelled) {
-          setChanges([]);
-          setLoading(false);
+          setError(describeDeviceError(e)?.title || '加载改动失败');
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [selected?.id, loadAgentSessionDetail]);
+  }, [projectId, reloadTick]);
 
-  const [index, setIndex] = useState(0);
-  const [diffLines, setDiffLines] = useState<DiffLine[]>([]);
-  const [diffState, setDiffState] = useState<DiffLoadState>('idle');
-  const [truncated, setTruncated] = useState(false);
-
-  // 切换会话 → 回到第一个文件
+  // entries 缩短时把 index 回夹到合法区间
   useEffect(() => {
-    setIndex(0);
-  }, [selected?.id]);
-
-  // changes 缩短时把 index 回夹到合法区间
-  useEffect(() => {
-    if (changes.length && index > changes.length - 1) {
-      setIndex(Math.max(0, changes.length - 1));
+    if (entries && index > entries.length - 1) {
+      setIndex(Math.max(0, entries.length - 1));
     }
-  }, [changes.length, index]);
+  }, [entries, index]);
 
-  const current = changes[index];
-
-  const loadDiff = useCallback(
-    (eventId: string, sessionId: string, useCache: boolean) => {
-      const cached = cacheRef.current[eventId];
-      if (useCache && cached) {
-        const view = deriveDiffView(cached);
-        setDiffLines(view.lines);
-        setDiffState(view.state);
-        setTruncated(view.truncated);
-        return;
-      }
-      setDiffState('loading');
-      fetchStructuredEventDetail(sessionId, eventId)
-        .then(detail => {
-          cacheRef.current[eventId] = detail;
-          const view = deriveDiffView(detail);
-          setDiffLines(view.lines);
-          setDiffState(view.state);
-          setTruncated(view.truncated);
-        })
-        .catch(() => setDiffState('error'));
-    },
-    [],
+  const changes = useMemo<SessionFileChange[]>(
+    () =>
+      (entries ?? []).map(e => ({
+        path: e.path,
+        changeKind: statusToChangeKind(e.status),
+        added: e.added,
+        removed: e.removed,
+        eventId: e.path,
+        messageId: '',
+        itemId: '',
+      })),
+    [entries],
   );
 
-  useEffect(() => {
-    if (!selected || !current) {
-      setDiffState('idle');
-      return;
-    }
-    loadDiff(current.eventId, selected.id, true);
-  }, [selected?.id, current?.eventId, loadDiff]);
+  const currentEntry = entries ? entries[index] : undefined;
+  const diffLines = useMemo<DiffLine[]>(
+    () => (currentEntry ? parseUnifiedDiff(currentEntry.diff) : []),
+    [currentEntry],
+  );
 
   const onPrev = useCallback(() => setIndex(i => Math.max(0, i - 1)), []);
   const onNext = useCallback(() => setIndex(i => i + 1), []);
-  const onRetry = useCallback(() => {
-    if (!selected || !current) return;
-    delete cacheRef.current[current.eventId];
-    loadDiff(current.eventId, selected.id, false);
-  }, [selected, current, loadDiff]);
+  const onRetry = useCallback(() => setReloadTick(t => t + 1), []);
 
   const safeIndex = changes.length ? Math.min(index, changes.length - 1) : 0;
+  const diffState: DiffLoadState = !entries
+    ? 'loading'
+    : changes.length === 0
+      ? 'idle'
+      : currentEntry?.diff
+        ? 'ready'
+        : 'empty';
 
   return (
     <SafeAreaWrapper>
       <TopAppBar
-        title="AI 改动审核"
-        subtitle={sessions.length ? `${sessions.length} 个会话` : undefined}
+        title="改动审核"
+        subtitle={entries ? `${changes.length} 个文件` : undefined}
         onBack={navigation.goBack}
       />
-      {sessions.length > 1 && (
-        <ScrollView
-          horizontal
-          style={styles.sessionRow}
-          showsHorizontalScrollIndicator={false}>
-          {sessions.map(s => {
-            const active = s.id === selected?.id;
-            return (
-              <TouchableOpacity
-                key={s.id}
-                testID={`cr-session-${s.id}`}
-                onPress={() => setSelectedId(s.id)}
-                style={[
-                  styles.sessionChip,
-                  active && styles.sessionChipActive,
-                  {
-                    borderWidth: 1,
-                    borderRadius: 999,
-                    borderColor: active
-                      ? theme.colors.primary
-                      : theme.colors.outlineVariant,
-                    backgroundColor: active
-                      ? isDark
-                        ? 'rgba(86,156,214,0.14)'
-                        : 'rgba(0,81,174,0.08)'
-                      : 'transparent',
-                  },
-                ]}>
-                <Text
-                  style={[
-                    theme.typography.labelSm,
-                    {
-                      color: active
-                        ? theme.colors.primary
-                        : theme.colors.onSurfaceVariant,
-                    },
-                  ]}
-                  numberOfLines={1}>
-                  {s.title || s.objective || s.id}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      )}
-      <View style={{ flex: 1 }}>
-        {loading && changes.length === 0 ? (
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-            <ActivityIndicator />
-          </View>
-        ) : (
+      {error ? (
+        <View
+          style={{
+            flex: 1,
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}>
+          <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+            {error}
+          </Text>
+          <TouchableOpacity onPress={onRetry} style={{ marginTop: 12 }} testID="cr-retry">
+            <Text style={[theme.typography.labelSm, { color: theme.colors.primary }]}>
+              重试
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : !entries ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator />
+        </View>
+      ) : (
+        <View style={{ flex: 1 }}>
           <ChangeReviewView
             changes={changes}
             index={safeIndex}
             diffLines={diffLines}
-            diffState={changes.length ? diffState : 'idle'}
-            truncated={truncated}
+            diffState={diffState}
+            truncated={false}
             onPrev={onPrev}
             onNext={onNext}
             onRetry={onRetry}
           />
-        )}
-      </View>
+        </View>
+      )}
     </SafeAreaWrapper>
   );
 };
-
-const styles = StyleSheet.create({
-  sessionRow: { maxHeight: 44, paddingVertical: 4 },
-  sessionChip: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    marginRight: 8,
-    borderRadius: 999,
-    opacity: 0.55,
-  },
-  sessionChipActive: { opacity: 1 },
-});

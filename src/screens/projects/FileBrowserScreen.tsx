@@ -28,11 +28,6 @@ import { BottomSheet } from '../../components/shared/BottomSheet';
 import { CodeHighlight } from '../../components/shared/CodeHighlight';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { describeDeviceError } from '../../utils/deviceError';
-import {
-  changeReviewCount,
-  latestSessionForProject,
-  sessionsForProject,
-} from '../../utils/diff/sessionChanges';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type FileRoute = RouteProp<RootStackParamList, 'FileBrowser'>;
@@ -109,7 +104,6 @@ export const FileBrowserScreen: React.FC = () => {
   const scanResults = useControlCenterStore(state => state.scanResults);
   const loadProjectFiles = useControlCenterStore(state => state.loadProjectFiles);
   const loadProjectFileContent = useControlCenterStore(state => state.loadProjectFileContent);
-  const vibeRuns = useControlCenterStore(state => state.vibeRuns);
   const [filter, setFilter] = useState<FileFilter>('all');
   const [currentPath, setCurrentPath] = useState('');
   const [selectedPath, setSelectedPath] = useState('');
@@ -136,19 +130,6 @@ export const FileBrowserScreen: React.FC = () => {
     scanResult?.path ?? project?.path ?? device?.authorizedDirectories[0] ?? '~';
   const effectivePath = currentPath || terminalDirectory;
   const deviceOnline = device?.status === 'online';
-  // 「审核 AI 改动」入口。列表快照里的计数信号（project.gitChangedCount /
-  // filesTouchedCount / structuredEvents）对这个项目常为空，所以显隐靠「有匹配的
-  // AI 会话」兜底（matchedCount>0）；计数文案仅在有数时显示。review 屏入屏再水合。
-  const matchedCount = useMemo(
-    () => sessionsForProject(vibeRuns, route.params.projectId).length,
-    [vibeRuns, route.params.projectId],
-  );
-  const latestSession = useMemo(
-    () => latestSessionForProject(vibeRuns, route.params.projectId),
-    [vibeRuns, route.params.projectId],
-  );
-  const aiChangedCount = changeReviewCount(latestSession);
-  const showChangeReview = matchedCount > 0 || aiChangedCount > 0;
   const openChangeReview = useCallback(() => {
     navigation.navigate('ChangeReview', {
       projectId: route.params.projectId,
@@ -492,9 +473,8 @@ export const FileBrowserScreen: React.FC = () => {
       />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <DeferredMount>
-        {showChangeReview && (
-          <TouchableOpacity
-            testID="file-browser-change-review"
+        <TouchableOpacity
+          testID="file-browser-change-review"
             activeOpacity={0.7}
             onPress={openChangeReview}
             style={[
@@ -513,22 +493,19 @@ export const FileBrowserScreen: React.FC = () => {
                   : 'rgba(0,81,174,0.06)',
               },
             ]}>
-            <View style={{ flex: 1 }}>
-              <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                审核 AI 改动
-              </Text>
-              <Text
-                style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                {aiChangedCount > 0
-                  ? `最新会话改了 ${aiChangedCount} 个文件 · 逐文件 diff`
-                  : '查看本会话改动 · 逐文件 diff'}
-              </Text>
-            </View>
-            <Text style={[theme.typography.titleLg, { color: theme.colors.primary }]}>
-              {'›'}
+          <View style={{ flex: 1 }}>
+            <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+              审核改动
             </Text>
-          </TouchableOpacity>
-        )}
+            <Text
+              style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+              查看工作区未提交的 git diff
+            </Text>
+          </View>
+          <Text style={[theme.typography.titleLg, { color: theme.colors.primary }]}>
+            {'›'}
+          </Text>
+        </TouchableOpacity>
         {/* Status filters — 顶部（原在文件列表底部） */}
         <ScrollView
           horizontal

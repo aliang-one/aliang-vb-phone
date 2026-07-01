@@ -85,7 +85,7 @@ export const ChangeReviewView: React.FC<ChangeReviewViewProps> = ({
     return (
       <View style={styles.empty}>
         <Text style={[theme.typography.bodyMd, { color: mainColor }]}>
-          AI 还没有改动文件
+          没有未提交的改动
         </Text>
       </View>
     );
