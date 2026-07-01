@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { VoiceToBashModal } from '../src/components/terminal/VoiceToBashModal';
+import { dispatchCommandGenEvent } from '../src/services/commandGenEvents';
 import type { VoiceSttStatus, UseVoiceSttResult } from '../src/hooks/useVoiceStt';
 
 // --- controllable useVoiceStt + generateCommand mocks -----------------------
@@ -433,5 +434,95 @@ describe('VoiceToBashModal', () => {
     const before = mockCancel.mock.calls.length;
     rerender({ ...props, visible: false });
     expect(mockCancel.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  // P5: generating phase renders a live step timeline fed by commandGen.* WS
+  // events. The subscription must be active BEFORE the POST fires so the early
+  // runStarted (carrying runId) is not missed; non-matching runId events are
+  // filtered out.
+  it('generating: renders a live timeline row per matching commandGen.step', async () => {
+    // Never-resolving promise keeps the modal in the generating phase while we
+    // dispatch WS events; the timeline accumulates as events arrive.
+    mockGenerateCommand.mockReturnValue(new Promise(() => {}));
+    const props = baseProps();
+    const root = render(props);
+
+    await driveTranscript(root, props, 'list files');
+
+    // Trigger 确认发送 → flips to generating; subscription becomes active,
+    // POST fires, but our promise never resolves so we stay in generating.
+    await act(async () => {
+      (el(root, 'v2b-confirm-send').props as { onPress: () => void }).onPress();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // runStarted carries the runId we filter on from here on.
+    act(() => {
+      dispatchCommandGenEvent({
+        type: 'commandGen.runStarted',
+        runId: 'cgr_1',
+        ts: 't',
+      });
+    });
+    // A matching step must render a timeline row referencing the tool name.
+    act(() => {
+      dispatchCommandGenEvent({
+        type: 'commandGen.step',
+        runId: 'cgr_1',
+        seq: 1,
+        kind: 'tool_call',
+        toolName: 'list_dir',
+        ts: 't',
+      });
+    });
+    rerender(props);
+    expect(allTexts(root).some(t => String(t).includes('list_dir'))).toBe(true);
+
+    // A step with a DIFFERENT runId must NOT add a row.
+    act(() => {
+      dispatchCommandGenEvent({
+        type: 'commandGen.step',
+        runId: 'other_run',
+        seq: 1,
+        kind: 'tool_call',
+        toolName: 'should_not_appear_xyz',
+        ts: 't',
+      });
+    });
+    rerender(props);
+    expect(allTexts(root).some(t => String(t).includes('should_not_appear_xyz'))).toBe(false);
+  });
+
+  it('generating: empty timeline shows the placeholder spinner', async () => {
+    mockGenerateCommand.mockReturnValue(new Promise(() => {}));
+    const props = baseProps();
+    const root = render(props);
+
+    await driveTranscript(root, props, 'anything');
+    await act(async () => {
+      (el(root, 'v2b-confirm-send').props as { onPress: () => void }).onPress();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // No events dispatched yet → placeholder text.
+    expect(allTexts(root).some(t => String(t).includes('生成中'))).toBe(true);
+  });
+
+  it('generating: resolving the POST lands in confirming with the command pre-filled', async () => {
+    mockGenerateCommand.mockResolvedValue({
+      command: 'ls -la',
+      dangerous: false,
+      runId: 'cgr_1',
+    });
+    const props = baseProps();
+    const root = render(props);
+
+    await driveTranscript(root, props, 'list all files');
+    await driveReviewToConfirm(root, props);
+
+    expect(() => commandInputOf(root)).not.toThrow();
+    expect(commandInputOf(root).props.value).toBe('ls -la');
   });
 });

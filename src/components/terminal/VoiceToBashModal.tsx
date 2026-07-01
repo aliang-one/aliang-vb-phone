@@ -24,6 +24,10 @@ import Svg, { Path } from 'react-native-svg';
 import { useTheme } from '../../theme/useTheme';
 import { useVoiceStt } from '../../hooks/useVoiceStt';
 import { generateCommand } from '../../api/commandGen';
+import {
+  subscribeCommandGenEvents,
+  type CommandGenLiveEvent,
+} from '../../services/commandGenEvents';
 import { isUnsafeSuggestion } from '../../utils/terminalSuggestions';
 import { GlassPanel } from '../shared/GlassPanel';
 
@@ -71,6 +75,28 @@ const MicIcon: React.FC<{ size?: number; color: string }> = ({
   );
 };
 
+// Render a single commandGen.* event as a concise timeline row. Returns null for
+// events that don't carry user-visible progress (runStarted / failed / runFinished
+// are handled elsewhere or via the closing spinner — only tool steps render rows).
+const stepLabel = (e: CommandGenLiveEvent): string | null => {
+  switch (e.type) {
+    case 'commandGen.step': {
+      if (e.kind === 'tool_call') {
+        return e.toolName ? `→ ${e.toolName}` : '→ tool';
+      }
+      if (e.kind === 'tool_result') {
+        return e.toolName ? `✓ ${e.toolName}` : '✓ result';
+      }
+      if (e.kind === 'final') {
+        return '生成中…';
+      }
+      return null;
+    }
+    default:
+      return null;
+  }
+};
+
 export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   visible,
   mode,
@@ -89,6 +115,18 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   const [transcript, setTranscript] = useState('');
   const [dangerous, setDangerous] = useState(false);
   const [error, setError] = useState('');
+  // Live commandGen.* step timeline accumulated while the AI tool-loop runs.
+  // Reset to empty on every (re-)entry into the generating phase. Captured into
+  // the activeRunIdRef from the first matching commandGen.runStarted, after
+  // which non-matching runId events are dropped (other concurrent runs).
+  const [steps, setSteps] = useState<CommandGenLiveEvent[]>([]);
+  const activeRunIdRef = useRef<string | null>(null);
+  // Guard so the POST fires exactly once per generating-phase entry even though
+  // the effect re-runs on every state change while in that phase.
+  const generateFiredRef = useRef(false);
+  // The transcript the POST should send; captured synchronously when the user
+  // confirms the review-phase text so the effect always has the right value.
+  const pendingTextRef = useRef<string>('');
   // Second-confirm gate: the first tap on 确认运行 when dangerous only arms
   // this flag (and relabels the button); the second tap actually fires onConfirm.
   // Backed by a ref so the onPress handler always reads the live value even if
@@ -120,6 +158,9 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
     setDangerous(false);
     setError('');
     armConfirmDanger(false);
+    activeRunIdRef.current = null;
+    generateFiredRef.current = false;
+    setSteps([]);
     setPhase('idle');
   }, [armConfirmDanger]);
 
@@ -131,34 +172,71 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
     setPhase('review');
   }, []);
 
-  // Review → AI: feed the (possibly edited) transcript to the command-gen
-  // endpoint, then drop into the existing command-edit confirming phase. Set
-  // phase to 'generating' while the request is in flight (P5 replaces this
-  // minimal body with a live timeline).
-  const handleSend = useCallback(async () => {
+  // Review → AI: capture the (possibly edited) transcript and flip to the
+  // generating phase. The actual POST + WS subscription live in the
+  // generating-phase effect below; structuring it that way guarantees the
+  // subscription is active BEFORE the POST fires (avoids the subscribe/fire
+  // race that would drop the early commandGen.runStarted carrying the runId).
+  const handleSend = useCallback(() => {
     const text = transcript.trim();
     if (!text) return;
+    pendingTextRef.current = text;
+    activeRunIdRef.current = null;
+    generateFiredRef.current = false;
+    setSteps([]);
     setPhase('generating');
-    try {
-      const result = await generateCommand({
+  }, [transcript]);
+
+  // Generating phase: subscribe to the commandGen.* stream FIRST, then fire the
+  // POST exactly once. The subscription captures runId from the first matching
+  // runStarted and accumulates only same-runId step events into the timeline.
+  useEffect(() => {
+    if (phase !== 'generating') return;
+
+    const unsub = subscribeCommandGenEvents((e) => {
+      if (activeRunIdRef.current === null) {
+        // First matching event sets the runId we filter on for the rest of the run.
+        if ('runId' in e && e.runId) {
+          activeRunIdRef.current = e.runId;
+        } else {
+          return;
+        }
+      } else if ('runId' in e && e.runId && e.runId !== activeRunIdRef.current) {
+        // A different concurrent run — ignore it (keep our timeline focused).
+        return;
+      }
+      setSteps((prev) => [...prev, e]);
+    });
+
+    if (!generateFiredRef.current) {
+      generateFiredRef.current = true;
+      const text = pendingTextRef.current;
+      generateCommand({
         text,
         deviceId,
         cwd,
         mode,
         sessionId,
         projectId,
-      });
-      setCommand(result.command);
-      setDangerous(Boolean(result.dangerous));
-      armConfirmDanger(false);
-      setPhase('confirming');
-    } catch (e) {
-      const message =
-        e instanceof Error && e.message ? e.message : '生成命令失败，请重试';
-      setError(message);
-      setPhase('error');
+      })
+        .then((result) => {
+          setCommand(result.command);
+          setDangerous(Boolean(result.dangerous));
+          armConfirmDanger(false);
+          setPhase('confirming');
+        })
+        .catch((e) => {
+          const message =
+            e instanceof Error && e.message ? e.message : '生成命令失败，请重试';
+          setError(message);
+          setPhase('error');
+        });
     }
-  }, [transcript, deviceId, cwd, mode, sessionId, projectId, armConfirmDanger]);
+
+    return () => {
+      unsub();
+    };
+  }, [phase, deviceId, cwd, mode, sessionId, projectId, armConfirmDanger]);
 
   const startRecording = useCallback(() => {
     setPhase('recording');
@@ -413,12 +491,44 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
 
           {phase === 'generating' && (
             <View style={styles.body}>
-              <View style={styles.spinnerRow}>
-                <ActivityIndicator color={theme.colors.primary} />
-                <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface, marginLeft: 8 }]}>
-                  生成中…
-                </Text>
-              </View>
+              <Text style={[theme.typography.titleMd, styles.titleText, { color: theme.colors.onSurface }]}>
+                正在生成命令
+              </Text>
+
+              {steps.length === 0 ? (
+                <View style={styles.spinnerRow}>
+                  <ActivityIndicator color={theme.colors.primary} />
+                  <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface, marginLeft: 8 }]}>
+                    生成中…
+                  </Text>
+                </View>
+              ) : (
+                <View testID="v2b-timeline" style={styles.timeline}>
+                  {steps.map((e, idx) => {
+                    const label = stepLabel(e);
+                    if (!label) return null;
+                    return (
+                      <Text
+                        key={`${e.type}-${idx}`}
+                        style={[
+                          theme.typography.codeSm,
+                          { color: theme.colors.onSurfaceVariant },
+                        ]}
+                        numberOfLines={2}
+                      >
+                        {label}
+                      </Text>
+                    );
+                  })}
+                  <View style={styles.spinnerRow}>
+                    <ActivityIndicator color={theme.colors.primary} size="small" />
+                    <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant, marginLeft: 6 }]}>
+                      生成中…
+                    </Text>
+                  </View>
+                </View>
+              )}
+
               <View style={styles.footerRow}>
                 <Pressable testID="v2b-cancel" onPress={handleClose} style={styles.textBtn}>
                   <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
@@ -578,6 +688,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
+  },
+  timeline: {
+    gap: 6,
+    paddingVertical: 4,
   },
   warning: {
     borderWidth: 1,
