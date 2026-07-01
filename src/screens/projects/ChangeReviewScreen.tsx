@@ -11,8 +11,10 @@ import type { DiffLoadState } from '../../components/projects/ChangeReviewView';
 import type { DiffLine } from '../../data/platformModels';
 import {
   collectFileChanges,
+  pickChangesWithDiff,
   sessionsForProject,
 } from '../../utils/diff/sessionChanges';
+import type { SessionFileChange } from '../../utils/diff/sessionChanges';
 import { fetchStructuredEventDetail } from '../../api/sessions';
 
 type ReviewRoute = RouteProp<RootStackParamList, 'ChangeReview'>;
@@ -42,21 +44,56 @@ export const ChangeReviewScreen: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | undefined>(sessions[0]?.id);
   const selected = sessions.find(s => s.id === selectedId) ?? sessions[0];
 
-  const changes = useMemo(
-    () => (selected ? collectFileChanges(selected.structuredEvents) : []),
-    [selected],
-  );
-
-  // 会话列表快照不带 structured_events（publicAiSession 没这字段），所以入屏/
-  // 切会话时必须主动拉详情水合，否则 collectFileChanges 拿不到 file_change。
-  const [hydrating, setHydrating] = useState(() => Boolean(sessions[0]));
+  // 只展示真正有 diff 的文件。入屏/切会话时：水合 structuredEvents（列表快照不
+  // 带）→ 预取该会话所有 file_change 的 detail → 用 pickChangesWithDiff 过滤掉
+  // 无 diff 的（否则审核页会出现「无 diff」空泡）→ 缓存以便翻页即时命中。
+  // 单个 loading 标志贯穿全程（避免空态闪烁）。
+  const [changes, setChanges] = useState<SessionFileChange[]>([]);
+  const [loading, setLoading] = useState(() => Boolean(sessions[0]));
+  // eventId 全局唯一（se_<sha>），做缓存键；翻页命中即免重取。
+  const cacheRef = useRef<Record<string, { text?: string; truncated: boolean }>>({});
   useEffect(() => {
-    if (!selected) return;
+    if (!selected) {
+      setChanges([]);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
-    setHydrating(true);
-    loadAgentSessionDetail(selected.id).finally(() => {
-      if (!cancelled) setHydrating(false);
-    });
+    setLoading(true);
+    const sessionId = selected.id;
+    loadAgentSessionDetail(sessionId)
+      .then(() => {
+        // structuredEvents 现已水合入 store；直接读该会话的 file_change。
+        const run = useControlCenterStore.getState().vibeRuns.find(r => r.id === sessionId);
+        const fcs = collectFileChanges(run?.structuredEvents ?? []);
+        if (fcs.length === 0) {
+          if (!cancelled) {
+            setChanges([]);
+            setLoading(false);
+          }
+          return;
+        }
+        return Promise.all(
+          fcs.map(fc =>
+            fetchStructuredEventDetail(sessionId, fc.eventId)
+              .then(detail => ({ fc, detail }))
+              .catch(() => null),
+          ),
+        ).then(results => {
+          if (cancelled) return;
+          for (const r of results) {
+            if (r) cacheRef.current[r.fc.eventId] = r.detail;
+          }
+          setChanges(pickChangesWithDiff(results));
+          setLoading(false);
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setChanges([]);
+          setLoading(false);
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -66,8 +103,6 @@ export const ChangeReviewScreen: React.FC = () => {
   const [diffLines, setDiffLines] = useState<DiffLine[]>([]);
   const [diffState, setDiffState] = useState<DiffLoadState>('idle');
   const [truncated, setTruncated] = useState(false);
-  // eventId 全局唯一（se_<sha>），直接做缓存键；会话内/跨会话翻页命中即免重取。
-  const cacheRef = useRef<Record<string, { text?: string; truncated: boolean }>>({});
 
   // 切换会话 → 回到第一个文件
   useEffect(() => {
@@ -178,7 +213,7 @@ export const ChangeReviewScreen: React.FC = () => {
         </ScrollView>
       )}
       <View style={{ flex: 1 }}>
-        {hydrating && changes.length === 0 ? (
+        {loading && changes.length === 0 ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             <ActivityIndicator />
           </View>

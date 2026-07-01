@@ -86,3 +86,22 @@ export function changeReviewCount(session: VibeCodingRun | undefined): number {
     collectFileChanges(session.structuredEvents).length
   );
 }
+
+/**
+ * 从「每个 file_change 的 detail 拉取结果」里**只保留真正带 diff 文本**的。
+ * slim envelope 不带 diff（heavy detail 才有），所以是否有 diff 只能在拉取后
+ * 判断；拉取失败（null）或 detail.text 为空/缺失的条目丢弃，避免审核页出现
+ * 「无 diff」空泡。保持首次出现顺序。
+ */
+export function pickChangesWithDiff(
+  results: Array<{
+    fc: SessionFileChange;
+    detail: { text?: string; truncated: boolean };
+  } | null>,
+): SessionFileChange[] {
+  const kept: SessionFileChange[] = [];
+  for (const r of results) {
+    if (r && r.detail.text) kept.push(r.fc);
+  }
+  return kept;
+}

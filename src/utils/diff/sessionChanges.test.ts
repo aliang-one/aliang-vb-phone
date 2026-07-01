@@ -1,5 +1,6 @@
-import { collectFileChanges, sessionsForProject, latestSessionForProject, changeReviewCount } from './sessionChanges';
+import { collectFileChanges, sessionsForProject, latestSessionForProject, changeReviewCount, pickChangesWithDiff } from './sessionChanges';
 import type { StructuredActivityEvent, VibeCodingRun } from '../../data/platformModels';
+import type { SessionFileChange } from './sessionChanges';
 
 function makeRun(
   o: Partial<VibeCodingRun> & Pick<VibeCodingRun, 'id' | 'projectId' | 'lastActivityMs'>,
@@ -143,5 +144,31 @@ describe('changeReviewCount', () => {
       ],
     });
     expect(changeReviewCount(run)).toBe(7);
+  });
+});
+
+describe('pickChangesWithDiff', () => {
+  const fc = (path: string, eventId: string): SessionFileChange => ({
+    path,
+    eventId,
+    messageId: 'm',
+    itemId: 'i',
+  });
+  type Detail = { text?: string; truncated: boolean };
+
+  it('只保留 detail.text 非空的 file_change，保持顺序', () => {
+    const results: Array<{ fc: SessionFileChange; detail: Detail } | null> = [
+      { fc: fc('a.ts', 'e1'), detail: { text: '@@ diff a', truncated: false } },
+      { fc: fc('b.ts', 'e2'), detail: { text: undefined, truncated: false } }, // 无 diff → 丢
+      null, // 拉取失败 → 丢
+      { fc: fc('c.ts', 'e3'), detail: { text: '', truncated: false } }, // 空串 → 丢
+      { fc: fc('d.ts', 'e4'), detail: { text: '@@ diff d', truncated: true } }, // 截断也算有 diff
+    ];
+    expect(pickChangesWithDiff(results).map(c => c.path)).toEqual(['a.ts', 'd.ts']);
+  });
+
+  it('全空 → []', () => {
+    expect(pickChangesWithDiff([])).toEqual([]);
+    expect(pickChangesWithDiff([null, null])).toEqual([]);
   });
 });
