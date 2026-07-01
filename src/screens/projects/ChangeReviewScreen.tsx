@@ -132,17 +132,6 @@ export const ChangeReviewScreen: React.FC = () => {
         subtitle={sessions.length ? `${sessions.length} 个会话` : undefined}
         onBack={navigation.goBack}
       />
-      {/* TEMP DEBUG: 看审核屏状态 —— 定位后删除 */}
-      <Text
-        testID="cr-screen-debug"
-        style={{
-          color: theme.colors.onSurfaceVariant,
-          fontSize: 10,
-          paddingHorizontal: 12,
-          paddingBottom: 4,
-        }}>
-        {`CR scr: sess=${sessions.length} sel=${selected?.id?.slice(-6) ?? 'none'} chg=${changes.length} hyd=${hydrating} ds=${changes.length ? diffState : 'idle'}`}
-      </Text>
       {sessions.length > 1 && (
         <ScrollView
           horizontal

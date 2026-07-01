@@ -11,6 +11,7 @@ import type {
 import { envelopeToActivity } from '../data/platformModels';
 import { normalizeProvider, providerLabel } from '../utils/modelIntensity';
 import { sameRemotePath } from '../utils/remotePath';
+import { normalizeFileStatus } from '../utils/fileStatus';
 import {
   platformTransport,
   type PlatformAiSessionSnapshot,
@@ -1250,7 +1251,7 @@ export function serverProjectFileToClient(
     path: file.path,
     name: file.name || fileNameFromPath(file.path),
     kind: isFolder ? 'folder' : 'file',
-    status: 'clean',
+    status: normalizeFileStatus(file.status),
     language: file.language ?? (isFolder ? 'Folder' : 'File'),
     size: isFolder ? '-' : formatBytes(file.size_bytes),
     sizeBytes: file.size_bytes,

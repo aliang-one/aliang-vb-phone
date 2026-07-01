@@ -79,6 +79,8 @@ export interface ServerProjectFile {
   modified_at?: string;
   language?: string;
   summary?: string;
+  /** agent 上报的 git 状态（clean/modified/added/deleted）；缺省→clean。 */
+  status?: string;
 }
 
 export interface ServerProjectFileList {

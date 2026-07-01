@@ -490,14 +490,6 @@ export const FileBrowserScreen: React.FC = () => {
           />
         }
       />
-      {/* TEMP DEBUG: 诊断 change-review banner 为何不显示 —— 定位后删除 */}
-      <View
-        testID="cr-debug"
-        style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#FFE082' }}>
-        <Text style={{ color: '#000', fontSize: 11 }}>
-          {`CR-DEBUG matched=${matchedCount} sgit=${latestSession?.gitChangedCount ?? 'undef'} ftc=${latestSession?.filesTouchedCount ?? 'undef'} st=${latestSession?.structuredEvents.length ?? 0} aiCnt=${aiChangedCount} show=${showChangeReview}`}
-        </Text>
-      </View>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <DeferredMount>
         {showChangeReview && (
