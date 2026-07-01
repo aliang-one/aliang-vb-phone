@@ -131,24 +131,36 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
       screen = renderScreen();
     });
 
-    expect(findTerminalActionButton(screen!.root, 'RESUME')?.props.disabled).toBe(
-      true,
-    );
-    expect(findTerminalActionButton(screen!.root, 'CLOSE')?.props.disabled).toBe(
-      true,
-    );
+    expect(
+      findTerminalActionButton(screen!.root, 'RESUME')?.props.disabled,
+    ).toBe(true);
+    expect(
+      findTerminalActionButton(screen!.root, 'CLOSE')?.props.disabled,
+    ).toBe(true);
   });
 
-  it('opens a fresh terminal from the floating terminal action', () => {
+  it('opens a fresh terminal from the floating terminal action device picker', () => {
     act(() => {
       screen = renderScreen();
     });
 
-    const newTerminalButton = findHeaderActionButton(screen!.root, 'NEW TERM');
+    switchToTerminals(screen!.root);
+
+    const newTerminalButton = findByTestId(screen!.root, 'new-term-fab')[0];
     expect(newTerminalButton).toBeDefined();
 
     act(() => {
+      newTerminalButton!.props.onPressIn();
+      newTerminalButton!.props.onPressOut();
       newTerminalButton!.props.onPress();
+    });
+
+    const deviceChoice = findByTestId(
+      screen!.root,
+      'new-term-device-device-1',
+    )[0];
+    act(() => {
+      deviceChoice.props.onPress();
     });
 
     expect(mockNavigate).toHaveBeenCalledWith('DeviceTerminal', {
@@ -171,15 +183,21 @@ function findTerminalActionButton(
   return label === 'RESUME' ? buttons[0] : buttons[1];
 }
 
-function findHeaderActionButton(
-  root: ReactTestRenderer.ReactTestInstance,
-  label: string,
-) {
-  return root
+function findByTestId(root: ReactTestRenderer.ReactTestInstance, id: string) {
+  return root.findAllByProps({ testID: id });
+}
+
+function switchToTerminals(root: ReactTestRenderer.ReactTestInstance) {
+  const tab = root
     .findAllByType(TouchableOpacity)
     .find(button =>
-      button.findAllByType(Text).some(node => node.props.children === label),
+      button
+        .findAllByType(Text)
+        .some(node => node.props.children === 'Terminals'),
     );
+  act(() => {
+    tab?.props.onPress();
+  });
 }
 
 function device(id: string, name: string, status: Device['status']): Device {

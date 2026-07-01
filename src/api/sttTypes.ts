@@ -12,6 +12,7 @@ export type SttControlIn =
       sample_rate: number;
       session_id?: string;
       project_path?: string;
+      device_id?: string;
       channels?: number;
       bits?: number;
     }

@@ -130,12 +130,19 @@ const allTexts = (root: ReactTestRenderer.ReactTestRenderer) =>
 const el = (root: ReactTestRenderer.ReactTestRenderer, testID: string) =>
   root.root.findByProps({ testID });
 
-const micOf = (root: ReactTestRenderer.ReactTestRenderer) => el(root, 'v2b-mic');
 const confirmOf = (root: ReactTestRenderer.ReactTestRenderer) => el(root, 'v2b-confirm');
 const commandInputOf = (root: ReactTestRenderer.ReactTestRenderer) =>
   el(root, 'v2b-command') as unknown as { props: { value: string; onChangeText: (t: string) => void } };
 
-// Drive the full record → transcript → endpoint chain: tap mic, fire the hook's
+const latestStartOptions = () =>
+  mockStart.mock.calls[mockStart.mock.calls.length - 1][0] as {
+    onComplete: (t: string) => void;
+    deviceId?: string;
+    sessionId?: string;
+    projectPath?: string;
+  };
+
+// Drive the full record → transcript → endpoint chain: wait for auto-start, fire the hook's
 // captured onComplete (simulating finalized STT), then flush the mocked
 // generateCommand promise so the confirm view mounts.
 const driveTranscript = async (
@@ -143,11 +150,8 @@ const driveTranscript = async (
   props: PropsLike,
   transcript: string,
 ) => {
-  act(() => {
-    micOf(root).props.onPress();
-  });
   expect(mockStart).toHaveBeenCalledTimes(1);
-  const opts = mockStart.mock.calls[0][0] as { onComplete: (t: string) => void };
+  const opts = latestStartOptions();
   setState('recording');
   rerender(props);
   // onComplete resolves the transcript into the generateCommand promise.
@@ -162,6 +166,20 @@ const driveTranscript = async (
 };
 
 describe('VoiceToBashModal', () => {
+  it('starts recording automatically when opened', () => {
+    const props = baseProps({ sessionId: 'term-1' });
+    render(props);
+
+    expect(mockStart).toHaveBeenCalledTimes(1);
+    expect(latestStartOptions()).toEqual(
+      expect.objectContaining({
+        deviceId: 'dev-1',
+        sessionId: 'term-1',
+        projectPath: '/repo/proj',
+      }),
+    );
+  });
+
   it('happy path: non-dangerous command is confirmed on a single tap', async () => {
     mockGenerateCommand.mockResolvedValue({ command: 'git status --short', dangerous: false });
     const props = baseProps();
@@ -259,17 +277,13 @@ describe('VoiceToBashModal', () => {
     act(() => {
       el(root, 'v2b-retry').props.onPress();
     });
-    expect(() => el(root, 'v2b-mic')).not.toThrow();
     expect(() => el(root, 'v2b-error')).toThrow();
+    expect(mockStart).toHaveBeenCalledTimes(2);
   });
 
   it('cancel() runs on dismiss (visible → false)', () => {
     const props = baseProps();
     const root = render(props);
-    act(() => {
-      // fire a recording first so cancel has something to tear down
-      micOf(root).props.onPress();
-    });
     setState('recording');
     rerender(baseProps());
     const before = mockCancel.mock.calls.length;

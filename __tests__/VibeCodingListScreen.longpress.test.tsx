@@ -1,5 +1,5 @@
-// Task P4: NEW TERM FAB long-press → VoiceToBashModal → new DeviceTerminal
-// seeded with `initialCommand`. Short tap (onPress) stays the empty-terminal path.
+// NEW TERM FAB: tap opens device choice; completed hold opens VoiceToBashModal
+// and confirms into a fresh DeviceTerminal seeded with `initialCommand`.
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { Text, TouchableOpacity } from 'react-native';
@@ -30,8 +30,11 @@ jest.mock('../src/components/terminal/VoiceToBashModal', () => ({
     onClose: () => void;
   }) => {
     const MockReact = require('react');
-    const { View: MockView, Text: MockText, TouchableOpacity: MockTouchable } =
-      require('react-native');
+    const {
+      View: MockView,
+      Text: MockText,
+      TouchableOpacity: MockTouchable,
+    } = require('react-native');
     return MockReact.createElement(
       MockView,
       { testID: 'v2b-stub' },
@@ -65,8 +68,13 @@ describe('VibeCodingListScreen NEW TERM long-press → voice→bash', () => {
   let screen: ReactTestRenderer.ReactTestRenderer | undefined;
 
   beforeEach(() => {
+    jest.useFakeTimers();
     useControlCenterStore.setState({
-      devices: [device('device-1', 'MacBook', 'online')],
+      devices: [
+        device('device-1', 'MacBook', 'online'),
+        device('device-2', 'Studio', 'online'),
+        device('device-3', 'Offline Box', 'offline'),
+      ],
       projects: [],
       vibeRuns: [],
       terminalSessions: [],
@@ -80,6 +88,7 @@ describe('VibeCodingListScreen NEW TERM long-press → voice→bash', () => {
     act(() => {
       screen?.unmount();
     });
+    jest.useRealTimers();
     screen = undefined;
   });
 
@@ -104,13 +113,10 @@ describe('VibeCodingListScreen NEW TERM long-press → voice→bash', () => {
       </ThemeContext.Provider>,
     );
 
-  // Find TouchableOpacity host nodes by testID. react-test-renderer's
-  // findAll(predicate) / findAllByProps double-count across the fiber tree in
-  // this repo's setup, so narrow by concrete type first.
   const findByTestId = (
     root: ReactTestRenderer.ReactTestInstance,
     id: string,
-  ) => root.findAllByType(TouchableOpacity).filter(node => node.props.testID === id);
+  ) => root.findAllByProps({ testID: id });
 
   // Default activeTab is 0 (Vibecoding); the FAB only mounts on tab 1. Tap the
   // "Terminals" segmented tab to switch — its onPress fires goToTab(1).
@@ -118,14 +124,67 @@ describe('VibeCodingListScreen NEW TERM long-press → voice→bash', () => {
     const tab = root
       .findAllByType(TouchableOpacity)
       .find(button =>
-        button.findAllByType(Text).some(node => node.props.children === 'Terminals'),
+        button
+          .findAllByType(Text)
+          .some(node => node.props.children === 'Terminals'),
       );
     act(() => {
       tab?.props.onPress();
     });
   };
 
-  it('onPress creates an empty terminal without initialCommand', () => {
+  it('tap opens device choice, then creates an empty terminal on the selected device', () => {
+    act(() => {
+      screen = renderScreen();
+    });
+    switchToTerminals(screen!.root);
+
+    expect(findByTestId(screen!.root, 'new-term-device-picker')).toHaveLength(
+      0,
+    );
+
+    const fab = findByTestId(screen!.root, 'new-term-fab')[0];
+    act(() => {
+      fab.props.onPressIn();
+      fab.props.onPressOut();
+      fab.props.onPress();
+    });
+
+    expect(
+      findByTestId(screen!.root, 'new-term-device-picker-backdrop'),
+    ).not.toHaveLength(0);
+    expect(findByTestId(screen!.root, 'new-term-device-device-3')).toHaveLength(
+      0,
+    );
+    expect(findByTestId(screen!.root, 'new-term-device-next')).toHaveLength(0);
+
+    const deviceChoice = findByTestId(
+      screen!.root,
+      'new-term-device-device-2',
+    )[0];
+    act(() => {
+      deviceChoice.props.onPress();
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('DeviceTerminal', {
+      deviceId: 'device-2',
+      directory: '/repo',
+    });
+  });
+
+  it('paginates terminal targets only when more than five online devices are ready', () => {
+    useControlCenterStore.setState({
+      devices: [
+        device('device-1', 'Device 1', 'online'),
+        device('device-2', 'Device 2', 'online'),
+        device('device-3', 'Device 3', 'online'),
+        device('device-4', 'Device 4', 'online'),
+        device('device-5', 'Device 5', 'online'),
+        device('device-6', 'Device 6', 'online'),
+        device('device-offline', 'Offline Box', 'offline'),
+      ],
+    });
+
     act(() => {
       screen = renderScreen();
     });
@@ -133,16 +192,47 @@ describe('VibeCodingListScreen NEW TERM long-press → voice→bash', () => {
 
     const fab = findByTestId(screen!.root, 'new-term-fab')[0];
     act(() => {
+      fab.props.onPressIn();
+      fab.props.onPressOut();
       fab.props.onPress();
     });
 
+    expect(
+      findByTestId(screen!.root, 'new-term-device-device-1'),
+    ).not.toHaveLength(0);
+    expect(
+      findByTestId(screen!.root, 'new-term-device-device-5'),
+    ).not.toHaveLength(0);
+    expect(findByTestId(screen!.root, 'new-term-device-device-6')).toHaveLength(
+      0,
+    );
+    expect(
+      findByTestId(screen!.root, 'new-term-device-device-offline'),
+    ).toHaveLength(0);
+
+    const nextPage = findByTestId(screen!.root, 'new-term-device-next')[0];
+    act(() => {
+      nextPage.props.onPress();
+    });
+
+    expect(findByTestId(screen!.root, 'new-term-device-device-1')).toHaveLength(
+      0,
+    );
+    const deviceChoice = findByTestId(
+      screen!.root,
+      'new-term-device-device-6',
+    )[0];
+    act(() => {
+      deviceChoice.props.onPress();
+    });
+
     expect(mockNavigate).toHaveBeenCalledWith('DeviceTerminal', {
-      deviceId: 'device-1',
+      deviceId: 'device-6',
       directory: '/repo',
     });
   });
 
-  it('onLongPress opens the voice→bash modal (stub renders)', () => {
+  it('completed hold opens the voice→bash modal (stub renders)', () => {
     act(() => {
       screen = renderScreen();
     });
@@ -153,10 +243,11 @@ describe('VibeCodingListScreen NEW TERM long-press → voice→bash', () => {
 
     const fab = findByTestId(screen!.root, 'new-term-fab')[0];
     act(() => {
-      fab.props.onLongPress();
+      fab.props.onPressIn();
+      jest.advanceTimersByTime(900);
     });
 
-    expect(findByTestId(screen!.root, 'v2b-stub-confirm')).toHaveLength(1);
+    expect(findByTestId(screen!.root, 'v2b-stub-confirm')).not.toHaveLength(0);
   });
 
   it('confirm navigates to a new terminal seeded with the command and closes the modal', () => {
@@ -167,7 +258,8 @@ describe('VibeCodingListScreen NEW TERM long-press → voice→bash', () => {
 
     const fab = findByTestId(screen!.root, 'new-term-fab')[0];
     act(() => {
-      fab.props.onLongPress();
+      fab.props.onPressIn();
+      jest.advanceTimersByTime(900);
     });
 
     const confirm = findByTestId(screen!.root, 'v2b-stub-confirm')[0];

@@ -1,5 +1,7 @@
 import { apiPost } from './client';
 
+const COMMAND_GEN_TIMEOUT_MS = 120_000;
+
 /**
  * Voice→bash: ask the server to turn a natural-language request into a single
  * bash command. The server runs an LLM tool-calling loop (read-only env tools
@@ -25,4 +27,6 @@ export interface GenerateCommandInput {
 export const generateCommand = (
   input: GenerateCommandInput,
 ): Promise<CommandGenResult> =>
-  apiPost<CommandGenResult>('/api/ai/command-gen', input);
+  apiPost<CommandGenResult>('/api/ai/command-gen', input, {
+    timeoutMs: COMMAND_GEN_TIMEOUT_MS,
+  });

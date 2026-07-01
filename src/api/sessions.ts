@@ -7,6 +7,8 @@ import {
 } from './client';
 import type { AgentCommandInfo } from '../data/platformModels';
 
+const AI_TURN_REQUEST_TIMEOUT_MS = 120_000;
+
 export interface ServerAiTranscriptPage {
   limit: number;
   count: number;
@@ -280,7 +282,9 @@ export const createAiSession = (input: {
   risk?: 'low' | 'medium' | 'high';
   effort?: string;
 }): Promise<ServerAiSession> =>
-  apiPost<ServerAiSession>('/api/ai/sessions', input);
+  apiPost<ServerAiSession>('/api/ai/sessions', input, {
+    timeoutMs: AI_TURN_REQUEST_TIMEOUT_MS,
+  });
 
 export const sendAiMessage = (
   sessionId: string,
@@ -288,7 +292,9 @@ export const sendAiMessage = (
   attachments: unknown[] = [],
   mode: 'voice' | 'text' = 'text',
 ): Promise<{ message_id: string; status: string }> =>
-  apiPost(`/api/ai/sessions/${sessionId}/messages`, { content, attachments, mode });
+  apiPost(`/api/ai/sessions/${sessionId}/messages`, { content, attachments, mode }, {
+    timeoutMs: AI_TURN_REQUEST_TIMEOUT_MS,
+  });
 
 export const sendAiSteer = (
   sessionId: string,
@@ -296,7 +302,9 @@ export const sendAiSteer = (
   attachments: unknown[] = [],
   mode: 'voice' | 'text' = 'text',
 ): Promise<{ message_id: string; status: string }> =>
-  apiPost(`/api/ai/sessions/${sessionId}/steers`, { content, attachments, mode });
+  apiPost(`/api/ai/sessions/${sessionId}/steers`, { content, attachments, mode }, {
+    timeoutMs: AI_TURN_REQUEST_TIMEOUT_MS,
+  });
 
 export interface RefreshSessionCommandsResponse {
   source: 'cache' | 'persisted' | 'agent' | 'agent-offline';

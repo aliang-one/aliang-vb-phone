@@ -85,6 +85,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   const [command, setCommand] = useState('');
   const [dangerous, setDangerous] = useState(false);
   const [error, setError] = useState('');
+  const [recordingToken, setRecordingToken] = useState(0);
   // Second-confirm gate: the first tap on 确认运行 when dangerous only arms
   // this flag (and relabels the button); the second tap actually fires onConfirm.
   // Backed by a ref so the onPress handler always reads the live value even if
@@ -115,7 +116,8 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
     setError('');
     armConfirmDanger(false);
     setPhase('recording');
-  }, []);
+    setRecordingToken(value => value + 1);
+  }, [armConfirmDanger]);
 
   const handleTranscript = useCallback(
     async (transcript: string) => {
@@ -143,14 +145,19 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
     [deviceId, cwd, mode, sessionId, projectId],
   );
 
-  const handleMicPress = useCallback(() => {
-    if (phase !== 'recording') return;
+  const startRecording = useCallback(() => {
     void voiceStt.start({
       onComplete: handleTranscript,
       sessionId,
       projectPath: cwd,
+      deviceId,
     });
-  }, [phase, voiceStt, handleTranscript, sessionId, cwd]);
+  }, [voiceStt, handleTranscript, sessionId, cwd, deviceId]);
+
+  const handleMicPress = useCallback(() => {
+    if (phase !== 'recording') return;
+    startRecording();
+  }, [phase, startRecording]);
 
   const handleStop = useCallback(() => {
     void voiceStt.stop();
@@ -194,6 +201,12 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   }, [visible]);
 
   const sttStatus = voiceStt.status;
+  useEffect(() => {
+    if (!visible || phase !== 'recording' || recordingToken === 0) return;
+    if (sttStatus !== 'idle' && sttStatus !== 'error') return;
+    startRecording();
+  }, [visible, phase, recordingToken, sttStatus, startRecording]);
+
   const isRecording =
     sttStatus === 'connecting' ||
     sttStatus === 'recording' ||
@@ -236,7 +249,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
                   ? voiceStt.liveCaption
                   : isRecording
                     ? '正在聆听…'
-                    : '点按麦克风开始说话'}
+                    : '正在准备麦克风…'}
               </Text>
 
               <View style={styles.micRow}>

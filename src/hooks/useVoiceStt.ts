@@ -27,6 +27,7 @@ export interface StartOptions {
    */
   sessionId?: string;
   projectPath?: string;
+  deviceId?: string;
 }
 
 export interface UseVoiceSttResult {
@@ -347,6 +348,7 @@ export function useVoiceStt(): UseVoiceSttResult {
           // browse user → project → session → conversation + replay the audio.
           session_id: options?.sessionId,
           project_path: options?.projectPath,
+          device_id: options?.deviceId,
         });
         if (!sent) throw new Error('stt_start_not_sent');
         startSentRef.current = true;

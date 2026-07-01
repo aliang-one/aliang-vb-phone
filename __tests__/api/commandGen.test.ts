@@ -23,12 +23,16 @@ describe('generateCommand', () => {
       mode: 'initial',
     });
 
-    expect(mockedApiPost).toHaveBeenCalledWith('/api/ai/command-gen', {
-      text: 'show git state',
-      deviceId: 'd1',
-      cwd: '/repo',
-      mode: 'initial',
-    });
+    expect(mockedApiPost).toHaveBeenCalledWith(
+      '/api/ai/command-gen',
+      {
+        text: 'show git state',
+        deviceId: 'd1',
+        cwd: '/repo',
+        mode: 'initial',
+      },
+      { timeoutMs: 120000 },
+    );
     expect(result).toEqual({ command: 'git status --short', dangerous: false });
   });
 
@@ -42,13 +46,17 @@ describe('generateCommand', () => {
       sessionId: 's1',
       projectId: 'p1',
     });
-    expect(mockedApiPost).toHaveBeenCalledWith('/api/ai/command-gen', {
-      text: 'list files',
-      deviceId: 'd1',
-      cwd: '/r',
-      mode: 'live',
-      sessionId: 's1',
-      projectId: 'p1',
-    });
+    expect(mockedApiPost).toHaveBeenCalledWith(
+      '/api/ai/command-gen',
+      {
+        text: 'list files',
+        deviceId: 'd1',
+        cwd: '/r',
+        mode: 'live',
+        sessionId: 's1',
+        projectId: 'p1',
+      },
+      { timeoutMs: 120000 },
+    );
   });
 });

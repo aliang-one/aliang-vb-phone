@@ -132,7 +132,7 @@ Add a `command_gen` TEXT column (JSON) to `server_settings` (sqlite `ensureColum
 
 **Files:**
 - Create: `server/src/commandGen/llmClient.ts`
-- Test: `server/src/commandGen/__tests__/llmClient.test.ts`
+- Test: `server/test/commandGen/llmClient.test.ts`
 
 - [ ] **Step 1: Failing test** (mock global `fetch`).
 
@@ -229,7 +229,7 @@ const stripFences = (s: string) => s.replace(/^```[a-zA-Z]*\n?/g, '').replace(/`
 
 **Files:**
 - Create: `server/src/commandGen/tools.ts`
-- Test: `server/src/commandGen/__tests__/tools.test.ts`
+- Test: `server/test/commandGen/tools.test.ts`
 
 - [ ] **Step 1: Failing test.**
 
@@ -289,7 +289,7 @@ export const COMMAND_GEN_TOOLS: ToolDef[] = [
 **Files:**
 - Create: `server/src/commandGen/orchestrator.ts`
 - Modify: `server/src/modules/agent/request.ts` (add `'git.status' | 'env.info'` to `requestType`)
-- Test: `server/src/commandGen/__tests__/orchestrator.test.ts`
+- Test: `server/test/commandGen/orchestrator.test.ts`
 
 - [ ] **Step 1: Extend the agent-RPC union.** In `modules/agent/request.ts`, add to `requestType`: `'git.status' | 'env.info'` (the result-type matcher `${requestType}.result` then expects `git.status.result` / `env.info.result`). Also add `git.status.error`/`env.info.error` to `AGENT_REQUEST_ERROR_TYPES`.
 
@@ -432,7 +432,7 @@ const stringify = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v)
 **Files:**
 - Create: `server/src/commandGen/route.ts`
 - Modify: `server/src/modules/routes/ai.ts` (mount `router` from route.ts)
-- Test: `server/src/commandGen/__tests__/route.test.ts`
+- Test: `server/test/commandGen/route.test.ts`
 
 - [ ] **Step 1: Failing test** (supertest/express against the ai router; mock orchestrator).
 
