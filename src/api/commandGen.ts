@@ -13,6 +13,7 @@ export type CommandGenMode = 'initial' | 'live';
 export interface CommandGenResult {
   command: string;
   dangerous: boolean;
+  runId: string;
 }
 
 export interface GenerateCommandInput {

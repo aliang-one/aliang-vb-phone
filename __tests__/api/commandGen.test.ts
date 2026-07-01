@@ -14,6 +14,7 @@ describe('generateCommand', () => {
     mockedApiPost.mockResolvedValue({
       command: 'git status --short',
       dangerous: false,
+      runId: 'cgr_test',
     });
 
     const result = await generateCommand({
@@ -33,11 +34,11 @@ describe('generateCommand', () => {
       },
       { timeoutMs: 120000 },
     );
-    expect(result).toEqual({ command: 'git status --short', dangerous: false });
+    expect(result).toEqual({ command: 'git status --short', dangerous: false, runId: 'cgr_test' });
   });
 
   it('forwards sessionId/projectId when provided', async () => {
-    mockedApiPost.mockResolvedValue({ command: 'ls', dangerous: false });
+    mockedApiPost.mockResolvedValue({ command: 'ls', dangerous: false, runId: 'cgr_test' });
     await generateCommand({
       text: 'list files',
       deviceId: 'd1',
