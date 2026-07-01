@@ -28,8 +28,11 @@ import { isUnsafeSuggestion } from '../../utils/terminalSuggestions';
 import { GlassPanel } from '../shared/GlassPanel';
 
 export type VoiceToBashPhase =
+  | 'idle'
   | 'recording'
   | 'transcribing'
+  | 'review'
+  | 'generating'
   | 'confirming'
   | 'error';
 
@@ -81,11 +84,10 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   const { theme, isDark } = useTheme();
   const voiceStt = useVoiceStt();
 
-  const [phase, setPhase] = useState<VoiceToBashPhase>('recording');
+  const [phase, setPhase] = useState<VoiceToBashPhase>('idle');
   const [command, setCommand] = useState('');
   const [dangerous, setDangerous] = useState(false);
   const [error, setError] = useState('');
-  const [recordingToken, setRecordingToken] = useState(0);
   // Second-confirm gate: the first tap on 确认运行 when dangerous only arms
   // this flag (and relabels the button); the second tap actually fires onConfirm.
   // Backed by a ref so the onPress handler always reads the live value even if
@@ -109,14 +111,14 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
-  // Reset to the recording phase (used by 重录 / 重试 and on open).
-  const resetToRecording = useCallback(() => {
+  // Reset to the idle phase (used by 重录 / 重试 and on open). Idle waits for a
+  // hold-to-talk press before any recording begins.
+  const resetToIdle = useCallback(() => {
     setCommand('');
     setDangerous(false);
     setError('');
     armConfirmDanger(false);
-    setPhase('recording');
-    setRecordingToken(value => value + 1);
+    setPhase('idle');
   }, [armConfirmDanger]);
 
   const handleTranscript = useCallback(
@@ -146,6 +148,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   );
 
   const startRecording = useCallback(() => {
+    setPhase('recording');
     void voiceStt.start({
       onComplete: handleTranscript,
       sessionId,
@@ -153,11 +156,6 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
       deviceId,
     });
   }, [voiceStt, handleTranscript, sessionId, cwd, deviceId]);
-
-  const handleMicPress = useCallback(() => {
-    if (phase !== 'recording') return;
-    startRecording();
-  }, [phase, startRecording]);
 
   const handleStop = useCallback(() => {
     void voiceStt.stop();
@@ -170,8 +168,8 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
 
   const handleRerecord = useCallback(() => {
     cancelRef.current();
-    resetToRecording();
-  }, [resetToRecording]);
+    resetToIdle();
+  }, [resetToIdle]);
 
   const handleConfirmPress = useCallback(() => {
     if (!command.trim()) return;
@@ -192,20 +190,16 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
     }
   }, [visible]);
 
-  // Reset internal state whenever the modal is (re)opened.
+  // Reset internal state whenever the modal is (re)opened (idle waits for a
+  // hold-to-talk press; no auto-record on open).
   useEffect(() => {
     if (visible) {
-      resetToRecording();
+      resetToIdle();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
   const sttStatus = voiceStt.status;
-  useEffect(() => {
-    if (!visible || phase !== 'recording' || recordingToken === 0) return;
-    if (sttStatus !== 'idle' && sttStatus !== 'error') return;
-    startRecording();
-  }, [visible, phase, recordingToken, sttStatus, startRecording]);
 
   const isRecording =
     sttStatus === 'connecting' ||
@@ -235,6 +229,48 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
             { backgroundColor: isDark ? 'rgba(30,30,30,0.96)' : theme.colors.surface },
           ]}
         >
+          {phase === 'idle' && (
+            <View style={styles.body}>
+              <Text style={[theme.typography.titleMd, styles.titleText, { color: theme.colors.onSurface }]}>
+                语音转命令
+              </Text>
+              <Text
+                testID="v2b-caption"
+                style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}
+                numberOfLines={3}
+              >
+                按住说话，松手结束
+              </Text>
+
+              <View style={styles.micRow}>
+                <Pressable
+                  testID="v2b-mic-pad"
+                  accessibilityRole="button"
+                  accessibilityLabel="按住说话，松手结束"
+                  onPressIn={startRecording}
+                  onPressOut={handleStop}
+                  style={[
+                    styles.micBtn,
+                    {
+                      borderRadius: theme.borderRadius.full,
+                      backgroundColor: theme.colors.primary,
+                    },
+                  ]}
+                >
+                  <MicIcon size={26} color={theme.colors.onPrimary} />
+                </Pressable>
+              </View>
+
+              <View style={styles.footerRow}>
+                <Pressable testID="v2b-cancel" onPress={handleClose} style={styles.textBtn}>
+                  <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
+                    取消
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+
           {phase === 'recording' && (
             <View style={styles.body}>
               <Text style={[theme.typography.titleMd, styles.titleText, { color: theme.colors.onSurface }]}>
@@ -253,41 +289,23 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
               </Text>
 
               <View style={styles.micRow}>
-                {isRecording ? (
-                  <Pressable
-                    testID="v2b-stop"
-                    accessibilityRole="button"
-                    accessibilityLabel="停止录音"
-                    onPress={handleStop}
-                    style={[
-                      styles.micBtn,
-                      {
-                        borderRadius: theme.borderRadius.full,
-                        backgroundColor: theme.colors.error,
-                      },
-                    ]}
-                  >
-                    <Text style={[theme.typography.labelSm, { color: theme.colors.onError }]}>
-                      停止
-                    </Text>
-                  </Pressable>
-                ) : (
-                  <Pressable
-                    testID="v2b-mic"
-                    accessibilityRole="button"
-                    accessibilityLabel="开始录音"
-                    onPress={handleMicPress}
-                    style={[
-                      styles.micBtn,
-                      {
-                        borderRadius: theme.borderRadius.full,
-                        backgroundColor: theme.colors.primary,
-                      },
-                    ]}
-                  >
-                    <MicIcon size={26} color={theme.colors.onPrimary} />
-                  </Pressable>
-                )}
+                <Pressable
+                  testID="v2b-stop"
+                  accessibilityRole="button"
+                  accessibilityLabel="停止录音"
+                  onPress={handleStop}
+                  style={[
+                    styles.micBtn,
+                    {
+                      borderRadius: theme.borderRadius.full,
+                      backgroundColor: theme.colors.error,
+                    },
+                  ]}
+                >
+                  <Text style={[theme.typography.labelSm, { color: theme.colors.onError }]}>
+                    停止
+                  </Text>
+                </Pressable>
               </View>
 
               <View style={styles.footerRow}>
@@ -418,7 +436,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
                     取消
                   </Text>
                 </Pressable>
-                <Pressable testID="v2b-retry" onPress={resetToRecording} style={styles.textBtn}>
+                <Pressable testID="v2b-retry" onPress={resetToIdle} style={styles.textBtn}>
                   <Text style={[theme.typography.labelMd, { color: theme.colors.primary }]}>
                     重试
                   </Text>
