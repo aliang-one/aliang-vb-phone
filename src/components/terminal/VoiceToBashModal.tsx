@@ -20,7 +20,6 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
 import { useTheme } from '../../theme/useTheme';
 import { useVoiceStt } from '../../hooks/useVoiceStt';
 import { generateCommand } from '../../api/commandGen';
@@ -32,7 +31,6 @@ import { isUnsafeSuggestion } from '../../utils/terminalSuggestions';
 import { GlassPanel } from '../shared/GlassPanel';
 
 export type VoiceToBashPhase =
-  | 'idle'
   | 'recording'
   | 'transcribing'
   | 'review'
@@ -51,29 +49,6 @@ export interface VoiceToBashModalProps {
   onClose: () => void;
   onConfirm: (command: string) => void;
 }
-
-const MicIcon: React.FC<{ size?: number; color: string }> = ({
-  size = 26,
-  color,
-}) => {
-  const common = {
-    strokeWidth: 1.9,
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const,
-    fill: 'none' as const,
-  };
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24">
-      <Path
-        d="M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3Z"
-        stroke={color}
-        {...common}
-      />
-      <Path d="M5 11a7 7 0 0 0 14 0" stroke={color} {...common} />
-      <Path d="M12 18v3M8 21h8" stroke={color} {...common} />
-    </Svg>
-  );
-};
 
 // Render a single commandGen.* event as a concise timeline row. Returns null for
 // events that don't carry user-visible progress (runStarted / failed / runFinished
@@ -110,7 +85,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   const { theme, isDark } = useTheme();
   const voiceStt = useVoiceStt();
 
-  const [phase, setPhase] = useState<VoiceToBashPhase>('idle');
+  const [phase, setPhase] = useState<VoiceToBashPhase>('recording');
   const [command, setCommand] = useState('');
   const [transcript, setTranscript] = useState('');
   const [dangerous, setDangerous] = useState(false);
@@ -137,7 +112,6 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
     confirmDangerRef.current = next;
     setConfirmDanger(next);
   }, []);
-
   // Re-evaluate danger on every command edit so a user-typed destructive
   // command still trips the warning even if the server returned dangerous=false.
   const locallyUnsafe = isUnsafeSuggestion(command);
@@ -150,9 +124,13 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
-  // Reset to the idle phase (used by 重录 / 重试 and on open). Idle waits for a
-  // hold-to-talk press before any recording begins.
-  const resetToIdle = useCallback(() => {
+  // Begin (or re-begin) a recording: cancel any in-flight STT first so a late
+  // onComplete from the previous attempt can't land in the new review phase,
+  // then start fresh. beginRecordingRef holds the latest stable callback so
+  // resetToRecording (defined before beginRecording) can call it without a TDZ
+  // hit and without resetting its own deps.
+  const beginRecordingRef = useRef<() => void>(() => {});
+  const resetToRecording = useCallback(() => {
     setCommand('');
     setTranscript('');
     setDangerous(false);
@@ -161,7 +139,10 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
     activeRunIdRef.current = null;
     generateFiredRef.current = false;
     setSteps([]);
-    setPhase('idle');
+    setPhase('recording');
+    // Kick off a fresh recording as part of the reset. Re-renders never call
+    // resetToRecording, so this fires exactly once per open / 重录 / 重试.
+    beginRecordingRef.current();
   }, [armConfirmDanger]);
 
   // STT finalized: land in the review phase with the transcript pre-filled in
@@ -238,8 +219,12 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
     };
   }, [phase, deviceId, cwd, mode, sessionId, projectId, armConfirmDanger]);
 
-  const startRecording = useCallback(() => {
-    setPhase('recording');
+  // Begin (or re-begin) a recording: cancel any in-flight STT first so a late
+  // onComplete from the previous attempt can't land in the new review phase,
+  // then start fresh. The hook guards internally against starting while already
+  // connecting/recording, so this is safe even if called right after open.
+  const beginRecording = useCallback(() => {
+    cancelRef.current();
     void voiceStt.start({
       onComplete: handleTranscript,
       sessionId,
@@ -247,6 +232,9 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
       deviceId,
     });
   }, [voiceStt, handleTranscript, sessionId, cwd, deviceId]);
+  // Keep the ref in sync so resetToRecording (declared above beginRecording) can
+  // invoke the latest beginRecording without a TDZ hit on first render.
+  beginRecordingRef.current = beginRecording;
 
   const handleStop = useCallback(() => {
     void voiceStt.stop();
@@ -258,9 +246,8 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   }, []);
 
   const handleRerecord = useCallback(() => {
-    cancelRef.current();
-    resetToIdle();
-  }, [resetToIdle]);
+    resetToRecording();
+  }, [resetToRecording]);
 
   const handleConfirmPress = useCallback(() => {
     if (!command.trim()) return;
@@ -281,21 +268,41 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
     }
   }, [visible]);
 
-  // Reset internal state whenever the modal is (re)opened (idle waits for a
-  // hold-to-talk press; no auto-record on open).
+  // On open: reset to the recording phase. resetToRecording also kicks off a
+  // fresh recording via beginRecordingRef, so start() fires exactly once per
+  // open (re-renders never trigger this effect — it's keyed on `visible` only).
   useEffect(() => {
     if (visible) {
-      resetToIdle();
+      resetToRecording();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
+  // Propagate STT failures into the error phase so the existing error UI shows
+  // voiceStt.errorMessage instead of a stuck "正在准备麦克风" caption. Only act
+  // while we're still in a recording-family phase — once the user has moved on
+  // to review/generating/confirming, a late hook error is stale and ignored.
+  useEffect(() => {
+    if (!visible) return;
+    if (phase !== 'recording' && phase !== 'transcribing') return;
+    if (voiceStt.status === 'error') {
+      setPhase('error');
+    }
+  }, [visible, phase, voiceStt.status]);
+
   const sttStatus = voiceStt.status;
 
-  const isRecording =
-    sttStatus === 'connecting' ||
-    sttStatus === 'recording' ||
-    sttStatus === 'stopping';
+  // Caption priority for the recording phase: live transcript > status-driven
+  // hint. The connecting state (native mic init) is the only legit "preparing"
+  // moment; idle/error are transient here (the error effect moves us to the
+  // error phase if it's a real failure, so this branch only shows briefly).
+  const recordingCaption = (() => {
+    if (voiceStt.liveCaption) return voiceStt.liveCaption;
+    if (sttStatus === 'connecting') return '正在准备麦克风…';
+    if (sttStatus === 'recording') return '正在聆听…';
+    if (sttStatus === 'stopping') return '识别中…';
+    return '正在准备麦克风…';
+  })();
 
   const primaryBtnLabel =
     isDangerous && confirmDanger
@@ -320,48 +327,6 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
             { backgroundColor: isDark ? 'rgba(30,30,30,0.96)' : theme.colors.surface },
           ]}
         >
-          {phase === 'idle' && (
-            <View style={styles.body}>
-              <Text style={[theme.typography.titleMd, styles.titleText, { color: theme.colors.onSurface }]}>
-                语音转命令
-              </Text>
-              <Text
-                testID="v2b-caption"
-                style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}
-                numberOfLines={3}
-              >
-                按住说话，松手结束
-              </Text>
-
-              <View style={styles.micRow}>
-                <Pressable
-                  testID="v2b-mic-pad"
-                  accessibilityRole="button"
-                  accessibilityLabel="按住说话，松手结束"
-                  onPressIn={startRecording}
-                  onPressOut={handleStop}
-                  style={[
-                    styles.micBtn,
-                    {
-                      borderRadius: theme.borderRadius.full,
-                      backgroundColor: theme.colors.primary,
-                    },
-                  ]}
-                >
-                  <MicIcon size={26} color={theme.colors.onPrimary} />
-                </Pressable>
-              </View>
-
-              <View style={styles.footerRow}>
-                <Pressable testID="v2b-cancel" onPress={handleClose} style={styles.textBtn}>
-                  <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
-                    取消
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
-
           {phase === 'recording' && (
             <View style={styles.body}>
               <Text style={[theme.typography.titleMd, styles.titleText, { color: theme.colors.onSurface }]}>
@@ -372,29 +337,25 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
                 style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}
                 numberOfLines={3}
               >
-                {isRecording && voiceStt.liveCaption
-                  ? voiceStt.liveCaption
-                  : isRecording
-                    ? '正在聆听…'
-                    : '正在准备麦克风…'}
+                {recordingCaption}
               </Text>
 
               <View style={styles.micRow}>
                 <Pressable
-                  testID="v2b-stop"
+                  testID="v2b-done"
                   accessibilityRole="button"
-                  accessibilityLabel="停止录音"
+                  accessibilityLabel="完成"
                   onPress={handleStop}
                   style={[
                     styles.micBtn,
                     {
                       borderRadius: theme.borderRadius.full,
-                      backgroundColor: theme.colors.error,
+                      backgroundColor: theme.colors.primary,
                     },
                   ]}
                 >
-                  <Text style={[theme.typography.labelSm, { color: theme.colors.onError }]}>
-                    停止
+                  <Text style={[theme.typography.labelMd, { color: theme.colors.onPrimary }]}>
+                    完成
                   </Text>
                 </Pressable>
               </View>
@@ -639,7 +600,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
                     取消
                   </Text>
                 </Pressable>
-                <Pressable testID="v2b-retry" onPress={resetToIdle} style={styles.textBtn}>
+                <Pressable testID="v2b-retry" onPress={resetToRecording} style={styles.textBtn}>
                   <Text style={[theme.typography.labelMd, { color: theme.colors.primary }]}>
                     重试
                   </Text>

@@ -143,34 +143,24 @@ const latestStartOptions = () =>
     projectPath?: string;
   };
 
-// Drive the record → transcript → review chain: simulate a hold-to-talk press
-// (onPressIn fires start), then release (onPressOut fires stop), then fire the
-// hook's captured onComplete (simulating finalized STT). After P4 this lands at
-// the review phase (editable transcript) WITHOUT yet calling generateCommand —
-// call driveReviewToConfirm() below to press 确认发送 and flush the AI promise.
+// Drive the record → transcript → review chain: the modal auto-records on open,
+// so on mount we capture the captured onComplete; here we simulate the STT hook
+// flipping through connecting→recording→stopping (via 完成), then fire the
+// captured onComplete with the finalized transcript. After P4 this lands at the
+// review phase (editable transcript) WITHOUT yet calling generateCommand — call
+// driveReviewToConfirm() below to press 确认发送 and flush the AI promise.
 const driveTranscript = async (
   root: ReactTestRenderer.ReactTestRenderer,
   props: PropsLike,
   transcript: string,
 ) => {
-  // idle on open → capture the mic-pad handlers before press-in (the idle body
-  // unmounts once phase flips to 'recording', so onPressOut must be invoked on
-  // the captured closure rather than re-queried after the swap).
-  const micPadProps = el(root, 'v2b-mic-pad').props as {
-    onPressIn: () => void;
-    onPressOut: () => void;
-  };
-  const pressOut = micPadProps.onPressOut;
-  act(() => {
-    micPadProps.onPressIn();
-  });
-  expect(mockStart).toHaveBeenCalledTimes(1);
+  // Modal auto-started recording on open (start already fired once). The
+  // recording phase mounts the 完成 button — tap it to stop the recording.
   const opts = latestStartOptions();
   setState('recording');
   rerender(props);
-  // Release → stop the recording (invoke the captured press-out handler).
   act(() => {
-    pressOut();
+    (el(root, 'v2b-done').props as { onPress: () => void }).onPress();
   });
   expect(mockStop).toHaveBeenCalledTimes(1);
   // onComplete hands the transcript to the review phase (no AI call yet).
@@ -204,24 +194,13 @@ const driveReviewToConfirm = async (
 };
 
 describe('VoiceToBashModal', () => {
-  it('opens idle: renders the mic pad and does NOT auto-record until press-in', () => {
+  it('opens directly in the recording phase and auto-starts recording once', () => {
     const props = baseProps({ sessionId: 'term-1' });
     const root = render(props);
 
-    // Idle mic pad is present.
-    expect(() => el(root, 'v2b-mic-pad')).not.toThrow();
-    // Recording has NOT started on mount.
-    expect(mockStart).not.toHaveBeenCalled();
-  });
-
-  it('press-in on the mic pad starts recording scoped to device/session/cwd', () => {
-    const props = baseProps({ sessionId: 'term-1' });
-    const root = render(props);
-
-    act(() => {
-      el(root, 'v2b-mic-pad').props.onPressIn();
-    });
-
+    // Recording phase mounted (完成 button is the primary control).
+    expect(() => el(root, 'v2b-done')).not.toThrow();
+    // Auto-start fired exactly once on open.
     expect(mockStart).toHaveBeenCalledTimes(1);
     expect(latestStartOptions()).toEqual(
       expect.objectContaining({
@@ -230,29 +209,70 @@ describe('VoiceToBashModal', () => {
         projectPath: '/repo/proj',
       }),
     );
+    // No hold-to-talk mic pad anymore.
+    expect(() => el(root, 'v2b-mic-pad')).toThrow();
   });
 
-  it('press-out on the mic pad stops the recording', () => {
+  it('auto-start does not fire twice on re-render while still opening', () => {
     const props = baseProps();
     const root = render(props);
+    // Re-render with identical visible=true — guard ref must prevent a 2nd start.
+    rerender(props);
+    rerender(props);
+    expect(mockStart).toHaveBeenCalledTimes(1);
+  });
 
-    // Capture the press-out handler before press-in: the idle body unmounts once
-    // phase flips to 'recording', so the pad can't be re-queried after the swap.
-    const micPadProps = el(root, 'v2b-mic-pad').props as {
-      onPressIn: () => void;
-      onPressOut: () => void;
-    };
-    const pressOut = micPadProps.onPressOut;
-    act(() => {
-      micPadProps.onPressIn();
-    });
+  it('the 完成 button stops the recording', () => {
+    const props = baseProps();
+    const root = render(props);
+    // Native mic finishes init → recording state.
     setState('recording');
-    rerender(props); // component now sees recording state in its closure
+    rerender(props);
+
     act(() => {
-      pressOut();
+      (el(root, 'v2b-done').props as { onPress: () => void }).onPress();
     });
 
     expect(mockStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('recording caption prefers a live transcript when present', () => {
+    const props = baseProps();
+    const root = render(props);
+    setState('recording', { liveCaption: '列出文件' });
+    rerender(props);
+
+    expect(el(root, 'v2b-caption').props.children).toBe('列出文件');
+  });
+
+  it('recording caption falls back to a status-driven hint when no live caption', () => {
+    const props = baseProps();
+    const root = render(props);
+    // connecting (native mic init) → the only legit "preparing" moment.
+    setState('connecting');
+    rerender(props);
+    expect(el(root, 'v2b-caption').props.children).toBe('正在准备麦克风…');
+
+    setState('recording');
+    rerender(props);
+    expect(el(root, 'v2b-caption').props.children).toBe('正在聆听…');
+
+    setState('stopping');
+    rerender(props);
+    expect(el(root, 'v2b-caption').props.children).toBe('识别中…');
+  });
+
+  it('STT error propagates to the error phase and surfaces errorMessage', () => {
+    const props = baseProps();
+    const root = render(props);
+    // Hook flips to error mid-recording (start failed or stream broke).
+    setState('error', { errorMessage: '麦克风启动失败' });
+    rerender(props);
+
+    expect(() => el(root, 'v2b-error')).not.toThrow();
+    expect(allTexts(root).some(t => String(t).includes('麦克风启动失败'))).toBe(true);
+    // The recording-phase 完成 button is gone once we're in the error phase.
+    expect(() => el(root, 'v2b-done')).toThrow();
   });
 
   it('happy path: non-dangerous command is confirmed on a single tap', async () => {
@@ -380,20 +400,22 @@ describe('VoiceToBashModal', () => {
     expect(commandInputOf(root).props.value).toBe('git status --short');
   });
 
-  it('review phase: 重录 returns to idle without calling generateCommand', async () => {
+  it('review phase: 重录 returns to recording and restarts STT', async () => {
     const props = baseProps();
     const root = render(props);
 
     await driveTranscript(root, props, 'show git status');
     expect(mockGenerateCommand).not.toHaveBeenCalled();
 
+    const startsBefore = mockStart.mock.calls.length;
     act(() => {
       (el(root, 'v2b-rerecord-review').props as { onPress: () => void }).onPress();
     });
     rerender(props);
 
-    // Back to idle (mic pad visible again), no AI call made.
-    expect(() => el(root, 'v2b-mic-pad')).not.toThrow();
+    // Back to recording (完成 button visible again) + a fresh start fired.
+    expect(() => el(root, 'v2b-done')).not.toThrow();
+    expect(mockStart.mock.calls.length).toBeGreaterThan(startsBefore);
     expect(mockGenerateCommand).not.toHaveBeenCalled();
   });
 
@@ -418,12 +440,14 @@ describe('VoiceToBashModal', () => {
     expect(() => el(root, 'v2b-error')).not.toThrow();
     expect(allTexts(root).some(t => t.includes('upstream 502'))).toBe(true);
 
-    // Retry returns to idle (hold-to-talk again).
+    // Retry returns to recording + restarts STT (auto-record again).
+    const startsBefore = mockStart.mock.calls.length;
     act(() => {
       el(root, 'v2b-retry').props.onPress();
     });
     expect(() => el(root, 'v2b-error')).toThrow();
-    expect(() => el(root, 'v2b-mic-pad')).not.toThrow();
+    expect(() => el(root, 'v2b-done')).not.toThrow();
+    expect(mockStart.mock.calls.length).toBeGreaterThan(startsBefore);
   });
 
   it('cancel() runs on dismiss (visible → false)', () => {
