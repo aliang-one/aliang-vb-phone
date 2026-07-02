@@ -694,7 +694,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   body: {
-    flex: 1,
     gap: 12,
   },
   titleText: {
@@ -721,7 +720,10 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   timelineScroll: {
-    flex: 1,
+    // Fixed cap (not flex) so the ScrollView scrolls when the timeline is long,
+    // without depending on a parent's height. flex:1 here collapsed to 0 because
+    // the panel has no definite height (content-sized up to its 80% maxHeight).
+    maxHeight: 360,
   },
   stepRow: {
     gap: 4,
