@@ -32,7 +32,7 @@ describe('generateCommand', () => {
         cwd: '/repo',
         mode: 'initial',
       },
-      { timeoutMs: 120000 },
+      { timeoutMs: 320000 },
     );
     expect(result).toEqual({ command: 'git status --short', dangerous: false, runId: 'cgr_test' });
   });
@@ -57,7 +57,7 @@ describe('generateCommand', () => {
         sessionId: 's1',
         projectId: 'p1',
       },
-      { timeoutMs: 120000 },
+      { timeoutMs: 320000 },
     );
   });
 });

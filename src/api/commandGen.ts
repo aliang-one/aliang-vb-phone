@@ -1,6 +1,9 @@
 import { apiPost } from './client';
 
-const COMMAND_GEN_TIMEOUT_MS = 120_000;
+// Phone-side HTTP wait for the POST. Must exceed the server's total loop budget
+// (DEFAULT_COMMAND_GEN.timeoutMs = 300000) plus buffer for agent RPC + network,
+// so the request isn't aborted client-side while the server loop is still running.
+const COMMAND_GEN_TIMEOUT_MS = 320_000;
 
 /**
  * Voice→bash: ask the server to turn a natural-language request into a single
