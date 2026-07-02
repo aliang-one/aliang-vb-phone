@@ -3,6 +3,7 @@ import { platformTransport } from '../src/services/platformTransport';
 import type { VibeCodingRun } from '../src/data/platformModels';
 import type { ApprovalRequest } from '../src/store/controlCenterStore';
 import type { ServerApproval } from '../src/api/approvals';
+import { ApiResponseError } from '../src/api/client';
 
 jest.mock('../src/services/platformTransport', () => ({
   platformTransport: {
@@ -319,5 +320,73 @@ describe('approval realtime flow', () => {
     expect(
       state.events.filter(item => item.approvalId === 'approval-1'),
     ).toHaveLength(0);
+  });
+
+  const seedPendingApproval = () =>
+    useControlCenterStore.setState({
+      serverMode: true,
+      approvals: [
+        {
+          id: 'approval-1',
+          kind: 'dangerous_command',
+          title: 'Run migration',
+          summary: '',
+          deviceId: 'device-1',
+          projectId: 'project-1',
+          sessionId: 'session-1',
+          risk: 'high',
+          status: 'pending',
+          createdAt: '2026-06-16T10:00:00.000Z',
+        },
+      ],
+      notifications: [],
+      events: [],
+      vibeRuns: [run()],
+    });
+
+  it('drops the pending approval when the server is unreachable (network error)', async () => {
+    seedPendingApproval();
+    (platformTransport.respondApproval as jest.Mock).mockRejectedValue(
+      new Error('Network request failed'),
+    );
+    await expect(
+      useControlCenterStore.getState().resolveApproval('approval-1', 'approved'),
+    ).rejects.toThrow('Network');
+    expect(useControlCenterStore.getState().approvals).toHaveLength(0);
+  });
+
+  it('drops the pending approval on 404 (gone server-side)', async () => {
+    seedPendingApproval();
+    (platformTransport.respondApproval as jest.Mock).mockRejectedValue(
+      new ApiResponseError('not found', 404, 'not_found'),
+    );
+    await expect(
+      useControlCenterStore.getState().resolveApproval('approval-1', 'approved'),
+    ).rejects.toThrow();
+    expect(useControlCenterStore.getState().approvals).toHaveLength(0);
+  });
+
+  it('drops the pending approval on 409 (already resolved server-side)', async () => {
+    seedPendingApproval();
+    (platformTransport.respondApproval as jest.Mock).mockRejectedValue(
+      new ApiResponseError('already resolved', 409, 'already_resolved'),
+    );
+    await expect(
+      useControlCenterStore.getState().resolveApproval('approval-1', 'approved'),
+    ).rejects.toThrow();
+    expect(useControlCenterStore.getState().approvals).toHaveLength(0);
+  });
+
+  it('KEEPS the pending approval on a retryable 5xx (server up but errored)', async () => {
+    seedPendingApproval();
+    (platformTransport.respondApproval as jest.Mock).mockRejectedValue(
+      new ApiResponseError('internal error', 500, 'internal_error'),
+    );
+    await expect(
+      useControlCenterStore.getState().resolveApproval('approval-1', 'approved'),
+    ).rejects.toThrow();
+    const kept = useControlCenterStore.getState().approvals;
+    expect(kept).toHaveLength(1);
+    expect(kept[0].status).toBe('pending');
   });
 });

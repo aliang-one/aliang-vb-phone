@@ -10,6 +10,25 @@ import {
   tail,
   upsertNotification,
 } from '../internals';
+import { ApiResponseError } from '../../api/client';
+
+/**
+ * Whether a failed approval-resolve should DROP the local pending copy so it
+ * doesn't linger on the phone. Drop when:
+ *  - the server is unreachable / timed out (no HTTP response — a network-level
+ *    error, not an ApiResponseError; "server gone" from the phone's view), OR
+ *  - the approval no longer exists server-side (404/410) or was already resolved
+ *    (409) — nothing left for the user to act on.
+ * Keep + propagate for retryable server errors (5xx etc.) so the user can retry.
+ * A reconnect/foreground refresh re-syncs `approvals` from the server's truth, so
+ * a dropped approval reappears if it still exists server-side.
+ */
+function shouldDropPendingApproval(error: unknown): boolean {
+  if (error instanceof ApiResponseError) {
+    return error.status === 404 || error.status === 410 || error.status === 409;
+  }
+  return true; // network / timeout — server unreachable
+}
 
 type ApprovalSlice = Pick<
   ControlCenterState,
@@ -28,9 +47,23 @@ export const createApprovalSlice: StateCreator<ControlCenterState, [], [], Appro
       throw new Error('Platform connection is required before resolving an approval.');
     }
 
-    const resolved = serverApprovalToClient(
-      await platformTransport.respondApproval(approvalId, decision, options),
-    );
+    let resolved;
+    try {
+      resolved = serverApprovalToClient(
+        await platformTransport.respondApproval(approvalId, decision, options),
+      );
+    } catch (error) {
+      // Server unreachable (network/timeout) OR approval gone server-side
+      // (404/410/409): drop the local pending copy so it doesn't linger. A
+      // reconnect refresh re-syncs the server's truth. Retryable errors (5xx)
+      // keep it pending; the error propagates so the UI can toast/retry.
+      if (shouldDropPendingApproval(error)) {
+        set(state => ({
+          approvals: state.approvals.filter(item => item.id !== approvalId),
+        }));
+      }
+      throw error;
+    }
     set(state => ({
       approvals: state.approvals.map(item =>
         item.id === approvalId ? resolved : item
