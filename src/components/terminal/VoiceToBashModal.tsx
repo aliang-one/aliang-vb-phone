@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -534,17 +535,23 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
                   </Text>
                 </View>
               ) : (
-                <View testID="v2b-timeline" style={styles.timeline}>
-                  {steps.map((e, idx) => (
-                    <StepRow key={`${e.type}-${idx}`} event={e} />
-                  ))}
-                  <View style={styles.spinnerRow}>
-                    <ActivityIndicator color={theme.colors.primary} size="small" />
-                    <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant, marginLeft: 6 }]}>
-                      生成中…
-                    </Text>
+                <ScrollView
+                  testID="v2b-timeline"
+                  style={styles.timelineScroll}
+                  indicatorStyle={isDark ? 'white' : 'default'}
+                >
+                  <View style={styles.timeline}>
+                    {steps.map((e, idx) => (
+                      <StepRow key={`${e.type}-${idx}`} event={e} />
+                    ))}
+                    <View style={styles.spinnerRow}>
+                      <ActivityIndicator color={theme.colors.primary} size="small" />
+                      <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant, marginLeft: 6 }]}>
+                        生成中…
+                      </Text>
+                    </View>
                   </View>
-                </View>
+                </ScrollView>
               )}
 
               <View style={styles.footerRow}>
@@ -682,10 +689,12 @@ const styles = StyleSheet.create({
   panel: {
     width: '100%',
     maxWidth: 380,
+    maxHeight: '80%',
     padding: 18,
     borderRadius: 16,
   },
   body: {
+    flex: 1,
     gap: 12,
   },
   titleText: {
@@ -711,6 +720,9 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 4,
   },
+  timelineScroll: {
+    flex: 1,
+  },
   stepRow: {
     gap: 4,
   },
@@ -735,6 +747,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     minHeight: 64,
+    maxHeight: 200,
     textAlignVertical: 'top',
   },
   footerRow: {
