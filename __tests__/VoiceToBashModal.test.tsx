@@ -518,6 +518,64 @@ describe('VoiceToBashModal', () => {
     expect(allTexts(root).some(t => String(t).includes('should_not_appear_xyz'))).toBe(false);
   });
 
+  // T1: the timeline must surface WHAT the AI did, not just tool names. A tool_call
+  // row shows its args (which path), and a tool_result row shows the content
+  // (snippet) by default — visible without tapping — with a 详情 toggle to expand.
+  it('generating: tool_call shows its args and tool_result shows a snippet preview', async () => {
+    mockGenerateCommand.mockReturnValue(new Promise(() => {}));
+    const props = baseProps();
+    const root = render(props);
+
+    await driveTranscript(root, props, 'read the readme');
+    await act(async () => {
+      (el(root, 'v2b-confirm-send').props as { onPress: () => void }).onPress();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    act(() => {
+      dispatchCommandGenEvent({ type: 'commandGen.runStarted', runId: 'cgr_9', ts: 't' });
+    });
+    act(() => {
+      dispatchCommandGenEvent({
+        type: 'commandGen.step',
+        runId: 'cgr_9',
+        seq: 1,
+        kind: 'tool_call',
+        toolName: 'read_file',
+        toolArgs: { path: 'README.md' },
+        ts: 't',
+      });
+    });
+    rerender(props);
+    // The call row shows WHICH file, not just the bare tool name.
+    expect(allTexts(root).some(t => String(t).includes('README.md'))).toBe(true);
+
+    act(() => {
+      dispatchCommandGenEvent({
+        type: 'commandGen.step',
+        runId: 'cgr_9',
+        seq: 2,
+        kind: 'tool_result',
+        toolName: 'read_file',
+        snippet: '# Project\nA readme with real content inside',
+        ts: 't',
+      });
+    });
+    rerender(props);
+    // Result content is visible by default (2-line preview) — no tap needed.
+    expect(allTexts(root).some(t => String(t).includes('A readme with real content inside'))).toBe(true);
+    // Expandable rows expose a 详情 toggle.
+    expect(allTexts(root).some(t => t === '详情')).toBe(true);
+
+    // Tapping the result row expands it; the toggle flips to 收起.
+    act(() => {
+      (el(root, 'v2b-step-2').props as { onPress?: () => void }).onPress?.();
+    });
+    rerender(props);
+    expect(allTexts(root).some(t => t === '收起')).toBe(true);
+  });
+
   it('generating: empty timeline shows the placeholder spinner', async () => {
     mockGenerateCommand.mockReturnValue(new Promise(() => {}));
     const props = baseProps();

@@ -50,26 +50,96 @@ export interface VoiceToBashModalProps {
   onConfirm: (command: string) => void;
 }
 
-// Render a single commandGen.* event as a concise timeline row. Returns null for
-// events that don't carry user-visible progress (runStarted / failed / runFinished
-// are handled elsewhere or via the closing spinner — only tool steps render rows).
-const stepLabel = (e: CommandGenLiveEvent): string | null => {
-  switch (e.type) {
-    case 'commandGen.step': {
-      if (e.kind === 'tool_call') {
-        return e.toolName ? `→ ${e.toolName}` : '→ tool';
-      }
-      if (e.kind === 'tool_result') {
-        return e.toolName ? `✓ ${e.toolName}` : '✓ result';
-      }
-      if (e.kind === 'final') {
-        return '生成中…';
-      }
-      return null;
-    }
-    default:
-      return null;
+// --- commandGen step timeline rendering -------------------------------------
+// The orchestrator publishes the FULL detail of each loop step: tool_call carries
+// `toolArgs` (which path was read/listed), tool_result carries `snippet` (the
+// agent's response, up to 512 chars). That data is already in memory — the modal
+// accumulates whole events — so these helpers surface it instead of collapsing
+// every row to a bare tool name (which hid the parameters and the content).
+
+// Compact, readable suffix for a tool's args. All read-only tools here key on
+// `path` (list_dir/read_file); git_status/env_info/recent_commands take none.
+// Fall back to trimmed JSON so no parameter is ever silently hidden.
+const summarizeToolArgs = (args?: Record<string, unknown>): string => {
+  if (!args) return '';
+  const path = typeof args.path === 'string' ? args.path.trim() : '';
+  if (path) return path;
+  const keys = Object.keys(args);
+  if (keys.length === 0) return '';
+  const compact = JSON.stringify(args);
+  return compact.length > 48 ? compact.slice(0, 47) + '…' : compact;
+};
+
+type StepHeader = { icon: string; text: string; snippet?: string };
+
+// Build the visible header for one commandGen.* step. null = no row (runStarted /
+// failed / runFinished are surfaced via the phase transitions, not the timeline).
+const stepHeader = (e: CommandGenLiveEvent): StepHeader | null => {
+  if (e.type !== 'commandGen.step') return null;
+  if (e.kind === 'tool_call') {
+    const arg = summarizeToolArgs(e.toolArgs);
+    return { icon: '→', text: e.toolName ? `${e.toolName}${arg ? '  ' + arg : ''}` : 'tool' };
   }
+  if (e.kind === 'tool_result') {
+    return { icon: '✓', text: e.toolName ?? 'result', snippet: e.snippet };
+  }
+  if (e.kind === 'final') {
+    return { icon: '✓', text: '命令已生成' };
+  }
+  return null;
+};
+
+// One timeline row. A tool_call is a plain header (no result yet); a tool_result
+// always shows a 2-line snippet preview (so content is visible without tapping)
+// and taps 详情 to expand the full text. Errors (snippet starts with "error:")
+// are tinted so a failed read is obvious at a glance.
+const StepRow: React.FC<{ event: CommandGenLiveEvent }> = ({ event }) => {
+  const { theme } = useTheme();
+  const [expanded, setExpanded] = useState(false);
+  const header = stepHeader(event);
+  if (!header) return null;
+  const snippet = header.snippet && header.snippet.length > 0 ? header.snippet : undefined;
+  const isError = snippet ? snippet.startsWith('error:') : false;
+  const toggle = snippet ? () => setExpanded(value => !value) : undefined;
+  // stepHeader returns non-null only for commandGen.step events, which carry seq.
+  const seq = event.type === 'commandGen.step' ? event.seq : 0;
+  return (
+    <View style={styles.stepRow}>
+      <Pressable
+        testID={`v2b-step-${seq}`}
+        disabled={!toggle}
+        onPress={toggle}
+        style={styles.stepHeaderRow}
+      >
+        <Text
+          style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant, flexShrink: 1 }]}
+          numberOfLines={1}
+        >
+          {`${header.icon} ${header.text}`}
+        </Text>
+        {snippet && (
+          <Text style={[theme.typography.bodySm, { color: theme.colors.primary, marginLeft: 8 }]}>
+            {expanded ? '收起' : '详情'}
+          </Text>
+        )}
+      </Pressable>
+      {snippet && (
+        <Text
+          style={[
+            theme.typography.codeSm,
+            styles.snippet,
+            {
+              color: isError ? theme.colors.error : theme.colors.onSurfaceVariant,
+              borderLeftColor: theme.colors.outlineVariant,
+            },
+          ]}
+          numberOfLines={expanded ? undefined : 2}
+        >
+          {snippet}
+        </Text>
+      )}
+    </View>
+  );
 };
 
 export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
@@ -465,22 +535,9 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
                 </View>
               ) : (
                 <View testID="v2b-timeline" style={styles.timeline}>
-                  {steps.map((e, idx) => {
-                    const label = stepLabel(e);
-                    if (!label) return null;
-                    return (
-                      <Text
-                        key={`${e.type}-${idx}`}
-                        style={[
-                          theme.typography.codeSm,
-                          { color: theme.colors.onSurfaceVariant },
-                        ]}
-                        numberOfLines={2}
-                      >
-                        {label}
-                      </Text>
-                    );
-                  })}
+                  {steps.map((e, idx) => (
+                    <StepRow key={`${e.type}-${idx}`} event={e} />
+                  ))}
                   <View style={styles.spinnerRow}>
                     <ActivityIndicator color={theme.colors.primary} size="small" />
                     <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant, marginLeft: 6 }]}>
@@ -653,6 +710,18 @@ const styles = StyleSheet.create({
   timeline: {
     gap: 6,
     paddingVertical: 4,
+  },
+  stepRow: {
+    gap: 4,
+  },
+  stepHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  snippet: {
+    marginLeft: 14,
+    paddingLeft: 8,
+    borderLeftWidth: 2,
   },
   warning: {
     borderWidth: 1,
