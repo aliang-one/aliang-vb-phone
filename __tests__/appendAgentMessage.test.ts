@@ -137,16 +137,16 @@ describe('appendAgentMessage', () => {
     };
 
     it('status=running → 拦截 claude_code 并发(回合确定在跑)', async () => {
-      // 新模型:status 现在事件驱动(ai.done 会即时翻 idle),故 running 即「真在跑」,
-      // guard 与顶部相位/composer 锁/停止按钮同源(isSessionTurnActive)。
+      // 新模型:status 事件驱动,running 即「真在跑」(ai.done 不再即时翻 idle——对齐服务端
+      // soft-settle;idle 由服务端 settle 广播落定),guard 与顶部相位/composer 锁/停止按钮同源。
       setRun({ status: 'running', provider: 'claude_code' });
       await expect(
         useControlCenterStore.getState().appendAgentMessage('s1', 'next-a', 'text'),
       ).rejects.toThrow('Claude Code is still running');
     });
 
-    it('status=idle(ai.done 已结算)→ 不拦截,允许继续发送', async () => {
-      // 回合结束 ai.done 把 status 翻成 idle → guard 即时放行,不再卡 8s。
+    it('status=idle(服务端 settle 已落定)→ 不拦截,允许继续发送', async () => {
+      // 回合真正静止,服务端 soft-settle 广播把 status 落成 idle → guard 放行。
       setRun({ status: 'idle', provider: 'claude_code' });
       await expect(
         useControlCenterStore.getState().appendAgentMessage('s1', 'next-b', 'text'),

@@ -608,35 +608,40 @@ export const useControlCenterStore = create<ControlCenterState>()(
             }
 
             case 'ai.done':
-              // 确定性的回合结束信号。`--print` headless 一个进程跑完整条 prompt 才发一次
-              // ai.done(中途的工具调用都在同一个进程内,不会发 done),所以 ai.done = 「这条
-              // prompt 真结束了」。立即把 status running→idle——这是顶部翻「已完成」、停止按钮
-              // 消失、composer 解锁、发送 guard 放行的统一触发源,不再等 8s 活动窗口或服务端
-              // settle 推送(当年加 8s 是因为用活动新鲜度猜结束会抖;现在结束是确定信号,不需要
-              // debounce)。不覆盖 failed/completed/waiting_approval(审批等待中由 approval 流复位)。
-              // 同时终结残留的活跃结构化事件(思考/started 命令),免得 L3 脉冲在 idle 后还显「思考中」。
+              // ai.done = 一条流式回合回复结束,**不等于整条 run 结束**。工具型 agent
+              // (一次 prompt 里多次工具调用)或 codex 这类,下一回合几秒内就到——所以服务端
+              // 对 ai.done 只 arm 一个 soft-settle(ALIANG_AI_IDLE_SETTLE_MS,默认 10s),10s
+              // 内再来 ai.delta/ai.run.started/ai.run.progress 就取消结算、保持 running,只有
+              // 10s 真无活动才翻 idle 并 publishAiSessionState 广播。**手机端必须对齐这个语义**:
+              // 这里不翻 status running→idle。
               //
-              // 一个回合可能产出 approval / 方案选择(server 从 assistant 回复派生后一次性推送,
-              // WS 瞬断会丢、且不像 delta 能自愈)。回合结束去抖拉一次 dashboard,补回错过的 approval
-              // / 状态(pending_approvals 重填 state.approvals,useSessionApprovals 渲染)。
+              // 这是「明明正在运行中,结果却显示已完成」的根因修复:旧实现一收到 ai.done 就立即
+              // running→idle,于是多工具回合的每个工具间隙(跑 bash / subagent / API 重试,无
+              // ai.delta 流动的窗口)顶部都闪成「已完成」,直到下一个 ai.delta/ai.run.started 把
+              // status 拉回 running——用户看到的就是"在跑却显示已完成"。
+              //
+              // 这里只做 ai.done 的另外两件事:(1) bump lastActivityMs,让 mergeVibeRunSnapshot
+              // 的反向 stale 守卫挡住滞后 running 快照(否则回合结束会闪回进行中);(2) 终结本回合
+              // 残留的活跃结构化事件(思考/started 命令),免得 L3 脉冲继续显「思考中」。真正的 idle
+              // 由服务端 settle 广播(ai.session.updated 带更新的 lastActivityMs → mergeVibeRunSnapshot
+              // 降级)或下一条 ai.delta/ai.run.started 决定——与顶部相位/composer 锁/停止按钮同源。
+              // failed/completed/waiting_approval 自然不受影响(status 原样保留)。
+              //
+              // 回合可能产出 approval / 方案选择(server 从 assistant 回复派生后一次性推送,WS 瞬断
+              // 会丢、且不像 delta 能自愈)。回合结束去抖拉一次 dashboard,补回错过的 approval / 状态。
               {
                 const doneMs = activityNowMs();
                 set(state => ({
                   vibeRuns: state.vibeRuns.map(run => {
                     if (run.id !== transportEvent.sessionId) return run;
-                    const settledStatus: VibeStatus =
-                      run.status === 'running' ? 'idle' : run.status;
                     const activityMs = Math.max(run.lastActivityMs ?? 0, doneMs);
+                    const updatedAt = formatActivityLabel(activityMs);
+                    const noActivityBump =
+                      activityMs === (run.lastActivityMs ?? 0);
                     if (!run.structuredEvents?.length) {
-                      return run.status === settledStatus &&
-                        activityMs === (run.lastActivityMs ?? 0)
+                      return noActivityBump
                         ? run
-                        : {
-                            ...run,
-                            status: settledStatus,
-                            lastActivityMs: activityMs,
-                            updatedAt: formatActivityLabel(activityMs),
-                          };
+                        : { ...run, lastActivityMs: activityMs, updatedAt };
                     }
                     let changed = false;
                     const finalized = run.structuredEvents.map(e => {
@@ -650,11 +655,11 @@ export const useControlCenterStore = create<ControlCenterState>()(
                       }
                       return e;
                     });
+                    if (!changed && noActivityBump) return run;
                     return {
                       ...run,
-                      status: settledStatus,
                       lastActivityMs: activityMs,
-                      updatedAt: formatActivityLabel(activityMs),
+                      updatedAt,
                       structuredEvents: changed ? finalized : run.structuredEvents,
                     };
                   }),

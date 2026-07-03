@@ -1,12 +1,21 @@
 /**
- * ai.done is the definitive turn-end signal in `--print` headless mode (one
- * process per prompt → one ai.done at the true end). The phone now flips
- * `status: running → idle` on it — the unified trigger that settles the top
- * phase to 已完成, hides the stop button, unlocks the composer, and opens the
- * send guard — immediately, with no 8s activity window.
+ * ai.done ends ONE streaming turn — NOT necessarily the whole run. For a
+ * tool-using agent (multi-turn tool calls) or providers like codex, the next
+ * turn follows within seconds, so the SERVER arms a soft-settle
+ * (ALIANG_AI_IDLE_SETTLE_MS, default 10s) and only flips the session to idle
+ * when no further activity arrives. The phone MIRRORS that semantics: on ai.done
+ * it does NOT flip status running→idle. It leaves status untouched, bumps
+ * lastActivityMs (so the reverse stale guard holds against late running
+ * snapshots), finalizes this turn's structured events (thinking inactive /
+ * started command done), and schedules a debounced snapshot refresh. The
+ * authoritative idle transition arrives later via the server's settle broadcast
+ * (ai.session.updated carrying a newer lastActivityMs → mergeVibeRunSnapshot
+ * demotes) — or the next ai.delta / ai.run.started simply keeps it running.
  *
- * These pin that behavior (and the don't-clobber-terminal / finalize-structured-
- * events side effects) so a refactor of the ai.done handler stays honest.
+ * This is the root-cause fix for "明明正在运行中,结果却显示已完成": the old handler
+ * flipped idle the instant ai.done arrived, so every inter-tool gap of a
+ * multi-tool run flashed 已完成 (顶部相位/composer 锁/停止按钮 全部跟着翻) until
+ * the next event revived status. ai.done 与服务端语义对齐后,静默工具间隙不再误闪.
  */
 import { useControlCenterStore } from '../src/store/controlCenterStore';
 import type { VibeCodingRun } from '../src/data/platformModels';
@@ -48,7 +57,7 @@ const aiDone = () =>
       raw: {},
     });
 
-describe('ai.done settles the turn (status running → idle)', () => {
+describe('ai.done keeps the turn alive (defers idle to the server soft-settle)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     useControlCenterStore.setState({
@@ -58,12 +67,14 @@ describe('ai.done settles the turn (status running → idle)', () => {
     });
   });
 
-  it('flips running → idle (definitive turn end, no 8s wait)', () => {
+  it('does NOT flip running → idle — root cause of "运行中却显示已完成"', () => {
+    // The turn's streaming reply ended, but the run may continue (the server's
+    // 10s soft-settle is the authority for true idle; ai.done is not terminal).
     aiDone();
-    expect(useControlCenterStore.getState().vibeRuns[0].status).toBe('idle');
+    expect(useControlCenterStore.getState().vibeRuns[0].status).toBe('running');
   });
 
-  it('does not clobber failed / completed / waiting_approval', () => {
+  it('does not clobber failed / completed / waiting_approval (status untouched)', () => {
     const preserve = ['failed', 'completed', 'waiting_approval'] as const;
     for (const status of preserve) {
       useControlCenterStore.setState({ vibeRuns: [run({ status })] });
@@ -72,7 +83,7 @@ describe('ai.done settles the turn (status running → idle)', () => {
     }
   });
 
-  it('finalizes an active thinking / started-command structured event', () => {
+  it('finalizes an active thinking / started-command structured event (and stays running)', () => {
     useControlCenterStore.setState({
       vibeRuns: [
         run({
@@ -103,6 +114,8 @@ describe('ai.done settles the turn (status running → idle)', () => {
     const cmd = evs.find(e => e.kind === 'command');
     if (think && 'active' in think) expect(think.active).toBe(false);
     if (cmd && 'status' in cmd) expect(cmd.status).toBe('done');
+    // Status is still running despite the finalized structured events.
+    expect(useControlCenterStore.getState().vibeRuns[0].status).toBe('running');
   });
 
   it('bumps lastActivityMs so the reverse stale guard holds against late running snapshots', () => {
@@ -117,8 +130,7 @@ describe('ai.done settles the turn (status running → idle)', () => {
 describe('ai.status halt signal settles to idle (interrupt path)', () => {
   // After ai.stop the agent ends the run WITHOUT ai.done, emitting ai.status
   // "stopped"/"stopping"/"interrupted". The handler must map these to idle — not
-  // force 'running' (which would re-activate a session the user just stopped, and
-  // with no 8s window anymore, would stick).
+  // force 'running' (which would re-activate a session the user just stopped).
   beforeEach(() => {
     jest.clearAllMocks();
     useControlCenterStore.setState({

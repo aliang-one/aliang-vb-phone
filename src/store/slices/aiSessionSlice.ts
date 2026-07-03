@@ -475,9 +475,11 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       currentRun?.effectiveModelConfig?.provider ?? currentRun?.provider,
     );
     // 「回合是否在跑」走统一源头 isSessionTurnActive(= status==='running'),与顶部相位 /
-    // composer 锁 / 停止按钮同源。status 现在是事件驱动(发送→running、ai.done→idle、
-    // ai.error→failed),回合结束即时 idle,故 guard 也即时放行——不再因陈旧 running 误拦
-    // 「Claude Code is still running」。waiting_approval 是服务端主动推送的可靠态,仍拦。
+    // composer 锁 / 停止按钮同源。status 现在是事件驱动(发送→running、ai.error→failed、
+    // idle 由服务端 10s soft-settle 广播落定——**ai.done 本身不再翻 idle**,对齐服务端:生产
+    // agent 一次 run 常发多个 ai.done)。回合真正静止后 guard 才放行(单回合结束最多滞后 ~10s,
+    // 与顶部相位/composer 锁同步),不再因陈旧 running 误拦「Claude Code is still running」。
+    // waiting_approval 是服务端主动推送的可靠态,仍拦。
     const status = currentRun?.status;
     const turnActive =
       isSessionTurnActive(status ?? 'idle') || status === 'waiting_approval';

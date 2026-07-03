@@ -224,9 +224,10 @@ describe('mergeVibeRunSnapshot preserves client-only lastViewedAt', () => {
 });
 
 describe('mergeVibeRunSnapshot 双向 stale 守卫(事件驱动 status 的配套)', () => {
-  // ai.done 把 status 翻 idle 并 bump lastActivityMs 后,一个滞后的 running 快照不能
-  // 把它再翻回 running——否则回合结束会闪回进行中(就是当年要靠 8s 压的那种抖动)。
-  // 真正的新回合(新发送 / 更新的活动)lastActivityMs 更新,不被拦截。
+  // 服务端 soft-settle 广播把 status 翻 idle 并 bump lastActivityMs 后(ai.done 本身不再翻
+  // idle——对齐服务端 soft-settle),一个滞后的 running 快照不能把它再翻回 running——否则回合
+  // 结束会闪回进行中(就是当年要靠 8s 压的那种抖动)。真正的新回合(新发送 / 更新的活动)
+  // lastActivityMs 更新,不被拦截。
   it('不把已结算(idle)的会话被陈旧 running 快照重新激活', () => {
     const existing = makeRun({ id: 's1', status: 'idle', lastActivityMs: 100 });
     const incoming = makeRun({ id: 's1', status: 'running', lastActivityMs: 100 });
