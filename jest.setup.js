@@ -77,3 +77,11 @@ jest.mock('@react-native-clipboard/clipboard', () => ({
     getStringAsync: jest.fn(() => Promise.resolve('')),
   },
 }));
+
+// Render in Chinese during tests. The app is Chinese-first historically and most
+// component tests assert Chinese strings; pinning the i18n locale to 'zh' means
+// migrating a screen to useTranslation() does NOT break its Chinese-asserting tests
+// (English is validated by complete en.json resources + dedicated i18n tests, not
+// by rewriting every screen's test assertions during migration).
+require('./src/i18n').default.changeLanguage('zh');
+
