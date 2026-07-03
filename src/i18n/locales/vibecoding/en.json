@@ -157,5 +157,82 @@
     "roleSystem": "SYSTEM",
     "noPreview": "(no text preview)",
     "hint": "Drag the right rail to locate a conversation"
+  },
+  "session": {
+    "draftTitle": "New conversation",
+    "loading": {
+      "subtitle": "LOADING",
+      "loadingSession": "Loading conversation…",
+      "syncHistory": "Syncing conversation history…",
+      "fetchingFull": "Fetching full conversation…",
+      "syncEarlier": "Syncing earlier conversation…",
+      "detailTimeout": "Full conversation fetch timed out; live messages will still appear.",
+      "loadDetailFailed": "Failed to load session detail.",
+      "loadEarlierFailed": "Failed to load earlier messages."
+    },
+    "title": {
+      "collapse": "Collapse title",
+      "expand": "Expand title"
+    },
+    "phase": {
+      "notStarted": "Not started",
+      "inProgress": "In progress",
+      "turnCompleted": "Turn completed",
+      "sessionFailed": "Conversation failed",
+      "waitingApproval": "Awaiting approval",
+      "lastTurnCompleted": "Last turn completed",
+      "pendingStart": "Not started · send a message to begin",
+      "conversationStart": "Conversation start"
+    },
+    "error": {
+      "interruptFailedPrefix": "Stop failed: {{message}}",
+      "interruptFailed": "Stop failed, please check the server connection.",
+      "sessionFailed": "Conversation failed",
+      "sessionFailedGateway": "Conversation failed · gateway {{status}}",
+      "sessionFailedGatewayRetry": "Conversation failed · gateway {{status}} (retry {{attempt}}/{{max}})",
+      "retryHeadline": "Retry {{attempt}}{{max}}",
+      "retryHeadlineMax": "Retry {{attempt}}/{{max}}",
+      "retryHeadlineGateway": "Retry {{attempt}}{{max}} · gateway {{status}}",
+      "retryHintBusy": "⏳ Gateway busy, retrying {{attempt}}/{{max}}"
+    },
+    "composer": {
+      "claudeRunning": "Claude Code is running; stop it to continue typing.",
+      "userDefault": "user default"
+    },
+    "approval": {
+      "requestLabel": "APPROVAL REQUEST",
+      "pendingSyncHint": "An approval event was detected; the full action data is still syncing. Pull to refresh and resolve it here, or open Approvals from the home screen.",
+      "fallbackTitle": "Approval requested",
+      "fallbackSummary": "The assistant is waiting for approval.",
+      "pendingOne": "1 approval pending",
+      "pendingMany": "{{count}} approvals pending",
+      "jumpLabel": "Jump to pending approval"
+    },
+    "offline": {
+      "title": "Device offline · read-only",
+      "detail": "This device is unreachable. Send / approve / control are paused, but you can still browse history."
+    },
+    "empty": {
+      "offlineTitle": "Desktop Agent offline — can't sync history",
+      "offlineDetail": "The full history for this conversation lives on the desktop Agent and can only be fetched when it's online. Make sure the Agent is running and connected, then pull to refresh.",
+      "failedTitle": "History fetch failed",
+      "failedDetail": "Something went wrong fetching history from the desktop Agent — possibly a network blip or a data-format issue. Pull to refresh; if it keeps failing, try again later.",
+      "summaryTitle": "Only a summary for now",
+      "summaryDetail": "The backend has synced this VibeCoding's title, status, or message count, but no viewable message bodies yet. Once the Agent is online and supports history detail, pull to refresh to fill them in.",
+      "blankTitle": "No conversation yet",
+      "blankDetail": "This conversation has no messages yet. Pull to sync history; if it's new, send a message below to start.",
+      "noMoreEarlier": "No earlier messages",
+      "retry": "Retry",
+      "pullOrTapRefresh": "Pull or tap to refresh",
+      "historySummaryLabel": "HISTORY SUMMARY",
+      "summaryMeta": "{{count}} messages · {{model}}"
+    },
+    "quickActions": {
+      "filesLabel": "Files",
+      "filesSubtitle": "Browse code",
+      "terminalLabel": "Terminal",
+      "terminalSubtitle": "Open terminal",
+      "refreshLatest": "Refresh latest conversation"
+    }
   }
 }

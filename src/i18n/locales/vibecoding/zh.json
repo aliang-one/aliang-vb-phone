@@ -157,5 +157,82 @@
     "roleSystem": "SYSTEM",
     "noPreview": "（无文本预览）",
     "hint": "拖动右侧轨道定位到某条对话"
+  },
+  "session": {
+    "draftTitle": "新建对话",
+    "loading": {
+      "subtitle": "LOADING",
+      "loadingSession": "正在加载会话...",
+      "syncHistory": "同步会话历史...",
+      "fetchingFull": "正在拉取完整会话内容...",
+      "syncEarlier": "正在同步更早的会话内容...",
+      "detailTimeout": "完整会话内容拉取超时，实时消息会继续显示。",
+      "loadDetailFailed": "Failed to load session detail.",
+      "loadEarlierFailed": "Failed to load earlier messages."
+    },
+    "title": {
+      "collapse": "收起标题",
+      "expand": "展开标题"
+    },
+    "phase": {
+      "notStarted": "待开始",
+      "inProgress": "进行中",
+      "turnCompleted": "本轮完成",
+      "sessionFailed": "会话失败",
+      "waitingApproval": "等待审批",
+      "lastTurnCompleted": "上一轮已完成",
+      "pendingStart": "待开始 · 发送消息开始对话",
+      "conversationStart": "会话开始"
+    },
+    "error": {
+      "interruptFailedPrefix": "停止失败：{{message}}",
+      "interruptFailed": "停止失败，请检查服务端连接。",
+      "sessionFailed": "会话失败",
+      "sessionFailedGateway": "会话失败 · 网关 {{status}}",
+      "sessionFailedGatewayRetry": "会话失败 · 网关 {{status}}（重试 {{attempt}}/{{max}}）",
+      "retryHeadline": "重试 {{attempt}}{{max}}",
+      "retryHeadlineMax": "重试 {{attempt}}/{{max}}",
+      "retryHeadlineGateway": "重试 {{attempt}}{{max}} · 网关 {{status}}",
+      "retryHintBusy": "⏳ 网关繁忙，重试中 {{attempt}}/{{max}}"
+    },
+    "composer": {
+      "claudeRunning": "Claude Code 正在运行，停止后可继续输入。",
+      "userDefault": "用户默认"
+    },
+    "approval": {
+      "requestLabel": "APPROVAL REQUEST",
+      "pendingSyncHint": "已识别到审批事件，完整操作数据仍在同步中。下拉刷新后可在这里处理，或从首页进入 Approvals。",
+      "fallbackTitle": "Approval requested",
+      "fallbackSummary": "The assistant is waiting for approval.",
+      "pendingOne": "1 个待审批",
+      "pendingMany": "{{count}} 个待审批",
+      "jumpLabel": "跳转到待审批"
+    },
+    "offline": {
+      "title": "设备离线 · 只读模式",
+      "detail": "该设备不可达，发送 / 审批 / 控制已暂停，仍可查看历史。"
+    },
+    "empty": {
+      "offlineTitle": "桌面 Agent 未连接，暂无法同步历史",
+      "offlineDetail": "该会话的完整历史保存在电脑端 Agent 上，需要 Agent 在线才能拉取。请确认 Agent 已运行并联网后，下拉刷新重试。",
+      "failedTitle": "历史拉取失败",
+      "failedDetail": "从桌面 Agent 拉取历史时出错，可能是网络抖动或数据格式异常。请下拉刷新重试；若持续失败，可稍后再试。",
+      "summaryTitle": "暂时只有会话摘要",
+      "summaryDetail": "后端已同步到这段 VibeCoding 的标题、状态或消息数量，但还没有可展示的消息正文。Agent 在线并支持历史详情后，下拉刷新即可补齐内容。",
+      "blankTitle": "暂无会话记录",
+      "blankDetail": "该会话目前没有消息。下拉可同步历史；若这是新会话，可在下方发送消息开始对话。",
+      "noMoreEarlier": "已是最早的消息",
+      "retry": "重试",
+      "pullOrTapRefresh": "下拉或点击刷新",
+      "historySummaryLabel": "HISTORY SUMMARY",
+      "summaryMeta": "{{count}} 条消息 · {{model}}"
+    },
+    "quickActions": {
+      "filesLabel": "文件",
+      "filesSubtitle": "浏览代码",
+      "terminalLabel": "终端",
+      "terminalSubtitle": "打开终端",
+      "refreshLatest": "刷新最新会话"
+    }
   }
 }

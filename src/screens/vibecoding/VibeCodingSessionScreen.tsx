@@ -22,6 +22,7 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
@@ -286,6 +287,7 @@ ConversationScrubberLayer.displayName = 'ConversationScrubberLayer';
 
 export const VibeCodingSessionScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('vibecoding');
   const navigation = useNavigation<Navigation>();
   const route = useRoute<SessionRoute>();
   // Fine-grained selectors: subscribe only to the specific session/project/
@@ -304,7 +306,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
       isDraft && draftConfig
         ? {
             id: '__draft__',
-            title: '新建对话',
+            title: t('session.draftTitle'),
             deviceId: draftConfig.deviceId,
             projectId: draftConfig.projectId ?? '',
             directory: draftConfig.directory,
@@ -324,7 +326,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
             structuredEvents: [],
           }
         : null,
-    [isDraft, draftConfig],
+    [isDraft, draftConfig, t],
   );
   const liveSession = useVibeRun(createdSessionId);
   const cachedSessionRef = useRef<VibeCodingRun | null>(null);
@@ -682,7 +684,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     const detailLoad = loadAgentSessionDetail(targetSessionId);
     const timeout = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(
-        () => reject(new Error('完整会话内容拉取超时，实时消息会继续显示。')),
+        () => reject(new Error(t('session.loading.detailTimeout'))),
         DETAIL_LOAD_TIMEOUT_MS,
       );
     });
@@ -697,7 +699,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
           setDetailError(
             error instanceof Error
               ? error.message
-              : 'Failed to load session detail.',
+              : t('session.loading.loadDetailFailed'),
           );
         }
       })
@@ -723,6 +725,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     detailFetchUnavailable,
     hasDetail,
     loadAgentSessionDetail,
+    t,
     targetSessionId,
   ]);
 
@@ -753,12 +756,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
       setDetailError(
         error instanceof Error
           ? error.message
-          : 'Failed to load session detail.',
+          : t('session.loading.loadDetailFailed'),
       );
     } finally {
       setRefreshingLatest(false);
     }
-  }, [loadAgentSessionDetail, targetSessionId]);
+  }, [loadAgentSessionDetail, t, targetSessionId]);
 
   // Capture the topmost visible message so the viewport can be pinned to it
   // once older messages are prepended above (otherwise prepending content
@@ -798,7 +801,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
         setDetailError(
           error instanceof Error
             ? error.message
-            : 'Failed to load earlier messages.',
+            : t('session.loading.loadEarlierFailed'),
         );
       } finally {
         setLoadingEarlier(false);
@@ -810,6 +813,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     hasServerEarlierMessages,
     loadEarlierAgentMessages,
     loadingEarlier,
+    t,
     targetSessionId,
     turnList,
   ]);
@@ -1317,8 +1321,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
       byId.set(input.id, {
         id: input.id,
         kind: 'client_response',
-        title: input.title || 'Approval requested',
-        summary: input.detail || 'The assistant is waiting for approval.',
+        title: input.title || t('session.approval.fallbackTitle'),
+        summary: input.detail || t('session.approval.fallbackSummary'),
         deviceId: session.deviceId,
         projectId: session.projectId,
         sessionId: session.id,
@@ -1355,7 +1359,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
       (left, right) =>
         Date.parse(right.createdAt) - Date.parse(left.createdAt),
     );
-  }, [focusedApproval, sessionApprovalEvents, session, sessionApprovals]);
+  }, [focusedApproval, sessionApprovalEvents, session, sessionApprovals, t]);
   const pendingApprovals = useMemo(
     () => approvals.filter(approval => approval.status === 'pending'),
     [approvals],
@@ -1404,21 +1408,49 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // (potentially long, 30s–3min) retry window. Clears automatically when the
   // server stops retrying (retry_active=false on the next publish).
   const retryHeadline = session?.retryActive
-    ? `重试 ${session.retryAttempt ?? '?'}${session.retryMax ? `/${session.retryMax}` : ''}${session.retryErrorStatus ? ` · 网关 ${session.retryErrorStatus}` : ''}`
+    ? (session.retryMax
+        ? session.retryErrorStatus
+          ? t('session.error.retryHeadlineGateway', {
+              attempt: session.retryAttempt ?? '?',
+              max: `/${session.retryMax}`,
+              status: session.retryErrorStatus,
+            })
+          : t('session.error.retryHeadlineMax', {
+              attempt: session.retryAttempt ?? '?',
+              max: `/${session.retryMax}`,
+            })
+        : session.retryErrorStatus
+          ? t('session.error.retryHeadlineGateway', {
+              attempt: session.retryAttempt ?? '?',
+              max: '',
+              status: session.retryErrorStatus,
+            })
+          : t('session.error.retryHeadline', {
+              attempt: session.retryAttempt ?? '?',
+              max: '',
+            }))
     : undefined;
   // Structured failure cause for the failed-phase, so the bubble shows
   // "会话失败 · 网关 502（重试 10/10）" instead of a bare "会话失败".
   const failedLabel = session?.lastErrorStatus
-    ? `会话失败 · 网关 ${session.lastErrorStatus}${session.lastRetryMax ? `（重试 ${session.lastRetryAttempt ?? '?'}/${session.lastRetryMax}）` : ''}`
-    : '会话失败';
+    ? session.lastRetryMax
+      ? t('session.error.sessionFailedGatewayRetry', {
+          status: session.lastErrorStatus,
+          attempt: session.lastRetryAttempt ?? '?',
+          max: session.lastRetryMax,
+        })
+      : t('session.error.sessionFailedGateway', {
+          status: session.lastErrorStatus,
+        })
+    : t('session.error.sessionFailed');
   const bottomPulseHeadline = isDraft
-    ? '待开始 · 发送消息开始对话'
+    ? t('session.phase.pendingStart')
     : sessionPhase === 'failed'
       ? failedLabel
       : sessionPhase === 'completed'
-        ? '上一轮已完成'
+        ? t('session.phase.lastTurnCompleted')
         : sessionPhase === 'waiting_approval'
-          ? '等待审批'
+          ? t('session.phase.waitingApproval')
           : retryHeadline ?? livePulse?.headline;
   // failed 相位不再锁 composer:失败只是「上一轮没收到回复」,会话仍可继续——发新
   // 消息(或点失败消息旁的「重试」)会经服务端 claimAiSessionForRun 把 error 翻回
@@ -1426,7 +1458,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const composerReadOnlyReason = isDraft
     ? undefined
     : shouldDisableComposerForProvider
-      ? 'Claude Code 正在运行，停止后可继续输入。'
+      ? t('session.composer.claudeRunning')
       : undefined;
   // 停止按钮显隐:与顶部相位 / composer 锁同源(看 isSessionLive),不裸读 session.status。
   // 旧版用 `serviceThinksRunning`(裸 status)会在回合答完后 status 卡陈旧 running 时,
@@ -1455,8 +1487,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
         console.warn('[vibecoding] failed to interrupt turn', error);
         setDetailError(
           error instanceof Error
-            ? `停止失败：${error.message}`
-            : '停止失败，请检查服务端连接。',
+            ? t('session.error.interruptFailedPrefix', { message: error.message })
+            : t('session.error.interruptFailed'),
         );
       })
       .finally(() => setInterruptingTurn(false));
@@ -1464,6 +1496,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     canInterruptTurn,
     interruptAgentSession,
     session,
+    t,
     voiceStt.status,
     voiceStt.stop,
   ]);
@@ -1597,7 +1630,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 { color: theme.colors.primary },
               ]}
             >
-              APPROVAL REQUEST
+              {t('session.approval.requestLabel')}
             </Text>
             <Text
               numberOfLines={2}
@@ -1659,7 +1692,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               { color: theme.colors.tertiary },
             ]}
           >
-            已识别到审批事件，完整操作数据仍在同步中。下拉刷新后可在这里处理，或从首页进入 Approvals。
+            {t('session.approval.pendingSyncHint')}
           </Text>
         ) : pending && optionChoices.length ? (
           <View style={styles.approvalOptionActions}>
@@ -1736,7 +1769,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               { color: theme.colors.onSurfaceVariant },
             ]}
           >
-            {detailError || '正在加载会话...'}
+            {detailError || t('session.loading.loadingSession')}
           </Text>
         </View>
       </SafeAreaWrapper>
@@ -1757,17 +1790,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
   } = (() => {
     if (deviceOffline || session?.detailRefreshStatus === 'skipped_offline') {
       return {
-        title: '桌面 Agent 未连接，暂无法同步历史',
-        detail:
-          '该会话的完整历史保存在电脑端 Agent 上，需要 Agent 在线才能拉取。请确认 Agent 已运行并联网后，下拉刷新重试。',
+        title: t('session.empty.offlineTitle'),
+        detail: t('session.empty.offlineDetail'),
         tone: 'offline' as const,
       };
     }
     if (session?.detailRefreshStatus === 'failed') {
       return {
-        title: '历史拉取失败',
-        detail:
-          '从桌面 Agent 拉取历史时出错，可能是网络抖动或数据格式异常。请下拉刷新重试；若持续失败，可稍后再试。',
+        title: t('session.empty.failedTitle'),
+        detail: t('session.empty.failedDetail'),
         tone: 'error' as const,
       };
     }
@@ -1776,16 +1807,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
       Boolean(session?.title || session?.objective || session?.currentStep)
     ) {
       return {
-        title: '暂时只有会话摘要',
-        detail:
-          '后端已同步到这段 VibeCoding 的标题、状态或消息数量，但还没有可展示的消息正文。Agent 在线并支持历史详情后，下拉刷新即可补齐内容。',
+        title: t('session.empty.summaryTitle'),
+        detail: t('session.empty.summaryDetail'),
         tone: 'neutral' as const,
       };
     }
     return {
-      title: '暂无会话记录',
-      detail:
-        '该会话目前没有消息。下拉可同步历史；若这是新会话，可在下方发送消息开始对话。',
+      title: t('session.empty.blankTitle'),
+      detail: t('session.empty.blankDetail'),
       tone: 'neutral' as const,
     };
   })();
@@ -1811,9 +1840,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const effective = session.effectiveModelConfig;
   const effectiveLabel = effective
     ? [
-        `model=${effective.model || '用户默认'}`,
+        `model=${effective.model || t('session.composer.userDefault')}`,
         effective.source?.model ? `(${effective.source.model})` : '',
-        `· effort=${effective.effort || '用户默认'}`,
+        `· effort=${effective.effort || t('session.composer.userDefault')}`,
         effective.source?.effort ? `(${effective.source.effort})` : '',
       ]
         .filter(Boolean)
@@ -1856,7 +1885,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
         rightAction={
           <View style={styles.topStatusCluster}>
             <StatusChip
-              label={isDraft ? '待开始' : sessionPhaseLabel[sessionPhase]}
+              label={isDraft ? t('session.phase.notStarted') : sessionPhaseLabel[sessionPhase]}
               type={isDraft ? 'neutral' : sessionPhaseType[sessionPhase]}
             />
             <Text
@@ -1886,7 +1915,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               onRefresh={handleRefresh}
               tintColor={theme.colors.primary}
               colors={[theme.colors.primary]}
-              title="同步会话历史..."
+              title={t('session.loading.syncHistory')}
               titleColor={theme.colors.onSurfaceVariant}
             />
           }
@@ -1924,7 +1953,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                     { color: theme.colors.error, fontWeight: '700' },
                   ]}
                 >
-                  设备离线 · 只读模式
+                  {t('session.offline.title')}
                 </Text>
                 <Text
                   style={[
@@ -1932,7 +1961,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                     { color: theme.colors.onSurfaceVariant },
                   ]}
                 >
-                  该设备不可达，发送 / 审批 / 控制已暂停，仍可查看历史。
+                  {t('session.offline.detail')}
                 </Text>
               </View>
             </View>
@@ -1987,7 +2016,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                       <TouchableOpacity
                         activeOpacity={0.5}
                         accessibilityLabel={
-                          titleExpanded ? '收起标题' : '展开标题'
+                          titleExpanded ? t('session.title.collapse') : t('session.title.expand')
                         }
                         accessibilityRole="button"
                         onPress={() => setTitleExpanded(value => !value)}
@@ -2079,7 +2108,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
             <TouchableOpacity
               activeOpacity={0.7}
               disabled={deviceOffline}
-              accessibilityLabel="文件"
+              accessibilityLabel={t('session.quickActions.filesLabel')}
               accessibilityRole="button"
               onPress={() =>
                 navigation.navigate('FileBrowser', {
@@ -2113,7 +2142,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                       { color: theme.colors.onSurfaceVariant },
                     ]}
                     numberOfLines={1}>
-                    浏览代码
+                    {t('session.quickActions.filesSubtitle')}
                   </Text>
                 </View>
                 <Text
@@ -2128,7 +2157,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
             <TouchableOpacity
               activeOpacity={0.7}
               disabled={deviceOffline}
-              accessibilityLabel="终端"
+              accessibilityLabel={t('session.quickActions.terminalLabel')}
               accessibilityRole="button"
               onPress={() =>
                 navigation.navigate('DeviceTerminal', {
@@ -2161,7 +2190,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                       { color: theme.colors.onSurfaceVariant },
                     ]}
                     numberOfLines={1}>
-                    打开终端
+                    {t('session.quickActions.terminalSubtitle')}
                   </Text>
                 </View>
                 <Text
@@ -2264,7 +2293,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                         },
                       ]}
                     >
-                      {detailError || '正在同步更早的会话内容...'}
+                      {detailError || t('session.loading.syncEarlier')}
                     </Text>
                   </GlassPanel>
                 ) : null}
@@ -2315,7 +2344,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                         { color: theme.colors.secondary },
                       ]}
                     >
-                      会话开始
+                      {t('session.phase.conversationStart')}
                     </Text>
                     {conversationBoundaryStart ? (
                       <Text
@@ -2412,7 +2441,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
                           { color: theme.colors.tertiary },
                         ]}
                       >
-                        {`⏳ 网关繁忙，重试中 ${session.retryAttempt ?? '?'}/${session.retryMax ?? '?'}${session.retryErrorStatus ? ` · ${session.retryErrorStatus}` : ''}`}
+                        {t('session.error.retryHintBusy', {
+                          attempt: session.retryAttempt ?? '?',
+                          max: session.retryMax ?? '?',
+                        })}
                       </Text>
                     </View>
                   ) : null}
@@ -2461,12 +2493,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
                       ]}
                     >
                       {isDraft
-                        ? '待开始'
+                        ? t('session.phase.notStarted')
                         : sessionPhase === 'completed'
-                        ? '本轮完成'
+                        ? t('session.phase.turnCompleted')
                         : sessionPhase === 'failed'
-                        ? '会话失败'
-                        : '进行中'}
+                        ? t('session.phase.sessionFailed')
+                        : t('session.phase.inProgress')}
                     </Text>
                     {conversationBoundaryEnd ? (
                       <Text
@@ -2490,7 +2522,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                     { color: theme.colors.onSurfaceVariant },
                   ]}
                 >
-                  {refreshing ? '正在同步会话历史...' : '正在拉取完整会话内容...'}
+                  {refreshing ? t('session.loading.syncHistory') : t('session.loading.fetchingFull')}
                 </Text>
               </GlassPanel>
             ) : detailError ? (
@@ -2514,7 +2546,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                       { color: theme.colors.primary },
                     ]}
                   >
-                    重试
+                    {t('session.empty.retry')}
                   </Text>
                 </TouchableOpacity>
               </GlassPanel>
@@ -2541,7 +2573,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                         },
                       ]}
                     >
-                      HISTORY SUMMARY
+                      {t('session.empty.historySummaryLabel')}
                     </Text>
                     <Text
                       numberOfLines={2}
@@ -2620,7 +2652,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                       },
                     ]}
                   >
-                    下拉或点击刷新
+                    {t('session.empty.pullOrTapRefresh')}
                   </Text>
                 </TouchableOpacity>
               </GlassPanel>
@@ -2783,7 +2815,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                     disabled={refreshingLatest}
                     onPress={handleRefreshLatest}
                     style={styles.timelineBadgeRefresh}
-                    accessibilityLabel="刷新最新会话"
+                    accessibilityLabel={t('session.quickActions.refreshLatest')}
                     accessibilityRole="button">
                     {refreshingLatest ? (
                       <ActivityIndicator
@@ -2824,7 +2856,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 theme.typography.labelSm,
                 { color: theme.colors.onSurface },
               ]}>
-              已是最早的消息
+              {t('session.empty.noMoreEarlier')}
             </Text>
           </View>
         ) : null}
@@ -2873,7 +2905,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
             <TouchableOpacity
               activeOpacity={0.82}
               accessibilityRole="button"
-              accessibilityLabel="跳转到待审批"
+              accessibilityLabel={t('session.approval.jumpLabel')}
               onPress={() => handleJumpToApproval(topPendingApproval.id)}
               style={[
                 styles.pendingApprovalBubble,
@@ -2895,8 +2927,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
                   numberOfLines={1}
                 >
                   {pendingApprovals.length > 1
-                    ? `${pendingApprovals.length} 个待审批`
-                    : '1 个待审批'}
+                    ? t('session.approval.pendingMany', { count: pendingApprovals.length })
+                    : t('session.approval.pendingOne')}
                 </Text>
                 <Text
                   style={[
