@@ -32,6 +32,7 @@ import {
   TerminalEmulatorHandle,
 } from '../../components/terminal/TerminalEmulator';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
 import { RootStackParamList } from '../../app/navigation/types';
 import {
   useControlCenterStore,
@@ -162,6 +163,7 @@ const testIdSlug = (value: string) =>
 
 export const DeviceTerminalScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('devices');
   const navigation = useNavigation<Navigation>();
   const route = useRoute<DeviceTerminalRoute>();
   const initialCommand = route.params.initialCommand;
@@ -803,7 +805,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                       { color: theme.colors.onSurface },
                     ]}
                   >
-                    语音命令: {voiceCommandBanner}
+                    {t('terminal.voiceCommand', { command: voiceCommandBanner })}
                   </Text>
                   <TouchableOpacity
                     testID="terminal-voice-banner-dismiss"
@@ -1181,7 +1183,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                             theme.typography.labelSm,
                             { color: theme.colors.primary },
                           ]}>
-                          重试
+                          {t('terminal.retry')}
                         </Text>
                       </TouchableOpacity>
                     ) : null}
@@ -1400,7 +1402,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                         { color: theme.colors.primary },
                       ]}
                     >
-                      语音
+                      {t('terminal.voice')}
                     </Text>
                   </TouchableOpacity>
                 </ScrollView>

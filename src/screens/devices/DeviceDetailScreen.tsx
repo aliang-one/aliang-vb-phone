@@ -4,6 +4,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { DeferredMount } from '../../components/shared/DeferredMount';
@@ -79,6 +80,7 @@ const formatBytes = (bytes: number) => {
 
 export const DeviceDetailScreen: React.FC = () => {
   const { theme } = useTheme();
+  const { t } = useTranslation('devices');
   const navigation = useNavigation<Navigation>();
   const route = useRoute<DeviceRoute>();
   const devices = useControlCenterStore(state => state.devices);
@@ -343,7 +345,7 @@ export const DeviceDetailScreen: React.FC = () => {
         ) : (
           <GlassPanel style={styles.emptyTerminalCard}>
             <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-              暂无进行中的终端。点击上方 Terminal 开启一个远程 shell。
+              {t('detail.emptyTerminal')}
             </Text>
           </GlassPanel>
         )}

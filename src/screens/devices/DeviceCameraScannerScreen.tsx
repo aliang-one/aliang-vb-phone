@@ -12,6 +12,8 @@ import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCameraPermission } from 'react-native-vision-camera';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
@@ -33,20 +35,21 @@ type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 type Phase = 'idle' | 'confirming' | 'working' | 'success' | 'error';
 
-// Map an official-website scan-login error to a user-facing Chinese message.
+// Map an official-website scan-login error to a user-facing message.
 // 404 = 扫码不存在/过期;409 = 状态不对(已被别处确认/拒绝);401 = 手机未登录。
-function describeScanError(error: unknown): string {
+function describeScanError(error: unknown, t: TFunction): string {
   if (error instanceof ApiResponseError) {
-    if (error.status === 404) return '二维码不存在或已过期，请重新扫描。';
-    if (error.status === 409) return '该二维码状态已变化，请重新扫描。';
-    if (error.status === 401) return '请先登录手机端后再扫码。';
+    if (error.status === 404) return t('scanner.error.notFound');
+    if (error.status === 409) return t('scanner.error.conflict');
+    if (error.status === 401) return t('scanner.error.unauthorized');
     return error.message;
   }
-  return error instanceof Error ? error.message : '扫码登录失败，请重试。';
+  return error instanceof Error ? error.message : t('scanner.error.fallback');
 }
 
 export const DeviceCameraScannerScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('devices');
   const navigation = useNavigation<Navigation>();
   const isFocused = useIsFocused();
   const { hasPermission, canRequestPermission, requestPermission, status } =
@@ -68,7 +71,7 @@ export const DeviceCameraScannerScreen: React.FC = () => {
   const handleRequestPermission = async () => {
     const granted = await requestPermission();
     if (!granted) {
-      setMessage('未获得摄像头权限。');
+      setMessage(t('scanner.permissionDenied'));
     }
   };
 
@@ -76,7 +79,7 @@ export const DeviceCameraScannerScreen: React.FC = () => {
   const handleScannedValue = async (rawValue?: string) => {
     const code = extractScanCode(rawValue ?? '');
     if (!code) {
-      setMessage('无法识别的二维码。请扫描桌面端「扫码登录」显示的二维码。');
+      setMessage(t('scanner.unrecognized'));
       return;
     }
     if (phase === 'working' || phase === 'confirming') {
@@ -91,7 +94,7 @@ export const DeviceCameraScannerScreen: React.FC = () => {
       setPhase('confirming');
     } catch (error) {
       setPhase('error');
-      setMessage(describeScanError(error));
+      setMessage(describeScanError(error, t));
     }
   };
 
@@ -102,13 +105,13 @@ export const DeviceCameraScannerScreen: React.FC = () => {
     try {
       await scanLoginConfirm(scanCode); // scanned→authorized,桌面 agent 登录并自动注册设备
       setPhase('success');
-      setMessage('登录成功，设备正在连接，稍后将在列表出现。');
+      setMessage(t('scanner.successMessage'));
       // agent 登录后会自动 register_sync 把设备注册到该用户名下;刷新设备列表。
       void refreshFromServer().catch(() => {});
       setTimeout(() => navigation.goBack(), 1600);
     } catch (error) {
       setPhase('error');
-      setMessage(describeScanError(error));
+      setMessage(describeScanError(error, t));
     }
   };
 
@@ -128,12 +131,12 @@ export const DeviceCameraScannerScreen: React.FC = () => {
   return (
     <SafeAreaWrapper>
       <TopAppBar
-        title="扫码登录"
-        subtitle="SCAN LOGIN"
+        title={t('scanner.title')}
+        subtitle={t('scanner.subtitle')}
         onBack={navigation.goBack}
         rightAction={
           <StatusChip
-            label={hasPermission ? 'CAMERA ON' : status.toUpperCase()}
+            label={hasPermission ? t('scanner.cameraOn') : status.toUpperCase()}
             type={hasPermission ? 'success' : 'warning'}
           />
         }
@@ -185,7 +188,7 @@ export const DeviceCameraScannerScreen: React.FC = () => {
                     },
                   ]}>
                   <Text style={[theme.typography.labelMd, { color: theme.colors.onPrimary }]}>
-                    重新扫描
+                    {t('scanner.rescan')}
                   </Text>
                 </TouchableOpacity>
               ) : null}
@@ -194,17 +197,17 @@ export const DeviceCameraScannerScreen: React.FC = () => {
             <View style={styles.permissionPanel}>
               <IconBadge name="scan" tone="primary" size={72} iconSize={36} />
               <Text style={[theme.typography.titleLg, { color: theme.colors.onSurface }]}>
-                需要摄像头权限
+                {t('scanner.permissionTitle')}
               </Text>
               <Text
                 style={[
                   theme.typography.bodySm,
                   { color: theme.colors.onSurfaceVariant, textAlign: 'center' },
                 ]}>
-                扫描桌面端「扫码登录」二维码,确认后即可在该电脑登录并绑定设备。
+                {t('scanner.permissionBody')}
               </Text>
               <GlowButton
-                title={canRequestPermission ? '允许摄像头' : '打开设置'}
+                title={canRequestPermission ? t('scanner.allowCamera') : t('scanner.openSettings')}
                 onPress={
                   canRequestPermission
                     ? handleRequestPermission
@@ -255,12 +258,12 @@ export const DeviceCameraScannerScreen: React.FC = () => {
               <View style={styles.resultTitle}>
                 <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
                   {phase === 'confirming'
-                    ? '确认在桌面端登录?'
+                    ? t('scanner.confirmTitle')
                     : phase === 'working'
-                    ? '处理中…'
+                    ? t('scanner.workingTitle')
                     : phase === 'success'
-                    ? '登录成功'
-                    : '扫码登录失败'}
+                    ? t('scanner.successTitle')
+                    : t('scanner.errorTitle')}
                 </Text>
                 <Text
                   numberOfLines={1}
@@ -298,7 +301,7 @@ export const DeviceCameraScannerScreen: React.FC = () => {
             ) : null}
             {phase === 'confirming' ? (
               <View style={styles.confirmRow}>
-                <GlowButton title="确认登录" onPress={handleConfirm} variant="primary" />
+                <GlowButton title={t('scanner.confirmLogin')} onPress={handleConfirm} variant="primary" />
                 <TouchableOpacity
                   activeOpacity={0.75}
                   onPress={handleDeny}
@@ -310,13 +313,13 @@ export const DeviceCameraScannerScreen: React.FC = () => {
                     },
                   ]}>
                   <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
-                    取消
+                    {t('scanner.cancel')}
                   </Text>
                 </TouchableOpacity>
               </View>
             ) : null}
             {phase === 'error' ? (
-              <GlowButton title="重新扫描" onPress={reset} variant="primary" />
+              <GlowButton title={t('scanner.rescan')} onPress={reset} variant="primary" />
             ) : null}
           </GlassPanel>
         ) : null}
@@ -326,17 +329,17 @@ export const DeviceCameraScannerScreen: React.FC = () => {
             <IconBadge name="code" tone="neutral" size={36} iconSize={18} />
             <View style={styles.resultTitle}>
               <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                手动输入
+                {t('scanner.manualTitle')}
               </Text>
               <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                没有摄像头时,可粘贴 sc_ 扫码进行测试。
+                {t('scanner.manualHint')}
               </Text>
             </View>
           </View>
           <TextInput
             autoCapitalize="none"
             autoCorrect={false}
-            placeholder="sc_..."
+            placeholder={t('scanner.manualPlaceholder')}
             placeholderTextColor={theme.colors.onSurfaceVariant}
             onSubmitEditing={event => handleScannedValue(event.nativeEvent.text)}
             style={[

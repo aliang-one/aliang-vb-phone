@@ -3,6 +3,7 @@ import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
 import { GlassPanel } from '../shared/GlassPanel';
 import { IconBadge } from '../visual/IconBadge';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
 import { platformTransport } from '../../services/platformTransport';
 import { CustomApprovalRulesSheet } from '../projects/CustomApprovalRulesSheet';
 import type { ApprovalScheme } from '../../api/devices';
@@ -12,10 +13,10 @@ import type { ApprovalScheme } from '../../api/devices';
 // `project.settings.updated` to the agent so it refetches and evaluates
 // locally. Only the "custom" row exposes a gear that opens 开关微调
 // (the balanced-preset rule editor).
-const SCHEMES: { key: ApprovalScheme; label: string; hint: string }[] = [
-  { key: 'balanced', label: 'Balanced', hint: '只读自动放行；改写/危险命令才审批' },
-  { key: 'allow_all', label: 'Allow all', hint: '全部自动放行（仅可信项目）' },
-  { key: 'custom', label: 'Custom', hint: '基于 balanced 自定义规则' },
+const SCHEMES: { key: ApprovalScheme; label: string; hintKey: string }[] = [
+  { key: 'balanced', label: 'Balanced', hintKey: 'approvalPolicy.balancedHint' },
+  { key: 'allow_all', label: 'Allow all', hintKey: 'approvalPolicy.allowAllHint' },
+  { key: 'custom', label: 'Custom', hintKey: 'approvalPolicy.customHint' },
 ];
 
 export function ApprovalPolicyCard({
@@ -26,6 +27,7 @@ export function ApprovalPolicyCard({
   scheme: ApprovalScheme;
 }) {
   const { theme } = useTheme();
+  const { t } = useTranslation('devices');
   const [current, setCurrent] = useState<ApprovalScheme>(scheme);
   const [saving, setSaving] = useState<ApprovalScheme | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -57,7 +59,7 @@ export function ApprovalPolicyCard({
           { color: theme.colors.primary, marginBottom: 8 },
         ]}
       >
-        APPROVAL POLICY
+        {t('approvalPolicy.header')}
       </Text>
       {SCHEMES.map(opt => {
         const active = opt.key === current;
@@ -103,7 +105,7 @@ export function ApprovalPolicyCard({
                 {opt.label}
               </Text>
               <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-                {opt.hint}
+                {t(opt.hintKey)}
               </Text>
             </View>
             {busy ? <ActivityIndicator color={theme.colors.primary} /> : null}
@@ -111,7 +113,7 @@ export function ApprovalPolicyCard({
             {isCustom ? (
               <TouchableOpacity
                 accessibilityRole="button"
-                accessibilityLabel="自定义审批规则"
+                accessibilityLabel={t('approvalPolicy.customRulesLabel')}
                 hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
                 style={{ marginLeft: 10, padding: 4 }}
                 disabled={saving !== null}

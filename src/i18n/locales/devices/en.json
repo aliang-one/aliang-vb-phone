@@ -1,0 +1,60 @@
+{
+  "scanner": {
+    "title": "Scan to log in",
+    "subtitle": "SCAN LOGIN",
+    "cameraOn": "CAMERA ON",
+    "rescan": "Rescan",
+    "permissionTitle": "Camera permission required",
+    "permissionBody": "Scan the \"Scan to log in\" QR code on desktop; once confirmed you can log in and bind the device on that computer.",
+    "allowCamera": "Allow camera",
+    "openSettings": "Open settings",
+    "permissionDenied": "Camera permission not granted.",
+    "unrecognized": "Unrecognized QR code. Please scan the QR code shown by the desktop \"Scan to log in\".",
+    "confirmTitle": "Confirm login on desktop?",
+    "workingTitle": "Processing...",
+    "successTitle": "Login successful",
+    "errorTitle": "Scan login failed",
+    "confirmLogin": "Confirm login",
+    "cancel": "Cancel",
+    "successMessage": "Login successful. The device is connecting and will appear in the list shortly.",
+    "manualTitle": "Manual input",
+    "manualHint": "Without a camera, you can paste an sc_ scan code to test.",
+    "manualPlaceholder": "sc_...",
+    "error": {
+      "notFound": "The QR code does not exist or has expired. Please rescan.",
+      "conflict": "The QR code state has changed. Please rescan.",
+      "unauthorized": "Please log in on the phone before scanning.",
+      "fallback": "Scan login failed. Please retry."
+    }
+  },
+  "terminal": {
+    "voiceCommand": "Voice command: {{command}}",
+    "retry": "Retry",
+    "voice": "Voice"
+  },
+  "detail": {
+    "emptyTerminal": "No active terminals. Tap Terminal above to open a remote shell."
+  },
+  "codeScanner": {
+    "starting": "Starting camera..."
+  },
+  "modelOverride": {
+    "title": "Model selection",
+    "subtitle": "Choose model and effort separately for each Agent",
+    "inheritPlaceholder": "Empty = inherit",
+    "default": "Default",
+    "currentTab": "CURRENT TAB",
+    "saved": "Saved.",
+    "saveFailed": "Save failed, please retry.",
+    "saving": "Saving...",
+    "save": "Save model selection",
+    "upToDate": "Up to date"
+  },
+  "approvalPolicy": {
+    "header": "APPROVAL POLICY",
+    "balancedHint": "Read-only auto-approved; edits/dangerous commands require approval",
+    "allowAllHint": "All auto-approved (trusted projects only)",
+    "customHint": "Custom rules based on Balanced",
+    "customRulesLabel": "Custom approval rules"
+  }
+}

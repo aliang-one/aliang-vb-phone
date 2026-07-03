@@ -6,6 +6,7 @@ import {
   useBarcodeScannerOutput,
 } from 'react-native-vision-camera-barcode-scanner';
 import type { TargetBarcodeFormat } from 'react-native-vision-camera-barcode-scanner';
+import { useTranslation } from 'react-i18next';
 
 interface DeviceCodeScannerProps {
   isActive: boolean;
@@ -23,6 +24,7 @@ export const DeviceCodeScanner: React.FC<DeviceCodeScannerProps> = ({
   onError,
 }) => {
   const devices = useCameraDevices();
+  const { t } = useTranslation('devices');
   const device = useMemo(
     () =>
       devices.find(candidate => candidate.position === 'back') ??
@@ -40,7 +42,7 @@ export const DeviceCodeScanner: React.FC<DeviceCodeScannerProps> = ({
   if (device == null) {
     return (
       <View style={[style, styles.placeholder]}>
-        <Text style={styles.placeholderText}>正在启动摄像头…</Text>
+        <Text style={styles.placeholderText}>{t('codeScanner.starting')}</Text>
       </View>
     );
   }

@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
 import { GlassPanel } from '../shared/GlassPanel';
 import { GlowButton } from '../shared/GlowButton';
 import { IconBadge } from '../visual/IconBadge';
@@ -116,6 +117,7 @@ export const ProjectModelSelectionCard: React.FC<ProjectModelSelectionCardProps>
   legacyOverride,
 }) => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('devices');
   const { providerCatalog, serverDefault } = useModelOptions();
   const [activeProvider, setActiveProvider] = useState<EffortProvider>('codex');
   const [drafts, setDrafts] = useState<Drafts>(() =>
@@ -206,16 +208,16 @@ export const ProjectModelSelectionCard: React.FC<ProjectModelSelectionCardProps>
       setDrafts(nextBaseline);
       setSaved(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存失败,请重试。');
+      setError(err instanceof Error ? err.message : t('modelOverride.saveFailed'));
     } finally {
       setSaving(false);
     }
   };
 
   const activeEffectiveModel =
-    current.model.trim() || serverDefault.model || '默认';
+    current.model.trim() || serverDefault.model || t('modelOverride.default');
   const activeEffectiveEffort =
-    current.effort.trim() || serverDefault.effort || '默认';
+    current.effort.trim() || serverDefault.effort || t('modelOverride.default');
 
   return (
     <GlassPanel style={styles.card}>
@@ -223,12 +225,12 @@ export const ProjectModelSelectionCard: React.FC<ProjectModelSelectionCardProps>
         <IconBadge name="code" tone="primary" size={28} iconSize={14} />
         <View style={styles.headerCopy}>
           <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-            模型选择
+            {t('modelOverride.title')}
           </Text>
           <Text
             style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}
             numberOfLines={1}>
-            每个 Agent 分别选择模型和 effort
+            {t('modelOverride.subtitle')}
           </Text>
         </View>
       </View>
@@ -274,7 +276,7 @@ export const ProjectModelSelectionCard: React.FC<ProjectModelSelectionCardProps>
         onChangeText={value => updateActiveDraft({ model: value })}
         autoCapitalize="none"
         autoCorrect={false}
-        placeholder="留空 = 继承"
+        placeholder={t('modelOverride.inheritPlaceholder')}
         placeholderTextColor={theme.colors.onSurfaceVariant}
         style={[
           theme.typography.bodyMd,
@@ -329,7 +331,7 @@ export const ProjectModelSelectionCard: React.FC<ProjectModelSelectionCardProps>
             theme.typography.labelCaps,
             { color: theme.colors.onSurfaceVariant },
           ]}>
-          当前 TAB
+          {t('modelOverride.currentTab')}
         </Text>
         <Text
           style={[
@@ -349,13 +351,13 @@ export const ProjectModelSelectionCard: React.FC<ProjectModelSelectionCardProps>
       ) : null}
       {saved && !error ? (
         <Text style={[theme.typography.bodySm, { color: theme.colors.secondary }]}>
-          已保存。
+          {t('modelOverride.saved')}
         </Text>
       ) : null}
 
       <GlowButton
         testID="project-model-save"
-        title={saving ? '保存中…' : dirty ? '保存模型选择' : '已是最新'}
+        title={saving ? t('modelOverride.saving') : dirty ? t('modelOverride.save') : t('modelOverride.upToDate')}
         onPress={handleSave}
         disabled={saving || !dirty}
         variant={dirty ? 'primary' : 'outline'}

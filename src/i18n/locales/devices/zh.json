@@ -1,0 +1,60 @@
+{
+  "scanner": {
+    "title": "扫码登录",
+    "subtitle": "SCAN LOGIN",
+    "cameraOn": "CAMERA ON",
+    "rescan": "重新扫描",
+    "permissionTitle": "需要摄像头权限",
+    "permissionBody": "扫描桌面端「扫码登录」二维码,确认后即可在该电脑登录并绑定设备。",
+    "allowCamera": "允许摄像头",
+    "openSettings": "打开设置",
+    "permissionDenied": "未获得摄像头权限。",
+    "unrecognized": "无法识别的二维码。请扫描桌面端「扫码登录」显示的二维码。",
+    "confirmTitle": "确认在桌面端登录?",
+    "workingTitle": "处理中…",
+    "successTitle": "登录成功",
+    "errorTitle": "扫码登录失败",
+    "confirmLogin": "确认登录",
+    "cancel": "取消",
+    "successMessage": "登录成功，设备正在连接，稍后将在列表出现。",
+    "manualTitle": "手动输入",
+    "manualHint": "没有摄像头时,可粘贴 sc_ 扫码进行测试。",
+    "manualPlaceholder": "sc_...",
+    "error": {
+      "notFound": "二维码不存在或已过期，请重新扫描。",
+      "conflict": "该二维码状态已变化，请重新扫描。",
+      "unauthorized": "请先登录手机端后再扫码。",
+      "fallback": "扫码登录失败，请重试。"
+    }
+  },
+  "terminal": {
+    "voiceCommand": "语音命令: {{command}}",
+    "retry": "重试",
+    "voice": "语音"
+  },
+  "detail": {
+    "emptyTerminal": "暂无进行中的终端。点击上方 Terminal 开启一个远程 shell。"
+  },
+  "codeScanner": {
+    "starting": "正在启动摄像头…"
+  },
+  "modelOverride": {
+    "title": "模型选择",
+    "subtitle": "每个 Agent 分别选择模型和 effort",
+    "inheritPlaceholder": "留空 = 继承",
+    "default": "默认",
+    "currentTab": "当前 TAB",
+    "saved": "已保存。",
+    "saveFailed": "保存失败,请重试。",
+    "saving": "保存中…",
+    "save": "保存模型选择",
+    "upToDate": "已是最新"
+  },
+  "approvalPolicy": {
+    "header": "APPROVAL POLICY",
+    "balancedHint": "只读自动放行；改写/危险命令才审批",
+    "allowAllHint": "全部自动放行（仅可信项目）",
+    "customHint": "基于 balanced 自定义规则",
+    "customRulesLabel": "自定义审批规则"
+  }
+}
