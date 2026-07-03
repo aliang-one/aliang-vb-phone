@@ -37,6 +37,7 @@ import { StatusChip } from '../../components/shared/StatusChip';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { TerminalCard } from '../../components/terminals/TerminalCard';
 import { VoiceToBashModal } from '../../components/terminal/VoiceToBashModal';
+import type { DevicePickerEntry } from '../../components/terminal/DevicePicker';
 import type { Device, VibeStatus } from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
 import {
@@ -346,6 +347,18 @@ export const VibeCodingListScreen: React.FC = () => {
     [devices],
   );
   const newTerminalDevice = terminalDeviceChoices[0];
+  // Entries for the voice→bash confirm-step device picker (online + terminal-enabled).
+  const voiceSelectableDevices: DevicePickerEntry[] = useMemo(
+    () =>
+      terminalDeviceChoices.map(d => ({
+        id: d.id,
+        name: d.name,
+        platform: d.os,
+        online: d.status === 'online',
+        cwd: d.authorizedDirectories[0] ?? '~',
+      })),
+    [terminalDeviceChoices],
+  );
   const terminalDevicePageCount = Math.max(
     1,
     Math.ceil(terminalDeviceChoices.length / TERMINAL_DEVICE_PAGE_SIZE),
@@ -485,14 +498,17 @@ export const VibeCodingListScreen: React.FC = () => {
     setVoiceDevice(undefined);
   }, []);
   const handleVoiceConfirm = useCallback(
-    (command: string) => {
+    (command: string, deviceId?: string, cwd?: string) => {
       setVoiceModal(false);
       const targetDevice = voiceTargetDevice;
       setVoiceDevice(undefined);
-      if (!targetDevice) return;
+      // Prefer the AI-chosen device/cwd (if any), else the pre-picked default.
+      const chosenDeviceId = deviceId ?? targetDevice?.id;
+      const chosenCwd = cwd ?? targetDevice?.authorizedDirectories?.[0] ?? '~';
+      if (!chosenDeviceId) return;
       navigation.navigate('DeviceTerminal', {
-        deviceId: targetDevice.id,
-        directory: targetDevice.authorizedDirectories[0] ?? '~',
+        deviceId: chosenDeviceId,
+        directory: chosenCwd,
         initialCommand: command,
       });
     },
@@ -1212,6 +1228,7 @@ export const VibeCodingListScreen: React.FC = () => {
         deviceId={voiceTargetDevice?.id ?? ''}
         cwd={voiceTargetDevice?.authorizedDirectories?.[0] ?? '~'}
         deviceOs={voiceTargetDevice?.os}
+        selectableDevices={voiceSelectableDevices}
         onClose={closeVoiceModal}
         onConfirm={handleVoiceConfirm}
       />
