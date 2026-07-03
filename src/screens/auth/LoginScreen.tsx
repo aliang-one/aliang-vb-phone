@@ -14,7 +14,7 @@ import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
-import { IconBadge } from '../../components/visual/IconBadge';
+import { Logo } from '../../components/visual/Logo';
 import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
 import { useLocale } from '../../i18n/useLocale';
@@ -84,7 +84,7 @@ export const LoginScreen: React.FC = () => {
             ))}
           </View>
           <View style={styles.brandRow}>
-            <IconBadge name="agent" tone="primary" size={52} iconSize={26} filled />
+            <Logo size={52} />
             <View style={styles.brandCopy}>
               <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
                 ALIANG VIBECODING
