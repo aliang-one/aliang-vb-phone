@@ -6,5 +6,87 @@
     "label": "Language",
     "english": "English",
     "chinese": "中文"
+  },
+  "appbar": {
+    "title": "Platform",
+    "subtitle": "SERVICE / CONSOLE / PREFERENCES"
+  },
+  "scan": {
+    "label": "Scan to bind device",
+    "value": "QR",
+    "caption": "Open the camera to scan the desktop Agent QR code"
+  },
+  "loadingConsole": "Loading console…",
+  "sections": {
+    "account": "ACCOUNT",
+    "usage": "USAGE",
+    "subscriptions": "SUBSCRIPTIONS",
+    "modelConfig": "MODEL CONFIG",
+    "platformService": "PLATFORM SERVICE",
+    "capacity": "CAPACITY",
+    "inputMode": "INPUT MODE",
+    "theme": "THEME"
+  },
+  "account": {
+    "notLoggedIn": "Not signed in",
+    "balance": "Balance",
+    "balanceColon": "Balance: ",
+    "unknown": "Unknown",
+    "totalRecharged": "Total recharged",
+    "concurrencyLimit": "Concurrency limit",
+    "requestLimit": "Request limit",
+    "unlimited": "Unlimited"
+  },
+  "usage": {
+    "cost": "Cost",
+    "requests": "Requests",
+    "today": "Today: ",
+    "requestsUnit": "requests",
+    "available": "Available",
+    "notLoaded": "Usage data not loaded"
+  },
+  "subscriptions": {
+    "noneActive": "No active subscriptions",
+    "activeCount": "{{count}} active subscriptions",
+    "groupAccess": "Group access",
+    "remainingDays": "{{count}} d left"
+  },
+  "inputMode": {
+    "voiceFirst": "Voice first",
+    "voiceFirstCaption": "Voice notes are turned into a prompt before sending",
+    "requireConfirmation": "Require confirmation",
+    "requireConfirmationCaption": "Confirm every AI-prepared voice instruction"
+  },
+  "actions": {
+    "refreshAccount": "REFRESH ACCOUNT",
+    "signOut": "SIGN OUT"
+  },
+  "states": {
+    "on": "ON",
+    "active": "ACTIVE",
+    "realtime": "REALTIME",
+    "api": "API",
+    "local": "LOCAL",
+    "group": "GROUP"
+  },
+  "themeOptions": {
+    "system": "SYSTEM",
+    "dark": "DARK",
+    "light": "LIGHT"
+  },
+  "capacity": {
+    "devices": "DEVICES",
+    "sessions": "SESSIONS"
+  },
+  "platform": {
+    "title": "Platform Console",
+    "activeSessions": "{{count}} active sessions",
+    "pending": "PENDING",
+    "metricDevices": "DEVICES",
+    "metricSessions": "SESSIONS",
+    "metersProjects": "Projects",
+    "metersProjectsValue": "{{count}} synced",
+    "metersNotifications": "Notifications",
+    "metersNotificationsValue": "{{unread}}/{{total}} unread"
   }
 }

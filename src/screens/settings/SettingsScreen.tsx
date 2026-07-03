@@ -63,9 +63,9 @@ export const SettingsScreen: React.FC = () => {
   // (profile + scan tile) paints first; later taps thaw an already-mounted
   // tree instantly.
   const themeOptions = [
-    { key: 'system', label: 'SYSTEM' },
-    { key: 'dark', label: 'DARK' },
-    { key: 'light', label: 'LIGHT' },
+    { key: 'system', label: t('themeOptions.system') },
+    { key: 'dark', label: t('themeOptions.dark') },
+    { key: 'light', label: t('themeOptions.light') },
   ] as const;
 
   // Language names are shown in their own script regardless of the active locale
@@ -112,33 +112,36 @@ export const SettingsScreen: React.FC = () => {
     const pendingApprovals = approvals.filter(item => item.status === 'pending');
     const unreadNotifications = notifications.filter(item => !item.read);
     const platformSummary = {
-      title: 'Platform Console',
-      headline: `${activeSessions.length} active sessions`,
+      title: t('platform.title'),
+      headline: t('platform.activeSessions', { count: activeSessions.length }),
       statusLabel: `${onlineDevices.length}/${devices.length || 0} ONLINE`,
       primaryMetric: {
-        label: 'DEVICES',
+        label: t('platform.metricDevices'),
         value: `${onlineDevices.length}/${devices.length || 0}`,
         progress: ratio(onlineDevices.length, devices.length),
       },
       secondaryMetric: {
-        label: 'SESSIONS',
+        label: t('platform.metricSessions'),
         value: `${activeSessions.length}`,
         progress: ratio(activeSessions.length, vibeRuns.length),
         tone: 'secondary' as const,
       },
       sideMetric: {
-        label: 'PENDING',
+        label: t('platform.pending'),
         value: `${pendingApprovals.length}`,
       },
       meters: [
         {
-          label: 'Projects',
-          value: `${projects.length} synced`,
+          label: t('platform.metersProjects'),
+          value: t('platform.metersProjectsValue', { count: projects.length }),
           progress: projects.length ? 100 : 0,
         },
         {
-          label: 'Notifications',
-          value: `${unreadNotifications.length}/${notifications.length || 0} unread`,
+          label: t('platform.metersNotifications'),
+          value: t('platform.metersNotificationsValue', {
+            unread: unreadNotifications.length,
+            total: notifications.length || 0,
+          }),
           progress: ratio(unreadNotifications.length, notifications.length),
           tone: 'secondary' as const,
         },
@@ -146,7 +149,7 @@ export const SettingsScreen: React.FC = () => {
     };
 
     return { platformSummary };
-  }, [devices, vibeRuns, projects, approvals, notifications]);
+  }, [devices, vibeRuns, projects, approvals, notifications, t]);
 
   const handleRefreshAccount = async () => {
     setRefreshingAccount(true);
@@ -218,7 +221,7 @@ export const SettingsScreen: React.FC = () => {
             )}
             {isActive ? (
               <Text style={[theme.typography.labelSm, { color: theme.colors.secondary }]}>
-                剩 {remainingDays} 天
+                {t('subscriptions.remainingDays', { count: remainingDays })}
               </Text>
             ) : null}
           </View>
@@ -230,7 +233,7 @@ export const SettingsScreen: React.FC = () => {
 
   return (
     <SafeAreaWrapper>
-      <TopAppBar title="Platform" subtitle="SERVICE / CONSOLE / PREFERENCES" />
+      <TopAppBar title={t('appbar.title')} subtitle={t('appbar.subtitle')} />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <View style={styles.profile}>
           {avatarUrl ? (
@@ -244,7 +247,7 @@ export const SettingsScreen: React.FC = () => {
             </Text>
             <View style={styles.profileSub}>
               {primaryGroup ? (
-                <StatusChip label={primaryGroup.subscription_type?.toUpperCase() ?? 'GROUP'} type="info" />
+                <StatusChip label={primaryGroup.subscription_type?.toUpperCase() ?? t('states.group')} type="info" />
               ) : null}
               <Text
                 style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}
@@ -254,16 +257,16 @@ export const SettingsScreen: React.FC = () => {
             </View>
           </View>
           <StatusChip
-            label={wsConnected ? 'REALTIME' : serverMode ? 'API' : 'LOCAL'}
+            label={wsConnected ? t('states.realtime') : serverMode ? t('states.api') : t('states.local')}
             type={wsConnected ? 'success' : serverMode ? 'info' : 'neutral'}
           />
         </View>
 
         <ActionTile
           icon="scan"
-          label="扫码绑定设备"
-          value="QR"
-          caption="打开相机扫描电脑端 Agent 二维码"
+          label={t('scan.label')}
+          value={t('scan.value')}
+          caption={t('scan.caption')}
           tone="success"
           onPress={() => navigation.navigate('DeviceCameraScanner')}
           style={styles.scanTile}
@@ -274,37 +277,37 @@ export const SettingsScreen: React.FC = () => {
             <View style={styles.deferredPlaceholder}>
               <ActivityIndicator color={theme.colors.primary} />
               <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                正在加载控制台…
+                {t('loadingConsole')}
               </Text>
             </View>
           }>
           <>
-            {renderSectionTitle('账户 ACCOUNT')}
+            {renderSectionTitle(t('sections.account'))}
             <GlassPanel style={styles.panel}>
               <View style={styles.planHeader}>
                 <View style={styles.planTitle}>
                   <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                    {profile?.username ?? '未登录'}
+                    {profile?.username ?? t('account.notLoggedIn')}
                   </Text>
                   <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                    余额: {balanceDisplay}
+                    {t('account.balanceColon')}{balanceDisplay}
                   </Text>
                 </View>
                 <StatusChip
-                  label={profile?.status ?? '未知'}
+                  label={profile?.status ?? t('account.unknown')}
                   type={profile?.status === 'active' ? 'success' : 'neutral'}
                 />
               </View>
               <View style={styles.divider} />
               <View style={styles.metricGrid}>
-                {renderMetricCell('余额', balanceDisplay)}
-                {renderMetricCell('累计充值', profile?.total_recharged ? `$${(profile.total_recharged ?? 0).toFixed(2)}` : '-')}
-                {renderMetricCell('并发限制', String(profile?.concurrency ?? 0))}
-                {renderMetricCell('请求限制', profile?.rpm_limit ? `${profile.rpm_limit}/min` : '无限制')}
+                {renderMetricCell(t('account.balance'), balanceDisplay)}
+                {renderMetricCell(t('account.totalRecharged'), profile?.total_recharged ? `$${(profile.total_recharged ?? 0).toFixed(2)}` : '-')}
+                {renderMetricCell(t('account.concurrencyLimit'), String(profile?.concurrency ?? 0))}
+                {renderMetricCell(t('account.requestLimit'), profile?.rpm_limit ? `${profile.rpm_limit}/min` : t('account.unlimited'))}
               </View>
             </GlassPanel>
 
-            {renderSectionTitle('用量 USAGE')}
+            {renderSectionTitle(t('sections.usage'))}
             <GlassPanel style={styles.usagePanel}>
               {usageStats ? (
                 <View style={styles.ringsRow}>
@@ -325,66 +328,66 @@ export const SettingsScreen: React.FC = () => {
                     <RingMeter
                       progress={Math.min(100, totalCost * 10)}
                       value={`$${totalCost.toFixed(2)}`}
-                      label="费用"
+                      label={t('usage.cost')}
                       color={theme.colors.secondary}
                       size={98}
                     />
                     <Text
                       style={[theme.typography.labelSm, styles.ringCaption]}
                       numberOfLines={1}>
-                      今日: ${totalCost.toFixed(4)}
+                      {t('usage.today')}${totalCost.toFixed(4)}
                     </Text>
                   </View>
                   <View style={styles.ringCell}>
                     <RingMeter
                       progress={Math.min(100, totalRequests / 100)}
                       value={String(totalRequests)}
-                      label="请求"
+                      label={t('usage.requests')}
                       color={theme.colors.primary}
                       size={98}
                     />
                     <Text
                       style={[theme.typography.labelSm, styles.ringCaption]}
                       numberOfLines={1}>
-                      次请求
+                      {t('usage.requestsUnit')}
                     </Text>
                   </View>
                   <View style={styles.ringCell}>
                     <RingMeter
                       progress={balance > 0 ? Math.min(100, (totalCost / balance) * 100) : 0}
                       value={balanceDisplay}
-                      label="余额"
+                      label={t('account.balance')}
                       color={theme.colors.tertiary}
                       size={98}
                     />
                     <Text
                       style={[theme.typography.labelSm, styles.ringCaption]}
                       numberOfLines={1}>
-                      可用
+                      {t('usage.available')}
                     </Text>
                   </View>
                 </View>
               ) : (
                 <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                  未加载用量数据
+                  {t('usage.notLoaded')}
                 </Text>
               )}
             </GlassPanel>
 
-            {renderSectionTitle('订阅 SUBSCRIPTIONS')}
+            {renderSectionTitle(t('sections.subscriptions'))}
             <GlassPanel style={styles.panel}>
               {subscriptions.length === 0 ? (
                 <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                  暂无活跃订阅
+                  {t('subscriptions.noneActive')}
                 </Text>
               ) : (
                 <>
                   <View style={styles.orderSummaryRow}>
                     <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                      活跃订阅 {subscriptions.length} 个
+                      {t('subscriptions.activeCount', { count: subscriptions.length })}
                     </Text>
                     <Text style={[theme.typography.codeSm, { color: theme.colors.secondary }]}>
-                      分组访问权限
+                      {t('subscriptions.groupAccess')}
                     </Text>
                   </View>
                   <View style={styles.divider} />
@@ -395,16 +398,16 @@ export const SettingsScreen: React.FC = () => {
               )}
             </GlassPanel>
 
-            {renderSectionTitle('模型配置 MODEL CONFIG')}
+            {renderSectionTitle(t('sections.modelConfig'))}
             <UserModelDefaultCard />
 
-            {renderSectionTitle('PLATFORM SERVICE')}
+            {renderSectionTitle(t('sections.platformService'))}
 
             <UsageSummaryCard summary={platformSummary} />
 
             <View style={styles.serviceActions}>
               <GlowButton
-                title="REFRESH ACCOUNT"
+                title={t('actions.refreshAccount')}
                 onPress={handleRefreshAccount}
                 loading={refreshingAccount}
                 variant="secondary"
@@ -412,14 +415,14 @@ export const SettingsScreen: React.FC = () => {
               />
             </View>
 
-            {renderSectionTitle('CAPACITY')}
+            {renderSectionTitle(t('sections.capacity'))}
             <View style={styles.capacityGrid}>
               <GlassPanel style={styles.capacityCard}>
                 <Text style={[theme.typography.headlineMd, { color: theme.colors.secondary }]}>
                   {devices.length}
                 </Text>
                 <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-                  DEVICES
+                  {t('capacity.devices')}
                 </Text>
               </GlassPanel>
               <GlassPanel style={styles.capacityCard}>
@@ -427,43 +430,43 @@ export const SettingsScreen: React.FC = () => {
                   {vibeRuns.length}
                 </Text>
                 <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-                  SESSIONS
+                  {t('capacity.sessions')}
                 </Text>
               </GlassPanel>
             </View>
 
-            {renderSectionTitle('INPUT MODE')}
+            {renderSectionTitle(t('sections.inputMode'))}
             <GlassPanel style={styles.panel}>
               <View style={styles.settingRow}>
                 <View>
                   <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                    Voice first
+                    {t('inputMode.voiceFirst')}
                   </Text>
                   <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                    Voice notes are整理 into a prompt before sending
+                    {t('inputMode.voiceFirstCaption')}
                   </Text>
                 </View>
                 <Text style={[theme.typography.codeSm, { color: theme.colors.secondary }]}>
-                  ON
+                  {t('states.on')}
                 </Text>
               </View>
               <View style={styles.divider} />
               <View style={styles.settingRow}>
                 <View>
                   <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                    Require confirmation
+                    {t('inputMode.requireConfirmation')}
                   </Text>
                   <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                    Confirm every AI-prepared voice instruction
+                    {t('inputMode.requireConfirmationCaption')}
                   </Text>
                 </View>
                 <Text style={[theme.typography.codeSm, { color: theme.colors.secondary }]}>
-                  ON
+                  {t('states.on')}
                 </Text>
               </View>
             </GlassPanel>
 
-            {renderSectionTitle('THEME')}
+            {renderSectionTitle(t('sections.theme'))}
             <GlassPanel style={styles.themePanel}>
               {themeOptions.map(option => (
                 <TouchableOpacity
@@ -493,7 +496,7 @@ export const SettingsScreen: React.FC = () => {
                   </Text>
                   {mode === option.key && (
                     <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-                      ACTIVE
+                      {t('states.active')}
                     </Text>
                   )}
                 </TouchableOpacity>
@@ -530,7 +533,7 @@ export const SettingsScreen: React.FC = () => {
                   </Text>
                   {locale === option.key && (
                     <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-                      ACTIVE
+                      {t('states.active')}
                     </Text>
                   )}
                 </TouchableOpacity>
@@ -538,7 +541,7 @@ export const SettingsScreen: React.FC = () => {
             </GlassPanel>
 
             <GlowButton
-              title="SIGN OUT"
+              title={t('actions.signOut')}
               onPress={handleLogout}
               variant="outline"
               style={styles.logoutBtn}

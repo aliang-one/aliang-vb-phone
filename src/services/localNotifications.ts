@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import i18n from '../i18n';
 
 /**
  * react-native-notify-kit(notifee 归档后的维护 fork,v10)封装。
@@ -42,7 +43,7 @@ export async function ensureChannel(): Promise<void> {
   try {
     await lib.default.createChannel({
       id: CHANNEL_ID,
-      name: 'Vibe 后台通知',
+      name: i18n.t('common:notification.channelName'),
       importance: lib.AndroidImportance.HIGH,
     });
     channelEnsured = true;

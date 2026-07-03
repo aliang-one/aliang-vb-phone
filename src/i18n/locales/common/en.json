@@ -33,9 +33,11 @@
     "justNow": "just now",
     "minutesAgo": "{{count}} min ago",
     "hoursAgo": "{{count}} h ago",
-    "daysAgo": "{{count}} d ago"
+    "daysAgo": "{{count}} d ago",
+    "unknown": "Unknown"
   },
   "notification": {
+    "channelName": "Vibe background notifications",
     "approvalTitle": "Approval needed",
     "approvalBodyFallback": "New approval request",
     "sessionDoneTitle": "Session completed",

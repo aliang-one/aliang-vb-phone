@@ -6,5 +6,87 @@
     "label": "语言",
     "english": "English",
     "chinese": "中文"
+  },
+  "appbar": {
+    "title": "Platform",
+    "subtitle": "SERVICE / CONSOLE / PREFERENCES"
+  },
+  "scan": {
+    "label": "扫码绑定设备",
+    "value": "QR",
+    "caption": "打开相机扫描电脑端 Agent 二维码"
+  },
+  "loadingConsole": "正在加载控制台…",
+  "sections": {
+    "account": "账户 ACCOUNT",
+    "usage": "用量 USAGE",
+    "subscriptions": "订阅 SUBSCRIPTIONS",
+    "modelConfig": "模型配置 MODEL CONFIG",
+    "platformService": "PLATFORM SERVICE",
+    "capacity": "CAPACITY",
+    "inputMode": "INPUT MODE",
+    "theme": "THEME"
+  },
+  "account": {
+    "notLoggedIn": "未登录",
+    "balance": "余额",
+    "balanceColon": "余额: ",
+    "unknown": "未知",
+    "totalRecharged": "累计充值",
+    "concurrencyLimit": "并发限制",
+    "requestLimit": "请求限制",
+    "unlimited": "无限制"
+  },
+  "usage": {
+    "cost": "费用",
+    "requests": "请求",
+    "today": "今日: ",
+    "requestsUnit": "次请求",
+    "available": "可用",
+    "notLoaded": "未加载用量数据"
+  },
+  "subscriptions": {
+    "noneActive": "暂无活跃订阅",
+    "activeCount": "活跃订阅 {{count}} 个",
+    "groupAccess": "分组访问权限",
+    "remainingDays": "剩 {{count}} 天"
+  },
+  "inputMode": {
+    "voiceFirst": "Voice first",
+    "voiceFirstCaption": "语音备忘会先整理成提示词再发送",
+    "requireConfirmation": "Require confirmation",
+    "requireConfirmationCaption": "每次 AI 生成的语音指令都需确认"
+  },
+  "actions": {
+    "refreshAccount": "REFRESH ACCOUNT",
+    "signOut": "SIGN OUT"
+  },
+  "states": {
+    "on": "ON",
+    "active": "ACTIVE",
+    "realtime": "REALTIME",
+    "api": "API",
+    "local": "LOCAL",
+    "group": "GROUP"
+  },
+  "themeOptions": {
+    "system": "SYSTEM",
+    "dark": "DARK",
+    "light": "LIGHT"
+  },
+  "capacity": {
+    "devices": "DEVICES",
+    "sessions": "SESSIONS"
+  },
+  "platform": {
+    "title": "Platform Console",
+    "activeSessions": "{{count}} active sessions",
+    "pending": "PENDING",
+    "metricDevices": "DEVICES",
+    "metricSessions": "SESSIONS",
+    "metersProjects": "Projects",
+    "metersProjectsValue": "{{count}} synced",
+    "metersNotifications": "Notifications",
+    "metersNotificationsValue": "{{unread}}/{{total}} unread"
   }
 }

@@ -33,9 +33,11 @@
     "justNow": "刚刚",
     "minutesAgo": "{{count}} 分钟前",
     "hoursAgo": "{{count}} 小时前",
-    "daysAgo": "{{count}} 天前"
+    "daysAgo": "{{count}} 天前",
+    "unknown": "未知"
   },
   "notification": {
+    "channelName": "Vibe 后台通知",
     "approvalTitle": "需要审批",
     "approvalBodyFallback": "有新的审批请求",
     "sessionDoneTitle": "会话已完成",

@@ -9,6 +9,7 @@ import type {
   VibeStatus,
 } from '../data/platformModels';
 import { envelopeToActivity } from '../data/platformModels';
+import i18n from '../i18n';
 import { normalizeProvider, providerLabel } from '../utils/modelIntensity';
 import { sameRemotePath } from '../utils/remotePath';
 import { normalizeFileStatus } from '../utils/fileStatus';
@@ -59,16 +60,16 @@ export const activityNowMs = () => Date.now();
 // Render a stable, human-friendly label for a session's last-activity timestamp.
 // Used for the `updatedAt` display string; sorting uses `lastActivityMs` instead.
 export const formatActivityLabel = (ms: number): string => {
-  if (!Number.isFinite(ms) || ms <= 0) return '未知';
+  if (!Number.isFinite(ms) || ms <= 0) return i18n.t('common:time.unknown');
   const diffSec = Math.max(0, (Date.now() - ms) / 1000);
-  if (diffSec < 45) return '刚刚';
-  if (diffSec < 90) return '1 分钟前';
+  if (diffSec < 45) return i18n.t('common:time.justNow');
+  if (diffSec < 90) return i18n.t('common:time.minutesAgo', { count: 1 });
   const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin} 分钟前`;
+  if (diffMin < 60) return i18n.t('common:time.minutesAgo', { count: diffMin });
   const diffHour = Math.floor(diffMin / 60);
-  if (diffHour < 24) return `${diffHour} 小时前`;
+  if (diffHour < 24) return i18n.t('common:time.hoursAgo', { count: diffHour });
   const diffDay = Math.floor(diffHour / 24);
-  if (diffDay < 7) return `${diffDay} 天前`;
+  if (diffDay < 7) return i18n.t('common:time.daysAgo', { count: diffDay });
   const date = new Date(ms);
   const pad = (value: number) => String(value).padStart(2, '0');
   return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
