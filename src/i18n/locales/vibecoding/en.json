@@ -8,6 +8,21 @@
     "processing": "Processing…",
     "awaitingInput": "Awaiting your input"
   },
+  "command": {
+    "clear": { "description": "Clear the current conversation context" },
+    "compact": { "description": "Compact conversation history to save context" },
+    "model": { "description": "Switch model" },
+    "review": { "description": "Review code changes" },
+    "cost": { "description": "Show usage and cost for this session" },
+    "memory": { "description": "View / edit project memory (CLAUDE.md)" },
+    "init": { "description": "Initialize project memory and config" },
+    "initOpencode": { "description": "Initialize the OpenCode project config" },
+    "help": { "description": "List available commands" },
+    "helpOpencode": { "description": "List OpenCode available commands" },
+    "diff": { "description": "Show current uncommitted changes" },
+    "undo": { "description": "Undo the last change" },
+    "redo": { "description": "Redo the last undone change" }
+  },
   "listScreen": {
     "searchPlaceholder": "Search sessions, terminals, directories...",
     "loading": "Loading sessions…",

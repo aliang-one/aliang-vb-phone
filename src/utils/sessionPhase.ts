@@ -12,8 +12,11 @@ import type { VibeStatus } from '../data/platformModels';
  *  3. `completed` → 已完成(会话真关闭;即使有陈旧 pending approval 也优先展示完成)。
  *  4. 有 pending approval → 待审批(需用户动作)。
  *  5. 否则(status 非 running、无待审批、非真结束)→ 已完成(回合 settle:agent 答完、球回到
- *     用户,会话仍可继续)。status 是事件驱动的(ai.done→idle / ai.status halt→idle 即结算),
- *     到达此处即回合真结束,不靠活动新鲜度猜测。
+ *     用户,会话仍可继续)。status 是事件驱动的:idle 由**服务端 10s soft-settle 广播**
+ *     (ai.session.updated 带更新的 lastActivityMs → mergeVibeRunSnapshot 降级)/ ai.status halt
+ *     / interrupt / ai.error 落定。**`ai.done` 本身不再翻 idle**(对齐服务端 soft-settle:生产
+ *     agent 一次 run 常发多个 ai.done,每条流式回合结束一个;立即翻 idle 会让多工具回合的工具
+ *     间隙误闪「已完成」)。到达此处即回合真结束,不靠活动新鲜度猜测。
  *
  * 与 L2/L3 的区分:`LIVE_TURN_WINDOW_MS`(8s)只用于定位「当前正在流式的助手气泡」
  * (liveAssistantMessageId / 底部脉冲),不参与 L1 相位——L1 只认事件驱动的 status。
@@ -93,16 +96,18 @@ export function liveAssistantMessageId(
  *
  * **事件驱动,只看 `status === 'running'`**。回合边界由确定性事件决定:
  *  - 开始:发送(`appendAgentMessage`)乐观置 running;`ai.run.started` 显式置 running;
- *    `ai.run.progress`(subagent / 长 bash / API 重试等静默期的心跳)维持 / 恢复 running。
- *  - 结束:`ai.done` 翻 idle、`ai.error` 翻 failed、中断(`interruptAgentSession`)翻 idle。
+ *    `ai.run.progress`(subagent / 长 bash / API 重试等静默期的心跳)维持 / 恢复 running;
+ *    `ai.delta` 每次 flush 也强制 running(token 在流 = 一定在干活)。
+ *  - 结束:**服务端 10s soft-settle 广播** idle(生产 agent 一次 run 常发多个 ai.done,每条
+ *    流式回合结束一个,故 idle 不能靠 ai.done 即时落定——见 controlCenterStore 的 ai.done 处理)、
+ *    `ai.error` 翻 failed、中断(`interruptAgentSession`)/ ai.status halt 翻 idle。
  * 配合 `mergeVibeRunSnapshot` 的双向 stale 守卫(既不让陈旧快照把 running 误降级,也不让
- * 陈旧快照把已结算的会话误重新激活),status 在回合内稳定为 running、回合结束即时为 idle。
+ * 陈旧快照把已结算的会话误重新激活),status 在回合内稳定为 running、真正静止后(服务端
+ * settle 广播)落定为 idle。
  *
- * 故既不抖(回合内 API 请求/工具调用空档不再被误判成完成),也不滞后(不再等 8s 活动窗口
- * 或服务端 settle 推送)。`--print` headless 一个进程跑完整条 prompt 才发一次 `ai.done`,
- * 所以 ai.done 即「这条 prompt 确定结束」,可放心当结算源——这正是去掉 8s 鲁棒延迟的依据:
- * 当年抖动是「用活动新鲜度猜结束」所致,换到事件驱动的 status 后,结束是确定信号,不再需要
- * debounce。
+ * 故既不抖(回合内 API 请求/工具调用空档不再被误判成完成),单回合真正结束后顶部相位/composer
+ * 锁/停止按钮也一致地滞后 ~10s 才翻已完成(与服务端 soft-settle 同步,可接受)——这是对齐服务端
+ * 语义的代价,换来多工具回合的工具间隙不再误闪「已完成」(即「明明运行中却显示已完成」根因修复)。
  *
  * `waiting_approval` 不算「在跑」(回合卡在审批上,球在用户侧)——各消费方按需 `|| waiting_approval`
  * 单独处理(见 `shouldLockComposerForProvider` / `canInterruptTurn` / `appendAgentMessage` guard)。

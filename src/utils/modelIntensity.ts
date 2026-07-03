@@ -17,6 +17,11 @@
 // model strings so we can seed the new `effort` field on first edit, and
 // (b) keep existing imports compiling. Do NOT use composeModel for new saves.
 
+import i18n from '../i18n';
+
+/** Inherit / "no override" label shown for the empty-value effort option. */
+const inheritLabel = () => i18n.t('account:common.default');
+
 /** Provider discriminant for effort presets (mirrors AgentProvider). */
 export type EffortProvider = 'codex' | 'claude_code' | 'opencode';
 
@@ -44,14 +49,14 @@ export const EFFORT_PRESETS: Record<
   Array<{ label: string; value: string }>
 > = {
   codex: [
-    { label: '默认', value: '' },
+    { label: inheritLabel(), value: '' },
     { label: 'low', value: 'low' },
     { label: 'medium', value: 'medium' },
     { label: 'high', value: 'high' },
     { label: 'xhigh', value: 'xhigh' },
   ],
   claude_code: [
-    { label: '默认', value: '' },
+    { label: inheritLabel(), value: '' },
     { label: 'low', value: 'low' },
     { label: 'medium', value: 'medium' },
     { label: 'high', value: 'high' },
@@ -60,7 +65,7 @@ export const EFFORT_PRESETS: Record<
     { label: 'ultracode', value: 'ultracode' },
   ],
   opencode: [
-    { label: '默认', value: '' },
+    { label: inheritLabel(), value: '' },
     { label: 'low', value: 'low' },
     { label: 'medium', value: 'medium' },
     { label: 'high', value: 'high' },
@@ -149,10 +154,10 @@ export const effortOptionsFor = (
     const entry = catalog.find(item => item.provider === provider);
     if (entry && entry.efforts && entry.efforts.length) {
       const efforts = [...entry.efforts];
-      // Guarantee a leading "默认" inherit option so the UI always offers it
+      // Guarantee a leading inherit option so the UI always offers it
       // even if the catalog omits it.
       if (!efforts.some(option => option.value === '')) {
-        efforts.unshift({ label: '默认', value: '' });
+        efforts.unshift({ label: inheritLabel(), value: '' });
       }
       return efforts;
     }
@@ -256,7 +261,7 @@ export const effortToIntensity = (effort: string | undefined): Intensity => {
 
 /** @deprecated LEGACY — fixed tier list; superseded by provider-aware EFFORT_PRESETS. */
 export const INTENSITY_OPTIONS: Array<{ label: string; value: Intensity }> = [
-  { label: '默认', value: 'none' },
+  { label: inheritLabel(), value: 'none' },
   { label: 'LOW', value: 'low' },
   { label: 'MEDIUM', value: 'medium' },
   { label: 'HIGH', value: 'high' },

@@ -28,5 +28,44 @@
     "metricChanged": "Changed",
     "actionFiles": "Files",
     "actionTerm": "Term"
+  },
+  "time": {
+    "justNow": "just now",
+    "minutesAgo": "{{count}} min ago",
+    "hoursAgo": "{{count}} h ago",
+    "daysAgo": "{{count}} d ago"
+  },
+  "notification": {
+    "approvalTitle": "Approval needed",
+    "approvalBodyFallback": "New approval request",
+    "sessionDoneTitle": "Session completed",
+    "sessionDoneBodyFallback": "Tap to view the reply",
+    "sessionFailedTitle": "Session failed",
+    "sessionFailedBodyFallback": "Tap to view details"
+  },
+  "error": {
+    "deviceOfflineTitle": "Desktop Agent not connected",
+    "deviceOfflineDetail": "The desktop Agent is currently offline. Make sure the Agent is running and connected to the same service, then retry.",
+    "agentTimeoutTitle": "Agent timed out",
+    "agentTimeoutDetail": "The desktop Agent didn't respond in time. Please retry shortly, or confirm the Agent isn't busy with another task."
+  },
+  "voice": {
+    "nativeUnavailable": "Voice input unavailable: native audio module not installed — please rebuild the app (iOS requires pod install)",
+    "recorderBusy": "The mic is still releasing, please retry shortly",
+    "notLoggedIn": "Not signed in — voice input unavailable",
+    "recognizeFailed": "Voice recognition failed",
+    "connectionClosed": "Voice connection dropped, please retry",
+    "connectionError": "Voice connection error",
+    "cannotConnect": "Can't connect to the voice service"
+  },
+  "permission": {
+    "micTitle": "Microphone permission",
+    "micMessage": "Microphone access is needed for real-time speech recognition",
+    "buttonLater": "Ask later",
+    "buttonDeny": "Deny",
+    "buttonAllow": "Allow"
+  },
+  "model": {
+    "loadCatalogFailed": "Failed to load model catalog"
   }
 }

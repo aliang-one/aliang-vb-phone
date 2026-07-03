@@ -1,4 +1,5 @@
 import type { VibeCodingRun } from '../data/platformModels';
+import i18n from '../i18n';
 
 export const ACTIVE_AGENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -72,11 +73,11 @@ export const formatConversationRelativeShort = (
 ) => {
   if (!Number.isFinite(ms) || ms <= 0) return '';
   const diffMin = Math.max(0, Math.floor((nowMs - ms) / MINUTE_MS));
-  if (diffMin < 1) return '刚刚';
-  if (diffMin < 60) return `${diffMin} 分钟前`;
+  if (diffMin < 1) return i18n.t('common:time.justNow');
+  if (diffMin < 60) return i18n.t('common:time.minutesAgo', { count: diffMin });
   const diffHour = Math.floor(diffMin / 60);
-  if (diffHour < 24) return `${diffHour} 小时前`;
-  return `${Math.floor(diffHour / 24)} 天前`;
+  if (diffHour < 24) return i18n.t('common:time.hoursAgo', { count: diffHour });
+  return i18n.t('common:time.daysAgo', { count: Math.floor(diffHour / 24) });
 };
 
 export const getSessionActivityMs = (

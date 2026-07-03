@@ -28,5 +28,44 @@
     "metricChanged": "Changed",
     "actionFiles": "Files",
     "actionTerm": "Term"
+  },
+  "time": {
+    "justNow": "刚刚",
+    "minutesAgo": "{{count}} 分钟前",
+    "hoursAgo": "{{count}} 小时前",
+    "daysAgo": "{{count}} 天前"
+  },
+  "notification": {
+    "approvalTitle": "需要审批",
+    "approvalBodyFallback": "有新的审批请求",
+    "sessionDoneTitle": "会话已完成",
+    "sessionDoneBodyFallback": "点按查看回复",
+    "sessionFailedTitle": "会话失败",
+    "sessionFailedBodyFallback": "点按查看详情"
+  },
+  "error": {
+    "deviceOfflineTitle": "桌面 Agent 未连接",
+    "deviceOfflineDetail": "电脑端 Agent 当前不在线。请确认 Agent 正在运行并已连接到同一台服务，然后重试。",
+    "agentTimeoutTitle": "Agent 响应超时",
+    "agentTimeoutDetail": "桌面 Agent 未能及时响应，请稍后重试，或确认 Agent 没有被其他任务占用。"
+  },
+  "voice": {
+    "nativeUnavailable": "语音输入不可用:原生音频模块未安装,请重新构建 App(iOS 需 pod install)",
+    "recorderBusy": "录音设备仍在释放，请稍后重试",
+    "notLoggedIn": "未登录，无法使用语音输入",
+    "recognizeFailed": "语音识别失败",
+    "connectionClosed": "语音连接已断开，请重试",
+    "connectionError": "语音连接错误",
+    "cannotConnect": "无法连接语音服务"
+  },
+  "permission": {
+    "micTitle": "麦克风权限",
+    "micMessage": "需要使用麦克风进行实时语音识别",
+    "buttonLater": "稍后再问",
+    "buttonDeny": "拒绝",
+    "buttonAllow": "允许"
+  },
+  "model": {
+    "loadCatalogFailed": "加载模型目录失败"
   }
 }

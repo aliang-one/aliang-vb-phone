@@ -1,5 +1,6 @@
 import type { AgentCommandInfo } from '../data/platformModels';
 import type { EffortProvider } from './modelIntensity';
+import i18n from '../i18n';
 
 /**
  * Universal `/`-command baseline per provider.
@@ -11,34 +12,41 @@ import type { EffortProvider } from './modelIntensity';
  * solely from the agent via `AgentTool.commands`; this catalog only guarantees
  * the universal built-in surface is always visible.
  *
+ * Descriptions are resolved lazily via i18n at call time (the BUILTIN_AGENT_COMMANDS
+ * factory below is invoked on demand by builtinCommandsFor/mergeCommands), so a
+ * locale change between reads is honored.
+ *
  * Keep this in rough sync with the agent's own builtin baseline
  * (local-agent.ts `BUILTIN_COMMANDS`) — when the agent reports its builtins
  * they are deduped against this list, so the two never double-show.
  */
-export const BUILTIN_AGENT_COMMANDS: Record<EffortProvider, AgentCommandInfo[]> = {
+const buildBuiltinAgentCommands = (): Record<EffortProvider, AgentCommandInfo[]> => ({
   claude_code: [
-    { name: 'clear', description: '清空当前对话上下文', scope: 'builtin', remote: 'local' },
-    { name: 'compact', description: '压缩对话历史以节省上下文', scope: 'builtin', remote: 'local' },
-    { name: 'model', description: '切换模型', argHint: '<model>', scope: 'builtin', remote: 'local' },
-    { name: 'review', description: '审查代码变更', scope: 'builtin', remote: 'prompt' },
-    { name: 'cost', description: '查看本次会话的用量与花费', scope: 'builtin', remote: 'local' },
-    { name: 'memory', description: '查看 / 编辑项目记忆 (CLAUDE.md)', scope: 'builtin', remote: 'unsupported' },
-    { name: 'init', description: '初始化项目记忆与配置', scope: 'builtin', remote: 'unsupported' },
-    { name: 'help', description: '查看可用命令', scope: 'builtin', remote: 'local' },
+    { name: 'clear', description: i18n.t('vibecoding:command.clear.description'), scope: 'builtin', remote: 'local' },
+    { name: 'compact', description: i18n.t('vibecoding:command.compact.description'), scope: 'builtin', remote: 'local' },
+    { name: 'model', description: i18n.t('vibecoding:command.model.description'), argHint: '<model>', scope: 'builtin', remote: 'local' },
+    { name: 'review', description: i18n.t('vibecoding:command.review.description'), scope: 'builtin', remote: 'prompt' },
+    { name: 'cost', description: i18n.t('vibecoding:command.cost.description'), scope: 'builtin', remote: 'local' },
+    { name: 'memory', description: i18n.t('vibecoding:command.memory.description'), scope: 'builtin', remote: 'unsupported' },
+    { name: 'init', description: i18n.t('vibecoding:command.init.description'), scope: 'builtin', remote: 'unsupported' },
+    { name: 'help', description: i18n.t('vibecoding:command.help.description'), scope: 'builtin', remote: 'local' },
   ],
   codex: [
-    { name: 'diff', description: '查看当前未提交的改动', scope: 'builtin', remote: 'local' },
-    { name: 'clear', description: '清空当前对话上下文', scope: 'builtin', remote: 'local' },
-    { name: 'model', description: '切换模型', argHint: '<model>', scope: 'builtin', remote: 'local' },
+    { name: 'diff', description: i18n.t('vibecoding:command.diff.description'), scope: 'builtin', remote: 'local' },
+    { name: 'clear', description: i18n.t('vibecoding:command.clear.description'), scope: 'builtin', remote: 'local' },
+    { name: 'model', description: i18n.t('vibecoding:command.model.description'), argHint: '<model>', scope: 'builtin', remote: 'local' },
   ],
   opencode: [
-    { name: 'init', description: '初始化 OpenCode 项目配置', scope: 'builtin', remote: 'prompt' },
-    { name: 'help', description: '查看 OpenCode 可用命令', scope: 'builtin', remote: 'local' },
-    { name: 'model', description: '切换模型', argHint: '<provider/model>', scope: 'builtin', remote: 'local' },
-    { name: 'undo', description: '撤销上一步变更', scope: 'builtin', remote: 'local' },
-    { name: 'redo', description: '重做上一步撤销', scope: 'builtin', remote: 'local' },
+    { name: 'init', description: i18n.t('vibecoding:command.initOpencode.description'), scope: 'builtin', remote: 'prompt' },
+    { name: 'help', description: i18n.t('vibecoding:command.helpOpencode.description'), scope: 'builtin', remote: 'local' },
+    { name: 'model', description: i18n.t('vibecoding:command.model.description'), argHint: '<provider/model>', scope: 'builtin', remote: 'local' },
+    { name: 'undo', description: i18n.t('vibecoding:command.undo.description'), scope: 'builtin', remote: 'local' },
+    { name: 'redo', description: i18n.t('vibecoding:command.redo.description'), scope: 'builtin', remote: 'local' },
   ],
-};
+});
+
+export const BUILTIN_AGENT_COMMANDS: Record<EffortProvider, AgentCommandInfo[]> =
+  buildBuiltinAgentCommands();
 
 export const builtinCommandsFor = (
   provider: EffortProvider,

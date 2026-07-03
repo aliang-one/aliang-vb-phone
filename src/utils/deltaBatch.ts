@@ -1,4 +1,5 @@
 import type { VibeCodingRun } from '../data/platformModels';
+import i18n from '../i18n';
 
 /**
  * A single streaming token/chunk arriving from the platform for an AI session.
@@ -121,7 +122,7 @@ function applyDeltasToRun(
     status: 'running',
     currentStep,
     lastActivityMs: Date.now(),
-    updatedAt: '刚刚',
+    updatedAt: i18n.t('common:time.justNow'),
     transcript,
     transcriptCount: Math.max(run.transcriptCount ?? 0, transcript.length),
     lastMessage,

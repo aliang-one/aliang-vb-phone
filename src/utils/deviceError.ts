@@ -1,3 +1,5 @@
+import i18n from '../i18n';
+
 /**
  * 把「桌面 Agent 不可达」类错误统一翻译成人话。
  *
@@ -40,17 +42,15 @@ export const describeDeviceError = (
 
   if (matchesCode(code, message, 'device_offline')) {
     return {
-      title: '桌面 Agent 未连接',
-      detail:
-        '电脑端 Agent 当前不在线。请确认 Agent 正在运行并已连接到同一台服务，然后重试。',
+      title: i18n.t('common:error.deviceOfflineTitle'),
+      detail: i18n.t('common:error.deviceOfflineDetail'),
       offline: true,
     };
   }
   if (matchesCode(code, message, 'agent_request_timeout')) {
     return {
-      title: 'Agent 响应超时',
-      detail:
-        '桌面 Agent 未能及时响应，请稍后重试，或确认 Agent 没有被其他任务占用。',
+      title: i18n.t('common:error.agentTimeoutTitle'),
+      detail: i18n.t('common:error.agentTimeoutDetail'),
       offline: true,
     };
   }

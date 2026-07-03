@@ -8,6 +8,21 @@
     "processing": "处理中…",
     "awaitingInput": "等待你的输入"
   },
+  "command": {
+    "clear": { "description": "清空当前对话上下文" },
+    "compact": { "description": "压缩对话历史以节省上下文" },
+    "model": { "description": "切换模型" },
+    "review": { "description": "审查代码变更" },
+    "cost": { "description": "查看本次会话的用量与花费" },
+    "memory": { "description": "查看 / 编辑项目记忆 (CLAUDE.md)" },
+    "init": { "description": "初始化项目记忆与配置" },
+    "initOpencode": { "description": "初始化 OpenCode 项目配置" },
+    "help": { "description": "查看可用命令" },
+    "helpOpencode": { "description": "查看 OpenCode 可用命令" },
+    "diff": { "description": "查看当前未提交的改动" },
+    "undo": { "description": "撤销上一步变更" },
+    "redo": { "description": "重做上一步撤销" }
+  },
   "listScreen": {
     "searchPlaceholder": "搜索会话、终端、目录…",
     "loading": "正在加载会话…",

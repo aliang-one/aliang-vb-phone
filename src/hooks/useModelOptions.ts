@@ -7,6 +7,7 @@ import {
   type ProviderCatalog,
 } from '../api/modelConfig';
 import { effortPresetsFor, type EffortProvider } from '../utils/modelIntensity';
+import i18n from '../i18n';
 
 /**
  * Fetches the server's model/effort catalog + user default ONCE and caches it
@@ -66,7 +67,7 @@ async function loadModelOptions(): Promise<ModelOptions | null> {
       cached = {
         data: cached.data,
         loading: false,
-        error: err instanceof Error ? err.message : '加载模型目录失败',
+        error: err instanceof Error ? err.message : i18n.t('common:model.loadCatalogFailed'),
       };
       cacheEpoch += 1;
       return null;
@@ -110,7 +111,7 @@ export const catalogEffortOptions = (
     if (entry && entry.efforts && entry.efforts.length) {
       const efforts = [...entry.efforts];
       if (!efforts.some(option => option.value === '')) {
-        efforts.unshift({ label: '默认', value: '' });
+        efforts.unshift({ label: i18n.t('account:common.default'), value: '' });
       }
       return efforts;
     }

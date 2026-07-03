@@ -14,6 +14,7 @@ import { SttSocket } from '../api/sttSocket';
 import type { SttControlOut } from '../api/sttTypes';
 import { voiceRecorder } from '../services/voiceRecorder';
 import { appendFinalTranscript, buildLiveCaption } from '../utils/sttAccumulator';
+import i18n from '../i18n';
 
 export type VoiceSttStatus = 'idle' | 'connecting' | 'recording' | 'stopping' | 'error';
 
@@ -56,9 +57,9 @@ const newRequestId = () =>
 
 const recorderErrorMessage = (message: string) =>
   message === 'voice_native_unavailable'
-    ? '语音输入不可用:原生音频模块未安装,请重新构建 App(iOS 需 pod install)'
+    ? i18n.t('common:voice.nativeUnavailable')
     : message === 'voice_recorder_busy'
-      ? '录音设备仍在释放，请稍后重试'
+      ? i18n.t('common:voice.recorderBusy')
     : message;
 
 export function useVoiceStt(): UseVoiceSttResult {
@@ -248,7 +249,7 @@ export function useVoiceStt(): UseVoiceSttResult {
       if (!token) {
         recordingRequestedRef.current = false;
         setStatus('error');
-        setErrorMessage('未登录，无法使用语音输入');
+        setErrorMessage(i18n.t('common:voice.notLoggedIn'));
         return;
       }
 
@@ -274,7 +275,7 @@ export function useVoiceStt(): UseVoiceSttResult {
             if (partial.trim()) {
               finishWith(partial);
             } else {
-              failWith(msg.message || '语音识别失败', {
+              failWith(msg.message || i18n.t('common:voice.recognizeFailed'), {
                 keepSocketOpen: msg.code === 'duration_exceeded',
               });
             }
@@ -289,7 +290,7 @@ export function useVoiceStt(): UseVoiceSttResult {
             if (partial.trim()) {
               finishWith(partial);
             } else {
-              failWith('语音连接已断开，请重试');
+              failWith(i18n.t('common:voice.connectionClosed'));
             }
           }
         },
@@ -299,7 +300,7 @@ export function useVoiceStt(): UseVoiceSttResult {
           if (partial.trim()) {
             finishWith(partial);
           } else {
-            failWith('语音连接错误');
+            failWith(i18n.t('common:voice.connectionError'));
           }
         },
       });
@@ -374,7 +375,7 @@ export function useVoiceStt(): UseVoiceSttResult {
         const message =
           error instanceof Error && error.message && !error.message.startsWith('stt_')
             ? error.message
-            : '无法连接语音服务';
+            : i18n.t('common:voice.cannotConnect');
         if (!recordingRequestedRef.current) return;
         failWith(message);
       }

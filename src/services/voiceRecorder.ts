@@ -4,6 +4,7 @@
 // to the caller, which sends it as a binary WebSocket frame over /ws/stt.
 import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
 import { Buffer } from 'buffer';
+import i18n from '../i18n';
 
 export type VoiceRecorderState = 'idle' | 'recording' | 'error';
 
@@ -94,11 +95,11 @@ class VoiceRecorderService {
       const granted = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
         {
-          title: '麦克风权限',
-          message: '需要使用麦克风进行实时语音识别',
-          buttonNeutral: '稍后再问',
-          buttonNegative: '拒绝',
-          buttonPositive: '允许',
+          title: i18n.t('common:permission.micTitle'),
+          message: i18n.t('common:permission.micMessage'),
+          buttonNeutral: i18n.t('common:permission.buttonLater'),
+          buttonNegative: i18n.t('common:permission.buttonDeny'),
+          buttonPositive: i18n.t('common:permission.buttonAllow'),
         },
       );
       return granted === PermissionsAndroid.RESULTS.GRANTED;

@@ -1,5 +1,6 @@
 import type { ApprovalRequest, UnifiedEvent } from '../store/types';
 import type { VibeCodingRun } from '../data/platformModels';
+import i18n from '../i18n';
 
 /**
  * 后台本地通知的**纯判定逻辑**(无 React、无原生、无副作用)。
@@ -77,10 +78,10 @@ export function decideBackgroundNotifications(
     if (notified.has(key)) continue;
     const found = input.approvals.find(a => a.id === event.approvalId);
     const body =
-      found?.title || found?.summary || event.title || event.detail || '有新的审批请求';
+      found?.title || found?.summary || event.title || event.detail || i18n.t('common:notification.approvalBodyFallback');
     notifications.push({
       key,
-      title: '需要审批',
+      title: i18n.t('common:notification.approvalTitle'),
       body,
       data: {
         type: 'approval',
@@ -99,8 +100,8 @@ export function decideBackgroundNotifications(
       if (!notified.has(key)) {
         notifications.push({
           key,
-          title: '会话失败',
-          body: r.title || '点按查看详情',
+          title: i18n.t('common:notification.sessionFailedTitle'),
+          body: r.title || i18n.t('common:notification.sessionFailedBodyFallback'),
           data: { type: 'session_failed', sessionId: r.id },
         });
         notified.add(key);
@@ -110,8 +111,8 @@ export function decideBackgroundNotifications(
       if (!notified.has(key)) {
         notifications.push({
           key,
-          title: '会话已完成',
-          body: r.title || '点按查看回复',
+          title: i18n.t('common:notification.sessionDoneTitle'),
+          body: r.title || i18n.t('common:notification.sessionDoneBodyFallback'),
           data: { type: 'session_done', sessionId: r.id },
         });
         notified.add(key);
