@@ -9,6 +9,7 @@ import {
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
@@ -174,6 +175,7 @@ interface SessionCardProps {
 
 const SessionCard: React.FC<SessionCardProps> = React.memo(
   ({ session, projectName, deviceName, onOpen }) => {
+    const { t } = useTranslation('vibecoding');
     const { theme, isDark } = useTheme();
     const displayTitle = formatVibeSessionTitle(session.title, {
       directory: session.directory,
@@ -240,7 +242,7 @@ const SessionCard: React.FC<SessionCardProps> = React.memo(
             </Text>
             <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
               {'  ·  '}
-              {session.transcriptCount ?? 0} 条消息
+              {t('agentSessions.messagesCount', { count: session.transcriptCount ?? 0 })}
             </Text>
             <View style={styles.metaSpacer} />
             <IconBadge name="chevron" tone="primary" size={24} iconSize={14} />

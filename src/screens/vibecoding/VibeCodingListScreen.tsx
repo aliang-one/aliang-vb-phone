@@ -28,6 +28,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
@@ -198,6 +199,7 @@ const SegmentedTab: React.FC<SegmentedTabProps> = ({
 };
 
 export const VibeCodingListScreen: React.FC = () => {
+  const { t } = useTranslation('vibecoding');
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
   const { width } = useWindowDimensions();
@@ -631,7 +633,7 @@ export const VibeCodingListScreen: React.FC = () => {
         <SearchBar
           value={query}
           onChangeText={setQuery}
-          placeholder="Search sessions, terminals, directories..."
+          placeholder={t('listScreen.searchPlaceholder')}
         />
       </View>
 
@@ -645,7 +647,7 @@ export const VibeCodingListScreen: React.FC = () => {
                 { color: theme.colors.onSurfaceVariant },
               ]}
             >
-              正在加载会话…
+              {t('listScreen.loading')}
             </Text>
           </View>
         }
@@ -772,8 +774,8 @@ export const VibeCodingListScreen: React.FC = () => {
                   ]}
                 >
                   {normalizedQuery
-                    ? `没有匹配「${query}」的 Vibecoding 会话，换个关键词或清空搜索看看。`
-                    : '还没有 Vibecoding 会话，点右上角 NEW TASK 创建一个。'}
+                    ? t('listScreen.emptySessionsQuery', { query })
+                    : t('listScreen.emptySessions')}
                 </Text>
               ) : null}
             </ScrollView>
@@ -832,8 +834,8 @@ export const VibeCodingListScreen: React.FC = () => {
                     ]}
                   >
                     {normalizedQuery
-                      ? `没有匹配「${query}」的终端，换个关键词或清空搜索看看。`
-                      : '没有进行中的远程终端。'}
+                      ? t('listScreen.emptyTerminalsQuery', { query })
+                      : t('listScreen.emptyTerminals')}
                   </Text>
                 ) : null}
               </ScrollView>

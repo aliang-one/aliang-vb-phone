@@ -1,4 +1,5 @@
 import type { StructuredActivityEvent } from '../data/platformModels';
+import i18n from '../i18n';
 
 /**
  * Live headline + counts for the collapsed "工具活动" block rendered on each
@@ -62,14 +63,16 @@ export function summarizeActivity(
   const lastThink = thinking[thinking.length - 1];
 
   const headline = activeThink
-    ? `🧠 思考中…${lastThink && lastThink.chars > 0 ? `(${fmtChars(lastThink.chars)})` : ''}`
+    ? lastThink && lastThink.chars > 0
+      ? i18n.t('vibecoding:activitySummary.thinkingWithChars', { chars: fmtChars(lastThink.chars) })
+      : i18n.t('vibecoding:activitySummary.thinking')
     : openCmd
-      ? `⚙ ${openCmd.command ?? '运行命令'}`
+      ? `⚙ ${openCmd.command ?? i18n.t('vibecoding:activitySummary.runningCommand')}`
       : files.length > 0
-        ? `📝 编辑 ${files.length} 个文件`
+        ? i18n.t('vibecoding:activitySummary.editingFiles', { count: files.length })
         : turnSettled
-          ? '已完成'
-          : '处理中…';
+          ? i18n.t('vibecoding:activitySummary.done')
+          : i18n.t('vibecoding:activitySummary.processing');
 
   const lastUsage = usage[usage.length - 1];
   const usageTokens = lastUsage
@@ -124,11 +127,11 @@ export function deriveLivePulse(
   const hasActive = activeThink || Boolean(openCmd);
   const live = isLiveTurn || hasActive;
   const headline = activeThink
-    ? '🧠 思考中…'
+    ? i18n.t('vibecoding:activitySummary.thinking')
     : openCmd
-      ? `⚙ ${openCmd.command ?? '运行命令'}`
+      ? `⚙ ${openCmd.command ?? i18n.t('vibecoding:activitySummary.runningCommand')}`
       : live
-        ? '处理中…'
-        : '等待你的输入';
+        ? i18n.t('vibecoding:activitySummary.processing')
+        : i18n.t('vibecoding:activitySummary.awaitingInput');
   return { headline, hasActive: live };
 }

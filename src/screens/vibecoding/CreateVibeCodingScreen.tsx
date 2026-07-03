@@ -10,6 +10,7 @@ import {
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
@@ -46,6 +47,7 @@ const uniqueStrings = (items: Array<string | undefined>) =>
   Array.from(new Set(items.filter(Boolean))) as string[];
 
 export const CreateVibeCodingScreen: React.FC = () => {
+  const { t } = useTranslation('vibecoding');
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
   const route = useRoute<CreateRoute>();
@@ -90,10 +92,10 @@ export const CreateVibeCodingScreen: React.FC = () => {
   // from the live catalog with a hardcoded fallback. Lead with "默认" (clear).
   const modelOptions = useMemo(
     () => [
-      { label: '默认', value: '' },
+      { label: t('sessionSettings.defaultChip'), value: '' },
       ...catalogModelOptions(provider, providerCatalog),
     ],
-    [provider, providerCatalog],
+    [provider, providerCatalog, t],
   );
   // Keep the selected provider valid for this device: if it's unavailable (e.g.
   // defaulted to codex but only claude code is installed), switch to one that is.
@@ -183,10 +185,10 @@ export const CreateVibeCodingScreen: React.FC = () => {
           <GlassPanel style={styles.emptyPanel}>
             <IconBadge name="device" tone="neutral" size={46} iconSize={23} />
             <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-              还没有注册设备
+              {t('createScreen.noDeviceTitle')}
             </Text>
             <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-              先在电脑端启动桌面 Agent，或用扫码绑定已有设备。
+              {t('createScreen.noDeviceDetail')}
             </Text>
             <GlowButton
               title="BIND DEVICE"
@@ -294,10 +296,10 @@ export const CreateVibeCodingScreen: React.FC = () => {
             <View style={styles.optionRow}>
               <View style={styles.optionText}>
                 <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                  自定义路径（不选项目）
+                  {t('createScreen.customPathTitle')}
                 </Text>
                 <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                  手动输入工作目录，不绑定已有项目
+                  {t('createScreen.customPathDetail')}
                 </Text>
               </View>
               <StatusChip label={useCustomPath ? 'SELECTED' : 'CUSTOM'} type={useCustomPath ? 'info' : 'neutral'} />
@@ -360,7 +362,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
           onChangeText={setDirectory}
           autoCapitalize="none"
           autoCorrect={false}
-          placeholder="输入项目绝对路径，如 ~/code/my-app"
+          placeholder={t('createScreen.directoryPlaceholder')}
           placeholderTextColor={theme.colors.onSurfaceVariant}
           style={[
             theme.typography.bodyMd,
@@ -472,7 +474,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
               theme.typography.labelSm,
               { color: theme.colors.error, marginTop: 4 },
             ]}>
-            该设备未安装 codex / claude code / opencode,无法创建会话。
+            {t('createScreen.noProvider')}
           </Text>
         ) : null}
 
@@ -489,7 +491,11 @@ export const CreateVibeCodingScreen: React.FC = () => {
           onChangeText={setModel}
           autoCapitalize="none"
           autoCorrect={false}
-          placeholder={`留空继承用户默认${userDefault.model ? `: ${userDefault.model}` : ''}`}
+          placeholder={t('createScreen.modelPlaceholder', {
+            suffix: userDefault.model
+              ? t('createScreen.modelPlaceholderSuffix', { model: userDefault.model })
+              : '',
+          })}
           placeholderTextColor={theme.colors.onSurfaceVariant}
           style={[
             theme.typography.bodyMd,
@@ -552,7 +558,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.modelHint,
           ]}>
-          指定模型名后会作为本 session 覆盖;留空继承 Me 中的用户默认。
+          {t('createScreen.modelHint')}
         </Text>
 
         <Text
@@ -607,10 +613,10 @@ export const CreateVibeCodingScreen: React.FC = () => {
             styles.modelHint,
           ]}>
           {provider === 'codex'
-            ? 'Codex 推理强度：codex 用 xhigh；留空继承用户默认。'
+            ? t('createScreen.effortHintCodex')
             : provider === 'opencode'
-              ? 'OpenCode 模型使用 provider/model；留空继承用户默认。'
-              : 'Claude 推理强度：claude 用 max；留空继承用户默认。'}
+              ? t('createScreen.effortHintOpencode')
+              : t('createScreen.effortHintClaude')}
         </Text>
 
         <Text

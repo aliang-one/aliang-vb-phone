@@ -1,4 +1,56 @@
 {
+  "activitySummary": {
+    "thinking": "🧠 思考中…",
+    "thinkingWithChars": "🧠 思考中…({{chars}})",
+    "runningCommand": "运行命令",
+    "editingFiles": "📝 编辑 {{count}} 个文件",
+    "done": "已完成",
+    "processing": "处理中…",
+    "awaitingInput": "等待你的输入"
+  },
+  "listScreen": {
+    "searchPlaceholder": "搜索会话、终端、目录…",
+    "loading": "正在加载会话…",
+    "emptySessionsQuery": "没有匹配「{{query}}」的 Vibecoding 会话，换个关键词或清空搜索看看。",
+    "emptySessions": "还没有 Vibecoding 会话，点右上角 NEW TASK 创建一个。",
+    "emptyTerminalsQuery": "没有匹配「{{query}}」的终端，换个关键词或清空搜索看看。",
+    "emptyTerminals": "没有进行中的远程终端。"
+  },
+  "createScreen": {
+    "noDeviceTitle": "还没有注册设备",
+    "noDeviceDetail": "先在电脑端启动桌面 Agent，或用扫码绑定已有设备。",
+    "customPathTitle": "自定义路径（不选项目）",
+    "customPathDetail": "手动输入工作目录，不绑定已有项目",
+    "directoryPlaceholder": "输入项目绝对路径，如 ~/code/my-app",
+    "noProvider": "该设备未安装 codex / claude code / opencode，无法创建会话。",
+    "modelPlaceholder": "留空继承用户默认{{suffix}}",
+    "modelPlaceholderSuffix": ": {{model}}",
+    "modelHint": "指定模型名后会作为本 session 覆盖;留空继承 Me 中的用户默认。",
+    "effortHintCodex": "Codex 推理强度：codex 用 xhigh；留空继承用户默认。",
+    "effortHintOpencode": "OpenCode 模型使用 provider/model；留空继承用户默认。",
+    "effortHintClaude": "Claude 推理强度：claude 用 max；留空继承用户默认。"
+  },
+  "sessionSettings": {
+    "title": "会话设置",
+    "subtitle": "MODEL / EFFORT",
+    "empty": "会话不存在或已结束。",
+    "sectionModel": "1. 模型 MODEL",
+    "modelPlaceholder": "留空继承用户默认模型",
+    "modelHint": "指定模型名后会作为本 session 覆盖;留空继承 Me 中的用户默认。",
+    "sectionEffort": "2. 工作强度 EFFORT",
+    "effortHint": "EFFORT 作为独立字段下发,网关据此设置推理强度({{provider}} 档位:{{levels}});选「默认」则继承用户默认。与模型互相独立,无需先选模型。",
+    "effective": "当前有效",
+    "timingTitle": "生效时机",
+    "timingDetail": "更改会在你发送的下一条消息生效;当前正在运行的一轮仍用原配置,无需重启会话。",
+    "saving": "保存中…",
+    "saveButton": "保存设置",
+    "saveFailed": "保存失败,请重试。",
+    "userDefault": "用户默认",
+    "defaultChip": "默认"
+  },
+  "agentSessions": {
+    "messagesCount": "{{count}} 条消息"
+  },
   "transcript": {
     "roleUser": "user",
     "roleAssistant": "assistant",

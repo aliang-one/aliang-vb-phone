@@ -11,6 +11,7 @@ import {
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
@@ -44,6 +45,7 @@ const resolveProvider = (
       : 'claude_code');
 
 export const SessionSettingsScreen: React.FC = () => {
+  const { t } = useTranslation('vibecoding');
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
   const route = useRoute<SessionSettingsRoute>();
@@ -60,15 +62,16 @@ export const SessionSettingsScreen: React.FC = () => {
   // Provider-aware model chips (codex: gpt-5.4/5.5, claude_code: glm-5.1/5.2),
   // led by "默认" (clear → inherit).
   const modelOptions = [
-    { label: '默认', value: '' },
+    { label: t('sessionSettings.defaultChip'), value: '' },
     ...catalogModelOptions(provider, providerCatalog),
   ];
   const effective = session?.effectiveModelConfig;
+  const userDefaultLabel = t('sessionSettings.userDefault');
   const effectiveLabel = effective
     ? [
-        `model=${effective.model || '用户默认'}`,
+        `model=${effective.model || userDefaultLabel}`,
         effective.source?.model ? `(${effective.source.model})` : '',
-        `· effort=${effective.effort || '用户默认'}`,
+        `· effort=${effective.effort || userDefaultLabel}`,
         effective.source?.effort ? `(${effective.source.effort})` : '',
       ]
         .filter(Boolean)
@@ -99,7 +102,7 @@ export const SessionSettingsScreen: React.FC = () => {
       });
       navigation.goBack();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存失败,请重试。');
+      setError(err instanceof Error ? err.message : t('sessionSettings.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -108,10 +111,10 @@ export const SessionSettingsScreen: React.FC = () => {
   if (!session) {
     return (
       <SafeAreaWrapper>
-        <TopAppBar title="会话设置" onBack={navigation.goBack} />
+        <TopAppBar title={t('sessionSettings.title')} onBack={navigation.goBack} />
         <View style={styles.emptyContainer}>
           <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurfaceVariant }]}>
-            会话不存在或已结束。
+            {t('sessionSettings.empty')}
           </Text>
         </View>
       </SafeAreaWrapper>
@@ -120,7 +123,7 @@ export const SessionSettingsScreen: React.FC = () => {
 
   return (
     <SafeAreaWrapper>
-      <TopAppBar title="会话设置" subtitle="MODEL / EFFORT" onBack={navigation.goBack} />
+      <TopAppBar title={t('sessionSettings.title')} subtitle={t('sessionSettings.subtitle')} onBack={navigation.goBack} />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <Text
           style={[
@@ -128,14 +131,14 @@ export const SessionSettingsScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
           ]}>
-          1. 模型 MODEL
+          {t('sessionSettings.sectionModel')}
         </Text>
         <TextInput
           value={modelBase}
           onChangeText={setModelBase}
           autoCapitalize="none"
           autoCorrect={false}
-          placeholder="留空继承用户默认模型"
+          placeholder={t('sessionSettings.modelPlaceholder')}
           placeholderTextColor={theme.colors.onSurfaceVariant}
           style={[
             theme.typography.bodyMd,
@@ -198,7 +201,7 @@ export const SessionSettingsScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.hint,
           ]}>
-          指定模型名后会作为本 session 覆盖;留空继承 Me 中的用户默认。
+          {t('sessionSettings.modelHint')}
         </Text>
 
         <Text
@@ -207,7 +210,7 @@ export const SessionSettingsScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
           ]}>
-          2. 工作强度 EFFORT
+          {t('sessionSettings.sectionEffort')}
         </Text>
         <View style={styles.chipRow}>
           {effortOptions.map(option => {
@@ -252,13 +255,16 @@ export const SessionSettingsScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.hint,
           ]}>
-          EFFORT 作为独立字段下发,网关据此设置推理强度({providerLabel(provider)} 档位:{effortOptions.filter(o => o.value).map(o => o.value).join('/')});选「默认」则继承用户默认。与模型互相独立,无需先选模型。
+          {t('sessionSettings.effortHint', {
+            provider: providerLabel(provider),
+            levels: effortOptions.filter(o => o.value).map(o => o.value).join('/'),
+          })}
         </Text>
 
         {effectiveLabel ? (
           <GlassPanel style={styles.noteCard}>
             <Text style={[theme.typography.labelCaps, { color: theme.colors.secondary }]}>
-              当前有效
+              {t('sessionSettings.effective')}
             </Text>
             <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
               {effectiveLabel}
@@ -268,10 +274,10 @@ export const SessionSettingsScreen: React.FC = () => {
 
         <GlassPanel style={styles.noteCard}>
           <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
-            生效时机
+            {t('sessionSettings.timingTitle')}
           </Text>
           <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-            更改会在你发送的下一条消息生效;当前正在运行的一轮仍用原配置,无需重启会话。
+            {t('sessionSettings.timingDetail')}
           </Text>
         </GlassPanel>
 
@@ -282,7 +288,7 @@ export const SessionSettingsScreen: React.FC = () => {
         )}
 
         <GlowButton
-          title={saving ? '保存中…' : '保存设置'}
+          title={saving ? t('sessionSettings.saving') : t('sessionSettings.saveButton')}
           onPress={handleSave}
           disabled={saving}
           style={styles.saveButton}

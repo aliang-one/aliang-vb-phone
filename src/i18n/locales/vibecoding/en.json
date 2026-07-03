@@ -1,4 +1,56 @@
 {
+  "activitySummary": {
+    "thinking": "🧠 Thinking…",
+    "thinkingWithChars": "🧠 Thinking…({{chars}})",
+    "runningCommand": "Running command",
+    "editingFiles": "📝 Editing {{count}} files",
+    "done": "Done",
+    "processing": "Processing…",
+    "awaitingInput": "Awaiting your input"
+  },
+  "listScreen": {
+    "searchPlaceholder": "Search sessions, terminals, directories...",
+    "loading": "Loading sessions…",
+    "emptySessionsQuery": "No Vibecoding sessions match \"{{query}}\". Try another keyword or clear the search.",
+    "emptySessions": "No Vibecoding sessions yet. Tap NEW TASK in the top right to create one.",
+    "emptyTerminalsQuery": "No terminals match \"{{query}}\". Try another keyword or clear the search.",
+    "emptyTerminals": "No active remote terminals."
+  },
+  "createScreen": {
+    "noDeviceTitle": "No device registered yet",
+    "noDeviceDetail": "Start the desktop Agent on your computer, or scan to bind an existing device.",
+    "customPathTitle": "Custom path (no project)",
+    "customPathDetail": "Type a working directory manually, without binding to a project",
+    "directoryPlaceholder": "Enter the project's absolute path, e.g. ~/code/my-app",
+    "noProvider": "codex / claude code / opencode isn't installed on this device — can't create a session.",
+    "modelPlaceholder": "Leave empty to inherit user default{{suffix}}",
+    "modelPlaceholderSuffix": ": {{model}}",
+    "modelHint": "Specifying a model name overrides it for this session; leave empty to inherit the user default from Me.",
+    "effortHintCodex": "Codex reasoning effort: codex uses xhigh; leave empty to inherit the user default.",
+    "effortHintOpencode": "OpenCode models use provider/model; leave empty to inherit the user default.",
+    "effortHintClaude": "Claude reasoning effort: claude uses max; leave empty to inherit the user default."
+  },
+  "sessionSettings": {
+    "title": "Session settings",
+    "subtitle": "MODEL / EFFORT",
+    "empty": "Session doesn't exist or has ended.",
+    "sectionModel": "1. MODEL",
+    "modelPlaceholder": "Leave empty to inherit the user default model",
+    "modelHint": "Specifying a model name overrides it for this session; leave empty to inherit the user default from Me.",
+    "sectionEffort": "2. EFFORT",
+    "effortHint": "EFFORT is sent as a separate field; the gateway sets reasoning effort from it ({{provider}} levels: {{levels}}). Selecting \"Default\" inherits the user default. Independent of the model — no need to pick a model first.",
+    "effective": "Current effective",
+    "timingTitle": "Takes effect",
+    "timingDetail": "Changes apply on your next sent message; the currently running turn keeps the original config — no need to restart the session.",
+    "saving": "Saving…",
+    "saveButton": "Save settings",
+    "saveFailed": "Save failed, please retry.",
+    "userDefault": "user default",
+    "defaultChip": "Default"
+  },
+  "agentSessions": {
+    "messagesCount": "{{count}} messages"
+  },
   "transcript": {
     "roleUser": "user",
     "roleAssistant": "assistant",
