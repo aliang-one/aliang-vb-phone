@@ -1,0 +1,10 @@
+{
+  "title": "设置",
+  "section_appearance": "外观",
+  "section_preferences": "通用",
+  "language": {
+    "label": "语言",
+    "english": "English",
+    "chinese": "中文"
+  }
+}

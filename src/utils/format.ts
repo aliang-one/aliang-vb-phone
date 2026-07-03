@@ -2,6 +2,7 @@
  * Human-readable byte formatting, mirroring the desktop dashboard's
  * `format_bytes_display` so traffic usage looks the same on mobile.
  */
+import i18n from '../i18n';
 
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
 
@@ -35,13 +36,16 @@ export function daysUntil(iso: string | null | undefined): number {
   return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
 }
 
-/** Short, locale-neutral date (YYYY-MM-DD) from an ISO/datetime string. */
+/** Short, locale-aware date from an ISO/datetime string (e.g. "Jul 3, 2026" / "2026年7月3日"). */
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return '-';
   const parsed = new Date(iso);
   if (Number.isNaN(parsed.getTime())) return iso.slice(0, 10);
-  const y = parsed.getFullYear();
-  const m = String(parsed.getMonth() + 1).padStart(2, '0');
-  const d = String(parsed.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  // Intl format follows the active i18n language (en/zh); keeps dates readable in
+  // each locale instead of a fixed YYYY-MM-DD.
+  return new Intl.DateTimeFormat(i18n.language, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(parsed);
 }

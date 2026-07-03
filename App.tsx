@@ -5,6 +5,8 @@ import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider } from './src/theme/ThemeContext';
 import { useTheme } from './src/theme/useTheme';
+import './src/i18n';
+import { LocaleProvider } from './src/i18n/useLocale';
 import { RootNavigator } from './src/app/navigation/RootNavigator';
 import { navigationRef } from './src/app/navigation/navigationRef';
 import { usePresenceHeartbeat } from './src/hooks/usePresenceHeartbeat';
@@ -104,7 +106,9 @@ function App(props: AppInitialProps = {}) {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider>
-          <AppContent debugDeviceTerminal={props.debugDeviceTerminal} />
+          <LocaleProvider>
+            <AppContent debugDeviceTerminal={props.debugDeviceTerminal} />
+          </LocaleProvider>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

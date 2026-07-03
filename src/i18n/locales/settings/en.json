@@ -1,0 +1,10 @@
+{
+  "title": "Settings",
+  "section_appearance": "Appearance",
+  "section_preferences": "Preferences",
+  "language": {
+    "label": "Language",
+    "english": "English",
+    "chinese": "中文"
+  }
+}

@@ -11,6 +11,8 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
+import { useLocale } from '../../i18n/useLocale';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { DeferredMount } from '../../components/shared/DeferredMount';
@@ -35,6 +37,8 @@ const ratio = (value: number, total: number) =>
 
 export const SettingsScreen: React.FC = () => {
   const { theme, isDark, mode, setMode } = useTheme();
+  const { t } = useTranslation('settings');
+  const { locale, setLocale } = useLocale();
   const navigation = useNavigation<Navigation>();
   const devices = useControlCenterStore(state => state.devices);
   const vibeRuns = useStableVibeRuns();
@@ -62,6 +66,13 @@ export const SettingsScreen: React.FC = () => {
     { key: 'system', label: 'SYSTEM' },
     { key: 'dark', label: 'DARK' },
     { key: 'light', label: 'LIGHT' },
+  ] as const;
+
+  // Language names are shown in their own script regardless of the active locale
+  // (so English / 中文 are always recognizable); only the section title is translated.
+  const languageOptions = [
+    { key: 'en', label: 'English' },
+    { key: 'zh', label: '中文' },
   ] as const;
 
   // --- Account / Subscriptions / Usage (from aliang-official-website backend) ---
@@ -481,6 +492,43 @@ export const SettingsScreen: React.FC = () => {
                     {option.label}
                   </Text>
                   {mode === option.key && (
+                    <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+                      ACTIVE
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </GlassPanel>
+
+            {renderSectionTitle(t('language.label'))}
+            <GlassPanel style={styles.themePanel}>
+              {languageOptions.map(option => (
+                <TouchableOpacity
+                  key={option.key}
+                  onPress={() => setLocale(option.key)}
+                  style={[
+                    styles.themeOption,
+                    locale === option.key && {
+                      backgroundColor: isDark
+                        ? 'rgba(86, 156, 214, 0.1)'
+                        : 'rgba(0, 81, 174, 0.08)',
+                      borderLeftWidth: 3,
+                      borderLeftColor: theme.colors.primary,
+                    },
+                  ]}>
+                  <Text
+                    style={[
+                      theme.typography.bodyMd,
+                      {
+                        color:
+                          locale === option.key
+                            ? theme.colors.primary
+                            : theme.colors.onSurface,
+                      },
+                    ]}>
+                    {option.label}
+                  </Text>
+                  {locale === option.key && (
                     <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
                       ACTIVE
                     </Text>
