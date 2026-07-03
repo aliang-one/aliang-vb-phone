@@ -1,0 +1,12 @@
+{
+  "title": "Mobile user space",
+  "email": "Email",
+  "password": "Password",
+  "signIn": "SIGN IN",
+  "syncing": "Syncing devices, projects, and VibeCoding sessions",
+  "errorFallback": "Unable to sign in to the platform.",
+  "language": {
+    "english": "English",
+    "chinese": "中文"
+  }
+}

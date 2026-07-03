@@ -1,0 +1,12 @@
+{
+  "title": "移动用户空间",
+  "email": "邮箱",
+  "password": "密码",
+  "signIn": "登录",
+  "syncing": "正在同步设备、项目与 VibeCoding 会话",
+  "errorFallback": "无法登录到平台。",
+  "language": {
+    "english": "English",
+    "chinese": "中文"
+  }
+}

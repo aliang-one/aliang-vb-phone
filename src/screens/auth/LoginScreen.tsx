@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,11 +16,15 @@ import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { IconBadge } from '../../components/visual/IconBadge';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
+import { useLocale } from '../../i18n/useLocale';
 import { useSessionStore } from '../../../stores/useSettingsStore';
 import { ALIANG_ACCOUNT_BASE_URL } from '../../config/accountService';
 
 export const LoginScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('auth');
+  const { locale, setLocale } = useLocale();
   const login = useSessionStore(state => state.login);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -36,7 +41,7 @@ export const LoginScreen: React.FC = () => {
       setError(
         nextError instanceof Error
           ? nextError.message
-          : 'Unable to sign in to the platform.',
+          : t('errorFallback'),
       );
     } finally {
       setLoading(false);
@@ -51,6 +56,33 @@ export const LoginScreen: React.FC = () => {
         <ScrollView
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.content}>
+          <View style={styles.langRow}>
+            {(['en', 'zh'] as const).map(opt => (
+              <Pressable
+                key={opt}
+                onPress={() => setLocale(opt)}
+                style={[
+                  styles.langBtn,
+                  {
+                    borderColor: locale === opt ? theme.colors.primary : theme.colors.outlineVariant,
+                    backgroundColor:
+                      locale === opt
+                        ? isDark
+                          ? 'rgba(86,156,214,0.12)'
+                          : 'rgba(0,81,174,0.08)'
+                        : 'transparent',
+                  },
+                ]}>
+                <Text
+                  style={[
+                    theme.typography.labelSm,
+                    { color: locale === opt ? theme.colors.primary : theme.colors.onSurfaceVariant },
+                  ]}>
+                  {opt === 'en' ? 'EN' : '中文'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
           <View style={styles.brandRow}>
             <IconBadge name="agent" tone="primary" size={52} iconSize={26} filled />
             <View style={styles.brandCopy}>
@@ -58,7 +90,7 @@ export const LoginScreen: React.FC = () => {
                 ALIANG VIBECODING
               </Text>
               <Text style={[theme.typography.titleLg, { color: theme.colors.onSurface }]}>
-                Mobile user space
+                {t('title')}
               </Text>
             </View>
             <StatusChip label="ALIANG.ONE" type="info" />
@@ -66,7 +98,7 @@ export const LoginScreen: React.FC = () => {
 
           <GlassPanel style={styles.panel}>
             <Field
-              label="Email"
+              label={t('email')}
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
@@ -75,7 +107,7 @@ export const LoginScreen: React.FC = () => {
               isDark={isDark}
             />
             <Field
-              label="Password"
+              label={t('password')}
               value={password}
               onChangeText={setPassword}
               secureTextEntry
@@ -88,7 +120,7 @@ export const LoginScreen: React.FC = () => {
               </Text>
             ) : null}
             <GlowButton
-              title="SIGN IN"
+              title={t('signIn')}
               onPress={handleSubmit}
               loading={loading}
               disabled={!email.trim() || !password || loading}
@@ -98,7 +130,7 @@ export const LoginScreen: React.FC = () => {
               <View style={styles.syncRow}>
                 <ActivityIndicator color={theme.colors.primary} size="small" />
                 <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                  Syncing devices, projects, and VibeCoding sessions
+                  {t('syncing')}
                 </Text>
               </View>
             ) : null}
@@ -166,6 +198,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 16,
     gap: 14,
+  },
+  langRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  langBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderRadius: 999,
   },
   brandRow: {
     flexDirection: 'row',
