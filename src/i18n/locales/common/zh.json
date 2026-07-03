@@ -12,5 +12,21 @@
   "done": "完成",
   "refresh": "刷新",
   "online": "在线",
-  "offline": "离线"
+  "offline": "离线",
+  "bottomSheet": {
+    "closeA11yLabel": "关闭"
+  },
+  "workspaceCard": {
+    "sessionsCount": "{{count}} sessions",
+    "changedCount": "{{count}} changed",
+    "unboundDevice": "未绑定设备",
+    "unknownOs": "unknown",
+    "statusOnline": "在线",
+    "statusOffline": "离线",
+    "metricFiles": "Files",
+    "metricAgents": "Agents",
+    "metricChanged": "Changed",
+    "actionFiles": "Files",
+    "actionTerm": "Term"
+  }
 }

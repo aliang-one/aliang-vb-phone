@@ -15,24 +15,21 @@ import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { newestFirst } from '../../utils/timeSort';
 import type { ControlCenterState } from '../../store/types';
+import { useTranslation } from 'react-i18next';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 type ApprovalFilter = 'pending' | 'resolved' | 'all';
 
-const filterLabels: Array<{ label: string; value: ApprovalFilter }> = [
-  { label: 'PENDING', value: 'pending' },
-  { label: 'RESOLVED', value: 'resolved' },
-  { label: 'ALL', value: 'all' },
-];
+const filterValues: ApprovalFilter[] = ['pending', 'resolved', 'all'];
 
-const approvalKindLabel: Record<ApprovalRequest['kind'], string> = {
-  dangerous_command: 'Command',
-  file_write: 'File write',
-  file_delete: 'Delete',
-  git_push: 'Git push',
-  tool: 'Tool',
-  client_response: 'Response',
+const approvalKindKey: Record<ApprovalRequest['kind'], string> = {
+  dangerous_command: 'approval.kindCommand',
+  file_write: 'approval.kindFileWrite',
+  file_delete: 'approval.kindDelete',
+  git_push: 'approval.kindGitPush',
+  tool: 'approval.kindTool',
+  client_response: 'approval.kindResponse',
 };
 
 const approvalIcon: Record<ApprovalRequest['kind'], IconName> = {
@@ -46,6 +43,7 @@ const approvalIcon: Record<ApprovalRequest['kind'], IconName> = {
 
 export const ApprovalCenterScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('operations');
   const navigation = useNavigation<Navigation>();
   const approvals = useControlCenterStore(state => state.approvals);
   const devices = useControlCenterStore(state => state.devices);
@@ -77,12 +75,12 @@ export const ApprovalCenterScreen: React.FC = () => {
   return (
     <SafeAreaWrapper>
       <TopAppBar
-        title="Approvals"
-        subtitle="COMMAND / FILE / GIT"
+        title={t('approval.title')}
+        subtitle={t('approval.subtitle')}
         onBack={navigation.goBack}
         rightAction={
           <StatusChip
-            label={`${pendingCount} PENDING`}
+            label={t('approval.pendingCount', { count: pendingCount })}
             type={pendingCount ? 'warning' : 'neutral'}
           />
         }
@@ -100,7 +98,7 @@ export const ApprovalCenterScreen: React.FC = () => {
               item={item}
               deviceName={device?.name ?? item.deviceId ?? ''}
               deviceOffline={device?.status === 'offline'}
-              projectName={project?.name ?? item.projectId ?? 'none'}
+              projectName={project?.name ?? item.projectId ?? t('approval.projectNone')}
               resolveApproval={resolveApproval}
               onOpenSession={handleOpenSession}
             />
@@ -115,13 +113,19 @@ export const ApprovalCenterScreen: React.FC = () => {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.filters}>
-            {filterLabels.map(item => {
-              const active = item.value === filter;
+            {filterValues.map(value => {
+              const active = value === filter;
+              const label =
+                value === 'pending'
+                  ? t('approval.filterPending')
+                  : value === 'resolved'
+                    ? t('approval.filterResolved')
+                    : t('approval.filterAll');
               return (
                 <TouchableOpacity
-                  key={item.value}
+                  key={value}
                   activeOpacity={0.75}
-                  onPress={() => setFilter(item.value)}
+                  onPress={() => setFilter(value)}
                   style={[
                     styles.filterChip,
                     {
@@ -145,7 +149,7 @@ export const ApprovalCenterScreen: React.FC = () => {
                           : theme.colors.onSurfaceVariant,
                       },
                     ]}>
-                    {item.label}
+                    {label}
                   </Text>
                 </TouchableOpacity>
               );
@@ -157,10 +161,10 @@ export const ApprovalCenterScreen: React.FC = () => {
             <IconBadge name="approval" tone="neutral" size={42} iconSize={21} />
             <View style={styles.emptyCopy}>
               <Text style={[theme.typography.titleMd, { color: theme.colors.onSurfaceVariant }]}>
-                No approvals
+                {t('approval.emptyTitle')}
               </Text>
               <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-                当前筛选下没有需要处理的审批。
+                {t('approval.emptyBody')}
               </Text>
             </View>
           </GlassPanel>
@@ -211,8 +215,9 @@ interface ApprovalCardProps {
 const ApprovalCard: React.FC<ApprovalCardProps> = React.memo(
   ({ item, deviceName, deviceOffline, projectName, resolveApproval, onOpenSession }) => {
     const { theme } = useTheme();
+    const { t } = useTranslation('operations');
     const pending = item.status === 'pending';
-    const kindLabel = approvalKindLabel[item.kind] ?? 'Request';
+    const kindLabel = t(approvalKindKey[item.kind] ?? 'approval.kindFallback');
     const iconName = approvalIcon[item.kind] ?? 'approval';
     const optionChoices = item.options ?? [];
     return (
@@ -270,10 +275,10 @@ const ApprovalCard: React.FC<ApprovalCardProps> = React.memo(
           </View>
         ) : null}
         <View style={styles.metaRow}>
-          <Meta label="DEVICE" value={`${deviceName}${deviceOffline ? ' · 离线' : ''}`} />
-          <Meta label="PROJECT" value={projectName} />
-          <Meta label="RISK" value={item.risk.toUpperCase()} />
-          <Meta label="TIME" value={item.createdAt} />
+          <Meta label={t('approval.metaDevice')} value={`${deviceName}${deviceOffline ? t('approval.offlineSuffix') : ''}`} />
+          <Meta label={t('approval.metaProject')} value={projectName} />
+          <Meta label={t('approval.metaRisk')} value={item.risk.toUpperCase()} />
+          <Meta label={t('approval.metaTime')} value={item.createdAt} />
         </View>
         {pending && optionChoices.length ? (
           <View style={styles.optionActionStack}>
@@ -298,14 +303,14 @@ const ApprovalCard: React.FC<ApprovalCardProps> = React.memo(
         ) : pending ? (
           <View style={styles.actionRow}>
             <GlowButton
-              title="APPROVE"
+              title={t('approval.actionApprove')}
               disabled={deviceOffline}
               onPress={() => resolveApproval(item.id, 'approved')}
               variant="primary"
               style={styles.primaryAction}
             />
             <GlowButton
-              title="DENY"
+              title={t('approval.actionDeny')}
               disabled={deviceOffline}
               onPress={() => resolveApproval(item.id, 'denied')}
               variant="outline"
@@ -324,7 +329,7 @@ const ApprovalCard: React.FC<ApprovalCardProps> = React.memo(
               },
             ]}>
             <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-              OPEN SESSION
+              {t('approval.openSession')}
             </Text>
           </TouchableOpacity>
         ) : null}

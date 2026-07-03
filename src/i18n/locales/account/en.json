@@ -1,0 +1,57 @@
+{
+  "common": {
+    "default": "Default",
+    "providerFieldLabel": "PROVIDER",
+    "modelFieldLabel": "MODEL",
+    "effortFieldLabel": "EFFORT",
+    "saving": "Saving…",
+    "save": "Save",
+    "loadingCatalog": "Loading model catalog…",
+    "inheritPlaceholder": "Leave blank = inherit server default",
+    "errorFallback": "(built-in tiers will be used)"
+  },
+  "presetLibrary": {
+    "title": "Model presets",
+    "subtitle": "Personal preset library · {{count}} items",
+    "addButton": "+ Add",
+    "addA11yLabel": "Add preset",
+    "loading": "Loading presets…",
+    "empty": "No presets yet. Tap \"Add\" to save a common model/effort combination.",
+    "editLabel": "Edit",
+    "deleteLabel": "Delete",
+    "editA11yLabel": "Edit {{label}}",
+    "deleteA11yLabel": "Delete {{label}}",
+    "loadErrorFallback": "Failed to load model presets",
+    "namePlaceholder": "Preset name (e.g. Light authoring)",
+    "deleteError": "Delete failed, rolled back.",
+    "emptyNameError": "Preset name cannot be empty.",
+    "saveError": "Save failed, rolled back.",
+    "cancel": "Cancel"
+  },
+  "userDefault": {
+    "title": "Default model",
+    "subtitle": "User-level · used for new sessions by default",
+    "expandA11yLabel": "Expand default model config",
+    "collapseA11yLabel": "Collapse default model config",
+    "notSet": "Not set",
+    "currentPrefix": "Current:",
+    "modelPlaceholder": "Leave blank = CLI default model",
+    "savedStatus": "Saved as the default config for new sessions.",
+    "save404Error": "Save failed: the server does not yet support the default-model API; please restart or update the server.",
+    "saveErrorPrefix": "Save failed:",
+    "saveErrorFallback": "Save failed, please retry.",
+    "saveDefault": "Save default config",
+    "upToDate": "Up to date",
+    "failureStatusPrefix": "Save failed"
+  },
+  "deviceDefault": {
+    "title": "Device defaults",
+    "subtitle": "Set a model per device; leave blank = inherit server default",
+    "noDevices": "No registered devices yet.",
+    "providerInheritLabel": "Default",
+    "effectivePrefix": "Effective:",
+    "saveA11yLabel": "Save model config for {{name}}",
+    "saveErrorFallback": "Save failed, please retry.",
+    "saved": "Saved."
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "approval": {
+    "title": "Approvals",
+    "subtitle": "COMMAND / FILE / GIT",
+    "pendingCount": "{{count}} PENDING",
+    "filterPending": "PENDING",
+    "filterResolved": "RESOLVED",
+    "filterAll": "ALL",
+    "kindCommand": "Command",
+    "kindFileWrite": "File write",
+    "kindDelete": "Delete",
+    "kindGitPush": "Git push",
+    "kindTool": "Tool",
+    "kindResponse": "Response",
+    "kindFallback": "Request",
+    "emptyTitle": "No approvals",
+    "emptyBody": "No approvals to handle under the current filter.",
+    "metaDevice": "DEVICE",
+    "metaProject": "PROJECT",
+    "metaRisk": "RISK",
+    "metaTime": "TIME",
+    "projectNone": "none",
+    "offlineSuffix": " · Offline",
+    "actionApprove": "APPROVE",
+    "actionDeny": "DENY",
+    "openSession": "OPEN SESSION"
+  },
+  "notification": {
+    "title": "Notifications",
+    "subtitle": "PUSH QUEUE",
+    "unreadCount": "{{count}} UNREAD",
+    "typeApproval": "Approval",
+    "typeCompleted": "Completed",
+    "typeError": "Error",
+    "typeOffline": "Offline",
+    "allDevices": "all devices",
+    "markAllRead": "MARK ALL READ",
+    "read": "READ",
+    "new": "NEW",
+    "offlineSuffix": " · Offline"
+  }
+}

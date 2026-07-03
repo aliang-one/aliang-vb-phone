@@ -1,0 +1,54 @@
+{
+  "voiceBash": {
+    "step": {
+      "final": "Command generated",
+      "toolFallback": "tool",
+      "resultFallback": "result",
+      "collapse": "Collapse",
+      "details": "Details"
+    },
+    "recording": {
+      "title": "Speak the command you want to run",
+      "captionPreparing": "Preparing the microphone…",
+      "captionListening": "Listening…",
+      "captionRecognizing": "Recognizing…",
+      "done": "Done",
+      "doneA11yLabel": "Done",
+      "cancel": "Cancel"
+    },
+    "transcribing": {
+      "caption": "Recognizing…",
+      "cancel": "Cancel"
+    },
+    "review": {
+      "title": "Review transcription",
+      "body": "Here is the recognized result — edit it, then send it to the AI to generate a command.",
+      "cancel": "Cancel",
+      "rerecord": "Re-record",
+      "confirmSend": "Confirm send",
+      "confirmSendA11yLabel": "Confirm send"
+    },
+    "generating": {
+      "title": "Generating command",
+      "placeholder": "Generating…",
+      "inlineProgress": "Generating…",
+      "cancel": "Cancel"
+    },
+    "confirm": {
+      "title": "Confirm command to run",
+      "dangerWarning": "⚠ This command may have destructive effects — please confirm again before running.",
+      "runOnLabel": "Run on",
+      "cancel": "Cancel",
+      "rerecord": "Re-record",
+      "runLabel": "Confirm run",
+      "runDangerLabel": "Confirm run (dangerous)"
+    },
+    "error": {
+      "title": "Something went wrong",
+      "fallback": "Voice recognition failed, please retry",
+      "cancel": "Cancel",
+      "retry": "Retry",
+      "generateFallback": "Failed to generate command, please retry"
+    }
+  }
+}

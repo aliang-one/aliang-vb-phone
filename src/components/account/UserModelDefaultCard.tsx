@@ -28,6 +28,7 @@ import {
   providerLabel as formatProviderLabel,
   type EffortProvider,
 } from '../../utils/modelIntensity';
+import { useTranslation } from 'react-i18next';
 
 type ProviderDraft = EffortProvider | '';
 
@@ -35,11 +36,9 @@ const PROVIDER_OPTIONS: Array<{ label: string; value: ProviderDraft }> = [
   ...EFFORT_PROVIDERS.map(value => ({ label: formatProviderLabel(value), value })),
 ];
 
-const providerLabel = (provider?: CatalogProvider | null) =>
-  provider ? formatProviderLabel(provider) : '未设置';
-
 export const UserModelDefaultCard: React.FC = () => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('account');
   const { providerCatalog, userDefault, loading, error, refresh } = useModelOptions();
   const initialProvider = normalizeProvider(userDefault.provider ?? undefined) ?? 'codex';
   const [provider, setProvider] = useState<ProviderDraft>(initialProvider);
@@ -73,6 +72,8 @@ export const UserModelDefaultCard: React.FC = () => {
     effort.trim() !== (userDefault.effort ?? '');
 
   const accent = theme.colors.primary;
+  const providerLabel = (provider?: CatalogProvider | null) =>
+    provider ? formatProviderLabel(provider) : t('userDefault.notSet');
   const idleBorder = isDark ? 'rgba(255,255,255,0.08)' : theme.colors.outlineVariant;
   const activeBg = isDark ? 'rgba(86,156,214,0.14)' : 'rgba(0,81,174,0.08)';
   const chipStyle = (active: boolean) => [
@@ -102,14 +103,14 @@ export const UserModelDefaultCard: React.FC = () => {
       setEffort(next.effort ?? '');
       refreshModelOptions();
       refresh();
-      setStatus('已保存为新建会话默认配置。');
+      setStatus(t('userDefault.savedStatus'));
     } catch (err) {
       setStatus(
         err instanceof ApiResponseError && err.status === 404
-          ? '保存失败: 当前服务端还不支持默认模型接口,请重启或更新服务端。'
+          ? t('userDefault.save404Error')
           : err instanceof Error
-            ? `保存失败: ${err.message}`
-            : '保存失败,请重试。',
+            ? `${t('userDefault.saveErrorPrefix')} ${err.message}`
+            : t('userDefault.saveErrorFallback'),
       );
     } finally {
       setSaving(false);
@@ -121,18 +122,18 @@ export const UserModelDefaultCard: React.FC = () => {
       <TouchableOpacity
         activeOpacity={0.78}
         accessibilityRole="button"
-        accessibilityLabel={expanded ? '收起默认模型配置' : '展开默认模型配置'}
+        accessibilityLabel={expanded ? t('userDefault.collapseA11yLabel') : t('userDefault.expandA11yLabel')}
         onPress={() => setExpanded(value => !value)}
         style={styles.header}>
         <IconBadge name="settings" tone="primary" size={28} iconSize={14} />
         <View style={styles.headerCopy}>
           <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-            默认模型
+            {t('userDefault.title')}
           </Text>
           <Text
             style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}
             numberOfLines={1}>
-            用户级 · 新建 session 默认使用
+            {t('userDefault.subtitle')}
           </Text>
         </View>
         <IconBadge
@@ -148,26 +149,26 @@ export const UserModelDefaultCard: React.FC = () => {
         <View style={styles.loadingRow}>
           <ActivityIndicator color={theme.colors.primary} />
           <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-            正在加载模型目录…
+            {t('common.loadingCatalog')}
           </Text>
         </View>
       ) : null}
       {error ? (
         <Text style={[theme.typography.bodySm, { color: theme.colors.error }]}>
-          {error}(将使用内置档位)
+          {error}{t('common.errorFallback')}
         </Text>
       ) : null}
 
       <Text
         style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-        当前: {providerLabel(userDefault.provider)} · model={userDefault.model || '默认'} · effort={userDefault.effort || '默认'}
+        {t('userDefault.currentPrefix')} {providerLabel(userDefault.provider)} · model={userDefault.model || t('common.default')} · effort={userDefault.effort || t('common.default')}
       </Text>
 
       {expanded ? (
         <>
           <Text
             style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }, styles.fieldLabel]}>
-            PROVIDER
+            {t('common.providerFieldLabel')}
           </Text>
           <View style={styles.chipRow}>
             {PROVIDER_OPTIONS.map(opt => {
@@ -189,14 +190,14 @@ export const UserModelDefaultCard: React.FC = () => {
 
           <Text
             style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }, styles.fieldLabel]}>
-            MODEL
+            {t('common.modelFieldLabel')}
           </Text>
           <TextInput
             value={model}
             onChangeText={setModel}
             autoCapitalize="none"
             autoCorrect={false}
-            placeholder="留空 = CLI 默认模型"
+            placeholder={t('userDefault.modelPlaceholder')}
             placeholderTextColor={theme.colors.onSurfaceVariant}
             style={[
               theme.typography.bodyMd,
@@ -230,7 +231,7 @@ export const UserModelDefaultCard: React.FC = () => {
 
           <Text
             style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }, styles.fieldLabel]}>
-            EFFORT
+            {t('common.effortFieldLabel')}
           </Text>
           <View style={styles.chipRow}>
             {effortOptions.map(opt => {
@@ -251,14 +252,14 @@ export const UserModelDefaultCard: React.FC = () => {
             <Text
               style={[
                 theme.typography.bodySm,
-                { color: status.startsWith('保存失败') ? theme.colors.error : theme.colors.secondary },
+                { color: status.startsWith(t('userDefault.failureStatusPrefix')) ? theme.colors.error : theme.colors.secondary },
               ]}>
               {status}
             </Text>
           ) : null}
 
           <GlowButton
-            title={saving ? '保存中…' : dirty ? '保存默认配置' : '已是最新'}
+            title={saving ? t('common.saving') : dirty ? t('userDefault.saveDefault') : t('userDefault.upToDate')}
             onPress={handleSave}
             disabled={saving || !dirty}
             variant={dirty ? 'primary' : 'outline'}

@@ -1,0 +1,23 @@
+{
+  "list": {
+    "title": "Devices",
+    "subtitle": "AUTHORIZED COMPUTERS",
+    "searchPlaceholder": "Search devices, hosts, locations...",
+    "loading": "Loading devices…",
+    "summaryDevices": "{{count}} DEVICES",
+    "summaryOnline": "{{count}} ONLINE",
+    "summaryWarning": "{{count}} WARNING",
+    "sectionWorkstations": "COMPUTE WORKSTATIONS",
+    "emptySearchTitle": "No device matches \"{{query}}\"",
+    "emptyDefaultTitle": "No devices registered yet",
+    "emptySearchBody": "Try a different keyword, or tap ✕ on the right of the search bar to clear it and view all devices.",
+    "emptyDefaultBody": "Start the desktop Agent on your computer to register, or scan a code in the top-right to bind an existing device."
+  },
+  "card": {
+    "resume": "RESUME",
+    "close": "CLOSE",
+    "recent": "RECENT",
+    "offlineSuffix": " · Offline",
+    "emptyHistory": "(no commands yet)"
+  }
+}

@@ -15,11 +15,13 @@ import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { useTranslation } from 'react-i18next';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 export const TerminalListScreen: React.FC = () => {
   const { theme } = useTheme();
+  const { t } = useTranslation('terminals');
   const navigation = useNavigation<Navigation>();
   const devices = useControlCenterStore(state => state.devices);
   const refreshFromServer = useControlCenterStore(state => state.refreshFromServer);
@@ -79,8 +81,8 @@ export const TerminalListScreen: React.FC = () => {
   return (
     <SafeAreaWrapper>
       <TopAppBar
-        title="Devices"
-        subtitle="AUTHORIZED COMPUTERS"
+        title={t('list.title')}
+        subtitle={t('list.subtitle')}
         rightAction={
           <TouchableOpacity
             activeOpacity={0.75}
@@ -96,7 +98,7 @@ export const TerminalListScreen: React.FC = () => {
         <SearchBar
           value={search}
           onChangeText={setSearch}
-          placeholder="Search devices, hosts, locations..."
+          placeholder={t('list.searchPlaceholder')}
         />
       </View>
       <ScrollView
@@ -115,18 +117,18 @@ export const TerminalListScreen: React.FC = () => {
             <View style={styles.deferredPlaceholder}>
               <ActivityIndicator color={theme.colors.primary} />
               <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                正在加载设备…
+                {t('list.loading')}
               </Text>
             </View>
           }>
           <View style={styles.summary}>
-          <StatusChip label={`${filtered.length} DEVICES`} type="info" />
+          <StatusChip label={t('list.summaryDevices', { count: filtered.length })} type="info" />
           <StatusChip
-            label={`${filtered.filter(device => device.status === 'online').length} ONLINE`}
+            label={t('list.summaryOnline', { count: filtered.filter(device => device.status === 'online').length })}
             type="success"
           />
           <StatusChip
-            label={`${filtered.filter(device => device.status === 'warning').length} WARNING`}
+            label={t('list.summaryWarning', { count: filtered.filter(device => device.status === 'warning').length })}
             type="warning"
           />
         </View>
@@ -137,7 +139,7 @@ export const TerminalListScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
           ]}>
-          COMPUTE WORKSTATIONS
+          {t('list.sectionWorkstations')}
         </Text>
         {deviceList.visibleItems.map(device => (
           <DeviceControlCard
@@ -156,12 +158,10 @@ export const TerminalListScreen: React.FC = () => {
             <IconBadge name="device" tone="neutral" size={44} iconSize={22} />
             <View style={styles.emptyCopy}>
               <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                {normalizedSearch ? `没有匹配「${search}」的设备` : '还没有注册设备'}
+                {normalizedSearch ? t('list.emptySearchTitle', { query: search }) : t('list.emptyDefaultTitle')}
               </Text>
               <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-                {normalizedSearch
-                  ? '换个关键词试试，或点搜索栏右侧的 ✕ 清空查看全部设备。'
-                  : '在电脑端启动桌面 Agent 完成注册，或用右上角扫码绑定已有设备。'}
+                {normalizedSearch ? t('list.emptySearchBody') : t('list.emptyDefaultBody')}
               </Text>
             </View>
           </GlassPanel>

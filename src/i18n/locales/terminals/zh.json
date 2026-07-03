@@ -1,0 +1,23 @@
+{
+  "list": {
+    "title": "Devices",
+    "subtitle": "AUTHORIZED COMPUTERS",
+    "searchPlaceholder": "Search devices, hosts, locations...",
+    "loading": "正在加载设备…",
+    "summaryDevices": "{{count}} DEVICES",
+    "summaryOnline": "{{count}} ONLINE",
+    "summaryWarning": "{{count}} WARNING",
+    "sectionWorkstations": "COMPUTE WORKSTATIONS",
+    "emptySearchTitle": "没有匹配「{{query}}」的设备",
+    "emptyDefaultTitle": "还没有注册设备",
+    "emptySearchBody": "换个关键词试试，或点搜索栏右侧的 ✕ 清空查看全部设备。",
+    "emptyDefaultBody": "在电脑端启动桌面 Agent 完成注册，或用右上角扫码绑定已有设备。"
+  },
+  "card": {
+    "resume": "RESUME",
+    "close": "CLOSE",
+    "recent": "RECENT",
+    "offlineSuffix": " · 离线",
+    "emptyHistory": "（暂无指令）"
+  }
+}

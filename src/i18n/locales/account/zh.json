@@ -1,0 +1,57 @@
+{
+  "common": {
+    "default": "默认",
+    "providerFieldLabel": "PROVIDER",
+    "modelFieldLabel": "MODEL",
+    "effortFieldLabel": "EFFORT",
+    "saving": "保存中…",
+    "save": "保存",
+    "loadingCatalog": "正在加载模型目录…",
+    "inheritPlaceholder": "留空 = 继承服务器默认",
+    "errorFallback": "(将使用内置档位)"
+  },
+  "presetLibrary": {
+    "title": "模型预设",
+    "subtitle": "个人预设库 · {{count}} 条",
+    "addButton": "+ 新增",
+    "addA11yLabel": "新增预设",
+    "loading": "正在加载预设…",
+    "empty": "还没有预设。点击「新增」添加一条常用模型/effort 组合。",
+    "editLabel": "编辑",
+    "deleteLabel": "删除",
+    "editA11yLabel": "编辑 {{label}}",
+    "deleteA11yLabel": "删除 {{label}}",
+    "loadErrorFallback": "加载模型预设失败",
+    "namePlaceholder": "预设名称(如 轻量创作)",
+    "deleteError": "删除失败,已回滚。",
+    "emptyNameError": "预设名称不能为空。",
+    "saveError": "保存失败,已回滚。",
+    "cancel": "取消"
+  },
+  "userDefault": {
+    "title": "默认模型",
+    "subtitle": "用户级 · 新建 session 默认使用",
+    "expandA11yLabel": "展开默认模型配置",
+    "collapseA11yLabel": "收起默认模型配置",
+    "notSet": "未设置",
+    "currentPrefix": "当前:",
+    "modelPlaceholder": "留空 = CLI 默认模型",
+    "savedStatus": "已保存为新建会话默认配置。",
+    "save404Error": "保存失败: 当前服务端还不支持默认模型接口,请重启或更新服务端。",
+    "saveErrorPrefix": "保存失败:",
+    "saveErrorFallback": "保存失败,请重试。",
+    "saveDefault": "保存默认配置",
+    "upToDate": "已是最新",
+    "failureStatusPrefix": "保存失败"
+  },
+  "deviceDefault": {
+    "title": "设备默认",
+    "subtitle": "为每台设备指定模型;留空 = 继承服务器默认",
+    "noDevices": "还没有已注册设备。",
+    "providerInheritLabel": "默认",
+    "effectivePrefix": "有效:",
+    "saveA11yLabel": "保存 {{name}} 的模型配置",
+    "saveErrorFallback": "保存失败,请重试。",
+    "saved": "已保存。"
+  }
+}

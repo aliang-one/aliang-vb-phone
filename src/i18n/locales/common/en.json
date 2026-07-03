@@ -12,5 +12,21 @@
   "done": "Done",
   "refresh": "Refresh",
   "online": "Online",
-  "offline": "Offline"
+  "offline": "Offline",
+  "bottomSheet": {
+    "closeA11yLabel": "Close"
+  },
+  "workspaceCard": {
+    "sessionsCount": "{{count}} sessions",
+    "changedCount": "{{count}} changed",
+    "unboundDevice": "No bound device",
+    "unknownOs": "unknown",
+    "statusOnline": "Online",
+    "statusOffline": "Offline",
+    "metricFiles": "Files",
+    "metricAgents": "Agents",
+    "metricChanged": "Changed",
+    "actionFiles": "Files",
+    "actionTerm": "Term"
+  }
 }

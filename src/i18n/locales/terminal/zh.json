@@ -1,0 +1,54 @@
+{
+  "voiceBash": {
+    "step": {
+      "final": "命令已生成",
+      "toolFallback": "tool",
+      "resultFallback": "result",
+      "collapse": "收起",
+      "details": "详情"
+    },
+    "recording": {
+      "title": "说出你想执行的命令",
+      "captionPreparing": "正在准备麦克风…",
+      "captionListening": "正在聆听…",
+      "captionRecognizing": "识别中…",
+      "done": "完成",
+      "doneA11yLabel": "完成",
+      "cancel": "取消"
+    },
+    "transcribing": {
+      "caption": "识别中…",
+      "cancel": "取消"
+    },
+    "review": {
+      "title": "确认转写",
+      "body": "识别结果如下，可编辑后发送给 AI 生成命令。",
+      "cancel": "取消",
+      "rerecord": "重录",
+      "confirmSend": "确认发送",
+      "confirmSendA11yLabel": "确认发送"
+    },
+    "generating": {
+      "title": "正在生成命令",
+      "placeholder": "生成中…",
+      "inlineProgress": "生成中…",
+      "cancel": "取消"
+    },
+    "confirm": {
+      "title": "确认运行命令",
+      "dangerWarning": "⚠ 该命令可能造成破坏性影响，请再次确认后再运行。",
+      "runOnLabel": "运行于",
+      "cancel": "取消",
+      "rerecord": "重录",
+      "runLabel": "确认运行",
+      "runDangerLabel": "确认运行(危险)"
+    },
+    "error": {
+      "title": "出错了",
+      "fallback": "语音识别失败，请重试",
+      "cancel": "取消",
+      "retry": "重试",
+      "generateFallback": "生成命令失败，请重试"
+    }
+  }
+}

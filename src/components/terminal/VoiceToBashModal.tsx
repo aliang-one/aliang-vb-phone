@@ -31,6 +31,8 @@ import {
 import { isUnsafeSuggestion } from '../../utils/terminalSuggestions';
 import { GlassPanel } from '../shared/GlassPanel';
 import { DevicePicker, type DevicePickerEntry } from './DevicePicker';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 
 export type VoiceToBashPhase =
   | 'recording'
@@ -78,17 +80,17 @@ type StepHeader = { icon: string; text: string; snippet?: string };
 
 // Build the visible header for one commandGen.* step. null = no row (runStarted /
 // failed / runFinished are surfaced via the phase transitions, not the timeline).
-const stepHeader = (e: CommandGenLiveEvent): StepHeader | null => {
+const stepHeader = (e: CommandGenLiveEvent, t: TFunction): StepHeader | null => {
   if (e.type !== 'commandGen.step') return null;
   if (e.kind === 'tool_call') {
     const arg = summarizeToolArgs(e.toolArgs);
-    return { icon: '→', text: e.toolName ? `${e.toolName}${arg ? '  ' + arg : ''}` : 'tool' };
+    return { icon: '→', text: e.toolName ? `${e.toolName}${arg ? '  ' + arg : ''}` : t('voiceBash.step.toolFallback') };
   }
   if (e.kind === 'tool_result') {
-    return { icon: '✓', text: e.toolName ?? 'result', snippet: e.snippet };
+    return { icon: '✓', text: e.toolName ?? t('voiceBash.step.resultFallback'), snippet: e.snippet };
   }
   if (e.kind === 'final') {
-    return { icon: '✓', text: '命令已生成' };
+    return { icon: '✓', text: t('voiceBash.step.final') };
   }
   return null;
 };
@@ -99,8 +101,9 @@ const stepHeader = (e: CommandGenLiveEvent): StepHeader | null => {
 // are tinted so a failed read is obvious at a glance.
 const StepRow: React.FC<{ event: CommandGenLiveEvent }> = ({ event }) => {
   const { theme } = useTheme();
+  const { t } = useTranslation('terminal');
   const [expanded, setExpanded] = useState(false);
-  const header = stepHeader(event);
+  const header = stepHeader(event, t);
   if (!header) return null;
   const snippet = header.snippet && header.snippet.length > 0 ? header.snippet : undefined;
   const isError = snippet ? snippet.startsWith('error:') : false;
@@ -123,7 +126,7 @@ const StepRow: React.FC<{ event: CommandGenLiveEvent }> = ({ event }) => {
         </Text>
         {snippet && (
           <Text style={[theme.typography.bodySm, { color: theme.colors.primary, marginLeft: 8 }]}>
-            {expanded ? '收起' : '详情'}
+            {expanded ? t('voiceBash.step.collapse') : t('voiceBash.step.details')}
           </Text>
         )}
       </Pressable>
@@ -158,6 +161,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   selectableDevices,
 }) => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('terminal');
   const voiceStt = useVoiceStt();
 
   const [phase, setPhase] = useState<VoiceToBashPhase>('recording');
@@ -294,7 +298,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
         })
         .catch((e) => {
           const message =
-            e instanceof Error && e.message ? e.message : '生成命令失败，请重试';
+            e instanceof Error && e.message ? e.message : t('voiceBash.error.generateFallback');
           setError(message);
           setPhase('error');
         });
@@ -303,7 +307,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
     return () => {
       unsub();
     };
-  }, [phase, deviceId, cwd, mode, sessionId, projectId, armConfirmDanger]);
+  }, [phase, deviceId, cwd, mode, sessionId, projectId, armConfirmDanger, t]);
 
   // Begin (or re-begin) a recording: cancel any in-flight STT first so a late
   // onComplete from the previous attempt can't land in the new review phase,
@@ -384,18 +388,18 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   // error phase if it's a real failure, so this branch only shows briefly).
   const recordingCaption = (() => {
     if (voiceStt.liveCaption) return voiceStt.liveCaption;
-    if (sttStatus === 'connecting') return '正在准备麦克风…';
-    if (sttStatus === 'recording') return '正在聆听…';
-    if (sttStatus === 'stopping') return '识别中…';
-    return '正在准备麦克风…';
+    if (sttStatus === 'connecting') return t('voiceBash.recording.captionPreparing');
+    if (sttStatus === 'recording') return t('voiceBash.recording.captionListening');
+    if (sttStatus === 'stopping') return t('voiceBash.recording.captionRecognizing');
+    return t('voiceBash.recording.captionPreparing');
   })();
 
   const primaryBtnLabel =
     isDangerous && confirmDanger
-      ? '确认运行(危险)'
+      ? t('voiceBash.confirm.runDangerLabel')
       : isDangerous
-        ? '确认运行'
-        : '确认运行';
+        ? t('voiceBash.confirm.runLabel')
+        : t('voiceBash.confirm.runLabel');
 
   return (
     <Modal
@@ -416,7 +420,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
           {phase === 'recording' && (
             <View style={styles.body}>
               <Text style={[theme.typography.titleMd, styles.titleText, { color: theme.colors.onSurface }]}>
-                说出你想执行的命令
+                {t('voiceBash.recording.title')}
               </Text>
               <Text
                 testID="v2b-caption"
@@ -430,7 +434,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
                 <Pressable
                   testID="v2b-done"
                   accessibilityRole="button"
-                  accessibilityLabel="完成"
+                  accessibilityLabel={t('voiceBash.recording.doneA11yLabel')}
                   onPress={handleStop}
                   style={[
                     styles.micBtn,
@@ -441,7 +445,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
                   ]}
                 >
                   <Text style={[theme.typography.labelMd, { color: theme.colors.onPrimary }]}>
-                    完成
+                    {t('voiceBash.recording.done')}
                   </Text>
                 </Pressable>
               </View>
@@ -449,7 +453,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
               <View style={styles.footerRow}>
                 <Pressable testID="v2b-cancel" onPress={handleClose} style={styles.textBtn}>
                   <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
-                    取消
+                    {t('voiceBash.recording.cancel')}
                   </Text>
                 </Pressable>
               </View>
@@ -461,13 +465,13 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
               <View style={styles.spinnerRow}>
                 <ActivityIndicator color={theme.colors.primary} />
                 <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface, marginLeft: 8 }]}>
-                  识别中…
+                  {t('voiceBash.transcribing.caption')}
                 </Text>
               </View>
               <View style={styles.footerRow}>
                 <Pressable testID="v2b-cancel" onPress={handleClose} style={styles.textBtn}>
                   <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
-                    取消
+                    {t('voiceBash.transcribing.cancel')}
                   </Text>
                 </Pressable>
               </View>
@@ -477,12 +481,12 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
           {phase === 'review' && (
             <View style={styles.body}>
               <Text style={[theme.typography.titleMd, styles.titleText, { color: theme.colors.onSurface }]}>
-                确认转写
+                {t('voiceBash.review.title')}
               </Text>
               <Text
                 style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}
               >
-                识别结果如下，可编辑后发送给 AI 生成命令。
+                {t('voiceBash.review.body')}
               </Text>
               <TextInput
                 testID="v2b-transcript"
@@ -505,18 +509,18 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
               <View style={styles.footerRow}>
                 <Pressable testID="v2b-cancel" onPress={handleClose} style={styles.textBtn}>
                   <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
-                    取消
+                    {t('voiceBash.review.cancel')}
                   </Text>
                 </Pressable>
                 <Pressable testID="v2b-rerecord-review" onPress={handleRerecord} style={styles.textBtn}>
                   <Text style={[theme.typography.labelMd, { color: theme.colors.primary }]}>
-                    重录
+                    {t('voiceBash.review.rerecord')}
                   </Text>
                 </Pressable>
                 <Pressable
                   testID="v2b-confirm-send"
                   accessibilityRole="button"
-                  accessibilityLabel="确认发送"
+                  accessibilityLabel={t('voiceBash.review.confirmSendA11yLabel')}
                   onPress={handleSend}
                   disabled={!transcript.trim()}
                   style={[
@@ -529,7 +533,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
                   ]}
                 >
                   <Text style={[theme.typography.labelMd, { color: theme.colors.onPrimary }]}>
-                    确认发送
+                    {t('voiceBash.review.confirmSend')}
                   </Text>
                 </Pressable>
               </View>
@@ -539,14 +543,14 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
           {phase === 'generating' && (
             <View style={styles.body}>
               <Text style={[theme.typography.titleMd, styles.titleText, { color: theme.colors.onSurface }]}>
-                正在生成命令
+                {t('voiceBash.generating.title')}
               </Text>
 
               {steps.length === 0 ? (
                 <View style={styles.spinnerRow}>
                   <ActivityIndicator color={theme.colors.primary} />
                   <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface, marginLeft: 8 }]}>
-                    生成中…
+                    {t('voiceBash.generating.placeholder')}
                   </Text>
                 </View>
               ) : (
@@ -562,7 +566,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
                     <View style={styles.spinnerRow}>
                       <ActivityIndicator color={theme.colors.primary} size="small" />
                       <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant, marginLeft: 6 }]}>
-                        生成中…
+                        {t('voiceBash.generating.inlineProgress')}
                       </Text>
                     </View>
                   </View>
@@ -572,7 +576,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
               <View style={styles.footerRow}>
                 <Pressable testID="v2b-cancel" onPress={handleClose} style={styles.textBtn}>
                   <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
-                    取消
+                    {t('voiceBash.generating.cancel')}
                   </Text>
                 </Pressable>
               </View>
@@ -582,7 +586,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
           {phase === 'confirming' && (
             <View style={styles.body}>
               <Text style={[theme.typography.titleMd, styles.titleText, { color: theme.colors.onSurface }]}>
-                确认运行命令
+                {t('voiceBash.confirm.title')}
               </Text>
 
               {isDangerous && (
@@ -597,7 +601,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
                   ]}
                 >
                   <Text style={[theme.typography.bodySm, { color: theme.colors.onErrorContainer }]}>
-                    ⚠ 该命令可能造成破坏性影响，请再次确认后再运行。
+                    {t('voiceBash.confirm.dangerWarning')}
                   </Text>
                 </View>
               )}
@@ -623,7 +627,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
               {mode === 'initial' && selectableDevices && selectableDevices.length >= 1 && (
                 <View testID="v2b-device-picker" style={styles.pickerWrap}>
                   <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-                    运行于
+                    {t('voiceBash.confirm.runOnLabel')}
                   </Text>
                   <DevicePicker
                     entries={selectableDevices}
@@ -640,12 +644,12 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
               <View style={styles.footerRow}>
                 <Pressable testID="v2b-cancel" onPress={handleClose} style={styles.textBtn}>
                   <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
-                    取消
+                    {t('voiceBash.confirm.cancel')}
                   </Text>
                 </Pressable>
                 <Pressable testID="v2b-rerecord" onPress={handleRerecord} style={styles.textBtn}>
                   <Text style={[theme.typography.labelMd, { color: theme.colors.primary }]}>
-                    重录
+                    {t('voiceBash.confirm.rerecord')}
                   </Text>
                 </Pressable>
                 <Pressable
@@ -681,24 +685,24 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
           {phase === 'error' && (
             <View style={styles.body}>
               <Text style={[theme.typography.titleMd, styles.titleText, { color: theme.colors.error }]}>
-                出错了
+                {t('voiceBash.error.title')}
               </Text>
               <Text
                 testID="v2b-error"
                 style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}
                 numberOfLines={4}
               >
-                {error || voiceStt.errorMessage || '语音识别失败，请重试'}
+                {error || voiceStt.errorMessage || t('voiceBash.error.fallback')}
               </Text>
               <View style={styles.footerRow}>
                 <Pressable testID="v2b-cancel" onPress={handleClose} style={styles.textBtn}>
                   <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
-                    取消
+                    {t('voiceBash.error.cancel')}
                   </Text>
                 </Pressable>
                 <Pressable testID="v2b-retry" onPress={resetToRecording} style={styles.textBtn}>
                   <Text style={[theme.typography.labelMd, { color: theme.colors.primary }]}>
-                    重试
+                    {t('voiceBash.error.retry')}
                   </Text>
                 </Pressable>
               </View>

@@ -6,6 +6,7 @@ import { StatusChip } from '../shared/StatusChip';
 import { IconBadge } from '../visual/IconBadge';
 import { Device, Project, VibeCodingRun } from '../../data/platformModels';
 import { ProjectScanResult } from '../../store/types';
+import { useTranslation } from 'react-i18next';
 
 interface ProjectWorkspaceCardProps {
   project: Project;
@@ -35,6 +36,7 @@ export const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
     disabled = false,
   }) => {
     const { theme, isDark } = useTheme();
+    const { t } = useTranslation('common');
     const activeSessions = sessions.filter(item =>
       ['running', 'testing', 'waiting_approval', 'preview_ready'].includes(
         item.status,
@@ -90,7 +92,7 @@ export const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
                     { color: theme.colors.onSurfaceVariant },
                   ]}
                 >
-                  {sessions.length} sessions
+                  {t('workspaceCard.sessionsCount', { count: sessions.length })}
                 </Text>
                 <Text
                   numberOfLines={1}
@@ -99,7 +101,7 @@ export const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
                     { color: theme.colors.onSurfaceVariant },
                   ]}
                 >
-                  {gitChanged} changed
+                  {t('workspaceCard.changedCount', { count: gitChanged })}
                 </Text>
               </View>
             </View>
@@ -190,7 +192,7 @@ export const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
                 { color: theme.colors.onSurfaceVariant, flex: 1 },
               ]}
             >
-              {device?.name ?? '未绑定设备'} · {device?.os ?? 'unknown'}
+              {device?.name ?? t('workspaceCard.unboundDevice')} · {device?.os ?? t('workspaceCard.unknownOs')}
             </Text>
             <View
               style={[
@@ -212,7 +214,7 @@ export const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
                 },
               ]}
             >
-              {deviceOnline ? '在线' : '离线'}
+              {deviceOnline ? t('workspaceCard.statusOnline') : t('workspaceCard.statusOffline')}
             </Text>
           </View>
           {expanded ? (
@@ -221,17 +223,17 @@ export const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
                 <ProjectMetric
                   icon="code"
                   value={`${fileCount}`}
-                  label="Files"
+                  label={t('workspaceCard.metricFiles')}
                 />
                 <ProjectMetric
                   icon="agent"
                   value={`${activeSessions.length}`}
-                  label="Agents"
+                  label={t('workspaceCard.metricAgents')}
                 />
                 <ProjectMetric
                   icon="git"
                   value={`${gitChanged}`}
-                  label="Changed"
+                  label={t('workspaceCard.metricChanged')}
                 />
               </View>
               <View style={styles.projectMetaRow}>
@@ -279,13 +281,13 @@ export const ProjectWorkspaceCard = React.memo<ProjectWorkspaceCardProps>(
           ) : null}
           <View style={styles.projectActions}>
             <ProjectAction
-              label="Files"
+              label={t('workspaceCard.actionFiles')}
               icon="code"
               onPress={onFiles}
               disabled={disabled}
             />
             <ProjectAction
-              label="Term"
+              label={t('workspaceCard.actionTerm')}
               icon="terminal"
               onPress={onTerminal}
               disabled={!device || disabled}

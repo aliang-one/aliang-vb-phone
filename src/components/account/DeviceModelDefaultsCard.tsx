@@ -22,11 +22,10 @@ import {
   type EffortProvider,
 } from '../../utils/modelIntensity';
 import type { Device } from '../../data/platformModels';
+import { useTranslation } from 'react-i18next';
 
-const PROVIDER_OPTIONS: Array<{ label: string; value: EffortProvider | '' }> = [
-  { label: '默认', value: '' },
-  ...EFFORT_PROVIDERS.map(value => ({ label: providerLabel(value), value })),
-];
+type ProviderOptionValue = EffortProvider | '';
+const PROVIDER_VALUES: ProviderOptionValue[] = ['', ...EFFORT_PROVIDERS];
 
 interface DeviceRowProps {
   device: Device;
@@ -51,6 +50,7 @@ const DeviceRow: React.FC<DeviceRowProps> = ({
   serverDefault,
 }) => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('account');
   const [provider, setProvider] = useState<EffortProvider | ''>(
     normalizeProvider(undefined) ?? '',
   );
@@ -69,10 +69,10 @@ const DeviceRow: React.FC<DeviceRowProps> = ({
       providerCatalog.find(item => item.provider === resolved)?.efforts ?? [];
     const list = [...efforts];
     if (!list.some(o => o.value === '')) {
-      list.unshift({ label: '默认', value: '' });
+      list.unshift({ label: t('common.default'), value: '' });
     }
     return list;
-  }, [provider, providerCatalog]);
+  }, [provider, providerCatalog, t]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -85,15 +85,15 @@ const DeviceRow: React.FC<DeviceRowProps> = ({
       });
       setSavedAt(Date.now());
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存失败,请重试。');
+      setError(err instanceof Error ? err.message : t('deviceDefault.saveErrorFallback'));
     } finally {
       setSaving(false);
     }
   };
 
   // "有效" preview: server default unless the device overrides a field.
-  const effectiveModel = model.trim() || serverDefault.model || '默认';
-  const effectiveEffort = effort.trim() || serverDefault.effort || '默认';
+  const effectiveModel = model.trim() || serverDefault.model || t('common.default');
+  const effectiveEffort = effort.trim() || serverDefault.effort || t('common.default');
   const effectiveProvider =
     provider || normalizeProvider(serverDefault.provider ?? undefined) || 'codex';
 
@@ -140,21 +140,22 @@ const DeviceRow: React.FC<DeviceRowProps> = ({
           { color: theme.colors.onSurfaceVariant },
           styles.fieldLabel,
         ]}>
-        PROVIDER
+        {t('common.providerFieldLabel')}
       </Text>
       <View style={styles.chipRow}>
-        {PROVIDER_OPTIONS.map(opt => {
-          const active = provider === opt.value;
+        {PROVIDER_VALUES.map(value => {
+          const active = provider === value;
+          const label = value === '' ? t('deviceDefault.providerInheritLabel') : providerLabel(value);
           return (
             <TouchableOpacity
-              key={opt.value || 'default'}
+              key={value || 'default'}
               activeOpacity={0.75}
               onPress={() => {
-                setProvider(opt.value);
+                setProvider(value);
                 setEffort('');
               }}
               style={chipStyle(active)}>
-              <Text style={chipText(active)}>{opt.label}</Text>
+              <Text style={chipText(active)}>{label}</Text>
             </TouchableOpacity>
           );
         })}
@@ -167,14 +168,14 @@ const DeviceRow: React.FC<DeviceRowProps> = ({
           { color: theme.colors.onSurfaceVariant },
           styles.fieldLabel,
         ]}>
-        MODEL
+        {t('common.modelFieldLabel')}
       </Text>
       <TextInput
         value={model}
         onChangeText={setModel}
         autoCapitalize="none"
         autoCorrect={false}
-        placeholder="留空 = 继承服务器默认"
+        placeholder={t('common.inheritPlaceholder')}
         placeholderTextColor={theme.colors.onSurfaceVariant}
         style={[
           theme.typography.bodyMd,
@@ -197,7 +198,7 @@ const DeviceRow: React.FC<DeviceRowProps> = ({
           { color: theme.colors.onSurfaceVariant },
           styles.fieldLabel,
         ]}>
-        EFFORT
+        {t('common.effortFieldLabel')}
       </Text>
       <View style={styles.chipRow}>
         {effortOptions.map(opt => {
@@ -216,7 +217,7 @@ const DeviceRow: React.FC<DeviceRowProps> = ({
 
       {/* 有效 preview */}
       <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }, styles.effective]}>
-        有效: {providerLabel(effectiveProvider)} · model={effectiveModel} · effort={effectiveEffort}
+        {t('deviceDefault.effectivePrefix')} {providerLabel(effectiveProvider)} · model={effectiveModel} · effort={effectiveEffort}
       </Text>
 
       {error ? (
@@ -226,7 +227,7 @@ const DeviceRow: React.FC<DeviceRowProps> = ({
       ) : null}
       {savedAt && !error ? (
         <Text style={[theme.typography.bodySm, { color: theme.colors.secondary }]}>
-          已保存。
+          {t('deviceDefault.saved')}
         </Text>
       ) : null}
 
@@ -234,7 +235,7 @@ const DeviceRow: React.FC<DeviceRowProps> = ({
         <TouchableOpacity
           activeOpacity={0.75}
           accessibilityRole="button"
-          accessibilityLabel={`保存 ${device.name} 的模型配置`}
+          accessibilityLabel={t('deviceDefault.saveA11yLabel', { name: device.name })}
           onPress={handleSave}
           disabled={saving || !dirty}
           style={[
@@ -258,7 +259,7 @@ const DeviceRow: React.FC<DeviceRowProps> = ({
                 theme.typography.labelMd,
                 { color: dirty ? accent : theme.colors.onSurfaceVariant },
               ]}>
-              保存
+              {t('common.save')}
             </Text>
           )}
         </TouchableOpacity>
@@ -280,6 +281,7 @@ export const DeviceModelDefaultsCard: React.FC<DeviceModelDefaultsCardProps> = (
   devices,
 }) => {
   const { theme } = useTheme();
+  const { t } = useTranslation('account');
   const { providerCatalog, serverDefault, loading, error } = useModelOptions();
 
   return (
@@ -288,12 +290,12 @@ export const DeviceModelDefaultsCard: React.FC<DeviceModelDefaultsCardProps> = (
         <IconBadge name="device" tone="secondary" size={28} iconSize={14} />
         <View style={styles.headerCopy}>
           <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-            设备默认
+            {t('deviceDefault.title')}
           </Text>
           <Text
             style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}
             numberOfLines={1}>
-            为每台设备指定模型;留空 = 继承服务器默认
+            {t('deviceDefault.subtitle')}
           </Text>
         </View>
       </View>
@@ -302,19 +304,19 @@ export const DeviceModelDefaultsCard: React.FC<DeviceModelDefaultsCardProps> = (
         <View style={styles.loadingRow}>
           <ActivityIndicator color={theme.colors.primary} />
           <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-            正在加载模型目录…
+            {t('common.loadingCatalog')}
           </Text>
         </View>
       ) : null}
       {error ? (
         <Text style={[theme.typography.bodySm, { color: theme.colors.error }]}>
-          {error}(将使用内置档位)
+          {error}{t('common.errorFallback')}
         </Text>
       ) : null}
 
       {!devices.length ? (
         <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-          还没有已注册设备。
+          {t('deviceDefault.noDevices')}
         </Text>
       ) : null}
       <View style={styles.list}>

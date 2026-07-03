@@ -21,14 +21,15 @@ import {
   buildDeviceStatusIndex,
   isDeviceStatusOffline,
 } from '../../utils/deviceStatus';
+import { useTranslation } from 'react-i18next';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
-const notificationTypeLabel: Record<PushNotificationItem['type'], string> = {
-  approval: 'Approval',
-  completed: 'Completed',
-  error: 'Error',
-  device_offline: 'Offline',
+const notificationTypeKey: Record<PushNotificationItem['type'], string> = {
+  approval: 'notification.typeApproval',
+  completed: 'notification.typeCompleted',
+  error: 'notification.typeError',
+  device_offline: 'notification.typeOffline',
 };
 
 const notificationTypeChip: Record<
@@ -50,6 +51,7 @@ const notificationIcon: Record<PushNotificationItem['type'], IconName> = {
 
 export const NotificationCenterScreen: React.FC = () => {
   const { theme } = useTheme();
+  const { t } = useTranslation('operations');
   const navigation = useNavigation<Navigation>();
   const notifications = useControlCenterStore(state => state.notifications);
   const devices = useControlCenterStore(state => state.devices);
@@ -102,10 +104,10 @@ export const NotificationCenterScreen: React.FC = () => {
   return (
     <SafeAreaWrapper>
       <TopAppBar
-        title="Notifications"
-        subtitle="PUSH QUEUE"
+        title={t('notification.title')}
+        subtitle={t('notification.subtitle')}
         onBack={navigation.goBack}
-        rightAction={<StatusChip label={`${unreadCount} UNREAD`} type={unreadCount ? 'warning' : 'success'} />}
+        rightAction={<StatusChip label={t('notification.unreadCount', { count: unreadCount })} type={unreadCount ? 'warning' : 'success'} />}
       />
       <FlatList
         style={styles.scrollView}
@@ -123,7 +125,7 @@ export const NotificationCenterScreen: React.FC = () => {
           return (
             <NotificationCard
               item={item}
-              deviceName={device?.name ?? item.deviceId ?? 'all devices'}
+              deviceName={device?.name ?? item.deviceId ?? t('notification.allDevices')}
               itemOffline={itemOffline}
               onOpen={handleOpen}
             />
@@ -149,7 +151,7 @@ export const NotificationCenterScreen: React.FC = () => {
               },
             ]}>
             <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-              MARK ALL READ
+              {t('notification.markAllRead')}
             </Text>
           </TouchableOpacity>
         }
@@ -175,6 +177,7 @@ interface NotificationCardProps {
 const NotificationCard: React.FC<NotificationCardProps> = React.memo(
   ({ item, deviceName, itemOffline, onOpen }) => {
     const { theme, isDark } = useTheme();
+    const { t } = useTranslation('operations');
     return (
       <TouchableOpacity activeOpacity={0.75} onPress={() => onOpen(item)}>
         <GlassPanel
@@ -204,7 +207,7 @@ const NotificationCard: React.FC<NotificationCardProps> = React.memo(
             />
             <View style={styles.titleBlock}>
               <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
-                {notificationTypeLabel[item.type].toUpperCase()}
+                {t(notificationTypeKey[item.type]).toUpperCase()}
               </Text>
               <Text
                 numberOfLines={2}
@@ -213,7 +216,7 @@ const NotificationCard: React.FC<NotificationCardProps> = React.memo(
               </Text>
             </View>
             <StatusChip
-              label={item.read ? 'READ' : 'NEW'}
+              label={item.read ? t('notification.read') : t('notification.new')}
               type={item.read ? 'neutral' : notificationTypeChip[item.type]}
             />
           </View>
@@ -227,7 +230,7 @@ const NotificationCard: React.FC<NotificationCardProps> = React.memo(
               numberOfLines={1}
               style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
               {deviceName}
-              {itemOffline ? ' · 离线' : ''}
+              {itemOffline ? t('notification.offlineSuffix') : ''}
             </Text>
             <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
               {item.createdAt}

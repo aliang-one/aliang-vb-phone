@@ -10,6 +10,7 @@ import { formatActivityLabel } from '../../store/internals';
 import { getTerminalStatusChip } from '../../utils/terminalInteraction';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import type { TerminalSession } from '../../store/types';
+import { useTranslation } from 'react-i18next';
 
 interface TerminalCardProps {
   terminal: TerminalSession;
@@ -36,6 +37,7 @@ const exitState = (exitCode?: number | null): ExitState =>
 export const TerminalCard = React.memo<TerminalCardProps>(
   ({ terminal, deviceName, disabled = false, onPress, onClose }) => {
     const { theme, isDark } = useTheme();
+    const { t } = useTranslation('terminals');
     // Re-render on the shared 30s cadence so relative time labels stay fresh.
     useNowTick();
     const sessionHistory = useControlCenterStore(
@@ -103,7 +105,7 @@ export const TerminalCard = React.memo<TerminalCardProps>(
                   {terminal.shell || 'shell'}
                   {' · '}
                   {activityLabel}
-                  {disabled ? ' · 离线' : ''}
+                  {disabled ? t('card.offlineSuffix') : ''}
                 </Text>
               </View>
               <StatusChip label={chip.label} type={chip.type} />
@@ -116,7 +118,7 @@ export const TerminalCard = React.memo<TerminalCardProps>(
                   styles.sectionLabel,
                   { color: theme.colors.onSurfaceVariant },
                 ]}>
-                RECENT
+                {t('card.recent')}
               </Text>
               {recent.length ? (
                 recent.map(item => {
@@ -163,7 +165,7 @@ export const TerminalCard = React.memo<TerminalCardProps>(
                   numberOfLines={1}>
                   {terminal.lastCommand && terminal.lastCommand.trim()
                     ? `$ ${terminal.lastCommand.trim()}`
-                    : '（暂无指令）'}
+                    : t('card.emptyHistory')}
                 </Text>
               )}
             </View>
@@ -198,7 +200,7 @@ export const TerminalCard = React.memo<TerminalCardProps>(
                 styles.actionLabel,
                 { color: theme.colors.primary, opacity: faded },
               ]}>
-              RESUME
+              {t('card.resume')}
             </Text>
 
             <View style={styles.actionSpacer} />
@@ -227,7 +229,7 @@ export const TerminalCard = React.memo<TerminalCardProps>(
                 styles.actionLabel,
                 { color: theme.colors.onSurfaceVariant, opacity: faded },
               ]}>
-              CLOSE
+              {t('card.close')}
             </Text>
           </View>
         </View>

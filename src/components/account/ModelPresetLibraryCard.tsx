@@ -26,6 +26,7 @@ import {
   providerLabel,
   type EffortProvider,
 } from '../../utils/modelIntensity';
+import { useTranslation } from 'react-i18next';
 
 // RN doesn't register the global crypto.randomUUID polyfill by default (no
 // react-native-get-random-values import in index.js), so synthesize a unique
@@ -65,6 +66,7 @@ const toDraft = (preset: ModelPreset): DraftState => ({
  */
 export const ModelPresetLibraryCard: React.FC = () => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('account');
   const { providerCatalog, loading: catalogLoading } = useModelOptions();
 
   const [presets, setPresets] = useState<ModelPreset[]>([]);
@@ -87,13 +89,13 @@ export const ModelPresetLibraryCard: React.FC = () => {
         setPresets(opts.presets ?? []);
       } catch (err2) {
         setError(
-          err2 instanceof Error ? err2.message : '加载模型预设失败',
+          err2 instanceof Error ? err2.message : t('presetLibrary.loadErrorFallback'),
         );
       }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -110,11 +112,11 @@ export const ModelPresetLibraryCard: React.FC = () => {
         providerCatalog.find(item => item.provider === provider)?.efforts ?? [];
       const list = [...efforts];
       if (!list.some(o => o.value === '')) {
-        list.unshift({ label: '默认', value: '' });
+        list.unshift({ label: t('common.default'), value: '' });
       }
       return list;
     },
-    [providerCatalog],
+    [providerCatalog, t],
   );
 
   const handleAdd = () => {
@@ -140,7 +142,7 @@ export const ModelPresetLibraryCard: React.FC = () => {
       const { presets: saved } = await putUserPresets(next);
       setPresets(saved ?? next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '删除失败,已回滚。');
+      setError(err instanceof Error ? err.message : t('presetLibrary.deleteError'));
       setPresets(presets); // rollback
     } finally {
       setSaving(false);
@@ -150,7 +152,7 @@ export const ModelPresetLibraryCard: React.FC = () => {
   const handleCommitDraft = async () => {
     if (!editing) return;
     if (!editing.label.trim()) {
-      setError('预设名称不能为空。');
+      setError(t('presetLibrary.emptyNameError'));
       return;
     }
     const draftPreset: ModelPreset = {
@@ -172,7 +174,7 @@ export const ModelPresetLibraryCard: React.FC = () => {
       const { presets: saved } = await putUserPresets(next);
       setPresets(saved ?? next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存失败,已回滚。');
+      setError(err instanceof Error ? err.message : t('presetLibrary.saveError'));
       setPresets(presets); // rollback
     } finally {
       setSaving(false);
@@ -212,21 +214,21 @@ export const ModelPresetLibraryCard: React.FC = () => {
         <IconBadge name="code" tone="primary" size={28} iconSize={14} />
         <View style={styles.headerCopy}>
           <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-            模型预设
+            {t('presetLibrary.title')}
           </Text>
           <Text
             style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}
             numberOfLines={1}>
-            个人预设库 · {presets.length} 条
+            {t('presetLibrary.subtitle', { count: presets.length })}
           </Text>
         </View>
         <TouchableOpacity
           activeOpacity={0.75}
           accessibilityRole="button"
-          accessibilityLabel="新增预设"
+          accessibilityLabel={t('presetLibrary.addA11yLabel')}
           onPress={handleAdd}
           style={[styles.addBtn, { borderColor: accent }]}>
-          <Text style={[theme.typography.labelMd, { color: accent }]}>+ 新增</Text>
+          <Text style={[theme.typography.labelMd, { color: accent }]}>{t('presetLibrary.addButton')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -234,7 +236,7 @@ export const ModelPresetLibraryCard: React.FC = () => {
         <View style={styles.loadingRow}>
           <ActivityIndicator color={theme.colors.primary} />
           <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-            正在加载预设…
+            {t('presetLibrary.loading')}
           </Text>
         </View>
       ) : null}
@@ -248,7 +250,7 @@ export const ModelPresetLibraryCard: React.FC = () => {
       {/* Existing presets list */}
       {!sortedPresets.length && !loading && !catalogLoading ? (
         <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-          还没有预设。点击「新增」添加一条常用模型/effort 组合。
+          {t('presetLibrary.empty')}
         </Text>
       ) : null}
       <View style={styles.list}>
@@ -263,28 +265,28 @@ export const ModelPresetLibraryCard: React.FC = () => {
               <Text
                 style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}
                 numberOfLines={1}>
-                {preset.provider} · {preset.model || '默认'} ·{' '}
-                {preset.effort || '默认'}
+                {preset.provider} · {preset.model || t('common.default')} ·{' '}
+                {preset.effort || t('common.default')}
               </Text>
             </View>
             <View style={styles.rowActions}>
               <TouchableOpacity
                 activeOpacity={0.7}
                 accessibilityRole="button"
-                accessibilityLabel={`编辑 ${preset.label}`}
+                accessibilityLabel={t('presetLibrary.editA11yLabel', { label: preset.label })}
                 onPress={() => handleEdit(preset)}
                 style={styles.rowBtn}>
-                <Text style={[theme.typography.labelSm, { color: accent }]}>编辑</Text>
+                <Text style={[theme.typography.labelSm, { color: accent }]}>{t('presetLibrary.editLabel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 activeOpacity={0.7}
                 accessibilityRole="button"
-                accessibilityLabel={`删除 ${preset.label}`}
+                accessibilityLabel={t('presetLibrary.deleteA11yLabel', { label: preset.label })}
                 onPress={() => handleDelete(preset)}
                 style={styles.rowBtn}>
                 <Text
                   style={[theme.typography.labelSm, { color: theme.colors.error }]}>
-                  删除
+                  {t('presetLibrary.deleteLabel')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -300,7 +302,7 @@ export const ModelPresetLibraryCard: React.FC = () => {
             onChangeText={v => setEditing({ ...editing, label: v })}
             autoCapitalize="none"
             autoCorrect={false}
-            placeholder="预设名称(如 轻量创作)"
+            placeholder={t('presetLibrary.namePlaceholder')}
             placeholderTextColor={theme.colors.onSurfaceVariant}
             style={[
               theme.typography.bodyMd,
@@ -322,7 +324,7 @@ export const ModelPresetLibraryCard: React.FC = () => {
               { color: theme.colors.onSurfaceVariant },
               styles.fieldLabel,
             ]}>
-            PROVIDER
+            {t('common.providerFieldLabel')}
           </Text>
           <View style={styles.chipRow}>
             {PROVIDER_OPTIONS.map(opt => {
@@ -352,14 +354,14 @@ export const ModelPresetLibraryCard: React.FC = () => {
               { color: theme.colors.onSurfaceVariant },
               styles.fieldLabel,
             ]}>
-            MODEL
+            {t('common.modelFieldLabel')}
           </Text>
           <TextInput
             value={editing.model}
             onChangeText={v => setEditing({ ...editing, model: v })}
             autoCapitalize="none"
             autoCorrect={false}
-            placeholder="留空 = 继承服务器默认"
+            placeholder={t('common.inheritPlaceholder')}
             placeholderTextColor={theme.colors.onSurfaceVariant}
             style={[
               theme.typography.bodyMd,
@@ -397,7 +399,7 @@ export const ModelPresetLibraryCard: React.FC = () => {
               { color: theme.colors.onSurfaceVariant },
               styles.fieldLabel,
             ]}>
-            EFFORT
+            {t('common.effortFieldLabel')}
           </Text>
           <View style={styles.chipRow}>
             {draftEffortOptions.map(opt => {
@@ -416,13 +418,13 @@ export const ModelPresetLibraryCard: React.FC = () => {
 
           <View style={styles.editorActions}>
             <GlowButton
-              title="取消"
+              title={t('presetLibrary.cancel')}
               onPress={() => setEditing(null)}
               variant="outline"
               style={styles.editorBtn}
             />
             <GlowButton
-              title={saving ? '保存中…' : '保存'}
+              title={saving ? t('common.saving') : t('common.save')}
               onPress={handleCommitDraft}
               loading={saving}
               style={styles.editorBtn}

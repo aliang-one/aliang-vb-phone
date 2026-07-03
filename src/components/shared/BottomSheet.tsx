@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/useTheme';
 import { IconBadge } from '../visual/IconBadge';
 import { StatusChip } from './StatusChip';
+import { useTranslation } from 'react-i18next';
 
 // Slide distance: starts fully below the viewport so the sheet is off-screen
 // before its first frame, then translates up to 0.
@@ -55,6 +56,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   children,
 }) => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('common');
   const insets = useSafeAreaInsets();
   const translateY = useSharedValue(SCREEN_HEIGHT);
   const backdropOpacity = useSharedValue(0);
@@ -162,7 +164,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
               hitSlop={{ top: 12, bottom: 12, left: 10, right: 10 }}
               style={styles.closeButton}
               accessibilityRole="button"
-              accessibilityLabel="关闭">
+              accessibilityLabel={t('bottomSheet.closeA11yLabel')}>
               <IconBadge name="close" tone="neutral" size={32} iconSize={16} />
             </TouchableOpacity>
           </View>
