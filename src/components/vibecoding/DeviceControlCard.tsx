@@ -11,6 +11,7 @@ import {
 import { Device } from '../../data/platformModels';
 import { VoiceTextInput } from './VoiceTextInput';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
 import { GlassPanel } from '../shared/GlassPanel';
 import { StatusChip } from '../shared/StatusChip';
 import { IconBadge } from '../visual/IconBadge';
@@ -33,6 +34,7 @@ type ActionTone = 'default' | 'primary' | 'danger';
 export const DeviceControlCard = React.memo<DeviceControlCardProps>(
   ({ device, onPress }) => {
     const { theme, isDark } = useTheme();
+    const { t } = useTranslation('vibecoding');
     const renameDevice = useControlCenterStore(s => s.renameDevice);
     const removeDevice = useControlCenterStore(s => s.removeDevice);
 
@@ -172,12 +174,12 @@ export const DeviceControlCard = React.memo<DeviceControlCardProps>(
               {renaming ? (
                 <>
                   <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                    新名称
+                    {t('deviceControl.newName')}
                   </Text>
                   <VoiceTextInput
                     value={renameValue}
                     onChangeText={setRenameValue}
-                    placeholder="输入新的设备名称"
+                    placeholder={t('deviceControl.renamePlaceholder')}
                     placeholderTextColor={theme.colors.onSurfaceVariant}
                     maxLength={64}
                     returnKeyType="done"
@@ -185,28 +187,28 @@ export const DeviceControlCard = React.memo<DeviceControlCardProps>(
                     testIDPrefix="device-rename"
                   />
                   <View style={styles.actionGrid}>
-                    {renderMenuAction('取消', handleRenameCancel)}
-                    {renderMenuAction('保存', handleRenameSave, 'primary')}
+                    {renderMenuAction(t('deviceControl.cancel'), handleRenameCancel)}
+                    {renderMenuAction(t('deviceControl.save'), handleRenameSave, 'primary')}
                   </View>
                 </>
               ) : confirmingDelete ? (
                 <>
                   <Text style={[theme.typography.bodySm, { color: theme.colors.onSurface }]}>
-                    将永久删除该设备及其全部项目 / 会话 / 审批,不可恢复。
+                    {t('deviceControl.deleteConfirmBody')}
                   </Text>
                   <View style={styles.actionGrid}>
-                    {renderMenuAction('取消', () => setConfirmingDelete(false))}
-                    {renderMenuAction('确认删除', handleConfirmDelete, 'danger')}
+                    {renderMenuAction(t('deviceControl.cancel'), () => setConfirmingDelete(false))}
+                    {renderMenuAction(t('deviceControl.confirmDelete'), handleConfirmDelete, 'danger')}
                   </View>
                 </>
               ) : (
                 <View style={styles.actionGrid}>
-                  {renderMenuAction('详细介绍', () => {
+                  {renderMenuAction(t('deviceControl.details'), () => {
                     setMenuVisible(false);
                     setInfoVisible(true);
                   })}
-                  {renderMenuAction('重命名', handleRenameStart)}
-                  {renderMenuAction('删除', () => setConfirmingDelete(true), 'danger')}
+                  {renderMenuAction(t('deviceControl.rename'), handleRenameStart)}
+                  {renderMenuAction(t('deviceControl.delete'), () => setConfirmingDelete(true), 'danger')}
                 </View>
               )}
             </GlassPanel>
@@ -226,26 +228,26 @@ export const DeviceControlCard = React.memo<DeviceControlCardProps>(
                   {device.name}
                 </Text>
                 <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-                  详细介绍
+                  {t('deviceControl.detailsTitle')}
                 </Text>
               </View>
               <ScrollView>
-                <InfoRow label="主机" value={device.host} />
-                <InfoRow label="系统" value={device.os} />
-                <InfoRow label="位置" value={device.location} />
-                <InfoRow label="状态" value={device.status} />
-                <InfoRow label="Agent 版本" value={device.agentVersion ?? '—'} />
-                <InfoRow label="唯一码" value={device.uniqueCode ?? '—'} />
-                <InfoRow label="项目数" value={`${device.projectIds.length}`} />
-                <InfoRow label="Agent 数" value={`${device.activeSessionIds.length}`} />
-                <InfoRow label="最近活跃" value={device.lastSeen} />
-                <InfoRow label="远程终端" value={device.remoteTerminalEnabled ? '开启' : '关闭'} />
-                <InfoRow label="AI 控制" value={device.aiControlEnabled ? '开启' : '关闭'} />
-                <InfoRow label="能力数" value={`${device.capabilities.length}`} />
-                <InfoRow label="工具数" value={`${device.tools.length}`} />
+                <InfoRow label={t('deviceControl.fieldHost')} value={device.host} />
+                <InfoRow label={t('deviceControl.fieldOs')} value={device.os} />
+                <InfoRow label={t('deviceControl.fieldLocation')} value={device.location} />
+                <InfoRow label={t('deviceControl.fieldStatus')} value={device.status} />
+                <InfoRow label={t('deviceControl.fieldAgentVersion')} value={device.agentVersion ?? '—'} />
+                <InfoRow label={t('deviceControl.fieldUniqueCode')} value={device.uniqueCode ?? '—'} />
+                <InfoRow label={t('deviceControl.fieldProjectCount')} value={`${device.projectIds.length}`} />
+                <InfoRow label={t('deviceControl.fieldAgentCount')} value={`${device.activeSessionIds.length}`} />
+                <InfoRow label={t('deviceControl.fieldLastSeen')} value={device.lastSeen} />
+                <InfoRow label={t('deviceControl.fieldRemoteTerminal')} value={device.remoteTerminalEnabled ? t('deviceControl.enabled') : t('deviceControl.disabled')} />
+                <InfoRow label={t('deviceControl.fieldAiControl')} value={device.aiControlEnabled ? t('deviceControl.enabled') : t('deviceControl.disabled')} />
+                <InfoRow label={t('deviceControl.fieldCapabilities')} value={`${device.capabilities.length}`} />
+                <InfoRow label={t('deviceControl.fieldTools')} value={`${device.tools.length}`} />
               </ScrollView>
               <View style={styles.actionGrid}>
-                {renderMenuAction('关闭', () => setInfoVisible(false), 'primary')}
+                {renderMenuAction(t('deviceControl.close'), () => setInfoVisible(false), 'primary')}
               </View>
             </GlassPanel>
           </View>

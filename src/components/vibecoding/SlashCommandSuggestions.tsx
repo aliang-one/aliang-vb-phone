@@ -7,15 +7,20 @@ import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { GlassPanel } from '../shared/GlassPanel';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import type { AgentCommandInfo } from '../../data/platformModels';
 import { searchCommands } from '../../utils/commandSearch';
 
 const MAX_ROWS = 8;
 
-const scopeLabel = (scope?: string): string | null => {
-  if (scope === 'project') return '项目';
-  if (scope === 'user') return '用户';
-  if (scope === 'builtin') return '内置';
+const scopeLabel = (
+  scope: string | undefined,
+  t: TFunction<'vibecoding'>,
+): string | null => {
+  if (scope === 'project') return t('slash.scopeProject');
+  if (scope === 'user') return t('slash.scopeUser');
+  if (scope === 'builtin') return t('slash.scopeBuiltin');
   return null;
 };
 
@@ -33,6 +38,7 @@ export const SlashCommandSuggestions: React.FC<SlashCommandSuggestionsProps> = (
   onSelect,
 }) => {
   const { theme } = useTheme();
+  const { t } = useTranslation('vibecoding');
   const accent = theme.colors.primary;
 
   // Fuzzy subsequence search (name primary, description secondary) ranked by
@@ -52,16 +58,16 @@ export const SlashCommandSuggestions: React.FC<SlashCommandSuggestionsProps> = (
         keyboardShouldPersistTaps="handled"
         nestedScrollEnabled>
         {filtered.map(cmd => {
-          const scopeBadge = scopeLabel(cmd.scope);
+          const scopeBadge = scopeLabel(cmd.scope, t);
           // remote category: 'local' = interactive REPL builtin (agent runs it,
           // no model turn); 'unsupported' = can't be driven remotely. Both are
           // still tappable (the agent replies with the outcome); the label only
           // sets expectations so users don't think /compact silently succeeded.
           const remoteLabel =
             cmd.remote === 'local'
-              ? '本机'
+              ? t('slash.remoteLocal')
               : cmd.remote === 'unsupported'
-                ? '本机·不可远程'
+                ? t('slash.remoteUnsupported')
                 : null;
           const dim = cmd.remote === 'unsupported';
           return (
@@ -70,7 +76,7 @@ export const SlashCommandSuggestions: React.FC<SlashCommandSuggestionsProps> = (
               testID={`slash-cmd-${cmd.name}`}
               activeOpacity={0.7}
               accessibilityRole="button"
-              accessibilityLabel={`插入 /${cmd.name}`}
+              accessibilityLabel={t('slash.insert', { name: cmd.name })}
               onPress={() => onSelect(cmd)}
               style={[
                 styles.row,

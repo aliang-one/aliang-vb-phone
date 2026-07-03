@@ -8,6 +8,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
 import { GlassPanel } from '../shared/GlassPanel';
 import { GlowButton } from '../shared/GlowButton';
 import { IconBadge } from '../visual/IconBadge';
@@ -70,12 +71,13 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
   sessionId,
 }) => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('vibecoding');
   const isCodex = provider === 'codex';
   // Provider-aware model chips (codex: gpt-5.4/5.5, claude_code: glm-5.1/5.2),
   // led by "默认" (clear → inherit). Hardcoded fallback; matches the server
   // catalog seed.
   const modelOptions = [
-    { label: '默认', value: '' },
+    { label: t('toolsMenu.defaultModel'), value: '' },
     ...modelPresetsFor(provider),
   ];
   // The parent conditionally mounts this component, so each open is a fresh
@@ -138,7 +140,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
       // setState on the about-to-unmount component).
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存失败,请重试。');
+      setError(err instanceof Error ? err.message : t('toolsMenu.saveFailed'));
       setSaving(false);
     }
   };
@@ -185,13 +187,13 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
           <Text
             style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}
             numberOfLines={1}>
-            {agentLabel} · {commands.length} 条快捷指令
+            {t('toolsMenu.subtitle', { agent: agentLabel, count: commands.length })}
           </Text>
         </View>
         <TouchableOpacity
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityLabel="收起工具菜单"
+          accessibilityLabel={t('toolsMenu.collapse')}
           onPress={onClose}
           style={styles.closeBtn}>
           <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
@@ -218,7 +220,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
                 theme.typography.labelCaps,
                 { color: theme.colors.onSurfaceVariant },
               ]}>
-              当前有效
+              {t('toolsMenu.effective')}
             </Text>
             <Text
               style={[
@@ -234,7 +236,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
         {/* MODEL */}
         <Text
           style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }, styles.fieldLabel]}>
-          模型 MODEL
+          {t('toolsMenu.modelLabel')}
         </Text>
         <TextInput
           value={modelBase}
@@ -244,7 +246,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
           }}
           autoCapitalize="none"
           autoCorrect={false}
-          placeholder="留空 = 用户默认"
+          placeholder={t('toolsMenu.modelPlaceholder')}
           placeholderTextColor={theme.colors.onSurfaceVariant}
           style={[
             theme.typography.bodyMd,
@@ -283,7 +285,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
         {/* EFFORT (reasoning depth) */}
         <Text
           style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }, styles.fieldLabel]}>
-          思考深度 EFFORT
+          {t('toolsMenu.effortLabel')}
         </Text>
         <View style={styles.chipRow}>
           {(effortOptions && effortOptions.length
@@ -314,7 +316,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
         ) : null}
 
         <GlowButton
-          title={saving ? '保存中…' : settingsDirty ? '保存' : '已是最新'}
+          title={saving ? t('toolsMenu.saving') : settingsDirty ? t('toolsMenu.save') : t('toolsMenu.upToDate')}
           onPress={handleSave}
           disabled={saving || !settingsDirty}
           variant={settingsDirty ? 'primary' : 'outline'}
@@ -325,12 +327,12 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
         <View style={[styles.divider, { borderTopColor: rowBorder }]} />
         <View style={styles.commandsHeader}>
           <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-            快捷指令
+            {t('toolsMenu.commands')}
           </Text>
           <TouchableOpacity
             activeOpacity={0.6}
             accessibilityRole="button"
-            accessibilityLabel="刷新命令列表"
+            accessibilityLabel={t('toolsMenu.refresh')}
             disabled={refreshingCommands || !sessionId}
             onPress={handleRefreshCommands}>
             <Text
@@ -341,7 +343,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
                   opacity: refreshingCommands ? 0.6 : 1,
                 },
               ]}>
-              {refreshingCommands ? '刷新中…' : '↻ 刷新'}
+              {refreshingCommands ? t('toolsMenu.refreshing') : t('toolsMenu.refreshButton')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -350,9 +352,9 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
             {commands.map(cmd => {
               const remoteLabel =
                 cmd.remote === 'local'
-                  ? '本机'
+                  ? t('toolsMenu.remoteLocal')
                   : cmd.remote === 'unsupported'
-                    ? '本机·不可远程'
+                    ? t('toolsMenu.remoteUnsupported')
                     : null;
               const dim = cmd.remote === 'unsupported';
               return (
@@ -361,7 +363,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
                 testID={`tools-cmd-${cmd.name}`}
                 activeOpacity={0.7}
                 accessibilityRole="button"
-                accessibilityLabel={`插入 /${cmd.name}`}
+                accessibilityLabel={t('toolsMenu.insertCommand', { name: cmd.name })}
                 onPress={() => handleInsert(cmd)}
                 style={[styles.commandRow, { borderColor: rowBorder }, dim && styles.commandRowDim]}>
                 <View style={styles.commandMain}>
@@ -386,7 +388,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
                           theme.typography.labelSm,
                           { color: theme.colors.onSurfaceVariant, opacity: 0.6 },
                         ]}>
-                        {cmd.scope === 'project' ? '项目' : cmd.scope === 'user' ? '用户' : '内置'}
+                        {cmd.scope === 'project' ? t('toolsMenu.scopeProject') : cmd.scope === 'user' ? t('toolsMenu.scopeUser') : t('toolsMenu.scopeBuiltin')}
                       </Text>
                     ) : null}
                   </View>
@@ -406,7 +408,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
           <View style={[styles.emptyCommands, { borderColor: rowBorder }]}>
             <IconBadge name="agent" tone="neutral" size={22} iconSize={12} />
             <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-              该 Agent 暂未上报命令。命令来自项目/用户的 .claude/commands;确认 Agent 已更新并重连。
+              {t('toolsMenu.empty')}
             </Text>
           </View>
         )}

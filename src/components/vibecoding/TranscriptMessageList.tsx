@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { IconBadge } from '../visual/IconBadge';
 import { ActivityBlock } from './ActivityBlock';
 import type { StructuredActivityEvent } from '../../data/platformModels';
@@ -116,6 +118,7 @@ const inlinePlainText = (nodes: TranscriptMarkdownInline[]): string =>
 
 const markdownBlockSummary = (
   block: TranscriptMarkdownBlock,
+  t: TFunction<'vibecoding'>,
 ): string | undefined => {
   if (block.kind === 'folded') return block.label;
   if (block.kind === 'heading') return compactText(inlinePlainText(block.children), 56);
@@ -123,14 +126,17 @@ const markdownBlockSummary = (
   if (block.kind === 'quote') return compactText(inlinePlainText(block.children));
   if (block.kind === 'list') return `${block.items.length} items`;
   if (block.kind === 'table')
-    return `${block.rows.length + 1} 行表格`;
+    return t('transcript.tableSummary', { count: block.rows.length + 1 });
   if (block.kind === 'thematicBreak') return undefined;
 
   const language = block.language ? `${block.language.toUpperCase()} code` : 'Code';
   return `${language} · ${countLines(block.content)} lines`;
 };
 
-const systemMessageSummary = (message: DisplayTranscriptMessage) => {
+const systemMessageSummary = (
+  message: DisplayTranscriptMessage,
+  t: TFunction<'vibecoding'>,
+) => {
   const labels: string[] = [];
   for (const segment of message.segments) {
     if (segment.kind === 'folded') {
@@ -139,14 +145,14 @@ const systemMessageSummary = (message: DisplayTranscriptMessage) => {
       labels.push(segment.title);
     } else {
       for (const block of segment.blocks) {
-        const summary = markdownBlockSummary(block);
+        const summary = markdownBlockSummary(block, t);
         if (summary) labels.push(summary);
         if (labels.length >= 2) break;
       }
     }
     if (labels.length >= 2) break;
   }
-  return labels.length ? labels.join(' · ') : '工具输出';
+  return labels.length ? labels.join(' · ') : t('transcript.systemFallback');
 };
 
 const isTimelineStart = (position: TimelinePosition | undefined) =>
@@ -173,6 +179,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
   timelinePosition = 'middle',
 }) => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('vibecoding');
   // Render at most one bubble; the owning screen passes a single message.
   const items = message ? [message] : [];
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -756,7 +763,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
           : theme.colors.primary;
         const systemToggleKey = `system:${message.id}`;
         const systemOpen = Boolean(expanded[systemToggleKey]);
-        const systemSummary = isSystem ? systemMessageSummary(message) : '';
+        const systemSummary = isSystem ? systemMessageSummary(message, t) : '';
         const timestamp =
           message.endTimestamp && message.endTimestamp !== message.timestamp
             ? `${message.timestamp} - ${message.endTimestamp}`
@@ -823,13 +830,13 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                         { color: theme.colors.error },
                       ]}
                     >
-                      发送失败
+                      {t('transcript.sendFailed')}
                     </Text>
                     {onRetryFailed ? (
                       <TouchableOpacity
                         activeOpacity={0.6}
                         accessibilityRole="button"
-                        accessibilityLabel="重试发送"
+                        accessibilityLabel={t('transcript.retrySend')}
                         onPress={() => onRetryFailed(message.sourceMessageIds[0] ?? message.id)}
                         style={styles.failedSendButton}
                       >
@@ -840,7 +847,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                             { color: theme.colors.primary },
                           ]}
                         >
-                          重试
+                          {t('transcript.retry')}
                         </Text>
                       </TouchableOpacity>
                     ) : null}
@@ -848,7 +855,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                       <TouchableOpacity
                         activeOpacity={0.6}
                         accessibilityRole="button"
-                        accessibilityLabel="删除失败消息"
+                        accessibilityLabel={t('transcript.dismissFailed')}
                         onPress={() => onDismissFailed(message.sourceMessageIds[0] ?? message.id)}
                         style={styles.failedSendButton}
                       >
@@ -859,7 +866,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                             { color: theme.colors.onSurfaceVariant },
                           ]}
                         >
-                          删除
+                          {t('transcript.delete')}
                         </Text>
                       </TouchableOpacity>
                     ) : null}
@@ -874,13 +881,13 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                         { color: theme.colors.error },
                       ]}
                     >
-                      未收到回复
+                      {t('transcript.noReply')}
                     </Text>
                     {onRetryTurn ? (
                       <TouchableOpacity
                         activeOpacity={0.6}
                         accessibilityRole="button"
-                        accessibilityLabel="重试回合"
+                        accessibilityLabel={t('transcript.retryTurn')}
                         onPress={() => onRetryTurn(message.id)}
                         style={styles.failedSendButton}
                       >
@@ -891,7 +898,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                             { color: theme.colors.primary },
                           ]}
                         >
-                          重试
+                          {t('transcript.retry')}
                         </Text>
                       </TouchableOpacity>
                     ) : null}
@@ -943,7 +950,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                   <TouchableOpacity
                     activeOpacity={0.75}
                     accessibilityRole="button"
-                    accessibilityLabel={systemOpen ? '折叠系统输出' : '展开系统输出'}
+                    accessibilityLabel={systemOpen ? t('transcript.collapseSystem') : t('transcript.expandSystem')}
                     onPress={() => toggleSegment(systemToggleKey)}
                     style={[
                       styles.systemSummary,

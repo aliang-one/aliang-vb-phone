@@ -7,6 +7,8 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { GlassPanel } from '../shared/GlassPanel';
 import { CodeHighlight } from '../shared/CodeHighlight';
 import { summarizeActivity } from '../../utils/activitySummary';
@@ -42,6 +44,7 @@ export interface ActivityBlockProps {
 export const ActivityBlock: React.FC<ActivityBlockProps> = React.memo(
   ({ sessionId, events, detailCache, onCacheDetail, turnSettled = true }) => {
     const { theme } = useTheme();
+    const { t } = useTranslation('vibecoding');
     const [expanded, setExpanded] = useState(false);
 
     const summary = summarizeActivity(events, turnSettled);
@@ -73,7 +76,7 @@ export const ActivityBlock: React.FC<ActivityBlockProps> = React.memo(
           activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel={
-            expanded ? '收起工具活动' : '展开工具活动'
+            expanded ? t('activity.collapse') : t('activity.expand')
           }
           onPress={() => setExpanded(v => !v)}
           style={styles.header}>
@@ -124,7 +127,7 @@ export const ActivityBlock: React.FC<ActivityBlockProps> = React.memo(
                     { color: theme.colors.onSurfaceVariant },
                     styles.groupLabel,
                   ]}>
-                  命令 COMMANDS
+                  {t('activity.commandsLabel')}
                 </Text>
                 {commands.map(cmd => (
                   <CommandRow
@@ -146,7 +149,7 @@ export const ActivityBlock: React.FC<ActivityBlockProps> = React.memo(
                     { color: theme.colors.onSurfaceVariant },
                     styles.groupLabel,
                   ]}>
-                  文件 FILES
+                  {t('activity.filesLabel')}
                 </Text>
                 {files.map(f => (
                   <FileChangeRow
@@ -225,12 +228,13 @@ interface RowProps {
 const statusBadge = (
   status: string,
   exitCode: number | null | undefined,
+  t: TFunction<'vibecoding'>,
 ): { text: string; tone: BadgeTone } => {
   switch (status) {
     case 'completed':
       return { text: `✓ exit ${exitCode ?? '?'}`, tone: 'success' };
     case 'interrupted':
-      return { text: '⊘ 中断', tone: 'warning' };
+      return { text: t('activity.statusInterrupted'), tone: 'warning' };
     case 'started':
     default:
       return { text: '…', tone: 'info' };
@@ -243,6 +247,7 @@ const CommandRow: React.FC<
   }
 > = ({ sessionId, event, detailCache, onCacheDetail }) => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('vibecoding');
   const [open, setOpen] = useState(false);
   const { loading, ensureDetail, cached } = useDetail(
     sessionId,
@@ -251,7 +256,7 @@ const CommandRow: React.FC<
     onCacheDetail,
   );
 
-  const badge = statusBadge(event.status, event.exitCode);
+  const badge = statusBadge(event.status, event.exitCode, t);
 
   const handlePress = () => {
     const next = !open;
@@ -273,7 +278,7 @@ const CommandRow: React.FC<
         <Text
           style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}
           numberOfLines={open ? undefined : 1}>
-          ⚙ {event.command ?? '(命令)'}
+          ⚙ {event.command ?? t('activity.commandPlaceholder')}
         </Text>
         <Badge text={badge.text} tone={badge.tone} />
       </TouchableOpacity>
@@ -283,7 +288,7 @@ const CommandRow: React.FC<
           {loading ? (
             <Text
               style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-              加载中…
+              {t('activity.loading')}
             </Text>
           ) : cached && cached.text ? (
             <>
@@ -297,7 +302,7 @@ const CommandRow: React.FC<
                     { color: theme.colors.onSurfaceVariant },
                     styles.trunc,
                   ]}>
-                  · 输出已截断
+                  {t('activity.outputTruncated')}
                 </Text>
               ) : null}
             </>
@@ -305,13 +310,13 @@ const CommandRow: React.FC<
             // Failure sentinel (text:'' on catch): show "详情不可用".
             <Text
               style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-              详情不可用
+              {t('activity.detailUnavailable')}
             </Text>
           ) : cached ? (
             // Fetched but API returned no content field.
             <Text
               style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-              无输出
+              {t('activity.noOutput')}
             </Text>
           ) : null}
         </View>
@@ -324,17 +329,20 @@ const CommandRow: React.FC<
 // FileChangeRow
 // ---------------------------------------------------------------------------
 
-const fileBadgeLabel = (changeKind?: string): { text: string; tone: BadgeTone } => {
+const fileBadgeLabel = (
+  changeKind: string | undefined,
+  t: TFunction<'vibecoding'>,
+): { text: string; tone: BadgeTone } => {
   switch (changeKind) {
     case 'create':
-      return { text: '+ 新建', tone: 'success' };
+      return { text: t('activity.badgeCreate'), tone: 'success' };
     case 'delete':
-      return { text: '− 删除', tone: 'error' };
+      return { text: t('activity.badgeDelete'), tone: 'error' };
     case 'rename':
-      return { text: '⇄ 重命名', tone: 'info' };
+      return { text: t('activity.badgeRename'), tone: 'info' };
     case 'edit':
     default:
-      return { text: '✎ 编辑', tone: 'info' };
+      return { text: t('activity.badgeEdit'), tone: 'info' };
   }
 };
 
@@ -344,6 +352,7 @@ const FileChangeRow: React.FC<
   }
 > = ({ sessionId, event, detailCache, onCacheDetail }) => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('vibecoding');
   const [open, setOpen] = useState(false);
   const { loading, ensureDetail, cached } = useDetail(
     sessionId,
@@ -352,14 +361,14 @@ const FileChangeRow: React.FC<
     onCacheDetail,
   );
 
-  const badge = fileBadgeLabel(event.changeKind);
+  const badge = fileBadgeLabel(event.changeKind, t);
   const hasCounts =
     typeof event.added === 'number' || typeof event.removed === 'number';
   const counts =
     hasCounts ? `+${event.added ?? 0}/-${event.removed ?? 0}` : null;
   const label = event.renamedFrom
     ? `${event.renamedFrom} → ${event.path}`
-    : event.path ?? '(文件)';
+    : event.path ?? t('activity.filePlaceholder');
 
   const handlePress = () => {
     const next = !open;
@@ -403,7 +412,7 @@ const FileChangeRow: React.FC<
           {loading ? (
             <Text
               style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-              加载中…
+              {t('activity.loading')}
             </Text>
           ) : cached && cached.text ? (
             <>
@@ -419,7 +428,7 @@ const FileChangeRow: React.FC<
                     { color: theme.colors.onSurfaceVariant },
                     styles.trunc,
                   ]}>
-                  · diff 已截断
+                  {t('activity.diffTruncated')}
                 </Text>
               ) : null}
             </>
@@ -427,12 +436,12 @@ const FileChangeRow: React.FC<
             // Failure sentinel (text:'' on catch): show "详情不可用".
             <Text
               style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-              详情不可用
+              {t('activity.detailUnavailable')}
             </Text>
           ) : cached ? (
             <Text
               style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-              无 diff
+              {t('activity.noDiff')}
             </Text>
           ) : null}
         </View>
@@ -461,6 +470,7 @@ const TaskList: React.FC<{
   event: Extract<StructuredActivityEvent, { kind: 'task' }>;
 }> = ({ event }) => {
   const { theme } = useTheme();
+  const { t } = useTranslation('vibecoding');
   return (
     <View style={styles.group}>
       <Text
@@ -469,18 +479,18 @@ const TaskList: React.FC<{
           { color: theme.colors.onSurfaceVariant },
           styles.groupLabel,
         ]}>
-        任务 TASKS
+        {t('activity.tasksLabel')}
       </Text>
-      {event.tasks.map((t, i) => (
-        <View key={`${i}-${t.subject}`} style={styles.taskRow}>
+      {event.tasks.map((task, i) => (
+        <View key={`${i}-${task.subject}`} style={styles.taskRow}>
           <Text
             style={[
               theme.typography.codeSm,
               { color: theme.colors.onSurface },
             ]}>
-            {taskMark(t.status)} {t.subject}
+            {taskMark(task.status)} {task.subject}
           </Text>
-          {t.status === 'in_progress' && t.active_form ? (
+          {task.status === 'in_progress' && task.active_form ? (
             <Text
               style={[
                 theme.typography.labelSm,
@@ -488,7 +498,7 @@ const TaskList: React.FC<{
                 styles.taskSub,
               ]}
               numberOfLines={1}>
-              {t.active_form}
+              {task.active_form}
             </Text>
           ) : null}
         </View>

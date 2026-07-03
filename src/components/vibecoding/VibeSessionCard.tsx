@@ -11,6 +11,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { Device, Project, VibeCodingRun } from '../../data/platformModels';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
 import { GlassPanel } from '../shared/GlassPanel';
 import { StatusChip } from '../shared/StatusChip';
 import { vibeStatusLabel, vibeStatusType } from './status';
@@ -57,6 +58,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
     disabled = false,
   }) => {
     const { theme, isDark } = useTheme();
+    const { t } = useTranslation('vibecoding');
     const navigation = useNavigation();
     // Self-sufficient: derive project/device from the store so parent list
     // screens don't pass inline `.find()` results (a fresh reference each
@@ -107,7 +109,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
       session.lastUserMessage?.content ||
       session.objective ||
       session.currentStep ||
-      '暂无提问';
+      t('sessionCard.noQuestion');
     const statusColor =
       session.status === 'waiting_approval'
         ? theme.colors.tertiary
@@ -133,7 +135,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
       } catch {
         setHidden(false);
         setMenuVisible(true);
-        setNotice('删除失败，设备可能离线，请重试。');
+        setNotice(t('sessionCard.deleteFailed'));
       }
     };
 
@@ -141,7 +143,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
       const uuid = session.sourceSessionId;
       if (!uuid) return;
       Clipboard.setString(uuid);
-      setNotice('已复制会话 ID，可在终端 claude --resume <id> 打开。');
+      setNotice(t('sessionCard.copiedId'));
     };
 
     const handleRenameStart = () => {
@@ -158,7 +160,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
     const handleRenameSave = async () => {
       const trimmed = renameValue.trim();
       if (!trimmed) {
-        setNotice('标题不能为空。');
+        setNotice(t('sessionCard.titleEmpty'));
         return;
       }
       if (trimmed === (session.title || displayTitle)) {
@@ -166,15 +168,15 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
         setNotice('');
         return;
       }
-      setNotice('正在重命名…');
+      setNotice(t('sessionCard.renaming'));
       try {
         // PATCH /api/ai/sessions/:id (title) → server stores, publishes to
         // phone, and emits ai.session.rename to the agent. See server index.ts.
         await updateAgentSession(session.id, { title: trimmed });
-        setNotice('已重命名');
+        setNotice(t('sessionCard.renamed'));
         setRenaming(false);
       } catch {
-        setNotice('重命名失败，请重试。');
+        setNotice(t('sessionCard.renameFailed'));
       }
     };
 
@@ -304,7 +306,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                       ]}
                       numberOfLines={1}
                     >
-                      上次激活 {activityLabel}
+                      {t('sessionCard.lastActive', { label: activityLabel })}
                     </Text>
                   </View>
                 ) : (
@@ -317,7 +319,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                   >
                     {project?.name ?? session.projectId} /{' '}
                     {device?.name ?? session.deviceId}
-                    {disabled ? ' · 设备离线' : ''}
+                    {disabled ? t('sessionCard.deviceOffline') : ''}
                   </Text>
                 )}
               </View>
@@ -343,7 +345,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                     { color: theme.colors.primary },
                   ]}
                 >
-                  当前任务
+                  {t('sessionCard.currentTask')}
                 </Text>
                 <Text
                   style={[
@@ -513,14 +515,14 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                           { color: theme.colors.primary },
                         ]}
                       >
-                        重命名
+                        {t('sessionCard.renameTitle')}
                       </Text>
                       <VoiceTextInput
                         value={renameValue}
                         onChangeText={setRenameValue}
                         sessionId={session.id}
                         projectPath={session.directory ?? project?.path}
-                        placeholder="输入新的会话标题"
+                        placeholder={t('sessionCard.renamePlaceholder')}
                         placeholderTextColor={theme.colors.onSurfaceVariant}
                         maxLength={200}
                         returnKeyType="done"
@@ -583,7 +585,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                       { color: theme.colors.onSurfaceVariant },
                     ]}
                   >
-                    最新提问
+                    {t('sessionCard.latestQuestion')}
                   </Text>
                   <Text
                     numberOfLines={3}
@@ -627,7 +629,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                         { color: theme.colors.onSurfaceVariant },
                       ]}
                     >
-                      {session.provider ? providerLabel(session.provider) : 'Agent'} 会话 ID
+                      {t('sessionCard.sessionIdLabel', { provider: session.provider ? providerLabel(session.provider) : 'Agent' })}
                     </Text>
                     <Text
                       numberOfLines={1}
@@ -654,7 +656,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                         { color: theme.colors.primary },
                       ]}
                     >
-                      复制
+                      {t('sessionCard.copy')}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -672,13 +674,13 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
               ) : null}
               {renaming ? (
                 <View style={styles.actionGrid}>
-                  {renderMenuAction('取消', handleRenameCancel)}
-                  {renderMenuAction('保存', handleRenameSave, 'primary')}
+                  {renderMenuAction(t('sessionCard.cancel'), handleRenameCancel)}
+                  {renderMenuAction(t('sessionCard.save'), handleRenameSave, 'primary')}
                 </View>
               ) : (
                 <View style={styles.actionGrid}>
-                  {renderMenuAction('重命名', handleRenameStart)}
-                  {renderMenuAction('删除', handleDelete, 'danger')}
+                  {renderMenuAction(t('sessionCard.rename'), handleRenameStart)}
+                  {renderMenuAction(t('sessionCard.delete'), handleDelete, 'danger')}
                 </View>
               )}
             </GlassPanel>

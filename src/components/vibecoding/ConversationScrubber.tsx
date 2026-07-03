@@ -12,6 +12,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
 import {
   pickStopAtFraction,
   tickScale,
@@ -82,6 +83,7 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
   onCommit,
 }) => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('vibecoding');
   const viewportH = Dimensions.get('window').height;
 
   const railRef = useRef<View>(null);
@@ -356,10 +358,10 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
                   ]}
                 >
                   {focusStop.role === 'user'
-                    ? 'YOU'
+                    ? t('scrubber.roleYou')
                     : focusStop.role === 'assistant'
-                      ? 'ASSISTANT'
-                      : 'SYSTEM'}
+                      ? t('scrubber.roleAssistant')
+                      : t('scrubber.roleSystem')}
                 </Text>
                 <Text
                   style={[
@@ -374,7 +376,7 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
                 numberOfLines={5}
                 style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}
               >
-                {focusStop.preview || '（无文本预览）'}
+                {focusStop.preview || t('scrubber.noPreview')}
               </Text>
             </>
           ) : (
@@ -384,7 +386,7 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
                 { color: theme.colors.onSurfaceVariant },
               ]}
             >
-              拖动右侧轨道定位到某条对话
+              {t('scrubber.hint')}
             </Text>
           )}
         </Animated.View>

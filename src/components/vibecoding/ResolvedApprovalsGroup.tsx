@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
 import { GlassPanel } from '../shared/GlassPanel';
 import type { ApprovalRequest } from '../../store/types';
 
@@ -24,6 +25,7 @@ export const ResolvedApprovalsGroup: React.FC<ResolvedApprovalsGroupProps> = ({
   renderCard,
 }) => {
   const { theme } = useTheme();
+  const { t } = useTranslation('vibecoding');
   const [expanded, setExpanded] = useState(false);
   if (!approvals.length) return null;
 
@@ -31,7 +33,7 @@ export const ResolvedApprovalsGroup: React.FC<ResolvedApprovalsGroupProps> = ({
     <GlassPanel style={styles.group}>
       <TouchableOpacity
         accessibilityRole="button"
-        accessibilityLabel={expanded ? '收起已处理审批' : '展开已处理审批'}
+        accessibilityLabel={expanded ? t('approvals.collapseResolved') : t('approvals.expandResolved')}
         testID="resolved-approvals-toggle"
         onPress={() => setExpanded(current => !current)}
         style={styles.header}>
@@ -40,7 +42,7 @@ export const ResolvedApprovalsGroup: React.FC<ResolvedApprovalsGroupProps> = ({
             theme.typography.labelMd,
             { color: theme.colors.onSurfaceVariant },
           ]}>
-          {expanded ? '▾' : '▸'} ✓ 已处理审批 · {approvals.length}
+          {expanded ? '▾' : '▸'} {t('approvals.resolvedHeader', { count: approvals.length })}
         </Text>
       </TouchableOpacity>
       {expanded ? (
@@ -50,7 +52,7 @@ export const ResolvedApprovalsGroup: React.FC<ResolvedApprovalsGroupProps> = ({
           ))}
           <TouchableOpacity
             accessibilityRole="button"
-            accessibilityLabel="收起已处理审批"
+            accessibilityLabel={t('approvals.collapseResolved')}
             testID="resolved-approvals-collapse-bottom"
             onPress={() => setExpanded(false)}
             style={[
@@ -62,7 +64,7 @@ export const ResolvedApprovalsGroup: React.FC<ResolvedApprovalsGroupProps> = ({
                 theme.typography.labelMd,
                 { color: theme.colors.onSurfaceVariant },
               ]}>
-              ▴ 收起
+              {t('approvals.collapse')}
             </Text>
           </TouchableOpacity>
         </View>

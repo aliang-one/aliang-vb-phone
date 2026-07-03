@@ -26,6 +26,7 @@ import {
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
 import { useVoiceStt, type VoiceSttStatus } from '../../hooks/useVoiceStt';
 
 export interface VoiceTextInputProps {
@@ -111,7 +112,7 @@ export const VoiceTextInput: React.FC<VoiceTextInputProps> = ({
   onChangeText,
   sessionId,
   projectPath,
-  placeholder = '输入新的会话标题',
+  placeholder,
   placeholderTextColor,
   maxLength = 200,
   // Voice-first: do NOT autofocus — opening the rename modal keeps the keyboard
@@ -125,6 +126,8 @@ export const VoiceTextInput: React.FC<VoiceTextInputProps> = ({
   style,
 }) => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('vibecoding');
+  const resolvedPlaceholder = placeholder ?? t('voiceInput.placeholder');
   const voiceStt = useVoiceStt();
   const pressActiveRef = useRef(false);
 
@@ -181,11 +184,11 @@ export const VoiceTextInput: React.FC<VoiceTextInputProps> = ({
 
   const statusLabel =
     status === 'recording'
-      ? '正在聆听…'
+      ? t('voiceInput.statusRecording')
       : status === 'stopping'
-        ? '识别中…'
+        ? t('voiceInput.statusStopping')
         : status === 'connecting'
-          ? '连接语音服务…'
+          ? t('voiceInput.statusConnecting')
           : '';
 
   const micIconColor = isActive ? theme.colors.onPrimary : isError ? theme.colors.error : theme.colors.primary;
@@ -198,7 +201,7 @@ export const VoiceTextInput: React.FC<VoiceTextInputProps> = ({
           testID={`${testIDPrefix}-input`}
           value={displayValue}
           onChangeText={onChangeText}
-          placeholder={placeholder}
+          placeholder={resolvedPlaceholder}
           placeholderTextColor={placeholderTextColor ?? theme.colors.onSurfaceVariant}
           autoFocus={autoFocus}
           selectTextOnFocus
@@ -219,7 +222,7 @@ export const VoiceTextInput: React.FC<VoiceTextInputProps> = ({
         <Pressable
           testID={`${testIDPrefix}-mic`}
           accessibilityRole="button"
-          accessibilityLabel={isActive ? '录音中，松开结束' : '按住麦克风说话'}
+          accessibilityLabel={isActive ? t('voiceInput.micActive') : t('voiceInput.micIdle')}
           onPressIn={handleMicPressIn}
           onPressOut={handleMicPressOut}
           style={[
@@ -238,7 +241,7 @@ export const VoiceTextInput: React.FC<VoiceTextInputProps> = ({
       <View style={styles.caption}>
         {isError ? (
           <Text style={[theme.typography.bodySm, { color: theme.colors.error }]} numberOfLines={2}>
-            {voiceStt.errorMessage || '语音输入出错，请重试'}
+            {voiceStt.errorMessage || t('voiceInput.voiceError')}
           </Text>
         ) : isActive ? (
           <Text style={[theme.typography.bodySm, { color: theme.colors.primary }]} numberOfLines={1}>
@@ -246,7 +249,7 @@ export const VoiceTextInput: React.FC<VoiceTextInputProps> = ({
           </Text>
         ) : (
           <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-            按住麦克风说话，松开结束 · 或直接键入
+            {t('voiceInput.hint')}
           </Text>
         )}
       </View>

@@ -23,6 +23,7 @@ import {
 } from 'react-native';
 import Svg, { Path, Rect } from 'react-native-svg';
 import { useTheme } from '../../theme/useTheme';
+import { useTranslation } from 'react-i18next';
 import { GlowButton } from '../shared/GlowButton';
 import type { UseVoiceSttResult } from '../../hooks/useVoiceStt';
 import { SlashCommandSuggestions } from './SlashCommandSuggestions';
@@ -278,6 +279,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   sessionId,
 }) => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('vibecoding');
   const status = voiceStt.status;
   const isVoiceActive = ACTIVE_STATUSES.includes(status);
   const isRecording = status === 'recording';
@@ -311,11 +313,11 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
 
   const statusLabel =
     status === 'recording'
-      ? '正在聆听…松开结束'
+      ? t('composer.statusRecording')
       : status === 'stopping'
-        ? '识别中…'
+        ? t('composer.statusStopping')
         : status === 'connecting'
-          ? '连接语音服务…'
+          ? t('composer.statusConnecting')
           : '';
 
   // ----- natural text <-> voice transition -----
@@ -397,7 +399,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
     return (
       <TouchableOpacity
         accessibilityRole="button"
-        accessibilityLabel={mode === 'text' ? '切换到语音输入' : '切换到文字输入'}
+        accessibilityLabel={mode === 'text' ? t('composer.switchToVoice') : t('composer.switchToText')}
         disabled={disabled}
         onPress={() => onModeChange(targetMode)}
         testID="composer-toggle"
@@ -421,7 +423,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
       return (
         <TouchableOpacity
           accessibilityRole="button"
-          accessibilityLabel="停止生成"
+          accessibilityLabel={t('composer.stopGenerate')}
           disabled={interruptingTurn || deviceOffline}
           onPress={onInterruptTurn}
           testID="composer-interrupt"
@@ -449,7 +451,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
       return (
         <TouchableOpacity
           accessibilityRole="button"
-          accessibilityLabel="发送"
+          accessibilityLabel={t('composer.send')}
           disabled={!canSend}
           onPress={onSendText}
           testID="composer-send"
@@ -511,7 +513,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
           onChangeText={onInputChange}
           onFocus={onTextInputFocus}
           autoFocus={autoFocusText}
-          placeholder="Send a direction..."
+          placeholder={t('composer.sendPlaceholder')}
           placeholderTextColor={theme.colors.onSurfaceVariant}
           multiline
           style={[
@@ -531,7 +533,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
             style={[theme.typography.bodySm, { color: theme.colors.error, flex: 1 }]}
             numberOfLines={2}
           >
-            {voiceStt.errorMessage || '语音输入出错，点击重试'}
+            {voiceStt.errorMessage || t('composer.voiceError')}
           </Text>
         </View>
       );
@@ -555,7 +557,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
             <ComposerIcon name="mic" size={18} color={theme.colors.primary} />
           </View>
           <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
-            点按开始说话
+            {t('composer.tapToSpeak')}
           </Text>
         </View>
       );
@@ -624,7 +626,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
         <TouchableOpacity
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityLabel="工具与设置"
+          accessibilityLabel={t('composer.tools')}
           onPress={onToggleTools}
           style={[
             styles.ctrlBtn,
@@ -661,7 +663,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
               {mode === 'voice' ? (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={isVoiceActive ? '录音中' : '点按开始录音'}
+                  accessibilityLabel={isVoiceActive ? t('composer.recordingActive') : t('composer.tapToRecord')}
                   disabled={composerDisabled}
                   onPressIn={handleVoicePressIn}
                   onPressOut={handleVoicePressOut}
@@ -678,7 +680,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
               <TouchableOpacity
                 activeOpacity={0.7}
                 accessibilityRole="button"
-                accessibilityLabel="刷新命令列表"
+                accessibilityLabel={t('composer.refreshCommands')}
                 disabled={refreshingCommands}
                 onPress={handleRefreshCommands}
                 testID="composer-refresh-commands"
@@ -716,7 +718,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
           ]}
         >
           <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
-            语音草稿
+            {t('composer.voiceDraft')}
           </Text>
           <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
             {voiceDraft}
@@ -725,7 +727,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
               AI 润色（方案B）暂未实现，等接后端再放回这里。 */}
           <View style={styles.draftActions}>
             <GlowButton
-              title="发送"
+              title={t('composer.sendVoice')}
               onPress={onSendVoice}
               variant="primary"
               loading={sendingMessage}
@@ -733,7 +735,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
               style={styles.draftBtn}
             />
             <GlowButton
-              title="编辑"
+              title={t('composer.editVoice')}
               onPress={onEditVoice}
               variant="outline"
               style={styles.draftBtn}
