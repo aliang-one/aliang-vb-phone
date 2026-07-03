@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { VoiceToBashModal } from '../src/components/terminal/VoiceToBashModal';
+import type { DevicePickerEntry } from '../src/components/terminal/DevicePicker';
 import { dispatchCommandGenEvent } from '../src/services/commandGenEvents';
 import type { VoiceSttStatus, UseVoiceSttResult } from '../src/hooks/useVoiceStt';
 
@@ -53,7 +54,8 @@ interface PropsLike {
   sessionId?: string;
   projectId?: string;
   onClose: () => void;
-  onConfirm: (command: string) => void;
+  onConfirm: (command: string, deviceId?: string, cwd?: string) => void;
+  selectableDevices?: DevicePickerEntry[];
 }
 
 const baseProps = (overrides: Partial<PropsLike> = {}): PropsLike => ({
@@ -292,7 +294,43 @@ describe('VoiceToBashModal', () => {
     act(() => {
       confirmOf(root).props.onPress();
     });
-    expect(props.onConfirm).toHaveBeenCalledWith('git status --short');
+    expect(props.onConfirm).toHaveBeenCalledWith('git status --short', undefined, undefined);
+  });
+
+  it('initial mode: confirm step shows the device picker and onConfirm carries the chosen device', async () => {
+    mockGenerateCommand.mockResolvedValue({
+      command: 'ls',
+      dangerous: false,
+      deviceId: 'd1',
+      deviceName: 'Mac',
+      cwd: '/repo',
+    });
+    const selectableDevices: DevicePickerEntry[] = [
+      { id: 'd1', name: 'Mac', platform: 'darwin', online: true, cwd: '/repo' },
+      { id: 'd9', name: 'Staging', platform: 'linux', online: true, cwd: '/opt/app' },
+    ];
+    const props = baseProps({ selectableDevices });
+    const root = render(props);
+
+    await driveTranscript(root, props, 'list files');
+    await driveReviewToConfirm(root, props);
+
+    // Picker rendered in the confirm step, AI's device (d1) pre-selected.
+    expect(() => el(root, 'v2b-device-picker')).not.toThrow();
+
+    // Override to Staging via the picker.
+    act(() => {
+      el(root, 'device-picker-toggle').props.onPress();
+    });
+    act(() => {
+      el(root, 'device-picker-entry-d9').props.onPress();
+    });
+
+    // Confirm → onConfirm carries the overridden device + cwd.
+    act(() => {
+      confirmOf(root).props.onPress();
+    });
+    expect(props.onConfirm).toHaveBeenCalledWith('ls', 'd9', '/opt/app');
   });
 
   it('server-dangerous: requires a second confirm tap', async () => {
@@ -318,7 +356,7 @@ describe('VoiceToBashModal', () => {
     act(() => {
       confirmOf(root).props.onPress();
     });
-    expect(props.onConfirm).toHaveBeenCalledWith('rm -rf node_modules');
+    expect(props.onConfirm).toHaveBeenCalledWith('rm -rf node_modules', undefined, undefined);
   });
 
   it('locally-dangerous edit trips the warning even when the server said safe', async () => {
@@ -348,7 +386,7 @@ describe('VoiceToBashModal', () => {
     act(() => {
       confirmOf(root).props.onPress();
     });
-    expect(props.onConfirm).toHaveBeenCalledWith('rm -rf x');
+    expect(props.onConfirm).toHaveBeenCalledWith('rm -rf x', undefined, undefined);
   });
 
   it('review phase: STT transcript lands pre-filled in an editable TextInput', async () => {

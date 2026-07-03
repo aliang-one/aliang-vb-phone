@@ -30,6 +30,7 @@ import {
 } from '../../services/commandGenEvents';
 import { isUnsafeSuggestion } from '../../utils/terminalSuggestions';
 import { GlassPanel } from '../shared/GlassPanel';
+import { DevicePicker, type DevicePickerEntry } from './DevicePicker';
 
 export type VoiceToBashPhase =
   | 'recording'
@@ -48,7 +49,9 @@ export interface VoiceToBashModalProps {
   sessionId?: string;
   projectId?: string;
   onClose: () => void;
-  onConfirm: (command: string) => void;
+  onConfirm: (command: string, deviceId?: string, cwd?: string) => void;
+  /** Online+enabled devices for the initial-mode confirm picker. Omitted in live mode. */
+  selectableDevices?: DevicePickerEntry[];
 }
 
 // --- commandGen step timeline rendering -------------------------------------
@@ -152,6 +155,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   projectId,
   onClose,
   onConfirm,
+  selectableDevices,
 }) => {
   const { theme, isDark } = useTheme();
   const voiceStt = useVoiceStt();
@@ -161,6 +165,11 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   const [transcript, setTranscript] = useState('');
   const [dangerous, setDangerous] = useState(false);
   const [error, setError] = useState('');
+  // AI/user-chosen target device (initial mode). Captured from the generateCommand
+  // result, then possibly overridden via the DevicePicker in the confirm step.
+  const [chosenDeviceId, setChosenDeviceId] = useState<string | undefined>(undefined);
+  const [chosenCwd, setChosenCwd] = useState<string | undefined>(undefined);
+  const [chosenDeviceName, setChosenDeviceName] = useState<string | undefined>(undefined);
   // Live commandGen.* step timeline accumulated while the AI tool-loop runs.
   // Reset to empty on every (re-)entry into the generating phase. Captured into
   // the activeRunIdRef from the first matching commandGen.runStarted, after
@@ -206,6 +215,9 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
     setTranscript('');
     setDangerous(false);
     setError('');
+    setChosenDeviceId(undefined);
+    setChosenCwd(undefined);
+    setChosenDeviceName(undefined);
     armConfirmDanger(false);
     activeRunIdRef.current = null;
     generateFiredRef.current = false;
@@ -274,6 +286,9 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
         .then((result) => {
           setCommand(result.command);
           setDangerous(Boolean(result.dangerous));
+          setChosenDeviceId(result.deviceId);
+          setChosenCwd(result.cwd);
+          setChosenDeviceName(result.deviceName);
           armConfirmDanger(false);
           setPhase('confirming');
         })
@@ -328,8 +343,8 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
     }
     const finalCommand = command;
     cancelRef.current();
-    onConfirm(finalCommand);
-  }, [command, isDangerous, armConfirmDanger, onConfirm]);
+    onConfirm(finalCommand, chosenDeviceId, chosenCwd);
+  }, [command, isDangerous, armConfirmDanger, onConfirm, chosenDeviceId, chosenCwd]);
 
   // Cleanup: when the overlay closes (visible → false) or unmounts, cancel any
   // in-flight recording so a late stt.completed can't drive a dead modal.
@@ -605,6 +620,23 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
                 ]}
               />
 
+              {mode === 'initial' && selectableDevices && selectableDevices.length >= 1 && (
+                <View testID="v2b-device-picker" style={styles.pickerWrap}>
+                  <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+                    运行于
+                  </Text>
+                  <DevicePicker
+                    entries={selectableDevices}
+                    selectedId={chosenDeviceId}
+                    onSelect={(entry) => {
+                      setChosenDeviceId(entry.id);
+                      setChosenCwd(entry.cwd);
+                      setChosenDeviceName(entry.name);
+                    }}
+                  />
+                </View>
+              )}
+
               <View style={styles.footerRow}>
                 <Pressable testID="v2b-cancel" onPress={handleClose} style={styles.textBtn}>
                   <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
@@ -736,6 +768,9 @@ const styles = StyleSheet.create({
     marginLeft: 14,
     paddingLeft: 8,
     borderLeftWidth: 2,
+  },
+  pickerWrap: {
+    gap: 4,
   },
   warning: {
     borderWidth: 1,
