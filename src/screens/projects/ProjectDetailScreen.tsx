@@ -18,6 +18,7 @@ import { GlassPanel } from '../../components/shared/GlassPanel';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { ProjectActionTile } from '../../components/shared/ProjectActionTile';
 import { IconBadge } from '../../components/visual/IconBadge';
+import { Logo } from '../../components/visual/Logo';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
@@ -362,7 +363,7 @@ export const ProjectDetailScreen: React.FC = () => {
           </GlassPanel>
         ) : (
           <GlassPanel style={styles.emptyPanel}>
-            <IconBadge name="agent" tone="neutral" size={44} iconSize={22} />
+            <Logo size={48} />
             <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
               {t('projectDetail.emptyHistoryTitle')}
             </Text>

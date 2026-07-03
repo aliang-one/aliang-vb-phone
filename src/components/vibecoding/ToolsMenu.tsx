@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import { GlassPanel } from '../shared/GlassPanel';
 import { GlowButton } from '../shared/GlowButton';
 import { IconBadge } from '../visual/IconBadge';
+import { Logo } from '../visual/Logo';
 import type { AgentCommandInfo } from '../../data/platformModels';
 import {
   effortPresetsFor,
@@ -406,7 +407,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
           </View>
         ) : (
           <View style={[styles.emptyCommands, { borderColor: rowBorder }]}>
-            <IconBadge name="agent" tone="neutral" size={22} iconSize={12} />
+            <Logo size={28} />
             <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
               {t('toolsMenu.empty')}
             </Text>
