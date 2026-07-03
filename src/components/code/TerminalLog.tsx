@@ -13,7 +13,7 @@ const levelColors: Record<string, string> = {
   info: '#569CD6',      // VSCode keyword blue
   warn: '#CE9178',      // VSCode string orange
   error: '#F48771',     // VSCode error red
-  success: '#6A9955',   // VSCode comment green
+  success: '#569CD6',   // VSCode comment green
 };
 
 const levelColorsLight: Record<string, string> = {

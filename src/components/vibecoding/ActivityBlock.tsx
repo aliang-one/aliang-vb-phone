@@ -518,9 +518,9 @@ const badgeStyles: Record<
   { bgDark: string; bgLight: string; fg: string }
 > = {
   success: {
-    bgDark: 'rgba(106, 153, 85, 0.15)',
-    bgLight: 'rgba(0, 120, 84, 0.1)',
-    fg: '#6A9955',
+    bgDark: 'rgba(86, 156, 214, 0.15)',
+    bgLight: 'rgba(0, 81, 174, 0.1)',
+    fg: '#569CD6',
   },
   warning: {
     bgDark: 'rgba(206, 145, 120, 0.15)',

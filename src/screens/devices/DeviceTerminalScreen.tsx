@@ -277,7 +277,7 @@ export const DeviceTerminalScreen: React.FC = () => {
   const selectedDirectoryColor = isDark
     ? 'rgba(0,209,255,0.12)'
     : 'rgba(0,81,174,0.08)';
-  const currentDirectoryDotColor = isDark ? theme.colors.secondary : '#16A34A';
+  const currentDirectoryDotColor = isDark ? theme.colors.secondary : '#0051AE';
   const topPanelCollapsed = keyboardInset > 0 || keyboardProxyFocused;
   const keyboardLiftInset =
     keyboardInset > 0

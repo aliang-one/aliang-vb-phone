@@ -34,7 +34,7 @@ export const darkTheme: AppTheme = {
     inversePrimary: '#4FC1FF',
 
     // Secondary - VSCode teal for types
-    secondary: '#4EC9B0',
+    secondary: '#4FC1FF',
     onSecondary: '#1E1E1E',
     secondaryContainer: '#2D5A56',
     onSecondaryContainer: '#B4D4C9',
@@ -167,7 +167,7 @@ export const darkTheme: AppTheme = {
       shadowRadius: 6,
     },
     secondary: {
-      shadowColor: '#4EC9B0',
+      shadowColor: '#4FC1FF',
       shadowOffset: { width: 0, height: 0 },
       shadowOpacity: 0.2,
       shadowRadius: 4,

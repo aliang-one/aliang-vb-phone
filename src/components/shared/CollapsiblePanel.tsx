@@ -76,8 +76,8 @@ export const CollapsiblePanel: React.FC<CollapsiblePanelProps> = ({
                   backgroundColor:
                     badgeType === 'success'
                       ? isDark
-                        ? 'rgba(106, 153, 85, 0.15)'
-                        : 'rgba(0, 120, 84, 0.1)'
+                        ? 'rgba(86, 156, 214, 0.15)'
+                        : 'rgba(0, 81, 174, 0.1)'
                       : badgeType === 'warning'
                       ? isDark
                         ? 'rgba(206, 145, 120, 0.15)'
@@ -94,7 +94,7 @@ export const CollapsiblePanel: React.FC<CollapsiblePanelProps> = ({
                   {
                     color:
                       badgeType === 'success'
-                        ? '#6A9955'
+                        ? '#569CD6'
                         : badgeType === 'warning'
                         ? '#CE9178'
                         : theme.colors.primary,

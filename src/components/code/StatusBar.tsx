@@ -16,7 +16,7 @@ const statusConfig: Record<
 > = {
   thinking: { label: 'AI THINKING', color: '#569CD6', lightColor: '#0051AE' },  // VSCode keyword blue
   applying: { label: 'APPLYING', color: '#CE9178', lightColor: '#B8860B' },    // VSCode string orange
-  success: { label: 'SUCCESS', color: '#6A9955', lightColor: '#0969DA' },      // VSCode comment green
+  success: { label: 'SUCCESS', color: '#569CD6', lightColor: '#0969DA' },      // VSCode comment green
   paused: { label: 'PAUSED', color: '#C586C0', lightColor: '#BA1A1A' },        // VSCode purple
 };
 

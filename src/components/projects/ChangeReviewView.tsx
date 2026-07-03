@@ -38,7 +38,7 @@ export function changeBadgeLetter(c: SessionFileChange): string {
 /** 徽章配色（固定语义色，深/浅主题都可读）。 */
 function badgeColor(c: SessionFileChange): string {
   if (c.renamedFrom) return '#2196f3'; // R - 蓝
-  if (c.changeKind === 'create') return '#4caf50'; // A - 绿
+  if (c.changeKind === 'create') return '#569CD6'; // A - 绿
   if (c.changeKind === 'delete') return '#f44336'; // D - 红
   return '#ffb300'; // M - 琥珀
 }
@@ -131,7 +131,7 @@ export const ChangeReviewView: React.FC<ChangeReviewViewProps> = ({
           numberOfLines={1}>
           {baseName(current.path)}
         </Text>
-        <Text style={[theme.typography.codeSm, { color: '#4caf50' }]}>
+        <Text style={[theme.typography.codeSm, { color: '#569CD6' }]}>
           {`+${current.added ?? 0}`}
         </Text>
         <Text style={[theme.typography.codeSm, { color: '#f44336' }]}>

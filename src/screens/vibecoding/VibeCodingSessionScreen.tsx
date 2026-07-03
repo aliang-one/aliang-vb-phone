@@ -2070,8 +2070,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
                   styles.budgetStrip,
                   {
                     backgroundColor: isDark
-                      ? 'rgba(106, 153, 85, 0.12)'
-                      : 'rgba(0, 120, 84, 0.08)',
+                      ? 'rgba(86, 156, 214, 0.12)'
+                      : 'rgba(0, 81, 174, 0.08)',
                   },
                 ]}
               >
@@ -2085,7 +2085,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                   <Text
                     style={[
                       theme.typography.labelCaps,
-                      { color: isDark ? '#6A9955' : theme.colors.secondary },
+                      { color: theme.colors.secondary },
                     ]}
                   >
                     CODEX BUDGET

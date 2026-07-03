@@ -222,15 +222,15 @@ const SessionCard: React.FC<SessionCardProps> = React.memo(
                 styles.budgetPill,
                 {
                   backgroundColor: isDark
-                    ? 'rgba(106, 153, 85, 0.12)'
-                    : 'rgba(0, 120, 84, 0.08)',
+                    ? 'rgba(86, 156, 214, 0.12)'
+                    : 'rgba(0, 81, 174, 0.08)',
                 },
               ]}>
               <IconBadge name="quota" tone="secondary" size={24} iconSize={13} />
               <Text
                 style={[
                   theme.typography.labelSm,
-                  { color: isDark ? '#6A9955' : theme.colors.secondary },
+                  { color: theme.colors.secondary },
                 ]}>
                 Codex budget {budgetLabel}
               </Text>
