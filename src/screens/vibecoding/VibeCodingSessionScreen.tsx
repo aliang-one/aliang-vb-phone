@@ -27,7 +27,6 @@ import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
-import { SuggestionActionBar } from '../../components/vibecoding/SuggestionActionBar';
 import { ToolsMenu } from '../../components/vibecoding/ToolsMenu';
 import { MessageComposer } from '../../components/vibecoding/MessageComposer';
 import { mergeCommands } from '../../utils/agentCommands';
@@ -2870,14 +2869,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
               onInsertCommand={handleInsertCommand}
             />
           )}
-          <SuggestionActionBar
-            suggestions={session.suggestions}
-            onSelect={suggestion => {
-              if (suggestion.toLowerCase().includes('preview') && preview) {
-                navigation.navigate('Preview', { previewId: preview.id });
-              }
-            }}
-          />
           {topPendingApproval ? (
             <TouchableOpacity
               activeOpacity={0.82}

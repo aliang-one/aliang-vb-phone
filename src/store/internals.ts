@@ -542,7 +542,7 @@ export function serverAiSessionToVibeRun(
     // conversation apart from "agent offline, history unreachable".
     detailRefreshStatus:
       session.detail_refresh?.status ?? session.last_detail_fetch_status,
-    suggestions: ['Ask for plan', 'Open terminal', 'Pause session'],
+    suggestions: [],
     transcript,
     events,
     // Map the backend's slim `structured_events` envelopes into the
