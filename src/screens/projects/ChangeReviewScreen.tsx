@@ -13,6 +13,7 @@ import { parseUnifiedDiff } from '../../utils/diff/parseUnifiedDiff';
 import { fetchWorkingTreeDiff } from '../../api/projects';
 import type { WorkingTreeFileDiff } from '../../api/projects';
 import { describeDeviceError } from '../../utils/deviceError';
+import { useTranslation } from 'react-i18next';
 
 type ReviewRoute = RouteProp<RootStackParamList, 'ChangeReview'>;
 
@@ -35,6 +36,7 @@ export const ChangeReviewScreen: React.FC = () => {
   const navigation = useNavigation();
   const route = useRoute<ReviewRoute>();
   const { theme } = useTheme();
+  const { t } = useTranslation('projects');
   const { projectId } = route.params;
 
   const [entries, setEntries] = useState<WorkingTreeFileDiff[] | null>(null);
@@ -52,13 +54,13 @@ export const ChangeReviewScreen: React.FC = () => {
       })
       .catch(e => {
         if (!cancelled) {
-          setError(describeDeviceError(e)?.title || '加载改动失败');
+          setError(describeDeviceError(e)?.title || t('changeReview.loadFailed'));
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [projectId, reloadTick]);
+  }, [projectId, reloadTick, t]);
 
   // entries 缩短时把 index 回夹到合法区间
   useEffect(() => {
@@ -103,8 +105,8 @@ export const ChangeReviewScreen: React.FC = () => {
   return (
     <SafeAreaWrapper>
       <TopAppBar
-        title="改动审核"
-        subtitle={entries ? `${changes.length} 个文件` : undefined}
+        title={t('changeReview.title')}
+        subtitle={entries ? t('changeReview.filesCount', { count: changes.length }) : undefined}
         onBack={navigation.goBack}
       />
       {error ? (
@@ -120,7 +122,7 @@ export const ChangeReviewScreen: React.FC = () => {
           </Text>
           <TouchableOpacity onPress={onRetry} style={{ marginTop: 12 }} testID="cr-retry">
             <Text style={[theme.typography.labelSm, { color: theme.colors.primary }]}>
-              重试
+              {t('changeReview.retry')}
             </Text>
           </TouchableOpacity>
         </View>

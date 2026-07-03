@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/useTheme';
 import { CodeDiffViewer } from '../code/CodeDiffViewer';
 import type { DiffLine } from '../../data/platformModels';
@@ -76,6 +77,7 @@ export const ChangeReviewView: React.FC<ChangeReviewViewProps> = ({
   onRetry,
 }) => {
   const { theme } = useTheme();
+  const { t } = useTranslation('projects');
   const total = changes.length;
 
   const mainColor = theme.colors.onSurface;
@@ -85,7 +87,7 @@ export const ChangeReviewView: React.FC<ChangeReviewViewProps> = ({
     return (
       <View style={styles.empty}>
         <Text style={[theme.typography.bodyMd, { color: mainColor }]}>
-          没有未提交的改动
+          {t('changeReviewView.empty')}
         </Text>
       </View>
     );
@@ -140,7 +142,7 @@ export const ChangeReviewView: React.FC<ChangeReviewViewProps> = ({
       <View style={{ flex: 1 }}>
         {diffState === 'loading' && (
           <View style={{ padding: 12 }}>
-            <Text style={[theme.typography.bodyMd, { color: subColor }]}>加载中…</Text>
+            <Text style={[theme.typography.bodyMd, { color: subColor }]}>{t('changeReviewView.loading')}</Text>
           </View>
         )}
         {diffState === 'ready' && (
@@ -149,24 +151,24 @@ export const ChangeReviewView: React.FC<ChangeReviewViewProps> = ({
             {truncated && (
               <Text
                 style={[theme.typography.labelSm, { color: subColor, padding: 8 }]}>
-                diff 已截断，仅显示前 16KB
+                {t('changeReviewView.truncated')}
               </Text>
             )}
           </>
         )}
         {diffState === 'empty' && (
           <View style={{ padding: 12 }}>
-            <Text style={[theme.typography.bodyMd, { color: subColor }]}>无 diff</Text>
+            <Text style={[theme.typography.bodyMd, { color: subColor }]}>{t('changeReviewView.noDiff')}</Text>
           </View>
         )}
         {diffState === 'error' && (
           <View style={{ padding: 12 }}>
             <Text style={[theme.typography.bodyMd, { color: mainColor }]}>
-              加载 diff 失败
+              {t('changeReviewView.loadFailed')}
             </Text>
             <TouchableOpacity testID="cr-retry" onPress={onRetry} style={{ marginTop: 8 }}>
               <Text style={[theme.typography.labelSm, { color: theme.colors.primary }]}>
-                重试
+                {t('changeReviewView.retry')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -180,7 +182,7 @@ export const ChangeReviewView: React.FC<ChangeReviewViewProps> = ({
               theme.typography.labelSm,
               { color: mainColor, opacity: atStart ? 0.3 : 1 },
             ]}>
-            上一个
+            {t('changeReviewView.prev')}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity testID="cr-next" onPress={onNext} disabled={atEnd}>
@@ -189,7 +191,7 @@ export const ChangeReviewView: React.FC<ChangeReviewViewProps> = ({
               theme.typography.labelSm,
               { color: mainColor, opacity: atEnd ? 0.3 : 1 },
             ]}>
-            下一个
+            {t('changeReviewView.next')}
           </Text>
         </TouchableOpacity>
       </View>

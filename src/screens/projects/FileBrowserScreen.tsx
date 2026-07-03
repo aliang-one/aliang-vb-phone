@@ -28,16 +28,18 @@ import { BottomSheet } from '../../components/shared/BottomSheet';
 import { CodeHighlight } from '../../components/shared/CodeHighlight';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { describeDeviceError } from '../../utils/deviceError';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type FileRoute = RouteProp<RootStackParamList, 'FileBrowser'>;
 type FileFilter = 'all' | ProjectFileEntry['status'];
 
-const filters: Array<{ label: string; value: FileFilter }> = [
-  { label: 'ALL', value: 'all' },
-  { label: 'MODIFIED', value: 'modified' },
-  { label: 'ADDED', value: 'added' },
-  { label: 'CLEAN', value: 'clean' },
+const filters: Array<{ labelKey: 'all' | 'modified' | 'added' | 'clean'; value: FileFilter }> = [
+  { labelKey: 'all', value: 'all' },
+  { labelKey: 'modified', value: 'modified' },
+  { labelKey: 'added', value: 'added' },
+  { labelKey: 'clean', value: 'clean' },
 ];
 
 const parentPathOf = (pathValue: string) => {
@@ -54,7 +56,7 @@ interface FileErrorMessage {
   offline: boolean;
 }
 
-const humanizeFileError = (error: unknown): FileErrorMessage => {
+const humanizeFileError = (error: unknown, t: TFunction): FileErrorMessage => {
   // device_offline / agent_request_timeout 等「Agent 不可达」错误走公共翻译，
   // 与终端页、扫描页口径一致。
   const deviceMessage = describeDeviceError(error);
@@ -68,34 +70,35 @@ const humanizeFileError = (error: unknown): FileErrorMessage => {
 
   if (matches('project_path_missing')) {
     return {
-      title: '项目路径缺失',
-      detail: '该项目尚未上报路径。请在设备页执行「扫描项目」，或返回后重新选择项目。',
+      title: t('fileBrowser.error.pathMissingTitle'),
+      detail: t('fileBrowser.error.pathMissingDetail'),
       offline: false,
     };
   }
   if (matches('project_path_not_authorized')) {
     return {
-      title: '路径未授权',
-      detail: '请求的目录不在 Agent 授权范围内，请回到项目根目录，或重新扫描设备。',
+      title: t('fileBrowser.error.pathNotAuthorizedTitle'),
+      detail: t('fileBrowser.error.pathNotAuthorizedDetail'),
       offline: false,
     };
   }
   if (matches('project_not_found')) {
     return {
-      title: '项目不存在',
-      detail: '该项目数据已失效，请返回后重新选择项目。',
+      title: t('fileBrowser.error.projectNotFoundTitle'),
+      detail: t('fileBrowser.error.projectNotFoundDetail'),
       offline: false,
     };
   }
   return {
-    title: '无法读取项目文件',
-    detail: message || '发生未知错误，请稍后重试。',
+    title: t('fileBrowser.error.genericTitle'),
+    detail: message || t('fileBrowser.error.genericDetail'),
     offline: false,
   };
 };
 
 export const FileBrowserScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('projects');
   const navigation = useNavigation<Navigation>();
   const route = useRoute<FileRoute>();
   const devices = useControlCenterStore(state => state.devices);
@@ -136,7 +139,7 @@ export const FileBrowserScreen: React.FC = () => {
       deviceId: device?.id,
     });
   }, [navigation, route.params.projectId, device?.id]);
-  const fileError = useMemo(() => (error ? humanizeFileError(error) : null), [error]);
+  const fileError = useMemo(() => (error ? humanizeFileError(error, t) : null), [error, t]);
   const projectFiles = useMemo(
     () =>
       files.filter(item => {
@@ -243,7 +246,7 @@ export const FileBrowserScreen: React.FC = () => {
           setError(
             nextError instanceof Error
               ? nextError.message
-              : 'Unable to load project files.',
+              : t('fileBrowser.error.loadFailed'),
           );
         }
       })
@@ -253,14 +256,14 @@ export const FileBrowserScreen: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [canReadDevice, effectivePath, loadProjectFiles, project]);
+  }, [canReadDevice, effectivePath, loadProjectFiles, project, t]);
 
   if (!project) {
     return (
       <SafeAreaWrapper>
         <TopAppBar
-          title="Files"
-          subtitle="PROJECT NOT FOUND"
+          title={t('fileBrowser.title')}
+          subtitle={t('fileBrowser.notFoundSubtitle')}
           onBack={navigation.goBack}
         />
       </SafeAreaWrapper>
@@ -277,7 +280,7 @@ export const FileBrowserScreen: React.FC = () => {
       setError(
         nextError instanceof Error
           ? nextError.message
-          : 'Unable to load project files.',
+          : t('fileBrowser.error.loadFailed'),
       );
     } finally {
       setLoading(false);
@@ -305,7 +308,7 @@ export const FileBrowserScreen: React.FC = () => {
       setError(
         nextError instanceof Error
           ? nextError.message
-          : 'Unable to read project file.',
+          : t('fileBrowser.error.readFailed'),
       );
     } finally {
       setReadingPath('');
@@ -346,7 +349,7 @@ export const FileBrowserScreen: React.FC = () => {
       setError(
         nextError instanceof Error
           ? nextError.message
-          : 'Unable to load folder contents.',
+          : t('fileBrowser.error.folderFailed'),
       );
       // Roll back the expansion so a failed fetch doesn't leave a stuck-open
       // empty branch.
@@ -386,7 +389,7 @@ export const FileBrowserScreen: React.FC = () => {
               theme.typography.bodySm,
               { color: theme.colors.onSurfaceVariant, marginTop: 10 },
             ]}>
-            正在读取文件…
+            {t('fileBrowser.readingFile')}
           </Text>
         </View>
       );
@@ -406,8 +409,8 @@ export const FileBrowserScreen: React.FC = () => {
               { color: theme.colors.onSurface, textAlign: 'center', marginTop: 10 },
             ]}>
             {file.previewBlocked.reason === 'binary'
-              ? '二进制文件，无法预览'
-              : '文件过大，未自动打开'}
+              ? t('fileBrowser.binaryBlockedTitle')
+              : t('fileBrowser.tooLargeBlockedTitle')}
           </Text>
           <Text
             style={[
@@ -415,11 +418,11 @@ export const FileBrowserScreen: React.FC = () => {
               { color: theme.colors.onSurfaceVariant, textAlign: 'center', marginTop: 6 },
             ]}>
             {file.previewBlocked.reason === 'binary'
-              ? '该文件是二进制内容，不适合在手机端预览。'
-              : '该文件超过 1 MB，预览会截断且占用大量内存。'}
+              ? t('fileBrowser.binaryBlockedDetail')
+              : t('fileBrowser.tooLargeBlockedDetail')}
           </Text>
           <GlowButton
-            title="在终端打开"
+            title={t('fileBrowser.openInTerminal')}
             onPress={() =>
               device &&
               navigation.navigate('DeviceTerminal', {
@@ -461,12 +464,12 @@ export const FileBrowserScreen: React.FC = () => {
   return (
     <SafeAreaWrapper>
       <TopAppBar
-        title="Files"
+        title={t('fileBrowser.title')}
         subtitle={project.name}
         onBack={navigation.goBack}
         rightAction={
           <StatusChip
-            label={loading ? 'LOADING' : deviceOnline ? 'ONLINE' : 'OFFLINE'}
+            label={loading ? t('fileBrowser.loading') : deviceOnline ? 'ONLINE' : 'OFFLINE'}
             type={loading ? 'info' : deviceOnline ? 'success' : 'neutral'}
           />
         }
@@ -495,11 +498,11 @@ export const FileBrowserScreen: React.FC = () => {
             ]}>
           <View style={{ flex: 1 }}>
             <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-              审核改动
+              {t('fileBrowser.changeReviewTitle')}
             </Text>
             <Text
               style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-              查看工作区未提交的 git diff
+              {t('fileBrowser.changeReviewSubtitle')}
             </Text>
           </View>
           <Text style={[theme.typography.titleLg, { color: theme.colors.primary }]}>
@@ -543,7 +546,7 @@ export const FileBrowserScreen: React.FC = () => {
                         : theme.colors.onSurfaceVariant,
                     },
                   ]}>
-                  {item.label}
+                  {t(`fileBrowser.filter.${item.labelKey}`)}
                 </Text>
               </TouchableOpacity>
             );
@@ -584,10 +587,10 @@ export const FileBrowserScreen: React.FC = () => {
             <Text
               numberOfLines={1}
               style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant, flex: 1 }]}>
-              {device ? `${device.name} · ${device.os}` : '未绑定设备'}
+              {device ? `${device.name} · ${device.os}` : t('fileBrowser.deviceUnbound')}
             </Text>
             <StatusChip
-              label={deviceOnline ? 'AGENT 在线' : device ? 'AGENT 离线' : '无设备'}
+              label={deviceOnline ? t('fileBrowser.agentOnline') : device ? t('fileBrowser.agentOffline') : t('fileBrowser.noDevice')}
               type={deviceOnline ? 'success' : 'neutral'}
             />
           </View>
@@ -727,7 +730,7 @@ export const FileBrowserScreen: React.FC = () => {
                 </Text>
                 <View style={styles.stateActions}>
                   <GlowButton
-                    title={loading ? '加载中' : '重新加载'}
+                    title={loading ? t('fileBrowser.reload') : t('fileBrowser.reloadAction')}
                     onPress={handleRefresh}
                     disabled={!device || !deviceOnline || loading}
                     variant="primary"
@@ -735,7 +738,7 @@ export const FileBrowserScreen: React.FC = () => {
                   />
                   {device ? (
                     <GlowButton
-                      title="扫描设备"
+                      title={t('fileBrowser.scanDevice')}
                       onPress={() => navigation.navigate('ProjectScan', { deviceId: device.id })}
                       variant="outline"
                       style={styles.stateAction}
@@ -757,12 +760,12 @@ export const FileBrowserScreen: React.FC = () => {
                     { color: theme.colors.onSurface, textAlign: 'center' },
                   ]}>
                   {loading
-                    ? '正在从桌面 Agent 加载文件…'
+                    ? t('fileBrowser.loadingFromAgent')
                     : !device
-                    ? '该任务尚未绑定设备'
+                    ? t('fileBrowser.taskNoDevice')
                     : !deviceOnline
-                    ? '桌面 Agent 当前离线'
-                    : '暂无文件'}
+                    ? t('fileBrowser.agentOfflineTitle')
+                    : t('fileBrowser.noFiles')}
                 </Text>
                 <Text
                   style={[
@@ -770,10 +773,10 @@ export const FileBrowserScreen: React.FC = () => {
                     { color: theme.colors.onSurfaceVariant, textAlign: 'center' },
                   ]}>
                   {!device
-                    ? '请返回设备页，先绑定设备并为该项目选择设备。'
+                    ? t('fileBrowser.taskNoDeviceHint')
                     : !deviceOnline
-                    ? 'Agent 未保持连接，请确认 Agent 在线后用上方工具条刷新，或打开终端 / 扫描设备。'
-                    : '点击上方工具条的 REFRESH 可向桌面 Agent 请求文件列表。'}
+                    ? t('fileBrowser.agentOfflineHint')
+                    : t('fileBrowser.noFilesHint')}
                 </Text>
               </View>
             ) : (
@@ -788,7 +791,7 @@ export const FileBrowserScreen: React.FC = () => {
                           theme.typography.codeSm,
                           { color: theme.colors.onSurfaceVariant },
                         ]}>
-                        空文件夹
+                        {t('fileBrowser.emptyFolder')}
                       </Text>
                     </View>
                   ) : (
@@ -809,7 +812,7 @@ export const FileBrowserScreen: React.FC = () => {
                   visibleCount={fileList.visibleCount}
                   totalCount={fileList.totalCount}
                   onPress={fileList.showMore}
-                  label="LOAD MORE FILES"
+                  label={t('fileBrowser.loadMoreFiles')}
                 />
               </>
             )}

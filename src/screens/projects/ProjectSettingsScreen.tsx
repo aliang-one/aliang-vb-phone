@@ -20,12 +20,14 @@ import { IconBadge } from '../../components/visual/IconBadge';
 import { ApprovalPolicyCard } from '../../components/devices/ApprovalPolicyCard';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { useTranslation } from 'react-i18next';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type ProjectSettingsRoute = RouteProp<RootStackParamList, 'ProjectSettings'>;
 
 export const ProjectSettingsScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('projects');
   const navigation = useNavigation<Navigation>();
   const route = useRoute<ProjectSettingsRoute>();
   const devices = useControlCenterStore(state => state.devices);
@@ -53,7 +55,7 @@ export const ProjectSettingsScreen: React.FC = () => {
   if (!project) {
     return (
       <SafeAreaWrapper>
-        <TopAppBar title="项目设置" subtitle="NOT FOUND" onBack={navigation.goBack} />
+        <TopAppBar title={t('projectSettings.title')} subtitle={t('projectSettings.notFoundSubtitle')} onBack={navigation.goBack} />
       </SafeAreaWrapper>
     );
   }
@@ -61,10 +63,10 @@ export const ProjectSettingsScreen: React.FC = () => {
   const approvalScheme = project.approvalScheme ?? 'balanced';
   const approvalSchemeLabel =
     approvalScheme === 'allow_all'
-      ? 'Allow all'
+      ? t('projectSettings.scheme.allowAll')
       : approvalScheme === 'custom'
-      ? 'Custom'
-      : 'Balanced';
+      ? t('projectSettings.scheme.custom')
+      : t('projectSettings.scheme.balanced');
   const summaryMetaCellStyle = [
     styles.summaryMetaCell,
     {
@@ -81,7 +83,7 @@ export const ProjectSettingsScreen: React.FC = () => {
   return (
     <SafeAreaWrapper>
       <TopAppBar
-        title="项目设置"
+        title={t('projectSettings.title')}
         subtitle={project.name}
         onBack={navigation.goBack}
       />
@@ -119,7 +121,7 @@ export const ProjectSettingsScreen: React.FC = () => {
                       theme.typography.bodySm,
                       { color: theme.colors.onSurfaceVariant },
                     ]}>
-                    {device?.name ?? 'no device'} · {project.path || '~'}
+                    {device?.name ?? t('projectSettings.noDevice')} · {project.path || '~'}
                   </Text>
                 </View>
               </View>
@@ -141,7 +143,7 @@ export const ProjectSettingsScreen: React.FC = () => {
                     theme.typography.labelCaps,
                     { color: theme.colors.onSurfaceVariant },
                   ]}>
-                  APPROVAL
+                  {t('projectSettings.approval')}
                 </Text>
                 <Text
                   numberOfLines={1}

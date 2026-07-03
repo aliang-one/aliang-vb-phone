@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/useTheme';
 import { BottomSheet } from '../shared/BottomSheet';
 import {
@@ -24,11 +25,18 @@ import type { ApprovalDecision } from '../../api/devices';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 
-const DECISIONS: { key: ApprovalDecision; label: string }[] = [
-  { key: 'auto_approve', label: '放行' },
-  { key: 'require_approval', label: '审批' },
-  { key: 'auto_deny', label: '拒绝' },
+const DECISIONS: { key: ApprovalDecision; labelKey: 'autoApprove' | 'requireApproval' | 'autoDeny' }[] = [
+  { key: 'auto_approve', labelKey: 'autoApprove' },
+  { key: 'require_approval', labelKey: 'requireApproval' },
+  { key: 'auto_deny', labelKey: 'autoDeny' },
 ];
+
+const decisionLabelKey = (decision: ApprovalDecision): 'autoApprove' | 'requireApproval' | 'autoDeny' =>
+  decision === 'auto_approve'
+    ? 'autoApprove'
+    : decision === 'require_approval'
+    ? 'requireApproval'
+    : 'autoDeny';
 
 /** Tiny read-only hint describing what a rule matches. */
 const matchHint = (rule: ServerApprovalRule): string => {
@@ -52,6 +60,7 @@ export function CustomApprovalRulesSheet({
   onClose: () => void;
 }) {
   const { theme } = useTheme();
+  const { t } = useTranslation('projects');
   const [state, setState] = useState<LoadState>('idle');
   const [rules, setRules] = useState<ServerApprovalRule[]>([]);
   const [defaultDecision, setDefaultDecision] = useState<ApprovalDecision | null>(null);
@@ -70,10 +79,10 @@ export function CustomApprovalRulesSheet({
       setOverrides({});
       setState('ready');
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : '加载审批规则失败');
+      setErrorMsg(err instanceof Error ? err.message : t('customRules.loadFailed'));
       setState('error');
     }
-  }, [projectId]);
+  }, [projectId, t]);
 
   useEffect(() => {
     if (open) {
@@ -104,7 +113,7 @@ export function CustomApprovalRulesSheet({
       setOverrides({});
       onClose();
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : '保存失败');
+      setErrorMsg(err instanceof Error ? err.message : t('customRules.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -116,7 +125,7 @@ export function CustomApprovalRulesSheet({
         <View style={styles.center}>
           <ActivityIndicator color={theme.colors.primary} />
           <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant, marginTop: 8 }]}>
-            加载审批规则…
+            {t('customRules.loading')}
           </Text>
         </View>
       );
@@ -125,10 +134,10 @@ export function CustomApprovalRulesSheet({
       return (
         <View style={styles.center}>
           <Text style={[theme.typography.bodyMd, { color: theme.colors.error, marginBottom: 8 }]}>
-            {errorMsg ?? '加载失败'}
+            {errorMsg ?? t('customRules.loadError')}
           </Text>
           <TouchableOpacity onPress={() => void load()} style={styles.retryBtn}>
-            <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>重试</Text>
+            <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>{t('customRules.retry')}</Text>
           </TouchableOpacity>
         </View>
       );
@@ -137,7 +146,7 @@ export function CustomApprovalRulesSheet({
       return (
         <View style={styles.center}>
           <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurfaceVariant }]}>
-            暂无可用规则
+            {t('customRules.emptyRules')}
           </Text>
         </View>
       );
@@ -190,7 +199,7 @@ export function CustomApprovalRulesSheet({
                           },
                         ]}
                       >
-                        {opt.label}
+                        {t(`customRules.decision.${opt.labelKey}`)}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -207,8 +216,8 @@ export function CustomApprovalRulesSheet({
     <BottomSheet
       open={open}
       onClose={saving ? () => undefined : onClose}
-      title="自定义审批规则"
-      subtitle="开关微调 · 基于 Balanced 预设"
+      title={t('customRules.title')}
+      subtitle={t('customRules.subtitle')}
     >
       <View style={styles.fill}>
         {renderBody()}
@@ -216,7 +225,9 @@ export function CustomApprovalRulesSheet({
         {defaultDecision ? (
           <View style={styles.footerNote}>
             <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-              默认决策：{defaultDecision === 'auto_approve' ? '放行' : defaultDecision === 'require_approval' ? '审批' : '拒绝'}（其余未匹配操作）
+              {t('customRules.defaultDecision', {
+                decision: t(`customRules.decision.${decisionLabelKey(defaultDecision)}`),
+              })}
             </Text>
           </View>
         ) : null}
@@ -234,7 +245,7 @@ export function CustomApprovalRulesSheet({
             onPress={onClose}
           >
             <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-              取消
+              {t('customRules.cancel')}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -258,7 +269,7 @@ export function CustomApprovalRulesSheet({
                   { color: dirty ? theme.colors.onPrimary : theme.colors.onSurfaceVariant },
                 ]}
               >
-                保存
+                {t('customRules.save')}
               </Text>
             )}
           </TouchableOpacity>

@@ -42,6 +42,8 @@ import {
   isSessionActiveWithin,
   parseConversationTimestampMs,
 } from '../../utils/conversationActivity';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -83,13 +85,13 @@ interface ConversationFeedItem {
 
 const feedMeta: Record<
   ConversationFeedKind,
-  { icon: IconName; label: string }
+  { icon: IconName; labelKey: 'created' | 'completed' | 'in_progress' | 'activity' | 'approval' }
 > = {
-  created: { icon: 'chat', label: '新对话' },
-  completed: { icon: 'check', label: '已完成' },
-  in_progress: { icon: 'agent', label: '进行中' },
-  activity: { icon: 'chat', label: '最近交互' },
-  approval: { icon: 'approval', label: '待确认' },
+  created: { icon: 'chat', labelKey: 'created' },
+  completed: { icon: 'check', labelKey: 'completed' },
+  in_progress: { icon: 'agent', labelKey: 'in_progress' },
+  activity: { icon: 'chat', labelKey: 'activity' },
+  approval: { icon: 'approval', labelKey: 'approval' },
 };
 
 const projectMatchesSession = (project: Project, session: VibeCodingRun) =>
@@ -113,6 +115,7 @@ const getProjectActivityMs = (
 
 export const CommandCenterScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('projects');
   const navigation = useNavigation<Navigation>();
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
@@ -219,7 +222,7 @@ export const CommandCenterScreen: React.FC = () => {
         push(
           evt.id,
           'created',
-          evt.title || '新对话',
+          evt.title || t('commandCenter.feedFallbackTitle.created'),
           evt.detail,
           evt.sessionId,
           parseConversationTimestampMs(evt.timestamp, nowMs),
@@ -228,7 +231,7 @@ export const CommandCenterScreen: React.FC = () => {
         push(
           evt.id,
           'completed',
-          evt.title || '对话完成',
+          evt.title || t('commandCenter.feedFallbackTitle.completed'),
           evt.detail,
           evt.sessionId,
           parseConversationTimestampMs(evt.timestamp, nowMs),
@@ -237,7 +240,7 @@ export const CommandCenterScreen: React.FC = () => {
         push(
           `approval-${evt.approvalId ?? evt.id}`,
           'approval',
-          evt.title || '需要确认',
+          evt.title || t('commandCenter.feedFallbackTitle.approval'),
           evt.detail,
           evt.sessionId,
           parseConversationTimestampMs(evt.timestamp, nowMs),
@@ -252,13 +255,13 @@ export const CommandCenterScreen: React.FC = () => {
       });
       const actor =
         session.lastMessage?.role === 'user'
-          ? '你'
+          ? t('commandCenter.actor.user')
           : session.lastMessage?.role === 'assistant'
-          ? 'AI'
-          : '系统';
+          ? t('commandCenter.actor.assistant')
+          : t('commandCenter.actor.system');
       const latestActivity = session.lastMessage?.content
         ? `${actor}: ${session.lastMessage.content}`
-        : session.currentStep || '最近有交互';
+        : session.currentStep || t('commandCenter.activityFallback');
       push(
         `activity-${session.id}-${
           session.lastMessage?.id ?? sessionActivityMs
@@ -271,7 +274,7 @@ export const CommandCenterScreen: React.FC = () => {
       );
     }
     return items.sort((left, right) => right.ms - left.ms).slice(0, 12);
-  }, [feedEvents, activeAgentRuns]);
+  }, [feedEvents, activeAgentRuns, t]);
   const visibleConversationFeed = conversationFeed.slice(
     0,
     HOME_CONVERSATION_EVENT_LIMIT,
@@ -413,8 +416,8 @@ export const CommandCenterScreen: React.FC = () => {
   return (
     <SafeAreaWrapper>
       <TopAppBar
-        title="Vibe Command"
-        subtitle="MOBILE AGENT CONTROL"
+        title={t('commandCenter.title')}
+        subtitle={t('commandCenter.subtitle')}
         rightAction={
           <View style={styles.topActions}>
             <ServerStatusCapsule
@@ -464,7 +467,7 @@ export const CommandCenterScreen: React.FC = () => {
                   theme.typography.labelSm,
                   { color: theme.colors.onSurfaceVariant },
                 ]}>
-                正在加载首页…
+                {t('commandCenter.loadingHome')}
               </Text>
             </View>
           }>
@@ -498,7 +501,7 @@ export const CommandCenterScreen: React.FC = () => {
                     { color: theme.colors.onSurface },
                   ]}
                 >
-                  {topRealtimeKind === 'approval' ? '待确认' : '新消息'} ·{' '}
+                  {topRealtimeKind === 'approval' ? t('commandCenter.feedPending') : t('commandCenter.feedNewMessage')} ·{' '}
                   {topRealtimeTitle}
                   {topRealtimeDetail ? ` · ${topRealtimeDetail}` : ''}
                 </Text>
@@ -510,7 +513,7 @@ export const CommandCenterScreen: React.FC = () => {
                   { color: theme.colors.primary },
                 ]}
               >
-                更多 ›
+                {t('commandCenter.more')}
               </Text>
             </GlassPanel>
           </TouchableOpacity>
@@ -522,9 +525,9 @@ export const CommandCenterScreen: React.FC = () => {
               { color: theme.colors.primary },
             ]}
           >
-            对话事件 / CONVERSATION EVENTS
+            {t('commandCenter.conversationEventsHeader')}
           </Text>
-          <StatusChip label={`${conversationFeed.length} 条`} type="info" />
+          <StatusChip label={t('commandCenter.eventsCount', { count: conversationFeed.length })} type="info" />
         </View>
         {conversationFeed.length ? (
           <>
@@ -609,7 +612,7 @@ export const CommandCenterScreen: React.FC = () => {
                       { color: theme.colors.primary },
                     ]}
                   >
-                    更多 ›
+                    {t('commandCenter.more')}
                   </Text>
                 </GlassPanel>
               </TouchableOpacity>
@@ -620,7 +623,7 @@ export const CommandCenterScreen: React.FC = () => {
                 visibleCount={visibleConversationFeed.length}
                 totalCount={conversationFeed.length}
                 onPress={openConversationEventStream}
-                label="更多对话事件"
+                label={t('commandCenter.moreConversationEvents')}
               />
             ) : null}
           </>
@@ -634,7 +637,7 @@ export const CommandCenterScreen: React.FC = () => {
                   { color: theme.colors.onSurface },
                 ]}
               >
-                暂无对话事件
+                {t('commandCenter.emptyEventsTitle')}
               </Text>
               <Text
                 style={[
@@ -642,7 +645,7 @@ export const CommandCenterScreen: React.FC = () => {
                   { color: theme.colors.onSurfaceVariant },
                 ]}
               >
-                新建对话、完成或待确认的操作会显示在这里，点击即可进入对应对话。
+                {t('commandCenter.emptyEventsBody')}
               </Text>
             </View>
           </GlassPanel>
@@ -698,7 +701,7 @@ export const CommandCenterScreen: React.FC = () => {
               </View>
               <View style={styles.approvalsHeroStatus}>
                 <StatusChip
-                  label={pendingApprovals.length > 0 ? '需要确认' : '无需确认'}
+                  label={pendingApprovals.length > 0 ? t('commandCenter.approvalsNeedReview') : t('commandCenter.approvalsAllClear')}
                   type={pendingApprovals.length > 0 ? 'error' : 'success'}
                 />
               </View>
@@ -707,7 +710,7 @@ export const CommandCenterScreen: React.FC = () => {
               Approvals
             </Text>
             <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-              AI 操作需要你的确认才能继续执行
+              {t('commandCenter.approvalsBody')}
             </Text>
           </GlassPanel>
         </TouchableOpacity>
@@ -718,7 +721,7 @@ export const CommandCenterScreen: React.FC = () => {
             icon="agent"
             label="Sessions"
             value={`${recentAgentRuns.length}`}
-            caption={`${activeAgentRuns.length} 活跃`}
+            caption={`${activeAgentRuns.length} ${t('commandCenter.actionCaptionActive')}`}
             tone={activeAgentRuns.length > 0 ? 'primary' : 'neutral'}
             mini
             onPress={() => navigation.navigate('AgentSessions')}
@@ -728,7 +731,7 @@ export const CommandCenterScreen: React.FC = () => {
             icon="event"
             label="Events"
             value={`${feedEvents.length}`}
-            caption="事件"
+            caption={t('commandCenter.actionCaptionEvents')}
             tone="info"
             mini
             onPress={() => navigation.navigate('EventStream')}
@@ -738,7 +741,7 @@ export const CommandCenterScreen: React.FC = () => {
             icon="scan"
             label="Scan"
             value={`${scanResults.length}`}
-            caption="结果"
+            caption={t('commandCenter.actionCaptionResults')}
             tone="secondary"
             mini
             onPress={() => navigation.navigate('DeviceCameraScanner')}
@@ -822,7 +825,7 @@ export const CommandCenterScreen: React.FC = () => {
                   { color: theme.colors.onSurface },
                 ]}
               >
-                暂无活跃项目
+                {t('commandCenter.emptyProjectsTitle')}
               </Text>
               <Text
                 style={[
@@ -830,7 +833,7 @@ export const CommandCenterScreen: React.FC = () => {
                   { color: theme.colors.onSurfaceVariant },
                 ]}
               >
-                最近有交互的项目会显示在这里。
+                {t('commandCenter.emptyProjectsBody')}
               </Text>
             </View>
           </GlassPanel>

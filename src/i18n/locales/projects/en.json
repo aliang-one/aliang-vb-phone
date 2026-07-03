@@ -1,0 +1,163 @@
+{
+  "fileBrowser": {
+    "title": "Files",
+    "notFoundSubtitle": "PROJECT NOT FOUND",
+    "filter": {
+      "all": "ALL",
+      "modified": "MODIFIED",
+      "added": "ADDED",
+      "clean": "CLEAN"
+    },
+    "changeReviewTitle": "Review changes",
+    "changeReviewSubtitle": "View uncommitted git diff of the working tree",
+    "deviceUnbound": "No device bound",
+    "agentOnline": "AGENT online",
+    "agentOffline": "AGENT offline",
+    "noDevice": "No device",
+    "loading": "LOADING",
+    "readingFile": "Reading file…",
+    "binaryBlockedTitle": "Binary file, cannot preview",
+    "tooLargeBlockedTitle": "File too large, not opened automatically",
+    "binaryBlockedDetail": "This file is binary and not suitable for preview on mobile.",
+    "tooLargeBlockedDetail": "This file exceeds 1 MB; preview would be truncated and consume a lot of memory.",
+    "openInTerminal": "Open in terminal",
+    "loadMoreFiles": "LOAD MORE FILES",
+    "emptyFolder": "Empty folder",
+    "reload": "Loading",
+    "reloadAction": "Reload",
+    "scanDevice": "Scan device",
+    "loadingFromAgent": "Loading files from desktop Agent…",
+    "taskNoDevice": "This task has no bound device",
+    "agentOfflineTitle": "Desktop Agent is currently offline",
+    "noFiles": "No files",
+    "taskNoDeviceHint": "Go back to the devices page, bind a device, and assign it to this project.",
+    "agentOfflineHint": "The Agent is not connected. Confirm it is online, then refresh from the toolbar above, or open the terminal / scan the device.",
+    "noFilesHint": "Tap REFRESH in the toolbar above to request the file list from the desktop Agent.",
+    "error": {
+      "pathMissingTitle": "Project path missing",
+      "pathMissingDetail": "This project has not reported a path yet. Run \"Scan project\" on the devices page, or go back and reselect the project.",
+      "pathNotAuthorizedTitle": "Path not authorized",
+      "pathNotAuthorizedDetail": "The requested directory is outside the Agent's authorized scope. Return to the project root, or rescan the device.",
+      "projectNotFoundTitle": "Project does not exist",
+      "projectNotFoundDetail": "This project's data is no longer valid. Go back and reselect the project.",
+      "genericTitle": "Unable to read project files",
+      "genericDetail": "An unknown error occurred. Please retry later.",
+      "loadFailed": "Unable to load project files.",
+      "readFailed": "Unable to read project file.",
+      "folderFailed": "Unable to load folder contents."
+    }
+  },
+  "commandCenter": {
+    "title": "Vibe Command",
+    "subtitle": "MOBILE AGENT CONTROL",
+    "loadingHome": "Loading home…",
+    "feedPending": "Needs review",
+    "feedNewMessage": "New message",
+    "more": "More ›",
+    "conversationEventsHeader": "Conversation events",
+    "eventsCount": "{{count}} items",
+    "moreConversationEvents": "More conversation events",
+    "emptyEventsTitle": "No conversation events",
+    "emptyEventsBody": "New conversations, completions, and pending approvals appear here — tap to jump into the conversation.",
+    "approvalsNeedReview": "Needs review",
+    "approvalsAllClear": "All clear",
+    "approvalsBody": "AI actions need your confirmation before they can proceed.",
+    "actionCaptionActive": "active",
+    "actionCaptionEvents": "events",
+    "actionCaptionResults": "results",
+    "emptyProjectsTitle": "No active projects",
+    "emptyProjectsBody": "Projects with recent activity appear here.",
+    "feedKind": {
+      "created": "New conversation",
+      "completed": "Completed",
+      "in_progress": "In progress",
+      "activity": "Recent activity",
+      "approval": "Pending review"
+    },
+    "feedFallbackTitle": {
+      "created": "New conversation",
+      "completed": "Conversation completed",
+      "approval": "Needs review",
+      "activity": "Recent activity"
+    },
+    "actor": {
+      "user": "You",
+      "assistant": "AI",
+      "system": "System"
+    },
+    "activityFallback": "Recent activity"
+  },
+  "changeReview": {
+    "title": "Change review",
+    "filesCount": "{{count}} files",
+    "loadFailed": "Failed to load changes",
+    "retry": "Retry"
+  },
+  "projectDetail": {
+    "notFoundSubtitle": "NOT FOUND",
+    "projectDetailSubtitle": "PROJECT DETAIL",
+    "openSettings": "Open project settings",
+    "settingsEntryTitle": "Project settings",
+    "approvalPrefix": "Approval",
+    "createVibeCoding": "CREATE VIBECODING",
+    "createSubtitle": "launch a new agent session",
+    "quickActions": "QUICK ACTIONS",
+    "filesAction": "FILES",
+    "filesSubtitle": "browse repo",
+    "terminalAction": "TERMINAL",
+    "terminalSubtitle": "shell access",
+    "vibeHistory": "VIBECODING HISTORY",
+    "viewAllSessions": "VIEW ALL SESSIONS · {{count}}",
+    "loadingHistory": "Loading session history…",
+    "emptyHistoryTitle": "No VibeCoding history",
+    "emptyHistoryBody": "Start a session from this project to record conversation and Agent events.",
+    "metric": {
+      "ports": "PORTS",
+      "path": "PATH",
+      "device": "DEVICE",
+      "lastActive": "LAST ACTIVE",
+      "noDevice": "no device",
+      "none": "none",
+      "unknown": "unknown"
+    }
+  },
+  "projectSettings": {
+    "title": "Project settings",
+    "notFoundSubtitle": "NOT FOUND",
+    "noDevice": "no device",
+    "approval": "APPROVAL",
+    "scheme": {
+      "balanced": "Balanced",
+      "allowAll": "Allow all",
+      "custom": "Custom"
+    }
+  },
+  "changeReviewView": {
+    "empty": "No uncommitted changes",
+    "loading": "Loading…",
+    "truncated": "Diff truncated, showing the first 16KB only",
+    "noDiff": "No diff",
+    "loadFailed": "Failed to load diff",
+    "retry": "Retry",
+    "prev": "Previous",
+    "next": "Next"
+  },
+  "customRules": {
+    "decision": {
+      "autoApprove": "Allow",
+      "requireApproval": "Approve",
+      "autoDeny": "Deny"
+    },
+    "title": "Custom approval rules",
+    "subtitle": "Fine-tune · based on the Balanced preset",
+    "loading": "Loading approval rules…",
+    "loadFailed": "Failed to load approval rules",
+    "loadError": "Load failed",
+    "saveFailed": "Save failed",
+    "retry": "Retry",
+    "emptyRules": "No rules available",
+    "cancel": "Cancel",
+    "save": "Save",
+    "defaultDecision": "Default decision: {{decision}} (other unmatched actions)"
+  }
+}

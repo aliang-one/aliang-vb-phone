@@ -22,6 +22,7 @@ import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import { useProjectSessions } from '../../hooks/useProjectSessions';
+import { useTranslation } from 'react-i18next';
 
 // How many recent sessions the project page previews; the full history lives
 // behind the "view all" entry (→ AgentSessions, project-scoped).
@@ -32,6 +33,7 @@ type ProjectRoute = RouteProp<RootStackParamList, 'ProjectDetail'>;
 
 export const ProjectDetailScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
+  const { t } = useTranslation('projects');
   const navigation = useNavigation<Navigation>();
   const route = useRoute<ProjectRoute>();
   const devices = useControlCenterStore(state => state.devices);
@@ -70,7 +72,7 @@ export const ProjectDetailScreen: React.FC = () => {
   if (!project) {
     return (
       <SafeAreaWrapper>
-        <TopAppBar title="Project" subtitle="NOT FOUND" onBack={navigation.goBack} />
+        <TopAppBar title="Project" subtitle={t('projectDetail.notFoundSubtitle')} onBack={navigation.goBack} />
       </SafeAreaWrapper>
     );
   }
@@ -86,13 +88,13 @@ export const ProjectDetailScreen: React.FC = () => {
 
   const portLabel = project.detectedPorts.length
     ? project.detectedPorts.join(', ')
-    : 'none';
+    : t('projectDetail.metric.none');
   const approvalSchemeLabel =
     project.approvalScheme === 'allow_all'
-      ? 'Allow all'
+      ? t('projectSettings.scheme.allowAll')
       : project.approvalScheme === 'custom'
-      ? 'Custom'
-      : 'Balanced';
+      ? t('projectSettings.scheme.custom')
+      : t('projectSettings.scheme.balanced');
   const heroSettingsEntryStyle = [
     styles.heroSettingsEntry,
     {
@@ -110,7 +112,7 @@ export const ProjectDetailScreen: React.FC = () => {
     <SafeAreaWrapper>
       <TopAppBar
         title={project.name}
-        subtitle={device?.name ?? 'PROJECT DETAIL'}
+        subtitle={device?.name ?? t('projectDetail.projectDetailSubtitle')}
         onBack={navigation.goBack}
       />
       <ScrollView
@@ -181,22 +183,22 @@ export const ProjectDetailScreen: React.FC = () => {
 
               <View style={styles.metricGrid}>
                 <View style={styles.metricRow}>
-                  <MetricCell label="PATH" value={project.path || '—'} mono />
-                  <MetricCell label="DEVICE" value={device?.name || 'no device'} />
+                  <MetricCell label={t('projectDetail.metric.path')} value={project.path || '—'} mono />
+                  <MetricCell label={t('projectDetail.metric.device')} value={device?.name || t('projectDetail.metric.noDevice')} />
                 </View>
                 <View style={styles.metricRow}>
                   <MetricCell
-                    label="LAST ACTIVE"
-                    value={project.lastDeploy || 'unknown'}
+                    label={t('projectDetail.metric.lastActive')}
+                    value={project.lastDeploy || t('projectDetail.metric.unknown')}
                   />
-                  <MetricCell label="PORTS" value={portLabel} mono />
+                  <MetricCell label={t('projectDetail.metric.ports')} value={portLabel} mono />
                 </View>
               </View>
 
               <TouchableOpacity
                 activeOpacity={0.78}
                 accessibilityRole="button"
-                accessibilityLabel="打开项目设置"
+                accessibilityLabel={t('projectDetail.openSettings')}
                 testID="project-settings-entry"
                 onPress={() =>
                   navigation.navigate('ProjectSettings', {
@@ -213,7 +215,7 @@ export const ProjectDetailScreen: React.FC = () => {
                         theme.typography.labelMd,
                         { color: theme.colors.onSurface },
                       ]}>
-                      项目设置
+                      {t('projectDetail.settingsEntryTitle')}
                     </Text>
                     <Text
                       numberOfLines={1}
@@ -221,7 +223,7 @@ export const ProjectDetailScreen: React.FC = () => {
                         theme.typography.bodySm,
                         { color: theme.colors.onSurfaceVariant },
                       ]}>
-                      Approval {approvalSchemeLabel}
+                      {t('projectDetail.approvalPrefix')} {approvalSchemeLabel}
                     </Text>
                   </View>
                 </View>
@@ -258,14 +260,14 @@ export const ProjectDetailScreen: React.FC = () => {
                   styles.ctaTitle,
                   { color: theme.colors.onPrimary },
                 ]}>
-                CREATE VIBECODING
+                {t('projectDetail.createVibeCoding')}
               </Text>
               <Text
                 style={[
                   theme.typography.labelSm,
                   { color: theme.colors.onPrimary, opacity: 0.82 },
                 ]}>
-                launch a new agent session
+                {t('projectDetail.createSubtitle')}
               </Text>
             </View>
           </View>
@@ -275,13 +277,13 @@ export const ProjectDetailScreen: React.FC = () => {
         </TouchableOpacity>
 
         {/* ── QUICK ACTIONS · command grid ──────────────────────────── */}
-        <SectionLabel label="QUICK ACTIONS" />
+        <SectionLabel label={t('projectDetail.quickActions')} />
         <View style={styles.grid}>
           <View style={styles.gridRow}>
             <ProjectActionTile
               icon="code"
-              title="FILES"
-              subtitle="browse repo"
+              title={t('projectDetail.filesAction')}
+              subtitle={t('projectDetail.filesSubtitle')}
               tone="primary"
               onPress={() =>
                 navigation.navigate('FileBrowser', {
@@ -292,8 +294,8 @@ export const ProjectDetailScreen: React.FC = () => {
             />
             <ProjectActionTile
               icon="terminal"
-              title="TERMINAL"
-              subtitle="shell access"
+              title={t('projectDetail.terminalAction')}
+              subtitle={t('projectDetail.terminalSubtitle')}
               tone="secondary"
               disabled={!device || !device.remoteTerminalEnabled}
               onPress={() =>
@@ -308,7 +310,7 @@ export const ProjectDetailScreen: React.FC = () => {
         </View>
 
         {/* ── HISTORY ───────────────────────────────────────────────── */}
-        <SectionLabel label="VIBECODING HISTORY" count={totalCount} />
+        <SectionLabel label={t('projectDetail.vibeHistory')} count={totalCount} />
         {sessions.length ? (
           <>
             {sessions.map(session => (
@@ -341,7 +343,7 @@ export const ProjectDetailScreen: React.FC = () => {
                     theme.typography.labelCaps,
                     { color: theme.colors.primary },
                   ]}>
-                  VIEW ALL SESSIONS · {totalCount}
+                  {t('projectDetail.viewAllSessions', { count: totalCount })}
                 </Text>
                 <Text
                   style={[styles.viewAllArrow, { color: theme.colors.primary }]}>
@@ -355,19 +357,18 @@ export const ProjectDetailScreen: React.FC = () => {
             <ActivityIndicator color={theme.colors.primary} />
             <Text
               style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-              正在加载会话历史…
+              {t('projectDetail.loadingHistory')}
             </Text>
           </GlassPanel>
         ) : (
           <GlassPanel style={styles.emptyPanel}>
             <IconBadge name="agent" tone="neutral" size={44} iconSize={22} />
             <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-              No VibeCoding history
+              {t('projectDetail.emptyHistoryTitle')}
             </Text>
             <Text
               style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-              Start a session from this project to record conversation and Agent
-              events.
+              {t('projectDetail.emptyHistoryBody')}
             </Text>
           </GlassPanel>
         )}

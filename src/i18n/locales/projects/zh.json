@@ -1,0 +1,163 @@
+{
+  "fileBrowser": {
+    "title": "Files",
+    "notFoundSubtitle": "PROJECT NOT FOUND",
+    "filter": {
+      "all": "ALL",
+      "modified": "MODIFIED",
+      "added": "ADDED",
+      "clean": "CLEAN"
+    },
+    "changeReviewTitle": "审核改动",
+    "changeReviewSubtitle": "查看工作区未提交的 git diff",
+    "deviceUnbound": "未绑定设备",
+    "agentOnline": "AGENT 在线",
+    "agentOffline": "AGENT 离线",
+    "noDevice": "无设备",
+    "loading": "LOADING",
+    "readingFile": "正在读取文件…",
+    "binaryBlockedTitle": "二进制文件，无法预览",
+    "tooLargeBlockedTitle": "文件过大，未自动打开",
+    "binaryBlockedDetail": "该文件是二进制内容，不适合在手机端预览。",
+    "tooLargeBlockedDetail": "该文件超过 1 MB，预览会截断且占用大量内存。",
+    "openInTerminal": "在终端打开",
+    "loadMoreFiles": "LOAD MORE FILES",
+    "emptyFolder": "空文件夹",
+    "reload": "加载中",
+    "reloadAction": "重新加载",
+    "scanDevice": "扫描设备",
+    "loadingFromAgent": "正在从桌面 Agent 加载文件…",
+    "taskNoDevice": "该任务尚未绑定设备",
+    "agentOfflineTitle": "桌面 Agent 当前离线",
+    "noFiles": "暂无文件",
+    "taskNoDeviceHint": "请返回设备页，先绑定设备并为该项目选择设备。",
+    "agentOfflineHint": "Agent 未保持连接，请确认 Agent 在线后用上方工具条刷新，或打开终端 / 扫描设备。",
+    "noFilesHint": "点击上方工具条的 REFRESH 可向桌面 Agent 请求文件列表。",
+    "error": {
+      "pathMissingTitle": "项目路径缺失",
+      "pathMissingDetail": "该项目尚未上报路径。请在设备页执行「扫描项目」，或返回后重新选择项目。",
+      "pathNotAuthorizedTitle": "路径未授权",
+      "pathNotAuthorizedDetail": "请求的目录不在 Agent 授权范围内，请回到项目根目录，或重新扫描设备。",
+      "projectNotFoundTitle": "项目不存在",
+      "projectNotFoundDetail": "该项目数据已失效，请返回后重新选择项目。",
+      "genericTitle": "无法读取项目文件",
+      "genericDetail": "发生未知错误，请稍后重试。",
+      "loadFailed": "Unable to load project files.",
+      "readFailed": "Unable to read project file.",
+      "folderFailed": "Unable to load folder contents."
+    }
+  },
+  "commandCenter": {
+    "title": "Vibe Command",
+    "subtitle": "MOBILE AGENT CONTROL",
+    "loadingHome": "正在加载首页…",
+    "feedPending": "待确认",
+    "feedNewMessage": "新消息",
+    "more": "更多 ›",
+    "conversationEventsHeader": "对话事件 / CONVERSATION EVENTS",
+    "eventsCount": "{{count}} 条",
+    "moreConversationEvents": "更多对话事件",
+    "emptyEventsTitle": "暂无对话事件",
+    "emptyEventsBody": "新建对话、完成或待确认的操作会显示在这里，点击即可进入对应对话。",
+    "approvalsNeedReview": "需要确认",
+    "approvalsAllClear": "无需确认",
+    "approvalsBody": "AI 操作需要你的确认才能继续执行",
+    "actionCaptionActive": "活跃",
+    "actionCaptionEvents": "事件",
+    "actionCaptionResults": "结果",
+    "emptyProjectsTitle": "暂无活跃项目",
+    "emptyProjectsBody": "最近有交互的项目会显示在这里。",
+    "feedKind": {
+      "created": "新对话",
+      "completed": "已完成",
+      "in_progress": "进行中",
+      "activity": "最近交互",
+      "approval": "待确认"
+    },
+    "feedFallbackTitle": {
+      "created": "新对话",
+      "completed": "对话完成",
+      "approval": "需要确认",
+      "activity": "最近有交互"
+    },
+    "actor": {
+      "user": "你",
+      "assistant": "AI",
+      "system": "系统"
+    },
+    "activityFallback": "最近有交互"
+  },
+  "changeReview": {
+    "title": "改动审核",
+    "filesCount": "{{count}} 个文件",
+    "loadFailed": "加载改动失败",
+    "retry": "重试"
+  },
+  "projectDetail": {
+    "notFoundSubtitle": "NOT FOUND",
+    "projectDetailSubtitle": "PROJECT DETAIL",
+    "openSettings": "打开项目设置",
+    "settingsEntryTitle": "项目设置",
+    "approvalPrefix": "Approval",
+    "createVibeCoding": "CREATE VIBECODING",
+    "createSubtitle": "launch a new agent session",
+    "quickActions": "QUICK ACTIONS",
+    "filesAction": "FILES",
+    "filesSubtitle": "browse repo",
+    "terminalAction": "TERMINAL",
+    "terminalSubtitle": "shell access",
+    "vibeHistory": "VIBECODING HISTORY",
+    "viewAllSessions": "VIEW ALL SESSIONS · {{count}}",
+    "loadingHistory": "正在加载会话历史…",
+    "emptyHistoryTitle": "No VibeCoding history",
+    "emptyHistoryBody": "Start a session from this project to record conversation and Agent events.",
+    "metric": {
+      "ports": "PORTS",
+      "path": "PATH",
+      "device": "DEVICE",
+      "lastActive": "LAST ACTIVE",
+      "noDevice": "no device",
+      "none": "none",
+      "unknown": "unknown"
+    }
+  },
+  "projectSettings": {
+    "title": "项目设置",
+    "notFoundSubtitle": "NOT FOUND",
+    "noDevice": "no device",
+    "approval": "APPROVAL",
+    "scheme": {
+      "balanced": "Balanced",
+      "allowAll": "Allow all",
+      "custom": "Custom"
+    }
+  },
+  "changeReviewView": {
+    "empty": "没有未提交的改动",
+    "loading": "加载中…",
+    "truncated": "diff 已截断，仅显示前 16KB",
+    "noDiff": "无 diff",
+    "loadFailed": "加载 diff 失败",
+    "retry": "重试",
+    "prev": "上一个",
+    "next": "下一个"
+  },
+  "customRules": {
+    "decision": {
+      "autoApprove": "放行",
+      "requireApproval": "审批",
+      "autoDeny": "拒绝"
+    },
+    "title": "自定义审批规则",
+    "subtitle": "开关微调 · 基于 Balanced 预设",
+    "loading": "加载审批规则…",
+    "loadFailed": "加载审批规则失败",
+    "loadError": "加载失败",
+    "saveFailed": "保存失败",
+    "retry": "重试",
+    "emptyRules": "暂无可用规则",
+    "cancel": "取消",
+    "save": "保存",
+    "defaultDecision": "默认决策：{{decision}}（其余未匹配操作）"
+  }
+}
