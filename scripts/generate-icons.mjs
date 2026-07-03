@@ -69,4 +69,38 @@ for (const [d, px] of Object.entries({ mdpi: 108, hdpi: 162, xhdpi: 216, xxhdpi:
   write(path.join(dir, 'ic_launcher_foreground.png'), render(fgMaster, px));
 }
 
+// 4. Splash logo — logo only on transparent, larger (~74%), for the native
+// launch screens (iOS LaunchScreen imageView + Android launch_screen drawable).
+const splashMaster = `<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+${place(2.8)}
+</svg>`;
+
+console.log('iOS Logo.imageset (splash):');
+const logoSet = path.join(ROOT, 'ios/AliangVibeCodingPhone/Images.xcassets/Logo.imageset');
+fs.mkdirSync(logoSet, { recursive: true });
+for (const [scale, px] of [['1x', 200], ['2x', 400], ['3x', 600]]) {
+  write(path.join(logoSet, `logo-${scale}.png`), render(splashMaster, px));
+}
+fs.writeFileSync(
+  path.join(logoSet, 'Contents.json'),
+  JSON.stringify(
+    {
+      images: [
+        { filename: 'logo-1x.png', idiom: 'universal', scale: '1x' },
+        { filename: 'logo-2x.png', idiom: 'universal', scale: '2x' },
+        { filename: 'logo-3x.png', idiom: 'universal', scale: '3x' },
+      ],
+      info: { author: 'xcode', version: 1 },
+    },
+    null,
+    2,
+  ) + '\n',
+);
+console.log('  ✓', path.relative(ROOT, path.join(logoSet, 'Contents.json')));
+
+console.log('Android splash logo bitmap:');
+const drawableXxxhdpi = path.join(ROOT, 'android/app/src/main/res/drawable-xxxhdpi');
+fs.mkdirSync(drawableXxxhdpi, { recursive: true });
+write(path.join(drawableXxxhdpi, 'splash_logo.png'), render(splashMaster, 432));
+
 console.log('Done.');
