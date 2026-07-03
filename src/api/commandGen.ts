@@ -17,6 +17,11 @@ export interface CommandGenResult {
   command: string;
   dangerous: boolean;
   runId: string;
+  /** The device the AI chose (defaults to the request's device if it never called select_device). */
+  deviceId?: string;
+  deviceName?: string;
+  /** The cwd on the chosen device. */
+  cwd?: string;
 }
 
 export interface GenerateCommandInput {
