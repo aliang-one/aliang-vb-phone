@@ -34,6 +34,7 @@ import { mergeCommands } from '../../utils/agentCommands';
 import { TranscriptMessageList } from '../../components/vibecoding/TranscriptMessageList';
 import { ConversationScrubber } from '../../components/vibecoding/ConversationScrubber';
 import { ResolvedApprovalsGroup } from '../../components/vibecoding/ResolvedApprovalsGroup';
+import { ApprovalQuickPolicySheet } from '../../components/vibecoding/ApprovalQuickPolicySheet';
 import { RootStackParamList } from '../../app/navigation/types';
 import {
   useControlCenterStore,
@@ -472,6 +473,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const [resolvingApproval, setResolvingApproval] = useState<{
     id: string;
     decision: 'approved' | 'denied';
+  } | null>(null);
+  // Quick approval-policy sheet ("更多" on a pending approval card). Holds the
+  // approval id that should be auto-approved alongside the policy switch, plus
+  // the raw tool name (so the sheet can show MCP namespace tiers when relevant).
+  const [quickPolicyFor, setQuickPolicyFor] = useState<{
+    approvalId: string;
+    toolName?: string;
   } | null>(null);
 
   useEffect(() => {
@@ -1722,6 +1730,23 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 />
               );
             })}
+            <View style={styles.approvalMoreRow}>
+              <TouchableOpacity
+                accessibilityRole="button"
+                disabled={deviceOffline || Boolean(resolvingApproval)}
+                onPress={() => setQuickPolicyFor({ approvalId: approval.id, toolName: approval.toolName })}
+                style={styles.approvalMoreLink}
+              >
+                <Text
+                  style={[
+                    theme.typography.labelCaps,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {t('session.approval.moreActions')} ⋯
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : pending ? (
           <View style={styles.approvalActions}>
@@ -1746,6 +1771,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 resolvingApproval && resolvingApproval.id !== approval.id,
               )}
               style={styles.approvalActionDeny}
+            />
+            <GlowButton
+              title={t('session.approval.moreActions')}
+              onPress={() => setQuickPolicyFor({ approvalId: approval.id, toolName: approval.toolName })}
+              variant="outline"
+              disabled={deviceOffline || Boolean(resolvingApproval)}
+              style={styles.approvalActionMore}
             />
           </View>
         ) : null}
@@ -2983,6 +3015,21 @@ export const VibeCodingSessionScreen: React.FC = () => {
           />
         </View>
       </KeyboardAvoidingView>
+      <ApprovalQuickPolicySheet
+        projectId={session?.projectId ?? ''}
+        toolName={quickPolicyFor?.toolName}
+        open={quickPolicyFor !== null}
+        onClose={() => setQuickPolicyFor(null)}
+        onApplied={() => {
+          // The user just switched to an auto-approve mode (allow_all /
+          // common_auto / an MCP tier) — also release the specific pending
+          // approval they were acting on, so it doesn't sit waiting for a rule
+          // that only governs future escalations.
+          const target = quickPolicyFor;
+          if (!target) return;
+          handleResolveApproval(target.approvalId, 'approved');
+        }}
+      />
     </SafeAreaWrapper>
   );
 };
@@ -3229,6 +3276,22 @@ const styles = StyleSheet.create({
   },
   approvalActionDeny: {
     flex: 1,
+  },
+  // Compact "更多" toggle beside APPROVE/DENY — fixed narrow width, same height
+  // so the row reads as three peer actions. Opens the quick-policy sheet.
+  approvalActionMore: {
+    minHeight: 56,
+    minWidth: 64,
+    paddingHorizontal: 6,
+  },
+  approvalMoreRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+  },
+  approvalMoreLink: {
+    paddingVertical: 6,
+    paddingHorizontal: 4,
   },
   approvalOptionActions: {
     gap: 8,

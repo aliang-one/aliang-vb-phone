@@ -31,6 +31,9 @@ export interface ServerProjectApprovalPolicy {
   hash: string;
   rules: ServerApprovalRule[];
   default_decision: ApprovalDecision;
+  // MCP tool-name prefixes auto-approved at the server interception layer.
+  // Surfaced so the mobile quick-policy sheet can highlight active MCP tiers.
+  mcp_auto_approve_prefixes?: string[];
 }
 
 export interface ServerProject {
@@ -150,6 +153,10 @@ export const updateProject = (
     approval_policy: {
       scheme?: ApprovalScheme;
       custom_rule_overrides?: Record<string, ApprovalDecision>;
+      // Overrides the custom template's default_decision (seeded from balanced's
+      // require_approval). Used by the mobile "通用放行" quick toggle to
+      // auto-approve MCP/unmatched tools. Ignored unless scheme==='custom'.
+      custom_default_decision?: ApprovalDecision;
     };
   }>,
 ): Promise<ServerProject> =>
@@ -157,13 +164,17 @@ export const updateProject = (
 
 // Switch a project's approval-policy scheme (balanced / allow_all / custom).
 // The server stores the choice, bumps version + rehashes, and pushes
-// `project.settings.updated` to the agent so it refetches + re-evaluates.
+// `project.settings.updated` to the agent so it refetches + re-e-evaluates.
+// customRuleOverrides / defaultDecision are optional so a caller can flip only
+// the default (通用放行) without touching per-rule decisions.
 export const patchProjectCustomPolicy = (
   projectId: string,
-  customRuleOverrides: Record<string, ApprovalDecision>,
+  customRuleOverrides?: Record<string, ApprovalDecision>,
+  defaultDecision?: ApprovalDecision,
 ): Promise<ServerProject> =>
   apiPatch<ServerProject>(`/api/projects/${projectId}/approval-policy/custom`, {
     custom_rule_overrides: customRuleOverrides,
+    custom_default_decision: defaultDecision,
   });
 
 // Fetch the fully-resolved approval policy for the custom-rule editor
@@ -172,6 +183,25 @@ export const fetchProjectApprovalPolicy = (
   projectId: string,
 ): Promise<ServerProjectApprovalPolicy> =>
   apiGet<ServerProjectApprovalPolicy>(`/api/projects/${projectId}/approval-policy`);
+
+// Add/remove an MCP tool-name prefix (e.g. 'mcp__serena__', 'mcp__') from the
+// project's server-side auto-approve list. Future ai.approval.request calls
+// whose tool_name starts with a listed prefix are auto-accepted at the server
+// and never reach the phone.
+export const addMcpAutoApprovePrefix = (
+  projectId: string,
+  prefix: string,
+): Promise<ServerProject> =>
+  apiPost<ServerProject>(`/api/projects/${projectId}/mcp-auto-approve`, { prefix });
+
+export const removeMcpAutoApprovePrefix = (
+  projectId: string,
+  prefix: string,
+): Promise<ServerProject> =>
+  apiFetch<ServerProject>(`/api/projects/${projectId}/mcp-auto-approve`, {
+    method: 'DELETE',
+    body: JSON.stringify({ prefix }),
+  });
 
 export const deleteProject = (projectId: string): Promise<{ status: string; project_id: string }> =>
   apiFetch<{ status: string; project_id: string }>(`/api/projects/${projectId}`, { method: 'DELETE' });

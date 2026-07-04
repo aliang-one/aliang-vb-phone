@@ -867,6 +867,7 @@ export function serverApprovalToClient(
     sessionId: sa.session_id,
     terminalId: sa.terminal_id,
     command: sa.command,
+    toolName: sa.tool_name,
     files: sa.files,
     options: sa.options,
     risk: sa.risk,
@@ -1025,6 +1026,7 @@ export function realtimeApprovalSnapshot(
       payloadString(payload, 'detail') ??
       'The assistant is waiting for approval.',
     command: payloadString(approval, 'command'),
+    tool_name: payloadString(approval, 'tool_name'),
     files: payloadStringArray(approval, 'files'),
     options: options.length ? options : undefined,
     risk: approvalRisk(payloadString(approval, 'risk')),

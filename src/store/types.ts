@@ -124,6 +124,7 @@ export interface ApprovalRequest {
   sessionId?: string;
   terminalId?: string;
   command?: string;
+  toolName?: string;
   files?: string[];
   options?: ApprovalOption[];
   risk: 'low' | 'medium' | 'high';

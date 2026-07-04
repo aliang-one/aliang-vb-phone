@@ -12,6 +12,7 @@ export interface ServerApproval {
   title: string;
   summary: string;
   command?: string;
+  tool_name?: string;
   files?: string[];
   options?: Array<{
     id: string;

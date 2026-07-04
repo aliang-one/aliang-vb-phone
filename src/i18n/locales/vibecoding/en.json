@@ -9,19 +9,45 @@
     "awaitingInput": "Awaiting your input"
   },
   "command": {
-    "clear": { "description": "Clear the current conversation context" },
-    "compact": { "description": "Compact conversation history to save context" },
-    "model": { "description": "Switch model" },
-    "review": { "description": "Review code changes" },
-    "cost": { "description": "Show usage and cost for this session" },
-    "memory": { "description": "View / edit project memory (CLAUDE.md)" },
-    "init": { "description": "Initialize project memory and config" },
-    "initOpencode": { "description": "Initialize the OpenCode project config" },
-    "help": { "description": "List available commands" },
-    "helpOpencode": { "description": "List OpenCode available commands" },
-    "diff": { "description": "Show current uncommitted changes" },
-    "undo": { "description": "Undo the last change" },
-    "redo": { "description": "Redo the last undone change" }
+    "clear": {
+      "description": "Clear the current conversation context"
+    },
+    "compact": {
+      "description": "Compact conversation history to save context"
+    },
+    "model": {
+      "description": "Switch model"
+    },
+    "review": {
+      "description": "Review code changes"
+    },
+    "cost": {
+      "description": "Show usage and cost for this session"
+    },
+    "memory": {
+      "description": "View / edit project memory (CLAUDE.md)"
+    },
+    "init": {
+      "description": "Initialize project memory and config"
+    },
+    "initOpencode": {
+      "description": "Initialize the OpenCode project config"
+    },
+    "help": {
+      "description": "List available commands"
+    },
+    "helpOpencode": {
+      "description": "List OpenCode available commands"
+    },
+    "diff": {
+      "description": "Show current uncommitted changes"
+    },
+    "undo": {
+      "description": "Undo the last change"
+    },
+    "redo": {
+      "description": "Redo the last undone change"
+    }
   },
   "listScreen": {
     "searchPlaceholder": "Search sessions, terminals, directories...",
@@ -268,12 +294,41 @@
     },
     "approval": {
       "requestLabel": "APPROVAL REQUEST",
+      "moreActions": "More",
       "pendingSyncHint": "An approval event was detected; the full action data is still syncing. Pull to refresh and resolve it here, or open Approvals from the home screen.",
       "fallbackTitle": "Approval requested",
       "fallbackSummary": "The assistant is waiting for approval.",
       "pendingOne": "1 approval pending",
       "pendingMany": "{{count}} approvals pending",
-      "jumpLabel": "Jump to pending approval"
+      "jumpLabel": "Jump to pending approval",
+      "quickPolicy": {
+        "title": "Quick approval mode",
+        "subtitle": "Switch this project's approval policy",
+        "loadFailed": "Couldn't load current policy.",
+        "applyFailed": "Couldn't switch policy. Try again.",
+        "customOtherNote": "Current mode is a custom policy not matching any preset above.",
+        "allowAll": {
+          "title": "Approve everything",
+          "hint": "All future approvals auto-pass, including destructive commands and unknown tools. Current one is also approved."
+        },
+        "commonAuto": {
+          "title": "Approve common tools",
+          "hint": "MCP, file edits, reads and common bash auto-pass; only catastrophic commands (rm -rf, sudo, git push…) still ask. Current one is also approved."
+        },
+        "balanced": {
+          "title": "Ask each time",
+          "hint": "Restore the default balanced policy — each approval prompts you again."
+        },
+        "mcpTier": {
+          "title": "Approve {{label}}",
+          "hint": "Auto-approve this MCP server's tools from now on. Current one is also approved."
+        },
+        "mcpAll": {
+          "title": "Approve all MCP tools",
+          "hint": "Auto-approve every MCP server tools (mcp__*). Current one is also approved."
+        },
+        "mcpApplyFailed": "Couldn't save the MCP auto-approve rule. Try again."
+      }
     },
     "offline": {
       "title": "Device offline · read-only",

@@ -9,19 +9,45 @@
     "awaitingInput": "等待你的输入"
   },
   "command": {
-    "clear": { "description": "清空当前对话上下文" },
-    "compact": { "description": "压缩对话历史以节省上下文" },
-    "model": { "description": "切换模型" },
-    "review": { "description": "审查代码变更" },
-    "cost": { "description": "查看本次会话的用量与花费" },
-    "memory": { "description": "查看 / 编辑项目记忆 (CLAUDE.md)" },
-    "init": { "description": "初始化项目记忆与配置" },
-    "initOpencode": { "description": "初始化 OpenCode 项目配置" },
-    "help": { "description": "查看可用命令" },
-    "helpOpencode": { "description": "查看 OpenCode 可用命令" },
-    "diff": { "description": "查看当前未提交的改动" },
-    "undo": { "description": "撤销上一步变更" },
-    "redo": { "description": "重做上一步撤销" }
+    "clear": {
+      "description": "清空当前对话上下文"
+    },
+    "compact": {
+      "description": "压缩对话历史以节省上下文"
+    },
+    "model": {
+      "description": "切换模型"
+    },
+    "review": {
+      "description": "审查代码变更"
+    },
+    "cost": {
+      "description": "查看本次会话的用量与花费"
+    },
+    "memory": {
+      "description": "查看 / 编辑项目记忆 (CLAUDE.md)"
+    },
+    "init": {
+      "description": "初始化项目记忆与配置"
+    },
+    "initOpencode": {
+      "description": "初始化 OpenCode 项目配置"
+    },
+    "help": {
+      "description": "查看可用命令"
+    },
+    "helpOpencode": {
+      "description": "查看 OpenCode 可用命令"
+    },
+    "diff": {
+      "description": "查看当前未提交的改动"
+    },
+    "undo": {
+      "description": "撤销上一步变更"
+    },
+    "redo": {
+      "description": "重做上一步撤销"
+    }
   },
   "listScreen": {
     "searchPlaceholder": "搜索会话、终端、目录…",
@@ -268,12 +294,41 @@
     },
     "approval": {
       "requestLabel": "APPROVAL REQUEST",
+      "moreActions": "更多",
       "pendingSyncHint": "已识别到审批事件，完整操作数据仍在同步中。下拉刷新后可在这里处理，或从首页进入 Approvals。",
       "fallbackTitle": "Approval requested",
       "fallbackSummary": "The assistant is waiting for approval.",
       "pendingOne": "1 个待审批",
       "pendingMany": "{{count}} 个待审批",
-      "jumpLabel": "跳转到待审批"
+      "jumpLabel": "跳转到待审批",
+      "quickPolicy": {
+        "title": "快速审批模式",
+        "subtitle": "切换该项目的审批策略",
+        "loadFailed": "无法加载当前策略。",
+        "applyFailed": "切换策略失败,请重试。",
+        "customOtherNote": "当前是自定义策略,与上方预设都不完全一致。",
+        "allowAll": {
+          "title": "全部放行",
+          "hint": "之后所有审批自动放行,含破坏性命令与未知工具。当前这张也会立即放行。"
+        },
+        "commonAuto": {
+          "title": "通用放行",
+          "hint": "MCP、文件改写、只读与常规 bash 自动放行;只拦破坏性命令(rm -rf、sudo、git push…)。当前这张也会立即放行。"
+        },
+        "balanced": {
+          "title": "逐次审批",
+          "hint": "恢复默认 balanced 策略 —— 每次审批都会再次询问你。"
+        },
+        "mcpTier": {
+          "title": "放行 {{label}}",
+          "hint": "之后该 MCP server 的工具自动放行。当前这张也会立即放行。"
+        },
+        "mcpAll": {
+          "title": "放行所有 MCP 工具",
+          "hint": "之后所有 MCP server 的工具(mcp__*)自动放行。当前这张也会立即放行。"
+        },
+        "mcpApplyFailed": "保存 MCP 自动放行规则失败,请重试。"
+      }
     },
     "offline": {
       "title": "设备离线 · 只读模式",
