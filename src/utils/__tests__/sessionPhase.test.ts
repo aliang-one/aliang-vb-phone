@@ -4,6 +4,7 @@ import {
   isSessionTurnActive,
   lastUnrepliedUserMessageId,
   liveAssistantMessageId,
+  runDisplayPhase,
   sessionPhaseLabel,
   shouldLockComposerForProvider,
 } from '../sessionPhase';
@@ -59,6 +60,48 @@ describe('deriveSessionPhase (L1 整体相位)', () => {
     expect(sessionPhaseLabel.waiting_approval).toBe('待审批');
     expect(sessionPhaseLabel.completed).toBe('已完成');
     expect(sessionPhaseLabel.failed).toBe('失败');
+  });
+});
+
+describe('runDisplayPhase (列表/卡片显示相位 = 与详情页同源)', () => {
+  // 用户报告的 bug:审批进行中,外层 vibecoding 列表卡片显「已完成/done」,
+  // 进到对话详情页却正确显「待审批」。根因=列表卡片 VibeSessionCard 只读裸
+  // session.status(审批静默期 settle 成 closed/idle → 映射 completed→DONE),
+  // 无视服务端权威 phase(waiting_approval)。runDisplayPhase 让服务端 phase 接管,
+  // 与详情页 sessionPhase 同源(优先级一致),列表与对话头永不再冲突。
+  it('审批中(status 已 settle 成 completed/idle/paused)→ 待审批,不显 done [BUG]', () => {
+    // 服务端审批期间裸 status settle 成 closed/idle → mapSessionStatus 映射成
+    // completed/idle(手机侧 VibeStatus 无 'closed')→ 旧卡片显 DONE/已完成。
+    expect(runDisplayPhase('completed', 'waiting_approval')).toBe('waiting_approval');
+    expect(runDisplayPhase('idle', 'waiting_approval')).toBe('waiting_approval');
+    expect(runDisplayPhase('paused', 'waiting_approval')).toBe('waiting_approval');
+  });
+
+  it('服务端 phase 压过 completed 裸 status(审批仍在,即便 status 误报完成)', () => {
+    expect(runDisplayPhase('completed', 'waiting_approval')).toBe('waiting_approval');
+  });
+
+  it('status=running 乐观/即时压过 phase(刚发送,服务端 phase 尚未跟上 → 进行中)', () => {
+    expect(runDisplayPhase('running', 'completed')).toBe('running');
+    expect(runDisplayPhase('running', 'waiting_approval')).toBe('running');
+  });
+
+  it('failed 终态最优先,压过 running 与 phase', () => {
+    expect(runDisplayPhase('failed', 'running')).toBe('failed');
+    expect(runDisplayPhase('failed', 'waiting_approval')).toBe('failed');
+  });
+
+  it('非 running 时 phase 接管:status 陈旧 idle 但服务端 phase=running → 进行中', () => {
+    expect(runDisplayPhase('idle', 'running')).toBe('running');
+    expect(runDisplayPhase('idle', 'completed')).toBe('completed');
+  });
+
+  it('老服务器无 phase(undefined)→ deriveSessionPhase 兜底', () => {
+    expect(runDisplayPhase('running', undefined)).toBe('running');
+    expect(runDisplayPhase('idle', undefined)).toBe('completed');
+    expect(runDisplayPhase('completed', undefined)).toBe('completed');
+    expect(runDisplayPhase('paused', undefined)).toBe('completed');
+    expect(runDisplayPhase('failed', undefined)).toBe('failed');
   });
 });
 

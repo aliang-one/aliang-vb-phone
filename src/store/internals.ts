@@ -489,6 +489,7 @@ export function serverAiSessionToVibeRun(
     projectId: project?.id ?? '',
     directory: session.project_path ?? '',
     status: mapSessionStatus(session.status),
+    phase: session.phase,
     objective: session.objective ?? '',
     model,
     effort: session.effort || undefined,
@@ -738,6 +739,11 @@ export function mergeVibeRunSnapshot(
     ...existing,
     ...incoming,
     status: staleDemotion || staleReactivation ? existing.status : incoming.status,
+    // Apply the SAME stale guard to the server-authoritative phase: when we
+    // reject a snapshot's status demotion/reactivation as stale, also reject
+    // its phase (a stale 'completed' must not leak onto a session we know is
+    // running, and vice versa). A fresh snapshot's phase always wins.
+    phase: staleDemotion || staleReactivation ? existing.phase : incoming.phase,
     lastActivityMs,
     updatedAt: formatActivityLabel(lastActivityMs),
     transcript,
@@ -1548,3 +1554,28 @@ export const emptySessionData = () => ({
   lastSyncedAt: null,
   stale: false,
 });
+
+/**
+ * What `refreshFromServer` should do, given the realtime state + whether a
+ * session token is still held. Pure so the recovery decision is unit-testable.
+ *
+ *   'refresh'      — in server mode: pull a fresh snapshot (the normal path).
+ *   'reinitialize' — NOT in server mode but a token is still held: the previous
+ *                    `initializeFromServer` failed (or never ran). Re-run the
+ *                    full init (snapshot + WS) instead of no-op'ing, so a
+ *                    single transient boot failure doesn't strand the app
+ *                    "logged in (Me) but no data" until the user kills the app
+ *                    or re-logs in. Foreground / pull-to-refresh now self-heal.
+ *                    THE FIX for the reinstall→empty-data stuck state.
+ *   'noop'         — not in server mode and no token: nothing to refresh
+ *                    (logged out; the boot effect renders Login).
+ */
+export type RefreshAction = 'refresh' | 'reinitialize' | 'noop';
+
+export function resolveRefreshAction(
+  serverMode: boolean,
+  hasToken: boolean,
+): RefreshAction {
+  if (!serverMode) return hasToken ? 'reinitialize' : 'noop';
+  return 'refresh';
+}

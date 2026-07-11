@@ -166,6 +166,13 @@ export interface VibeCodingRun {
   projectId: string;
   directory: string;
   status: VibeStatus;
+  /**
+   * Server-authoritative display phase ('running'|'waiting_approval'|
+   * 'completed'|'failed'). Preferred over the phone's local silence-based
+   * deriveSessionPhase for the top-level status — completion isn't guessed from
+   * a lack of ai.delta. Undefined for older servers; callers fall back.
+   */
+  phase?: 'running' | 'waiting_approval' | 'completed' | 'failed';
   objective: string;
   model: string;
   projectBudget?: AgentBudgetInfo;

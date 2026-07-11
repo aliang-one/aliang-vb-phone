@@ -80,7 +80,9 @@ import {
   sessionPhaseLabel,
   sessionPhaseType,
   shouldLockComposerForProvider,
+  type SessionPhase,
 } from '../../utils/sessionPhase';
+import { isSessionSnapshotStale } from '../../utils/sessionSnapshotStale';
 import { deriveLivePulse } from '../../utils/activitySummary';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { useNowTick } from '../../hooks/useNowTick';
@@ -102,6 +104,12 @@ const SCROLL_THROTTLE_MS = 80;
 // the screen race. The underlying HTTP request uses its own 15s timeout too
 // (fetchAiSession); this race is the safety net on top.
 const DETAIL_LOAD_TIMEOUT_MS = 15000;
+// Silent focus auto-refresh: when the chat screen re-focuses a session whose
+// local copy may be stale (entered mid-run on another client, or been away long
+// enough for idle demotion / a WS gap), re-pull the latest snapshot. See
+// isSessionSnapshotStale + mergeVibeRunSnapshot (in-place merge → flicker-free).
+const FOCUS_AWAY_THRESHOLD_MS = 60_000;
+const AUTO_REFRESH_COOLDOWN_MS = 30_000;
 const SCROLL_FOLLOW_THRESHOLD = 180;
 const EMPTY_ACTIVITY_EVENTS: StructuredActivityEvent[] = [];
 
@@ -384,10 +392,49 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // on focus, clear on blur/leave. lastViewedAt is retained on blur so the idle
   // threshold clock keeps running for this session.
   const focusedSessionId = createdSessionId;
+  // Per-session timestamp of the last silent focus auto-refresh (cooldown).
+  // Declared before useFocusEffect so the focus callback can read it.
+  const lastAutoRefreshAtRef = useRef<Record<string, number>>({});
   useFocusEffect(
     useCallback(() => {
       // Draft mode has no session id yet — nothing to mark as viewed.
       if (!focusedSessionId) return undefined;
+      // Silent auto-recovery: if the local snapshot may be stale (session is
+      // running on another client, or we've been away long enough for idle
+      // demotion / a WS gap), re-pull the latest BEFORE re-stamping
+      // lastViewedAt. Silent = no spinner; mergeVibeRunSnapshot merges in place
+      // so there is no transcript flicker, and its stale guard rejects the
+      // response if newer live deltas have landed since.
+      try {
+        const storeState = useControlCenterStore.getState();
+        const run = storeState.vibeRuns.find(r => r.id === focusedSessionId);
+        const now = Date.now();
+        const cooledDown =
+          now - (lastAutoRefreshAtRef.current[focusedSessionId] ?? 0) >=
+          AUTO_REFRESH_COOLDOWN_MS;
+        if (
+          run &&
+          cooledDown &&
+          isSessionSnapshotStale({
+            now,
+            status: run.status,
+            lastActivityMs: run.lastActivityMs,
+            lastViewedAt: run.lastViewedAt,
+            awayThresholdMs: FOCUS_AWAY_THRESHOLD_MS,
+            liveWindowMs: LIVE_TURN_WINDOW_MS,
+          })
+        ) {
+          lastAutoRefreshAtRef.current[focusedSessionId] = now;
+          void storeState
+            .loadAgentSessionDetail(focusedSessionId, { refresh: true })
+            .catch(() => {
+              // Best-effort: live WS + the always-visible manual refresh
+              // button are the fallbacks. Cooldown still applies.
+            });
+        }
+      } catch {
+        // Never let a refresh hiccup break the focus marking below.
+      }
       markSessionViewed(focusedSessionId);
       return () => {
         clearCurrentlyViewedSession(focusedSessionId);
@@ -1396,14 +1443,28 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // --- 状态层级派生(L1 整体 / L2 回合 / L3 步骤) ---
   // live 回合信号(now / liveMessageId / livePulse / isSessionLive)已 hoist 到文件
   // 上方——composer 锁要先于 handlers 用到 isSessionLive。这里直接消费。
-  const sessionPhase = useMemo(
-    () =>
-      deriveSessionPhase(
+  // Top-level phase. Server-authoritative `session.phase` is preferred for
+  // COMPLETION (so we never guess "已完成" from a local silence window — the
+  // "运行中却显示已完成" bug: any >10s gap without ai.delta, e.g. a long bash /
+  // subagent / LLM thinking, used to let a local idle guess win). But a LOCAL
+  // running signal still wins while we're actively in a turn: status==='running'
+  // is set event-driven (send / ai.run.started / ai.delta-driven structured
+  // events / ai.run.progress), so it's a strong "we're in a turn" signal and
+  // gives instant 进行中 feedback before the server's phase catches up. Once
+  // status leaves running, the server's phase is authoritative; older servers
+  // without phase fall back to deriveSessionPhase.
+  const sessionPhase = useMemo<SessionPhase>(
+    () => {
+      if (session?.status === 'failed') return 'failed';
+      if (isSessionLive) return 'running';
+      if (session?.phase) return session.phase;
+      return deriveSessionPhase(
         session?.status ?? 'idle',
         pendingApprovals.length > 0,
-        isSessionLive,
-      ),
-    [isSessionLive, pendingApprovals.length, session?.status],
+        false,
+      );
+    },
+    [isSessionLive, pendingApprovals.length, session?.status, session?.phase],
   );
   // case B 失败回合定位:会话 failed 且最后一条是没收到回复的 user 消息 → 在该
   // 消息旁挂「未收到回复 · 重试」。重发后 status→running,入口自动消失。
@@ -2689,7 +2750,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 </TouchableOpacity>
               </GlassPanel>
             )}
-            {latestAgentEvent ? (
+            {!isDraft && session ? (
               <View style={styles.timelineDock}>
                 {timelineExpanded ? (
                   <GlassPanel style={styles.timelinePopover}>
@@ -2799,13 +2860,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
                   ]}
                 >
                   <IconBadge
-                    name={eventIcon[latestAgentEvent.type] ?? 'event'}
+                    name={eventIcon[latestAgentEvent?.type ?? ''] ?? 'event'}
                     tone={
-                      latestAgentEvent.status === 'failed'
+                      latestAgentEvent?.status === 'failed'
                         ? 'error'
-                        : latestAgentEvent.status === 'waiting'
+                        : latestAgentEvent?.status === 'waiting'
                         ? 'tertiary'
-                        : 'primary'
+                        : isSessionLive
+                        ? 'primary'
+                        : 'tertiary'
                     }
                     size={28}
                     iconSize={14}
@@ -2813,7 +2876,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
                   <View style={styles.timelineBadgeText}>
                     {/* L3 实时步骤脉冲:永不显示「已完成/DONE」,取而代之是
                         思考中 / 运行命令 / 处理中… / 等待你的输入。
-                        无结构化事件时回退到最近一条事件的标题(保留信息)。 */}
+                        无结构化事件时(如 demotion 后)回退到 status 兜底,
+                        保证 badge 常驻、刷新键永远可达。 */}
                     <Text
                       style={[
                         theme.typography.labelMd,
@@ -2821,7 +2885,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
                       ]}
                       numberOfLines={1}
                     >
-                      {bottomPulseHeadline ?? latestAgentEvent.title}
+                      {bottomPulseHeadline ??
+                        latestAgentEvent?.title ??
+                        (isSessionLive
+                          ? t('activitySummary.processing')
+                          : t('activitySummary.awaitingInput'))}
                     </Text>
                     <Text
                       style={[
@@ -2830,8 +2898,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
                       ]}
                       numberOfLines={1}
                     >
-                      {visibleSessionEvents.length} events ·{' '}
-                      {latestAgentEvent.timestamp}
+                      {latestAgentEvent
+                        ? `${visibleSessionEvents.length} events · ${latestAgentEvent.timestamp}`
+                        : t('session.quickActions.refreshLatest')}
                     </Text>
                   </View>
                   {/*

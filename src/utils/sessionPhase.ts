@@ -44,6 +44,37 @@ export function deriveSessionPhase(
   return 'completed';
 }
 
+/**
+ * 列表/卡片显示相位。与详情页顶部 `sessionPhase`(**VibeCodingSessionScreen**)
+ * 同源(优先级一致),保证「外层 vibecoding 列表卡片」与「里层对话详情头」永远
+ * 不再冲突 —— 即修用户报告的「审批中列表显 done / 已完成却显进行中」显示脱节。
+ *
+ * 优先级:
+ *   1. `failed` 终态 → 失败(最优先,压过一切)
+ *   2. `status === 'running'` → 进行中(乐观/即时:用户刚发送时 store 先把 status
+ *      置 running,服务端 phase 尚未跟上;认 status 才有即时「进行中」反馈,与详情头一致)
+ *   3. 服务端权威 `phase` → 直接采用
+ *   4. 否则 → `deriveSessionPhase(status, false, false)` 兜底(老服务器无 phase)
+ *
+ * 第 3 步是修「审批中显 done」的关键:审批期间裸 `status` 是 idle/closed(settle 了,
+ * `mapSessionStatus` 把 closed 映射成 completed → 列表显 DONE),但服务端 `phase` 仍
+ * 是 `waiting_approval`(服务端 `derivePhase` 把 hasPendingApproval 排在 running/
+ * closed 之前)。卡片无视 phase 直读 status 就显 done;认 phase 即显待审批。
+ *
+ * 注意:本函数修不了「快照陈旧」—— 若回合真已结束但手机快照仍报 `status='running'`
+ * (settle 推送丢失 / 列表未刷新),第 2 步会让它显进行中。那是**刷新缺口**(列表回不到
+ * 服务端拉新快照),不是显示规则 bug;详见 vibecoding-stale-snapshot-focus-refresh。
+ */
+export function runDisplayPhase(
+  status: VibeStatus,
+  phase: SessionPhase | undefined,
+): SessionPhase {
+  if (status === 'failed') return 'failed';
+  if (status === 'running') return 'running';
+  if (phase) return phase;
+  return deriveSessionPhase(status, false, false);
+}
+
 export const sessionPhaseLabel: Record<SessionPhase, string> = {
   running: '进行中',
   waiting_approval: '待审批',

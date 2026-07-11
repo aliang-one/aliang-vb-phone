@@ -14,7 +14,11 @@ import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
 import { GlassPanel } from '../shared/GlassPanel';
 import { StatusChip } from '../shared/StatusChip';
-import { vibeStatusLabel, vibeStatusType } from './status';
+import {
+  runDisplayPhase,
+  sessionPhaseLabel,
+  sessionPhaseType,
+} from '../../utils/sessionPhase';
 import { VoiceTextInput } from './VoiceTextInput';
 import {
   useControlCenterStore,
@@ -110,16 +114,18 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
       session.objective ||
       session.currentStep ||
       t('sessionCard.noQuestion');
+    // 与详情页同源的显示相位(优先级 failed > status=running > 服务端 phase > 兜底)。
+    // 关键:认服务端权威 `phase` 而非裸 `status`——否则审批期间 status settle 成
+    // idle/completed 时卡片会显 done(用户报告的「审批中列表显已完成」)。
+    const phase = runDisplayPhase(session.status, session.phase);
     const statusColor =
-      session.status === 'waiting_approval'
-        ? theme.colors.tertiary
-        : session.status === 'failed'
+      phase === 'failed'
         ? theme.colors.error
-        : session.status === 'completed'
-        ? theme.colors.secondary
-        : session.status === 'paused'
-        ? theme.colors.onSurfaceVariant
-        : theme.colors.primary;
+        : phase === 'waiting_approval'
+        ? theme.colors.tertiary
+        : phase === 'running'
+        ? theme.colors.primary
+        : theme.colors.secondary; // completed
 
     if (hidden) {
       return null;
@@ -248,9 +254,9 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
         >
           <GlassPanel
             glowColor={
-              session.status === 'waiting_approval'
+              phase === 'waiting_approval'
                 ? 'secondary'
-                : session.status === 'failed'
+                : phase === 'failed'
                 ? 'error'
                 : 'none'
             }
@@ -261,13 +267,11 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                 style={[styles.statusRail, { backgroundColor: statusColor }]}
               />
               <IconBadge
-                name={
-                  session.status === 'waiting_approval' ? 'approval' : 'agent'
-                }
+                name={phase === 'waiting_approval' ? 'approval' : 'agent'}
                 tone={
-                  session.status === 'waiting_approval'
+                  phase === 'waiting_approval'
                     ? 'tertiary'
-                    : session.status === 'failed'
+                    : phase === 'failed'
                     ? 'error'
                     : 'primary'
                 }
@@ -292,10 +296,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                       style={[
                         styles.activeDot,
                         {
-                          backgroundColor:
-                            session.status === 'paused'
-                              ? theme.colors.onSurfaceVariant
-                              : statusColor,
+                          backgroundColor: statusColor,
                         },
                       ]}
                     />
@@ -324,8 +325,8 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                 )}
               </View>
               <StatusChip
-                label={vibeStatusLabel[session.status]}
-                type={vibeStatusType[session.status]}
+                label={sessionPhaseLabel[phase]}
+                type={sessionPhaseType[phase]}
               />
             </View>
             {homeFocus ? (
@@ -562,8 +563,8 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                 </View>
                 {renaming ? null : (
                   <StatusChip
-                    label={vibeStatusLabel[session.status]}
-                    type={vibeStatusType[session.status]}
+                    label={sessionPhaseLabel[phase]}
+                    type={sessionPhaseType[phase]}
                   />
                 )}
               </View>

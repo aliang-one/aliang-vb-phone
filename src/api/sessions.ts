@@ -36,6 +36,14 @@ export interface ServerAiSession {
   user_id: string;
   device_id: string;
   status: 'creating' | 'active' | 'idle' | 'running' | 'paused' | 'closed' | 'error';
+  /**
+   * Server-authoritative display phase (drives the phone's top-level status).
+   * Preferred over locally deriving phase from status + a silence window, so
+   * completion isn't guessed from a lack of ai.delta (the "运行中却显示已完成"
+   * bug). Undefined when talking to an older server that doesn't send it —
+   * callers fall back to deriveSessionPhase.
+   */
+  phase?: 'running' | 'waiting_approval' | 'completed' | 'failed';
   project_path?: string;
   mode: 'chat' | 'vibe' | 'review' | 'agent';
   title?: string;

@@ -795,6 +795,34 @@ export const useControlCenterStore = create<ControlCenterState>()(
             case 'ai.thinking':
             case 'ai.usage':
             case 'ai.task': {
+              // Structured mid-turn events are liveness proof — they flow
+              // during exactly the windows when no ai.delta streams (long bash,
+              // subagent, LLM thinking, between sub-turns). Mirror the server's
+              // settle-cancel: keep status=running locally (+ refresh
+              // lastActivityMs) so the phone doesn't flip to idle mid-gap
+              // between server publishes, then buffer the event. Without this
+              // the top phase (when not yet on server-authoritative phase) and
+              // the composer lock can drop mid-tool. failed/completed/
+              // waiting_approval are preserved.
+              set(state => ({
+                vibeRuns: state.vibeRuns.map(item => {
+                  if (item.id !== transportEvent.sessionId) return item;
+                  if (
+                    item.status === 'failed' ||
+                    item.status === 'completed' ||
+                    item.status === 'waiting_approval'
+                  ) {
+                    return item;
+                  }
+                  const activityMs = activityNowMs();
+                  return {
+                    ...item,
+                    status: 'running' as VibeStatus,
+                    lastActivityMs: activityMs,
+                    updatedAt: formatActivityLabel(activityMs),
+                  };
+                }),
+              }));
               // Buffer the event; pushStructuredEvent schedules a single
               // coalesced flush per window so subscribed screens re-render once
               // per flush instead of once per token (esp. ai.thinking, which
