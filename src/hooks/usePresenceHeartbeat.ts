@@ -57,9 +57,13 @@ export function usePresenceHeartbeat(): void {
 
     // Recover anything the server published while we were backgrounded. Initial
     // connect already loads a snapshot, so only AppState background -> active
-    // transitions need this extra pull. No-op until serverMode is established.
+    // transitions need this extra pull. NOT guarded on serverMode anymore: if
+    // the initial initializeFromServer failed (serverMode still false),
+    // refreshFromServer now self-heals by re-running the full init — so a
+    // background→foreground hop recovers the "logged in but no data" stuck
+    // state instead of no-op'ing. When genuinely logged out (no token),
+    // refreshFromServer no-ops internally.
     const resync = () => {
-      if (!serverMode) return;
       refreshFromServer().catch(() => {});
     };
 

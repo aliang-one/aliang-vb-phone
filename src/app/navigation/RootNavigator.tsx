@@ -190,8 +190,27 @@ export const RootNavigator = ({ debugDeviceTerminal }: RootNavigatorProps) => {
     if (!hasHydrated || !token || serverMode || syncingRef.current) return;
 
     syncingRef.current = true;
+    // Retry the snapshot/WS init a few times on transient failure. A single
+    // failed initializeFromServer used to strand the app "logged in but no
+    // data" until the user killed the app or re-logged in — common right
+    // after a reinstall/rebuild when the platform service was mid-restart.
+    // Auth failures propagate immediately (the session is torn down centrally
+    // → token clears → this effect re-runs and renders Login).
+    const MAX_INIT_ATTEMPTS = 3;
+    const INIT_BACKOFF_MS = 2000;
+    const runInitWithRetry = (attempt: number): Promise<void> =>
+      initializeFromServer(token).catch(error => {
+        if (isSessionInvalidError(error)) throw error;
+        if (attempt < MAX_INIT_ATTEMPTS) {
+          return new Promise<void>(resolve => {
+            setTimeout(() => resolve(), INIT_BACKOFF_MS);
+          }).then(() => runInitWithRetry(attempt + 1));
+        }
+        throw error;
+      });
+
     restoreUser()
-      .then(() => initializeFromServer(token))
+      .then(() => runInitWithRetry(1))
       .catch(error => {
         // A dead/expired session is already torn down centrally (token cleared →
         // this effect re-runs and renders Login). Don't log it as a scary

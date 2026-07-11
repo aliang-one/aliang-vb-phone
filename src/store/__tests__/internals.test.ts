@@ -17,6 +17,7 @@ import {
   mergeAgentMessages,
   mergeVibeRunSnapshot,
   removeDeviceFromState,
+  resolveRefreshAction,
 } from '../internals';
 
 // Minimal run mock — only fields the helpers touch. Cast through unknown so we
@@ -384,5 +385,24 @@ describe('removeDeviceFromState', () => {
     expect(result.devices.map(d => d.id)).toEqual(['d2']);
     expect(result.projects.map(p => p.id)).toEqual(['p2']);
     expect(result.events).toHaveLength(1);
+  });
+});
+
+describe('resolveRefreshAction (断线/初始化失败自愈判定)', () => {
+  // 用户报告的 bug:覆盖重装后冷启动 initializeFromServer 失败一次 → serverMode=false
+  // → refreshFromServer 所有恢复路径(前台心跳/下拉刷新)因 !serverMode 直接 no-op,
+  // 卡死成「Me 显登录但拉不到数据」,只有杀进程或重登才能解套。修复=!serverMode
+  // 但仍持 token 时,refresh 改为重新跑 initializeFromServer(自愈),而非 no-op。
+  it('serverMode + 有/无 token → 正常 refresh', () => {
+    expect(resolveRefreshAction(true, true)).toBe('refresh');
+    expect(resolveRefreshAction(true, false)).toBe('refresh');
+  });
+
+  it('!serverMode + 持 token → reinitialize(自愈,THE FIX)[BUG]', () => {
+    expect(resolveRefreshAction(false, true)).toBe('reinitialize');
+  });
+
+  it('!serverMode + 无 token(已登出)→ noop(不空跑)', () => {
+    expect(resolveRefreshAction(false, false)).toBe('noop');
   });
 });

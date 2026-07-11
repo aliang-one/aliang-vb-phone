@@ -1,10 +1,15 @@
 import type { StateCreator } from 'zustand';
 import { platformTransport } from '../../services/platformTransport';
+import { getApiAuthToken } from '../../api/client';
 import { cancelDeltaBatch, cancelRefreshDebounce } from '../streaming';
 import { cancelStructuredBatch } from '../structuredBatching';
 import { cancelTerminalBatch } from '../terminalBatching';
 import type { ControlCenterState } from '../types';
-import { emptySessionData, stateFromSnapshot } from '../internals';
+import {
+  emptySessionData,
+  resolveRefreshAction,
+  stateFromSnapshot,
+} from '../internals';
 
 const SNAPSHOT_SYNC_TIMEOUT_MS = 12000;
 
@@ -95,7 +100,21 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
   },
 
   refreshFromServer: async () => {
-    if (!get().serverMode) {
+    // Self-heal: if we're NOT in server mode (initializeFromServer failed or
+    // never ran) but still hold a session token, re-run the full init instead
+    // of no-op'ing. Without this, a single transient snapshot/WS failure at
+    // boot strands the app "logged in (Me) but no data" until the user kills
+    // the app or re-logs in — `refreshFromServer` is the path every recovery
+    // trigger (foreground heartbeat, pull-to-refresh) routes through.
+    const token = getApiAuthToken();
+    const action = resolveRefreshAction(get().serverMode, Boolean(token));
+    if (action === 'reinitialize' && token) {
+      return get().initializeFromServer(token).catch(error => {
+        console.warn('[store] Failed to reinitialize from server:', error);
+        set({ stale: true });
+      });
+    }
+    if (action === 'noop') {
       set({ stale: true });
       return;
     }
