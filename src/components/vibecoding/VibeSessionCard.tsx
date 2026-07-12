@@ -125,9 +125,13 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
       session.runStateVersion,
       session.runState,
     );
-    // 相位强调色:进行中=绿、待批准=黄、空闲/完成=蓝(默认)、失败=红。
-    // 驱动左侧轨道、圆点、图标底色、状态标签、暗色光晕 —— 跨所有会话卡片统一编码。
+    // 相位强调色:进行中/完成=蓝(默认)、待批准=黄、失败=红。进行中不再用绿
+    // (全仓 success=绿=完成语义,与运行中冲突)。驱动左侧轨道、圆点、图标底色、
+    // 状态标签、暗色光晕 —— 跨所有会话卡片统一编码。
     const statusColor = phaseAccentColor(phase, theme.colors);
+    // 运行态:色条/图标/圆点同蓝(同完成态),靠 StatusChip 的「三点输入」动效
+    // (pulse=isRunning,见 StatusChip)+「进行中」文案区分;非仅靠颜色(无障碍)。
+    const isRunning = phase === 'running';
 
     if (hidden) {
       return null;
@@ -318,6 +322,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                 label={phaseLabel(phase)}
                 type={sessionPhaseType[phase]}
                 accent={statusColor}
+                pulse={isRunning}
               />
             </View>
             {homeFocus ? (

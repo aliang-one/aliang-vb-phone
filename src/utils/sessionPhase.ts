@@ -173,9 +173,16 @@ export const sessionPhaseType: Record<
 };
 
 /**
- * 相位 → 强调色(列表/卡片全局着色源)。绿=进行中、黄=待批准、蓝=空闲/完成(默认)、
- * 红=失败。VibeSessionCard 消费它驱动 轨道/图标/标签/光晕,跨所有会话卡片统一编码。
+ * 相位 → 强调色(列表/卡片全局着色源)。蓝=进行中(同默认色,靠呼吸动效区分)/完成(默认)、
+ * 黄=待批准、红=失败。VibeSessionCard 消费它驱动 轨道/图标/标签/光晕,跨所有会话卡片统一编码。
  * 接受 theme.colors 以取本主题 success/warning/primary/error 真值(暗/亮自适应)。
+ *
+ * 进行中不再用绿(success)。全仓 success(绿)语义 = 完成/就绪/在线(见 terminalInteraction
+ * 的 READY/DONE、EventStream 的 done、NotificationCenter 的 completed),running 借绿与之
+ * 冲突(运行中 ≠ 完成)。故 running 回归 primary(蓝),与 completed 同色;二者区分交给
+ * 「呼吸动效(仅 running,VibeSessionCard 内 Animated 透明度脉冲)+ StatusChip 文案
+ * (进行中/已完成)」——符合「颜色不能是唯一指示」的无障碍原则。success 字段保留以兼容
+ * theme.colors 形状,不再被任何相位使用。
  */
 export function phaseAccentColor(
   phase: SessionPhase,
@@ -183,7 +190,7 @@ export function phaseAccentColor(
 ): string {
   switch (phase) {
     case 'running':
-      return colors.success;
+      return colors.primary;
     case 'waiting_approval':
       return colors.warning;
     case 'failed':
@@ -195,15 +202,15 @@ export function phaseAccentColor(
 }
 
 /**
- * 相位 → GlassPanel 光晕键(仅暗色生效)。进行中/待批准 给对应色辉光强调活跃与待办;
- * 失败给红;完成/空闲不给光晕(默认态无需强调)。
+ * 相位 → GlassPanel 光晕键(仅暗色生效)。进行中给蓝辉光(同默认色,辅以呼吸动效)、
+ * 待批准给黄辉光强调待办;失败给红;完成不给光晕(默认态无需强调)。
  */
 export function phaseGlow(
   phase: SessionPhase,
 ): 'success' | 'warning' | 'primary' | 'error' | 'none' {
   switch (phase) {
     case 'running':
-      return 'success';
+      return 'primary';
     case 'waiting_approval':
       return 'warning';
     case 'failed':

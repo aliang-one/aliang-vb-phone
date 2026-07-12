@@ -2003,6 +2003,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
             <StatusChip
               label={isDraft ? t('session.phase.notStarted') : phaseLabel(sessionPhase)}
               type={isDraft ? 'neutral' : sessionPhaseType[sessionPhase]}
+              pulse={!isDraft && sessionPhase === 'running'}
             />
             <Text
               numberOfLines={1}

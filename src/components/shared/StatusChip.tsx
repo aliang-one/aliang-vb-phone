@@ -1,6 +1,7 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Animated, View, Text, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
+import { useReduceMotion } from '../../hooks/useReduceMotion';
 
 type StatusType = 'success' | 'warning' | 'error' | 'neutral' | 'info';
 
@@ -12,6 +13,10 @@ interface StatusChipProps {
    *  (进行中=绿 / 待批准=黄 / 空闲完成=蓝 / 失败=红)时传入;text/dot/border
    *  用此色,bg 用其低透明度。 */
   accent?: string;
+  /** 运行态呼吸:为 true 时圆点做透明度脉冲(0.2↔1.0)。用于「进行中」状态——
+   *  色相与完成态同为蓝,靠动效 + 文案区分(非仅靠颜色,符合无障碍)。reduceMotion
+   *  开启时退静态。会话卡片/详情页状态头按 phase==='running' 传入。 */
+  pulse?: boolean;
 }
 
 /** #RRGGBB → rgba(r,g,b,alpha)。3 位短色(#RGB)自动展开。用于 accent 的低透 bg。 */
@@ -31,8 +36,50 @@ const statusColorMap: Record<StatusType, { bg: string; text: string }> = {
   info: { bg: 'rgba(86, 156, 214, 0.18)', text: '#569CD6' },       // VSCode keyword blue
 };
 
-export const StatusChip: React.FC<StatusChipProps> = ({ label, type, style, accent }) => {
+export const StatusChip: React.FC<StatusChipProps> = ({
+  label,
+  type,
+  style,
+  accent,
+  pulse = false,
+}) => {
   const { theme, isDark } = useTheme();
+  const reduceMotion = useReduceMotion();
+  // 运行态「三点输入」波纹:三颗小圆点轮流起伏(value 0→1→0),相位错开 180ms,
+  // 构成典型「正在输入」动效(AI 思考感)。value 经 interpolate 同时驱动
+  // opacity(0.35↔1)与 scale(0.8↔1),全 native driver。pulse && !reduceMotion 时
+  // 跑;reduceMotion + pulse → 三点静态全亮(保留"3 点=运行"视觉但不动的降级);
+  // 非 pulse 不渲染三点(走单点)。
+  const typingDots = [
+    useRef(new Animated.Value(0)).current,
+    useRef(new Animated.Value(0)).current,
+    useRef(new Animated.Value(0)).current,
+  ];
+  useEffect(() => {
+    if (!pulse || reduceMotion) {
+      typingDots.forEach(d => d.setValue(reduceMotion ? 1 : 0));
+      return;
+    }
+    const CYCLE = 1200;
+    const UP = 280;
+    const DOWN = 280;
+    const PHASE = 180;
+    const loops = typingDots.map((dot, i) => {
+      const phase = i * PHASE;
+      return Animated.loop(
+        Animated.sequence([
+          Animated.delay(phase),
+          Animated.timing(dot, { toValue: 1, duration: UP, useNativeDriver: true }),
+          Animated.timing(dot, { toValue: 0, duration: DOWN, useNativeDriver: true }),
+          Animated.delay(Math.max(0, CYCLE - phase - UP - DOWN)),
+        ]),
+      );
+    });
+    loops.forEach(loop => loop.start());
+    return () => loops.forEach(loop => loop.stop());
+    // typingDots 是稳定 ref,不进 deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pulse, reduceMotion]);
   const colors = accent
     ? { bg: hexToRgba(accent, isDark ? 0.18 : 0.12), text: accent }
     : isDark
@@ -71,7 +118,35 @@ export const StatusChip: React.FC<StatusChipProps> = ({ label, type, style, acce
         },
         style,
       ]}>
-      <View style={[styles.dot, { backgroundColor: colors.text }]} />
+      {pulse ? (
+        <View style={styles.dotGroup}>
+          {typingDots.map((dotValue, i) => (
+            <Animated.View
+              key={i}
+              style={[
+                styles.typingDot,
+                {
+                  backgroundColor: colors.text,
+                  opacity: dotValue.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.35, 1],
+                  }),
+                  transform: [
+                    {
+                      scale: dotValue.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.8, 1],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            />
+          ))}
+        </View>
+      ) : (
+        <View style={[styles.dot, { backgroundColor: colors.text }]} />
+      )}
       <Text
         style={[
           theme.typography.codeSm,
@@ -98,6 +173,16 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
+  },
+  dotGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2.5,
+  },
+  typingDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   label: {
     fontSize: 11,

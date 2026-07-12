@@ -362,9 +362,12 @@ describe('isSessionTurnActive (事件驱动:status===running)', () => {
   });
 });
 
-describe('phaseAccentColor (列表/卡片相位着色:绿/黄/蓝/红)', () => {
-  // 用户要求:进行中=绿、待批准=黄、空闲/完成=蓝(默认)、失败=红。
-  // 取 theme.colors 的 success/warning/primary/error 真值,跨暗/亮主题自适应。
+describe('phaseAccentColor (列表/卡片相位着色:蓝/黄/蓝/红 — 运行态靠呼吸动效而非色相)', () => {
+  // 进行中与完成都用 primary(蓝,默认色)——运行态不再借绿。全仓 success(绿)语义
+  // = 完成/就绪/在线(见 terminalInteraction 的 READY/DONE、EventStream 的 done、
+  // NotificationCenter 的 completed),running 借绿与之语义冲突(运行中 ≠ 完成),
+  // 故回归蓝。运行/完成的区分交给「呼吸动效(仅 running)+ StatusChip 文案
+  // (进行中/已完成)」,符合「颜色不能是唯一指示」的无障碍原则。
   const colors = {
     success: '#GREEN',
     warning: '#YELLOW',
@@ -372,8 +375,8 @@ describe('phaseAccentColor (列表/卡片相位着色:绿/黄/蓝/红)', () => {
     error: '#RED',
   } as const;
 
-  it('running → success(绿)', () => {
-    expect(phaseAccentColor('running', colors)).toBe('#GREEN');
+  it('running → primary(蓝,同默认;靠呼吸动效区分运行态,不再用绿)', () => {
+    expect(phaseAccentColor('running', colors)).toBe('#BLUE');
   });
 
   it('waiting_approval → warning(黄)', () => {
@@ -390,8 +393,8 @@ describe('phaseAccentColor (列表/卡片相位着色:绿/黄/蓝/红)', () => {
 });
 
 describe('phaseGlow (GlassPanel 光晕键,仅暗色生效)', () => {
-  it('running → success(绿光晕)', () => {
-    expect(phaseGlow('running')).toBe('success');
+  it('running → primary(蓝光晕,同默认色;不再用绿光晕)', () => {
+    expect(phaseGlow('running')).toBe('primary');
   });
 
   it('waiting_approval → warning(黄光晕)', () => {

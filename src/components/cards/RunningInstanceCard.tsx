@@ -17,10 +17,12 @@ const statusLabels: Record<string, string> = {
   stopping: 'STOPPING',
 };
 
+// running 用 info(蓝)而非 success(绿)——绿在全仓=完成/就绪语义,与「运行中」
+// 冲突。运行态的区分交给文案(LIVE)+ 进度条,不靠绿色相。与 VibeSessionCard 同策。
 const statusTypes: Record<string, 'success' | 'info' | 'warning'> = {
   building: 'info',
   deploying: 'info',
-  running: 'success',
+  running: 'info',
   stopping: 'warning',
 };
 
