@@ -45,7 +45,7 @@ import {
   parseConversationTimestampMs,
 } from '../../utils/conversationActivity';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
+import { compareSessionsByStableActivity } from '../../utils/sessionPhase';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -169,24 +169,17 @@ export const CommandCenterScreen: React.FC = () => {
         .filter(session =>
           isSessionActiveWithin(session, ACTIVE_AGENT_WINDOW_MS, nowMs),
         )
-        .sort(
-          (left, right) =>
-            getSessionActivityMs(right, nowMs) -
-            getSessionActivityMs(left, nowMs),
-        );
+        .sort(compareSessionsByStableActivity);
     },
     [vibeRuns],
   );
   const recentAgentRuns = useMemo(
     () => {
-      const nowMs = Date.now();
       return [...vibeRuns].sort(
         offlineLastComparator(
           deviceStatusIndex,
           session => session.deviceId,
-          (left, right) =>
-            getSessionActivityMs(right, nowMs) -
-            getSessionActivityMs(left, nowMs),
+          compareSessionsByStableActivity,
         ),
       );
     },

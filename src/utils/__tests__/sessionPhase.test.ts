@@ -1,5 +1,6 @@
 import {
   LIVE_TURN_WINDOW_MS,
+  compareSessionsByStableActivity,
   deriveSessionPhase,
   isAuthoritativeRunLive,
   isSessionTurnActive,
@@ -10,7 +11,9 @@ import {
   phaseLabel,
   runDisplayPhase,
   shouldLockComposerForProvider,
+  stableSessionSortMs,
 } from '../sessionPhase';
+import type { VibeCodingRun } from '../../data/platformModels';
 
 describe('deriveSessionPhase (L1 整体相位)', () => {
   it('failed 终态(非 live 时)', () => {
@@ -133,6 +136,91 @@ describe('runDisplayPhase (列表/卡片显示相位 = 与详情页同源)', () 
     expect(runDisplayPhase('completed', undefined)).toBe('completed');
     expect(runDisplayPhase('paused', undefined)).toBe('completed');
     expect(runDisplayPhase('failed', undefined)).toBe('failed');
+  });
+});
+
+describe('compareSessionsByStableActivity (并发心跳不重排列表)', () => {
+  const run = (
+    id: string,
+    options: {
+      status?: VibeCodingRun['status'];
+      phase?: VibeCodingRun['phase'];
+      runState?: VibeCodingRun['runState'];
+      runStateVersion?: number;
+      lastActivityMs: number;
+      turnStartedAt?: string;
+    },
+  ) =>
+    ({
+      id,
+      status: options.status ?? 'running',
+      phase: options.phase ?? 'running',
+      runState: options.runState ?? 'running',
+      runStateVersion: options.runStateVersion ?? 1,
+      lastActivityMs: options.lastActivityMs,
+      lastUserMessage: options.turnStartedAt
+        ? {
+            id: `user-${id}`,
+            role: 'user',
+            content: id,
+            timestamp: options.turnStartedAt,
+          }
+        : undefined,
+    }) as VibeCodingRun;
+
+  it('两个运行会话交错刷新心跳时仍按本轮开始时间稳定排序', () => {
+    const olderTurn = run('older', {
+      lastActivityMs: 9_000,
+      turnStartedAt: '2026-07-12T01:00:00.000Z',
+    });
+    const newerTurn = run('newer', {
+      lastActivityMs: 8_000,
+      turnStartedAt: '2026-07-12T02:00:00.000Z',
+    });
+
+    expect([olderTurn, newerTurn].sort(compareSessionsByStableActivity)).toEqual([
+      newerTurn,
+      olderTurn,
+    ]);
+
+    const afterNextHeartbeat = [
+      { ...olderTurn, lastActivityMs: 10_000 },
+      { ...newerTurn, lastActivityMs: 11_000 },
+    ];
+    expect(
+      afterNextHeartbeat.sort(compareSessionsByStableActivity).map(item => item.id),
+    ).toEqual(['newer', 'older']);
+  });
+
+  it('待审批仍属于置顶区,已完成会话继续按真实活动时间排序', () => {
+    const waiting = run('waiting', {
+      status: 'paused',
+      phase: 'waiting_approval',
+      runState: 'waiting_approval',
+      lastActivityMs: 100,
+      turnStartedAt: '2026-07-12T01:00:00.000Z',
+    });
+    const completedOld = run('completed-old', {
+      status: 'completed',
+      phase: 'completed',
+      runState: 'completed',
+      lastActivityMs: 1_000,
+    });
+    const completedNew = run('completed-new', {
+      status: 'completed',
+      phase: 'completed',
+      runState: 'completed',
+      lastActivityMs: 2_000,
+    });
+
+    expect(stableSessionSortMs(waiting)).toBe(
+      Date.parse('2026-07-12T01:00:00.000Z'),
+    );
+    expect(
+      [completedOld, waiting, completedNew]
+        .sort(compareSessionsByStableActivity)
+        .map(item => item.id),
+    ).toEqual(['waiting', 'completed-new', 'completed-old']);
   });
 });
 

@@ -3,6 +3,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useStableVibeRuns } from '../store/controlCenterStore';
 import { serverAiSessionToVibeRun } from '../store/internals';
 import { fetchProjectAiSessions } from '../api/projects';
+import { compareSessionsByStableActivity } from '../utils/sessionPhase';
 
 type ProjectSessionRun = ReturnType<typeof serverAiSessionToVibeRun>;
 
@@ -76,9 +77,7 @@ export function useProjectSessions(
         if (run.projectId === projectId) byId.set(run.id, run);
       }
     }
-    const merged = [...byId.values()].sort(
-      (a, b) => (b.lastActivityMs ?? 0) - (a.lastActivityMs ?? 0),
-    );
+    const merged = [...byId.values()].sort(compareSessionsByStableActivity);
     return limit !== undefined ? merged.slice(0, limit) : merged;
   }, [fetched, vibeRuns, projectId, limit]);
 

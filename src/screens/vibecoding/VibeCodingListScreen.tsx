@@ -46,10 +46,11 @@ import {
   useControlCenterStore,
   useStableVibeRuns,
 } from '../../store/controlCenterStore';
-import { ACTIVE_RUN_STATUS, isConnectionFailed } from '../../store/internals';
+import { isConnectionFailed } from '../../store/internals';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
+import { compareSessionsByStableActivity } from '../../utils/sessionPhase';
 import {
   buildDeviceStatusIndex,
   isDeviceStatusOffline,
@@ -311,16 +312,7 @@ export const VibeCodingListScreen: React.FC = () => {
           offlineLastComparator(
             deviceStatusIndex,
             session => session.deviceId,
-            (left, right) => {
-              // Active (streaming / waiting) sessions stay pinned above idle
-              // ones even when lastActivityMs goes stale during a long silent
-              // tool run; only within the same activity tier do we fall back
-              // to recency.
-              const leftActive = ACTIVE_RUN_STATUS.has(left.status) ? 1 : 0;
-              const rightActive = ACTIVE_RUN_STATUS.has(right.status) ? 1 : 0;
-              if (leftActive !== rightActive) return rightActive - leftActive;
-              return (right.lastActivityMs ?? 0) - (left.lastActivityMs ?? 0);
-            },
+            compareSessionsByStableActivity,
           ),
         ),
     [vibeRuns, projects, devices, filter, matchesQuery, deviceStatusIndex],

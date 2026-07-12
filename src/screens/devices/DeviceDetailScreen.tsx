@@ -25,6 +25,7 @@ import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { newestFirst } from '../../utils/timeSort';
 import { isActiveTerminalSessionStatus } from '../../utils/terminalInteraction';
+import { compareSessionsByStableActivity } from '../../utils/sessionPhase';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DeviceRoute = RouteProp<RootStackParamList, 'DeviceDetail'>;
@@ -113,12 +114,7 @@ export const DeviceDetailScreen: React.FC = () => {
       if (!device) return [];
       return vibeRuns
         .filter(session => session.deviceId === device.id)
-        .sort((left, right) => {
-          const leftActive = activeSessionStatuses.includes(left.status) ? 0 : 1;
-          const rightActive = activeSessionStatuses.includes(right.status) ? 0 : 1;
-          if (leftActive !== rightActive) return leftActive - rightActive;
-          return (right.lastActivityMs ?? 0) - (left.lastActivityMs ?? 0);
-        });
+        .sort(compareSessionsByStableActivity);
     },
     [vibeRuns, device],
   );

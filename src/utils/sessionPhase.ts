@@ -105,6 +105,54 @@ export function isAuthoritativeRunLive(
 }
 
 /**
+ * Return a sort timestamp that does not move on liveness-only heartbeats.
+ * Concurrent runs otherwise swap positions whenever their staggered
+ * `ai.run.progress` events refresh `lastActivityMs`.
+ */
+export function stableSessionSortMs(run: VibeCodingRun): number {
+  const displayPhase = runDisplayPhase(
+    run.status,
+    run.phase,
+    run.runStateVersion,
+    run.runState,
+  );
+  const liveOrWaiting =
+    displayPhase === 'running' || displayPhase === 'waiting_approval';
+  if (liveOrWaiting) {
+    const turnStartedAt = Date.parse(
+      run.lastUserMessage?.timestamp ?? run.lastMessage?.timestamp ?? '',
+    );
+    if (Number.isFinite(turnStartedAt)) return turnStartedAt;
+  }
+  return run.lastActivityMs ?? 0;
+}
+
+/** Active/waiting sessions first, then stable newest-first ordering. */
+export function compareSessionsByStableActivity(
+  left: VibeCodingRun,
+  right: VibeCodingRun,
+): number {
+  const leftPhase = runDisplayPhase(
+    left.status,
+    left.phase,
+    left.runStateVersion,
+    left.runState,
+  );
+  const rightPhase = runDisplayPhase(
+    right.status,
+    right.phase,
+    right.runStateVersion,
+    right.runState,
+  );
+  const leftActive =
+    leftPhase === 'running' || leftPhase === 'waiting_approval';
+  const rightActive =
+    rightPhase === 'running' || rightPhase === 'waiting_approval';
+  if (leftActive !== rightActive) return leftActive ? -1 : 1;
+  return stableSessionSortMs(right) - stableSessionSortMs(left);
+}
+
+/**
  * 相位 → 显示文案。util 单例 i18n(非组件),运行时求值 → 切语言即时刷新,与
  * backgroundNotifications / activitySummary 同模式(文案见 vibecoding/<lng>.json
  * 的 phaseLabel 节点)。卡片 VibeSessionCard 与会话详情头 VibeCodingSessionScreen

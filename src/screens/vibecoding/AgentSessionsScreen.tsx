@@ -29,6 +29,7 @@ import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { useProjectSessions } from '../../hooks/useProjectSessions';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { formatActivityLabel } from '../../store/internals';
+import { compareSessionsByStableActivity } from '../../utils/sessionPhase';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type AgentSessionsRoute = RouteProp<RootStackParamList, 'AgentSessions'>;
@@ -61,10 +62,7 @@ export const AgentSessionsScreen: React.FC = () => {
         .filter(run =>
           route.params?.deviceId ? run.deviceId === route.params.deviceId : true,
         )
-        .sort(
-          (left, right) =>
-            (right.lastActivityMs ?? 0) - (left.lastActivityMs ?? 0),
-        );
+        .sort(compareSessionsByStableActivity);
 
   const activeSessions = useMemo(
     () => sessions.filter(s => activeSessionStatuses.includes(s.status)),
