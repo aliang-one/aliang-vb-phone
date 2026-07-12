@@ -85,3 +85,7 @@ yarn-error.log
 
 # Git worktrees (isolated dev workspaces)
 .worktrees/
+
+# Python bytecode (skill scripts / tooling; regenerable)
+__pycache__/
+*.pyc
