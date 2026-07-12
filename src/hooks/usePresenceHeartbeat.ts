@@ -64,7 +64,7 @@ export function usePresenceHeartbeat(): void {
     // state instead of no-op'ing. When genuinely logged out (no token),
     // refreshFromServer no-ops internally.
     const resync = () => {
-      refreshFromServer().catch(() => {});
+      void refreshFromServer();
     };
 
     const handleChange = (state: AppStateStatus) => {

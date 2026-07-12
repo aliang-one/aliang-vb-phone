@@ -4,7 +4,7 @@ import { getApiAuthToken } from '../../api/client';
 import { cancelDeltaBatch, cancelRefreshDebounce } from '../streaming';
 import { cancelStructuredBatch } from '../structuredBatching';
 import { cancelTerminalBatch } from '../terminalBatching';
-import type { ControlCenterState } from '../types';
+import type { ControlCenterState, RefreshOutcome } from '../types';
 import {
   emptySessionData,
   resolveRefreshAction,
@@ -20,7 +20,7 @@ type RealtimeSlice = Pick<
   | 'resetSessionData' | 'markStale'
 >;
 
-let refreshInFlight: Promise<void> | null = null;
+let refreshInFlight: Promise<RefreshOutcome> | null = null;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -115,23 +115,25 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
     const token = getApiAuthToken();
     const action = resolveRefreshAction(get().serverMode, Boolean(token));
     if (action === 'reinitialize' && token) {
-      return get().initializeFromServer(token).catch(error => {
-        console.warn('[store] Failed to reinitialize from server:', error);
-        set({
-          stale: true,
-          lastConnectError: error instanceof Error ? error.message : String(error),
+      return get()
+        .initializeFromServer(token)
+        .then(() => ({ ok: true as const }))
+        .catch(error => {
+          console.warn('[store] Failed to reinitialize from server:', error);
+          const message = error instanceof Error ? error.message : String(error);
+          set({ stale: true, lastConnectError: message });
+          return { ok: false as const, error: message };
         });
-      });
     }
     if (action === 'noop') {
       set({ stale: true });
-      return;
+      return { ok: false, error: 'No active connection' };
     }
     if (refreshInFlight) {
       return refreshInFlight;
     }
 
-    refreshInFlight = (async () => {
+    refreshInFlight = (async (): Promise<RefreshOutcome> => {
       try {
         const snapshot = await loadSnapshotWithTimeout();
         set(state => ({
@@ -145,12 +147,12 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
           stale: false,
           lastConnectError: null,
         }));
+        return { ok: true };
       } catch (error) {
         console.warn('[store] Failed to refresh from server:', error);
-        set({
-          stale: true,
-          lastConnectError: error instanceof Error ? error.message : String(error),
-        });
+        const message = error instanceof Error ? error.message : String(error);
+        set({ stale: true, lastConnectError: message });
+        return { ok: false, error: message };
       } finally {
         refreshInFlight = null;
       }

@@ -49,6 +49,7 @@ import {
 import { isConnectionFailed } from '../../store/internals';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { useRefreshWithFeedback } from '../../hooks/useRefreshWithFeedback';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { compareSessionsByStableActivity } from '../../utils/sessionPhase';
 import {
@@ -208,9 +209,6 @@ export const VibeCodingListScreen: React.FC = () => {
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
   const vibeRuns = useStableVibeRuns();
-  const refreshFromServer = useControlCenterStore(
-    state => state.refreshFromServer,
-  );
   const serverMode = useControlCenterStore(state => state.serverMode);
   const lastSyncedAt = useControlCenterStore(state => state.lastSyncedAt);
   const lastConnectError = useControlCenterStore(
@@ -227,7 +225,7 @@ export const VibeCodingListScreen: React.FC = () => {
   const stopTerminal = useControlCenterStore(state => state.stopTerminal);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | VibeStatus>('all');
-  const [refreshing, setRefreshing] = useState(false);
+  const { refreshing, handleRefresh } = useRefreshWithFeedback();
   const [activeTab, setActiveTab] = useState(0);
   const [terminalDevicePickerOpen, setTerminalDevicePickerOpen] =
     useState(false);
@@ -465,15 +463,6 @@ export const VibeCodingListScreen: React.FC = () => {
       ],
     };
   });
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await refreshFromServer();
-    } finally {
-      setRefreshing(false);
-    }
-  };
 
   const handleCreateTerminal = useCallback(
     (device: Device) => {

@@ -39,7 +39,7 @@
 - **4 个简单 handler**(`TerminalListScreen`、`ProjectSettingsScreen`、`CommandCenterScreen`、`VibeCodingListScreen`)——现状都是 `setRefreshing(true); try { await refreshFromServer() } finally { setRefreshing(false) }`:
   - 换用 `useRefreshWithFeedback()` hook → `{ refreshing, handleRefresh }`。hook 持有 `refreshing`,await `refreshFromServer`,按 `{ok}` 弹 toast。
 - **`ProjectDetailScreen`**——`Promise.all([refreshFromServer(), reload()])`:保留结构,读 `refreshFromServer` 结果弹 toast(`reload` 失败由其自身 error 态处理)。
-- **`VibeCodingSessionScreen`**——`handleRefresh` 通常分支是"加载更早历史"(非快照刷新),只有 `handleRefreshLatest` 分支(空/离线兜底)调 `refreshFromServer` → 仅该分支弹 toast。加载更早分支保留现有 `noMoreEarlierHint`(那是历史分页,不是刷新,不弹"刷新成功")。
+- **`VibeCodingSessionScreen`**——**核查后排除**:其 `handleRefresh` 走"加载更早历史"或 `handleRefreshLatest`,后者调的是 `loadAgentSessionDetail`(按会话拉详情),**不**走 `refreshFromServer`/快照接口。故不在本次快照反馈范围;其失败已有 `setDetailError` 内联提示、加载更早已有 `noMoreEarlierHint`。
 
 ### 成功/失败策略 (用户已确认)
 

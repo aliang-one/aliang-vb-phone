@@ -107,7 +107,7 @@ export const DeviceCameraScannerScreen: React.FC = () => {
       setPhase('success');
       setMessage(t('scanner.successMessage'));
       // agent 登录后会自动 register_sync 把设备注册到该用户名下;刷新设备列表。
-      void refreshFromServer().catch(() => {});
+      void refreshFromServer();
       setTimeout(() => navigation.goBack(), 1600);
     } catch (error) {
       setPhase('error');

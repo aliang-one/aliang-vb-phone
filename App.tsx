@@ -9,6 +9,7 @@ import './src/i18n';
 import { LocaleProvider } from './src/i18n/useLocale';
 import { RootNavigator } from './src/app/navigation/RootNavigator';
 import { navigationRef } from './src/app/navigation/navigationRef';
+import { ToastViewport } from './src/components/shared/ToastViewport';
 import { usePresenceHeartbeat } from './src/hooks/usePresenceHeartbeat';
 import { useBackgroundNotifications } from './src/hooks/useBackgroundNotifications';
 import {
@@ -93,6 +94,7 @@ function AppContent({ debugDeviceTerminal }: AppInitialProps = {}) {
         }}>
         <RootNavigator debugDeviceTerminal={debugDeviceTerminal} />
       </NavigationContainer>
+      <ToastViewport />
     </>
   );
 }

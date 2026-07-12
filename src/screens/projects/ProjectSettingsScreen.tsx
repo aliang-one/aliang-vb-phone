@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -20,6 +20,7 @@ import { IconBadge } from '../../components/visual/IconBadge';
 import { ApprovalPolicyCard } from '../../components/devices/ApprovalPolicyCard';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { useRefreshWithFeedback } from '../../hooks/useRefreshWithFeedback';
 import { useTranslation } from 'react-i18next';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -32,25 +33,13 @@ export const ProjectSettingsScreen: React.FC = () => {
   const route = useRoute<ProjectSettingsRoute>();
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
-  const refreshFromServer = useControlCenterStore(
-    state => state.refreshFromServer,
-  );
-  const [refreshing, setRefreshing] = useState(false);
+  const { refreshing, handleRefresh } = useRefreshWithFeedback();
 
   const project = projects.find(item => item.id === route.params.projectId);
   const device =
     devices.find(item => item.id === route.params.deviceId) ||
     devices.find(item => project?.deviceId && item.id === project.deviceId) ||
     devices.find(item => item.projectIds.includes(route.params.projectId));
-
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await refreshFromServer();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [refreshFromServer]);
 
   if (!project) {
     return (

@@ -22,7 +22,9 @@ import { Logo } from '../../components/visual/Logo';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { useToastStore } from '../../store/toastStore';
 import { useProjectSessions } from '../../hooks/useProjectSessions';
+import { refreshFeedback } from '../../utils/refreshFeedback';
 import { useTranslation } from 'react-i18next';
 
 // How many recent sessions the project page previews; the full history lives
@@ -49,6 +51,7 @@ export const ProjectDetailScreen: React.FC = () => {
   const refreshFromServer = useControlCenterStore(
     state => state.refreshFromServer,
   );
+  const show = useToastStore(s => s.show);
   // Project-scoped preview. The global vibeRuns store is capped
   // (MAX_VIBE_RUNS), so the project page fetches its own list directly; only
   // the newest PROJECT_SESSION_PREVIEW_COUNT are shown here, with a "view all"
@@ -64,11 +67,13 @@ export const ProjectDetailScreen: React.FC = () => {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([refreshFromServer(), reload()]);
+      const [result] = await Promise.all([refreshFromServer(), reload()]);
+      const feedback = refreshFeedback(result, t);
+      show(feedback.message, feedback.type);
     } finally {
       setRefreshing(false);
     }
-  }, [refreshFromServer, reload]);
+  }, [refreshFromServer, reload, show, t]);
 
   if (!project) {
     return (

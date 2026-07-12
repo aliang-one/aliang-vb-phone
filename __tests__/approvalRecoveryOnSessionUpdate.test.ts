@@ -93,7 +93,7 @@ describe('ai.session.updated approval recovery', () => {
   it('recovers a missed approval by refreshing when a session enters paused', () => {
     const refreshSpy = jest
       .spyOn(useControlCenterStore.getState(), 'refreshFromServer')
-      .mockResolvedValue();
+      .mockResolvedValue({ ok: true });
 
     useControlCenterStore.getState().handleTransportEvent(
       sessionUpdated('s1', 'paused'),
@@ -111,7 +111,7 @@ describe('ai.session.updated approval recovery', () => {
     useControlCenterStore.setState({ vibeRuns: [run('s1', 'paused')] });
     const refreshSpy = jest
       .spyOn(useControlCenterStore.getState(), 'refreshFromServer')
-      .mockResolvedValue();
+      .mockResolvedValue({ ok: true });
 
     useControlCenterStore.getState().handleTransportEvent(
       sessionUpdated('s1', 'paused'),
@@ -125,7 +125,7 @@ describe('ai.session.updated approval recovery', () => {
   it('does NOT refresh on running → running (thinking / tool use gap)', () => {
     const refreshSpy = jest
       .spyOn(useControlCenterStore.getState(), 'refreshFromServer')
-      .mockResolvedValue();
+      .mockResolvedValue({ ok: true });
 
     useControlCenterStore.getState().handleTransportEvent(
       sessionUpdated('s1', 'running'),
@@ -140,7 +140,7 @@ describe('ai.session.updated approval recovery', () => {
     useControlCenterStore.setState({ serverMode: false });
     const refreshSpy = jest
       .spyOn(useControlCenterStore.getState(), 'refreshFromServer')
-      .mockResolvedValue();
+      .mockResolvedValue({ ok: true });
 
     useControlCenterStore.getState().handleTransportEvent(
       sessionUpdated('s1', 'paused'),

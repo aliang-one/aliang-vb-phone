@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import {
   ActivityIndicator,
   View,
@@ -28,6 +28,7 @@ import { Project, VibeCodingRun } from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore, useStableVibeRuns } from '../../store/controlCenterStore';
 import { useShallow } from 'zustand/shallow';
+import { useRefreshWithFeedback } from '../../hooks/useRefreshWithFeedback';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { newestFirst } from '../../utils/timeSort';
@@ -140,9 +141,6 @@ export const CommandCenterScreen: React.FC = () => {
   const scanResults = useControlCenterStore(state => state.scanResults);
   const wsConnected = useControlCenterStore(state => state.wsConnected);
   const serverMode = useControlCenterStore(state => state.serverMode);
-  const refreshFromServer = useControlCenterStore(
-    state => state.refreshFromServer,
-  );
   const lastSyncedAt = useControlCenterStore(state => state.lastSyncedAt);
   const lastConnectError = useControlCenterStore(
     state => state.lastConnectError,
@@ -152,7 +150,7 @@ export const CommandCenterScreen: React.FC = () => {
     lastSyncedAt,
     lastConnectError,
   );
-  const [refreshing, setRefreshing] = useState(false);
+  const { refreshing, handleRefresh } = useRefreshWithFeedback();
 
   const onlineDevices = useMemo(
     () => devices.filter(device => device.status === 'online'),
@@ -382,14 +380,6 @@ export const CommandCenterScreen: React.FC = () => {
   };
   const openConversationEventStream = () => {
     navigation.navigate('EventStream', { scope: 'conversation' });
-  };
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await refreshFromServer();
-    } finally {
-      setRefreshing(false);
-    }
   };
   const activeProjectList = useIncrementalList(activeProjects, {
     initialCount: 3,

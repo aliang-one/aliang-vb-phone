@@ -11,6 +11,8 @@
   "back": "返回",
   "done": "完成",
   "refresh": "刷新",
+  "refreshSuccess": "刷新成功",
+  "refreshFailed": "刷新失败: {{error}}",
   "online": "在线",
   "offline": "离线",
   "bottomSheet": {

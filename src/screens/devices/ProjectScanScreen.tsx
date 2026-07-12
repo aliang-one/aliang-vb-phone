@@ -84,7 +84,7 @@ export const ProjectScanScreen: React.FC = () => {
         return;
       }
     }
-    refreshFromServer().catch(() => {});
+    void refreshFromServer();
     let polls = 0;
     const MAX_POLLS = 4;
     const POLL_MS = 1200;
@@ -100,7 +100,7 @@ export const ProjectScanScreen: React.FC = () => {
         setScanning(false);
         return;
       }
-      refreshFromServer().catch(() => {});
+      void refreshFromServer();
       setTimeout(tick, POLL_MS);
     };
     setTimeout(tick, POLL_MS);

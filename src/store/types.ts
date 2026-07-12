@@ -26,6 +26,13 @@ export type TerminalSessionStatus =
 
 export type AgentProvider = 'claude_code' | 'codex' | 'opencode';
 
+/**
+ * Outcome of a `refreshFromServer` call. Resolves (never rejects) so callers
+ * can surface success/failure feedback without a try/catch — `ok:false` carries
+ * the error message for a toast.
+ */
+export type RefreshOutcome = { ok: true } | { ok: false; error: string };
+
 export type UnifiedEventType =
   | 'terminal.output'
   | 'agent.delta'
@@ -243,7 +250,7 @@ export interface ControlCenterState {
   projectFiles: ProjectFileEntry[];
   // Actions
   initializeFromServer: (token?: string) => Promise<void>;
-  refreshFromServer: () => Promise<void>;
+  refreshFromServer: () => Promise<RefreshOutcome>;
   disconnectFromServer: () => void;
   resetSessionData: () => void;
   markStale: () => void;

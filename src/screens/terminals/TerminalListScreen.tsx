@@ -17,6 +17,7 @@ import { useControlCenterStore } from '../../store/controlCenterStore';
 import { isConnectionFailed } from '../../store/internals';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
+import { useRefreshWithFeedback } from '../../hooks/useRefreshWithFeedback';
 import { useTranslation } from 'react-i18next';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -26,7 +27,6 @@ export const TerminalListScreen: React.FC = () => {
   const { t } = useTranslation('terminals');
   const navigation = useNavigation<Navigation>();
   const devices = useControlCenterStore(state => state.devices);
-  const refreshFromServer = useControlCenterStore(state => state.refreshFromServer);
   const serverMode = useControlCenterStore(state => state.serverMode);
   const lastSyncedAt = useControlCenterStore(state => state.lastSyncedAt);
   const lastConnectError = useControlCenterStore(state => state.lastConnectError);
@@ -36,7 +36,7 @@ export const TerminalListScreen: React.FC = () => {
     lastConnectError,
   );
   const [search, setSearch] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
+  const { refreshing, handleRefresh } = useRefreshWithFeedback();
 
   const normalizedSearch = search.trim().toLowerCase();
   const filtered = devices.filter(device => {
@@ -79,14 +79,6 @@ export const TerminalListScreen: React.FC = () => {
     step: 12,
     resetKey: normalizedSearch,
   });
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await refreshFromServer();
-    } finally {
-      setRefreshing(false);
-    }
-  };
 
   return (
     <SafeAreaWrapper>

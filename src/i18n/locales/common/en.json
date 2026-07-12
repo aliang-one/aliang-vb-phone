@@ -11,6 +11,8 @@
   "back": "Back",
   "done": "Done",
   "refresh": "Refresh",
+  "refreshSuccess": "Refreshed",
+  "refreshFailed": "Refresh failed: {{error}}",
   "online": "Online",
   "offline": "Offline",
   "bottomSheet": {
