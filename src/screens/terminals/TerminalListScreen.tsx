@@ -9,10 +9,12 @@ import { SearchBar } from '../../components/input/SearchBar';
 import { DeferredMount } from '../../components/shared/DeferredMount';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { StatusChip } from '../../components/shared/StatusChip';
+import { ConnectionFailedCard } from '../../components/shared/ConnectionFailedCard';
 import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard';
 import { IconBadge } from '../../components/visual/IconBadge';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { isConnectionFailed } from '../../store/internals';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { useTranslation } from 'react-i18next';
@@ -25,6 +27,14 @@ export const TerminalListScreen: React.FC = () => {
   const navigation = useNavigation<Navigation>();
   const devices = useControlCenterStore(state => state.devices);
   const refreshFromServer = useControlCenterStore(state => state.refreshFromServer);
+  const serverMode = useControlCenterStore(state => state.serverMode);
+  const lastSyncedAt = useControlCenterStore(state => state.lastSyncedAt);
+  const lastConnectError = useControlCenterStore(state => state.lastConnectError);
+  const connectionFailed = isConnectionFailed(
+    serverMode,
+    lastSyncedAt,
+    lastConnectError,
+  );
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -112,6 +122,9 @@ export const TerminalListScreen: React.FC = () => {
             colors={[theme.colors.primary]}
           />
         }>
+        {connectionFailed ? (
+          <ConnectionFailedCard error={lastConnectError} onRetry={handleRefresh} />
+        ) : null}
         <DeferredMount
           fallback={
             <View style={styles.deferredPlaceholder}>

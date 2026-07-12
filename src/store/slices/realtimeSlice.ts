@@ -15,7 +15,7 @@ const SNAPSHOT_SYNC_TIMEOUT_MS = 12000;
 
 type RealtimeSlice = Pick<
   ControlCenterState,
-  | 'wsConnected' | 'serverMode' | 'lastSyncedAt' | 'stale'
+  | 'wsConnected' | 'serverMode' | 'lastSyncedAt' | 'stale' | 'lastConnectError'
   | 'initializeFromServer' | 'refreshFromServer' | 'disconnectFromServer'
   | 'resetSessionData' | 'markStale'
 >;
@@ -44,6 +44,7 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
   serverMode: false,
   lastSyncedAt: null,
   stale: false,
+  lastConnectError: null,
 
   initializeFromServer: async (token) => {
     platformTransport.disconnect();
@@ -79,6 +80,7 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
         ...nextState,
         lastSyncedAt: Date.now(),
         stale: false,
+        lastConnectError: null,
       });
 
       console.log(`[store] Initialized from server: ${nextState.devices.length} devices, ${nextState.projects.length} projects, ${nextState.vibeRuns.length} AI sessions, ${nextState.terminalSessions.length} terminals, ${nextState.approvals.length} approvals`);
@@ -92,7 +94,11 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
       cancelDeltaBatch();
     cancelStructuredBatch();
       cancelRefreshDebounce();
-      set({ wsConnected: false, serverMode: false });
+      set({
+        wsConnected: false,
+        serverMode: false,
+        lastConnectError: error instanceof Error ? error.message : String(error),
+      });
       throw error instanceof Error
         ? error
         : new Error('Unable to connect to the local platform.');
@@ -111,7 +117,10 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
     if (action === 'reinitialize' && token) {
       return get().initializeFromServer(token).catch(error => {
         console.warn('[store] Failed to reinitialize from server:', error);
-        set({ stale: true });
+        set({
+          stale: true,
+          lastConnectError: error instanceof Error ? error.message : String(error),
+        });
       });
     }
     if (action === 'noop') {
@@ -134,10 +143,14 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
           ),
           lastSyncedAt: Date.now(),
           stale: false,
+          lastConnectError: null,
         }));
       } catch (error) {
         console.warn('[store] Failed to refresh from server:', error);
-        set({ stale: true });
+        set({
+          stale: true,
+          lastConnectError: error instanceof Error ? error.message : String(error),
+        });
       } finally {
         refreshInFlight = null;
       }

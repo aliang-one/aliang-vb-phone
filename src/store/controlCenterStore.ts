@@ -576,6 +576,14 @@ export const useControlCenterStore = create<ControlCenterState>()(
               set(state => ({
                 vibeRuns: state.vibeRuns.map(item => {
                   if (item.id !== transportEvent.sessionId) return item;
+                  if (item.runStateVersion !== undefined) {
+                    const activityMs = activityNowMs();
+                    return {
+                      ...item,
+                      lastActivityMs: activityMs,
+                      updatedAt: formatActivityLabel(activityMs),
+                    };
+                  }
                   const status: VibeStatus =
                     item.status === 'failed' ||
                     item.status === 'completed' ||
@@ -679,38 +687,46 @@ export const useControlCenterStore = create<ControlCenterState>()(
                 const run = state.vibeRuns.find(
                   item => item.id === transportEvent.sessionId,
                 );
+                const hasV2Authority = run?.runStateVersion !== undefined;
                 return {
                   vibeRuns: state.vibeRuns.map(item =>
                     item.id === transportEvent.sessionId
                       ? {
                           ...item,
-                          status: 'failed' as VibeStatus,
+                          status:
+                            item.runStateVersion !== undefined
+                              ? item.status
+                              : ('failed' as VibeStatus),
                           currentStep: transportEvent.error,
                           lastActivityMs: activityNowMs(),
                           updatedAt: formatActivityLabel(activityNowMs()),
                         }
                       : item,
                   ),
-                  devices: state.devices.map(device => ({
-                    ...device,
-                    activeSessionIds: device.activeSessionIds.filter(
-                      id => id !== transportEvent.sessionId,
-                    ),
-                  })),
-                  events: [
-                    event(
-                      'agent.session.failed',
-                      'VibeCoding failed',
-                      transportEvent.error,
-                      'failed',
-                      {
-                        deviceId: run?.deviceId,
-                        projectId: run?.projectId,
-                        sessionId: transportEvent.sessionId,
-                      },
-                    ),
-                    ...state.events,
-                  ].slice(0, 120),
+                  devices: hasV2Authority
+                    ? state.devices
+                    : state.devices.map(device => ({
+                        ...device,
+                        activeSessionIds: device.activeSessionIds.filter(
+                          id => id !== transportEvent.sessionId,
+                        ),
+                      })),
+                  events: hasV2Authority
+                    ? state.events
+                    : [
+                        event(
+                          'agent.session.failed',
+                          'VibeCoding failed',
+                          transportEvent.error,
+                          'failed',
+                          {
+                            deviceId: run?.deviceId,
+                            projectId: run?.projectId,
+                            sessionId: transportEvent.sessionId,
+                          },
+                        ),
+                        ...state.events,
+                      ].slice(0, 120),
                 };
               });
               return;
@@ -728,10 +744,11 @@ export const useControlCenterStore = create<ControlCenterState>()(
               set(state => ({
                 vibeRuns: state.vibeRuns.map(item => {
                   if (item.id !== transportEvent.sessionId) return item;
+                  const hasV2Authority = item.runStateVersion !== undefined;
                   let status: VibeStatus = item.status;
                   if (item.status === 'failed' || item.status === 'completed') {
                     status = item.status;
-                  } else if (isHalt) {
+                  } else if (isHalt && !hasV2Authority) {
                     status = 'idle';
                   }
                   const activityMs = activityNowMs();
@@ -780,7 +797,10 @@ export const useControlCenterStore = create<ControlCenterState>()(
                   run.id === transportEvent.sessionId
                     ? {
                         ...run,
-                        status: 'idle' as VibeStatus,
+                        status:
+                          run.runStateVersion !== undefined
+                            ? run.status
+                            : ('idle' as VibeStatus),
                         lastActivityMs: createdMs,
                         updatedAt: formatActivityLabel(createdMs),
                       }
@@ -807,6 +827,14 @@ export const useControlCenterStore = create<ControlCenterState>()(
               set(state => ({
                 vibeRuns: state.vibeRuns.map(item => {
                   if (item.id !== transportEvent.sessionId) return item;
+                  if (item.runStateVersion !== undefined) {
+                    const activityMs = activityNowMs();
+                    return {
+                      ...item,
+                      lastActivityMs: activityMs,
+                      updatedAt: formatActivityLabel(activityMs),
+                    };
+                  }
                   if (
                     item.status === 'failed' ||
                     item.status === 'completed' ||
@@ -834,6 +862,12 @@ export const useControlCenterStore = create<ControlCenterState>()(
             }
 
             case 'ai.session.updated': {
+              // Preserve wire order across the 100ms client batchers. Deltas /
+              // structured events that arrived BEFORE this authoritative
+              // snapshot must be applied first; otherwise their delayed timer
+              // flush can run after completed and resurrect status=running.
+              flushDeltas();
+              flushStructuredEvents();
               // Recovery edge: `approval.requested` is a one-shot push (no
               // retry-until-ack) that a momentary WS blip can drop, and a turn
               // paused for approval never emits `ai.done` — so the existing
@@ -1162,11 +1196,13 @@ export const useControlCenterStore = create<ControlCenterState>()(
                       return {
                         ...run,
                         status:
-                          approvalDecision === 'approved'
-                            ? run.status === 'waiting_approval'
-                              ? ('running' as VibeStatus)
-                              : run.status
-                            : ('failed' as VibeStatus),
+                          run.runStateVersion !== undefined
+                            ? run.status
+                            : approvalDecision === 'approved'
+                              ? run.status === 'waiting_approval'
+                                ? ('running' as VibeStatus)
+                                : run.status
+                              : ('failed' as VibeStatus),
                         currentStep:
                           approvalDecision === 'approved'
                             ? 'Approval granted. Waiting for agent to continue.'

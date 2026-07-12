@@ -1,11 +1,14 @@
 import {
   LIVE_TURN_WINDOW_MS,
   deriveSessionPhase,
+  isAuthoritativeRunLive,
   isSessionTurnActive,
   lastUnrepliedUserMessageId,
   liveAssistantMessageId,
+  phaseAccentColor,
+  phaseGlow,
+  phaseLabel,
   runDisplayPhase,
-  sessionPhaseLabel,
   shouldLockComposerForProvider,
 } from '../sessionPhase';
 
@@ -56,10 +59,10 @@ describe('deriveSessionPhase (L1 整体相位)', () => {
   });
 
   it('4 个相位都有中文 label', () => {
-    expect(sessionPhaseLabel.running).toBe('进行中');
-    expect(sessionPhaseLabel.waiting_approval).toBe('待审批');
-    expect(sessionPhaseLabel.completed).toBe('已完成');
-    expect(sessionPhaseLabel.failed).toBe('失败');
+    expect(phaseLabel('running')).toBe('进行中');
+    expect(phaseLabel('waiting_approval')).toBe('待审批');
+    expect(phaseLabel('completed')).toBe('已完成');
+    expect(phaseLabel('failed')).toBe('失败');
   });
 });
 
@@ -84,6 +87,34 @@ describe('runDisplayPhase (列表/卡片显示相位 = 与详情页同源)', () 
   it('status=running 乐观/即时压过 phase(刚发送,服务端 phase 尚未跟上 → 进行中)', () => {
     expect(runDisplayPhase('running', 'completed')).toBe('running');
     expect(runDisplayPhase('running', 'waiting_approval')).toBe('running');
+  });
+
+  it('v2 revision 建立后服务端 phase 压过迟到的裸 running', () => {
+    expect(runDisplayPhase('running', 'completed', 7)).toBe('completed');
+    expect(runDisplayPhase('running', 'waiting_approval', 8)).toBe(
+      'waiting_approval',
+    );
+  });
+
+  it('v2 run_state 覆盖全部生命周期类别', () => {
+    expect(runDisplayPhase('idle', 'completed', 9, 'queued')).toBe('running');
+    expect(runDisplayPhase('idle', 'completed', 10, 'running')).toBe('running');
+    expect(runDisplayPhase('running', 'running', 11, 'waiting_approval')).toBe(
+      'waiting_approval',
+    );
+    expect(runDisplayPhase('running', 'running', 12, 'completed')).toBe(
+      'completed',
+    );
+    expect(runDisplayPhase('running', 'running', 13, 'cancelled')).toBe(
+      'completed',
+    );
+    expect(runDisplayPhase('running', 'running', 14, 'timed_out')).toBe('failed');
+  });
+
+  it('待审批是权威相位,但不是正在执行', () => {
+    expect(isAuthoritativeRunLive(7, 'waiting_approval', 'running')).toBe(false);
+    expect(isAuthoritativeRunLive(8, 'running', 'idle')).toBe(true);
+    expect(isAuthoritativeRunLive(undefined, undefined, 'running')).toBe(true);
   });
 
   it('failed 终态最优先,压过 running 与 phase', () => {
@@ -240,5 +271,50 @@ describe('isSessionTurnActive (事件驱动:status===running)', () => {
     expect(isSessionTurnActive('waiting_approval')).toBe(false);
     expect(isSessionTurnActive('paused')).toBe(false);
     expect(isSessionTurnActive('waiting_user')).toBe(false);
+  });
+});
+
+describe('phaseAccentColor (列表/卡片相位着色:绿/黄/蓝/红)', () => {
+  // 用户要求:进行中=绿、待批准=黄、空闲/完成=蓝(默认)、失败=红。
+  // 取 theme.colors 的 success/warning/primary/error 真值,跨暗/亮主题自适应。
+  const colors = {
+    success: '#GREEN',
+    warning: '#YELLOW',
+    primary: '#BLUE',
+    error: '#RED',
+  } as const;
+
+  it('running → success(绿)', () => {
+    expect(phaseAccentColor('running', colors)).toBe('#GREEN');
+  });
+
+  it('waiting_approval → warning(黄)', () => {
+    expect(phaseAccentColor('waiting_approval', colors)).toBe('#YELLOW');
+  });
+
+  it('completed → primary(蓝,默认色)', () => {
+    expect(phaseAccentColor('completed', colors)).toBe('#BLUE');
+  });
+
+  it('failed → error(红,保留错误语义)', () => {
+    expect(phaseAccentColor('failed', colors)).toBe('#RED');
+  });
+});
+
+describe('phaseGlow (GlassPanel 光晕键,仅暗色生效)', () => {
+  it('running → success(绿光晕)', () => {
+    expect(phaseGlow('running')).toBe('success');
+  });
+
+  it('waiting_approval → warning(黄光晕)', () => {
+    expect(phaseGlow('waiting_approval')).toBe('warning');
+  });
+
+  it('failed → error(红光晕)', () => {
+    expect(phaseGlow('failed')).toBe('error');
+  });
+
+  it('completed → none(默认态不强调)', () => {
+    expect(phaseGlow('completed')).toBe('none');
   });
 });

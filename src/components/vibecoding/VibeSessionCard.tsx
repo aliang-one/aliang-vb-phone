@@ -15,8 +15,10 @@ import { useTranslation } from 'react-i18next';
 import { GlassPanel } from '../shared/GlassPanel';
 import { StatusChip } from '../shared/StatusChip';
 import {
+  phaseAccentColor,
+  phaseGlow,
+  phaseLabel,
   runDisplayPhase,
-  sessionPhaseLabel,
   sessionPhaseType,
 } from '../../utils/sessionPhase';
 import { VoiceTextInput } from './VoiceTextInput';
@@ -117,15 +119,15 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
     // 与详情页同源的显示相位(优先级 failed > status=running > 服务端 phase > 兜底)。
     // 关键:认服务端权威 `phase` 而非裸 `status`——否则审批期间 status settle 成
     // idle/completed 时卡片会显 done(用户报告的「审批中列表显已完成」)。
-    const phase = runDisplayPhase(session.status, session.phase);
-    const statusColor =
-      phase === 'failed'
-        ? theme.colors.error
-        : phase === 'waiting_approval'
-        ? theme.colors.tertiary
-        : phase === 'running'
-        ? theme.colors.primary
-        : theme.colors.secondary; // completed
+    const phase = runDisplayPhase(
+      session.status,
+      session.phase,
+      session.runStateVersion,
+      session.runState,
+    );
+    // 相位强调色:进行中=绿、待批准=黄、空闲/完成=蓝(默认)、失败=红。
+    // 驱动左侧轨道、圆点、图标底色、状态标签、暗色光晕 —— 跨所有会话卡片统一编码。
+    const statusColor = phaseAccentColor(phase, theme.colors);
 
     if (hidden) {
       return null;
@@ -253,13 +255,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
           style={{ opacity: disabled ? 0.5 : 1 }}
         >
           <GlassPanel
-            glowColor={
-              phase === 'waiting_approval'
-                ? 'secondary'
-                : phase === 'failed'
-                ? 'error'
-                : 'none'
-            }
+            glowColor={phaseGlow(phase)}
             style={[styles.card, homeFocus ? styles.homeCard : null]}
           >
             <View style={styles.header}>
@@ -268,13 +264,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
               />
               <IconBadge
                 name={phase === 'waiting_approval' ? 'approval' : 'agent'}
-                tone={
-                  phase === 'waiting_approval'
-                    ? 'tertiary'
-                    : phase === 'failed'
-                    ? 'error'
-                    : 'primary'
-                }
+                colorOverride={statusColor}
                 size={42}
                 iconSize={21}
               />
@@ -325,8 +315,9 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                 )}
               </View>
               <StatusChip
-                label={sessionPhaseLabel[phase]}
+                label={phaseLabel(phase)}
                 type={sessionPhaseType[phase]}
+                accent={statusColor}
               />
             </View>
             {homeFocus ? (
@@ -563,8 +554,9 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                 </View>
                 {renaming ? null : (
                   <StatusChip
-                    label={sessionPhaseLabel[phase]}
+                    label={phaseLabel(phase)}
                     type={sessionPhaseType[phase]}
+                    accent={statusColor}
                   />
                 )}
               </View>

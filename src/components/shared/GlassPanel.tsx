@@ -5,7 +5,7 @@ import { useTheme } from '../../theme/useTheme';
 interface GlassPanelProps {
   children: React.ReactNode;
   style?: object;
-  glowColor?: 'primary' | 'secondary' | 'error' | 'none';
+  glowColor?: 'primary' | 'secondary' | 'error' | 'success' | 'warning' | 'none';
   bordered?: boolean;
 }
 

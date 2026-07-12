@@ -92,11 +92,13 @@ export const createApprovalSlice: StateCreator<ControlCenterState, [], [], Appro
         return {
           ...run,
           status:
-            decision === 'approved'
-              ? run.status === 'waiting_approval'
-                ? 'running'
-                : run.status
-              : 'failed',
+            run.runStateVersion !== undefined
+              ? run.status
+              : decision === 'approved'
+                ? run.status === 'waiting_approval'
+                  ? 'running'
+                  : run.status
+                : 'failed',
           currentStep:
             decision === 'approved'
               ? 'Approval granted. Waiting for agent to continue.'

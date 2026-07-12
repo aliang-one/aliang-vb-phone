@@ -49,7 +49,9 @@
     "deviceOfflineTitle": "Desktop Agent not connected",
     "deviceOfflineDetail": "The desktop Agent is currently offline. Make sure the Agent is running and connected to the same service, then retry.",
     "agentTimeoutTitle": "Agent timed out",
-    "agentTimeoutDetail": "The desktop Agent didn't respond in time. Please retry shortly, or confirm the Agent isn't busy with another task."
+    "agentTimeoutDetail": "The desktop Agent didn't respond in time. Please retry shortly, or confirm the Agent isn't busy with another task.",
+    "connectionFailedTitle": "Can't reach the platform service",
+    "connectionFailedBody": "Failed to load data. Check your connection and tap Retry; if it persists, the server may be temporarily unavailable."
   },
   "voice": {
     "nativeUnavailable": "Voice input unavailable: native audio module not installed — please rebuild the app (iOS requires pod install)",

@@ -1,4 +1,5 @@
-import type { VibeStatus } from '../data/platformModels';
+import type { VibeCodingRun, VibeStatus } from '../data/platformModels';
+import i18n from '../i18n';
 
 /**
  * L1 — 顶部「整体状态」相位。
@@ -68,19 +69,50 @@ export function deriveSessionPhase(
 export function runDisplayPhase(
   status: VibeStatus,
   phase: SessionPhase | undefined,
+  runStateVersion?: number,
+  runState?: VibeCodingRun['runState'],
 ): SessionPhase {
+  if (runStateVersion !== undefined) {
+    if (runState === 'failed' || runState === 'timed_out') return 'failed';
+    if (runState === 'completed' || runState === 'cancelled') return 'completed';
+    if (runState === 'waiting_approval') return 'waiting_approval';
+    if (
+      runState === 'queued' ||
+      runState === 'running' ||
+      runState === 'cancelling'
+    ) {
+      return 'running';
+    }
+    if (phase) return phase;
+  }
   if (status === 'failed') return 'failed';
   if (status === 'running') return 'running';
   if (phase) return phase;
   return deriveSessionPhase(status, false, false);
 }
 
-export const sessionPhaseLabel: Record<SessionPhase, string> = {
-  running: '进行中',
-  waiting_approval: '待审批',
-  completed: '已完成',
-  failed: '失败',
-};
+export function isAuthoritativeRunLive(
+  runStateVersion: number | undefined,
+  runState: VibeCodingRun['runState'],
+  legacyStatus: VibeStatus,
+): boolean {
+  if (runStateVersion === undefined) return isSessionTurnActive(legacyStatus);
+  return (
+    runState === 'queued' ||
+    runState === 'running' ||
+    runState === 'cancelling'
+  );
+}
+
+/**
+ * 相位 → 显示文案。util 单例 i18n(非组件),运行时求值 → 切语言即时刷新,与
+ * backgroundNotifications / activitySummary 同模式(文案见 vibecoding/<lng>.json
+ * 的 phaseLabel 节点)。卡片 VibeSessionCard 与会话详情头 VibeCodingSessionScreen
+ * 共用,保持简短状态措辞 —— 不复用 session.phase.*(那是描述句:"本轮完成 / 会话失败"),
+ * 避免改卡片 StatusChip 的语义。
+ */
+export const phaseLabel = (phase: SessionPhase): string =>
+  i18n.t(`vibecoding:phaseLabel.${phase}`);
 
 export const sessionPhaseType: Record<
   SessionPhase,
@@ -91,6 +123,48 @@ export const sessionPhaseType: Record<
   completed: 'neutral',
   failed: 'error',
 };
+
+/**
+ * 相位 → 强调色(列表/卡片全局着色源)。绿=进行中、黄=待批准、蓝=空闲/完成(默认)、
+ * 红=失败。VibeSessionCard 消费它驱动 轨道/图标/标签/光晕,跨所有会话卡片统一编码。
+ * 接受 theme.colors 以取本主题 success/warning/primary/error 真值(暗/亮自适应)。
+ */
+export function phaseAccentColor(
+  phase: SessionPhase,
+  colors: { success: string; warning: string; primary: string; error: string },
+): string {
+  switch (phase) {
+    case 'running':
+      return colors.success;
+    case 'waiting_approval':
+      return colors.warning;
+    case 'failed':
+      return colors.error;
+    case 'completed':
+    default:
+      return colors.primary;
+  }
+}
+
+/**
+ * 相位 → GlassPanel 光晕键(仅暗色生效)。进行中/待批准 给对应色辉光强调活跃与待办;
+ * 失败给红;完成/空闲不给光晕(默认态无需强调)。
+ */
+export function phaseGlow(
+  phase: SessionPhase,
+): 'success' | 'warning' | 'primary' | 'error' | 'none' {
+  switch (phase) {
+    case 'running':
+      return 'success';
+    case 'waiting_approval':
+      return 'warning';
+    case 'failed':
+      return 'error';
+    case 'completed':
+    default:
+      return 'none';
+  }
+}
 
 /**
  * 窗口期:最近一次活动(ai.delta flush 每次会把 run.lastActivityMs 刷成 Date.now())

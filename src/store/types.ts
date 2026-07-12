@@ -220,6 +220,8 @@ export interface ControlCenterState {
   // trigger a per-domain refresh instead of assuming the resident copy is live.
   lastSyncedAt: number | null;
   stale: boolean;
+  /** 最近一次 initialize/refresh 失败的原因(成功时清空)。供「连接失败」卡片展示。 */
+  lastConnectError: string | null;
   // Data
   devices: Device[];
   projects: Project[];

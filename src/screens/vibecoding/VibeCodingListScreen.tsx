@@ -35,6 +35,7 @@ import { TopAppBar } from '../../components/layout/TopAppBar';
 import { SearchBar } from '../../components/input/SearchBar';
 import { DeferredMount } from '../../components/shared/DeferredMount';
 import { StatusChip } from '../../components/shared/StatusChip';
+import { ConnectionFailedCard } from '../../components/shared/ConnectionFailedCard';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { TerminalCard } from '../../components/terminals/TerminalCard';
 import { VoiceToBashModal } from '../../components/terminal/VoiceToBashModal';
@@ -45,7 +46,7 @@ import {
   useControlCenterStore,
   useStableVibeRuns,
 } from '../../store/controlCenterStore';
-import { ACTIVE_RUN_STATUS } from '../../store/internals';
+import { ACTIVE_RUN_STATUS, isConnectionFailed } from '../../store/internals';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
@@ -208,6 +209,16 @@ export const VibeCodingListScreen: React.FC = () => {
   const vibeRuns = useStableVibeRuns();
   const refreshFromServer = useControlCenterStore(
     state => state.refreshFromServer,
+  );
+  const serverMode = useControlCenterStore(state => state.serverMode);
+  const lastSyncedAt = useControlCenterStore(state => state.lastSyncedAt);
+  const lastConnectError = useControlCenterStore(
+    state => state.lastConnectError,
+  );
+  const connectionFailed = isConnectionFailed(
+    serverMode,
+    lastSyncedAt,
+    lastConnectError,
   );
   const terminalSessions = useControlCenterStore(
     state => state.terminalSessions,
@@ -652,6 +663,9 @@ export const VibeCodingListScreen: React.FC = () => {
           </View>
         }
       >
+        {connectionFailed ? (
+          <ConnectionFailedCard error={lastConnectError} onRetry={handleRefresh} />
+        ) : null}
         <ScrollView
           ref={pagerRef}
           horizontal

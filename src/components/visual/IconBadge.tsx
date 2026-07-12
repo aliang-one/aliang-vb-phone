@@ -48,6 +48,8 @@ interface IconBadgeProps {
   iconSize?: number;
   filled?: boolean;
   style?: object;
+  /** 强制强调色(hex)——覆盖 tone 派生色。会话卡片按相位着色(绿/黄/蓝/红)时传入。 */
+  colorOverride?: string;
 }
 
 const toneToColor = (tone: Tone, colors: ReturnType<typeof useTheme>['theme']['colors']) => {
@@ -72,9 +74,10 @@ export const IconBadge: React.FC<IconBadgeProps> = ({
   iconSize = 22,
   filled = false,
   style,
+  colorOverride,
 }) => {
   const { theme, isDark } = useTheme();
-  const color = toneToColor(tone, theme.colors);
+  const color = colorOverride ?? toneToColor(tone, theme.colors);
   const backgroundColor = filled
     ? color
     : isDark

@@ -188,6 +188,7 @@
     "noQuestion": "暂无提问",
     "deleteFailed": "删除失败，设备可能离线，请重试。",
     "copiedId": "已复制会话 ID，可在终端 claude --resume <id> 打开。",
+    "rename": "重命名",
     "renameTitle": "重命名",
     "renamePlaceholder": "输入新的会话标题",
     "titleEmpty": "标题不能为空。",
@@ -200,6 +201,12 @@
     "cancel": "取消",
     "save": "保存",
     "delete": "删除"
+  },
+  "phaseLabel": {
+    "running": "进行中",
+    "waiting_approval": "待审批",
+    "completed": "已完成",
+    "failed": "失败"
   },
   "approvals": {
     "collapseResolved": "收起已处理审批",

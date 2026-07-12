@@ -74,10 +74,12 @@ import {
 import {
   LIVE_TURN_WINDOW_MS,
   deriveSessionPhase,
+  isAuthoritativeRunLive,
   isSessionTurnActive,
   lastUnrepliedUserMessageId,
   liveAssistantMessageId,
-  sessionPhaseLabel,
+  phaseLabel,
+  runDisplayPhase,
   sessionPhaseType,
   shouldLockComposerForProvider,
   type SessionPhase,
@@ -1085,7 +1087,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // 结束是确定信号(ai.done),不需要 debounce,也就没有 8s 滞后。
   const now = useNowTick();
   // 统一源头:顶部相位 / composer 锁 / 停止按钮 / 发送 guard / L2-L3 脉冲都看它。
-  const isSessionLive = isSessionTurnActive(session?.status ?? 'idle');
+  const isSessionLive =
+    session != null &&
+    isAuthoritativeRunLive(
+      session.runStateVersion,
+      session.runState,
+      session.status,
+    );
   // L3「哪条助手消息在流式」的高亮锚点:仅当回合在跑时才高亮最后一条 assistant 消息;
   // ai.done→idle 后 isSessionLive 即 false,高亮即时消失(不再拖 8s)。
   const liveMessageId = useMemo(
@@ -1455,6 +1463,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // without phase fall back to deriveSessionPhase.
   const sessionPhase = useMemo<SessionPhase>(
     () => {
+      if (session?.runStateVersion !== undefined && session.phase) {
+        return runDisplayPhase(
+          session.status,
+          session.phase,
+          session.runStateVersion,
+          session.runState,
+        );
+      }
       if (session?.status === 'failed') return 'failed';
       if (isSessionLive) return 'running';
       if (session?.phase) return session.phase;
@@ -1464,7 +1480,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
         false,
       );
     },
-    [isSessionLive, pendingApprovals.length, session?.status, session?.phase],
+    [
+      isSessionLive,
+      pendingApprovals.length,
+      session?.status,
+      session?.phase,
+      session?.runStateVersion,
+      session?.runState,
+    ],
   );
   // case B 失败回合定位:会话 failed 且最后一条是没收到回复的 user 消息 → 在该
   // 消息旁挂「未收到回复 · 重试」。重发后 status→running,入口自动消失。
@@ -1954,11 +1977,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // Also offer expand for long single-segment titles that clip on one line.
   const titleCanExpand = titleHasOverflow || titleHead.length > 24;
   const statusAccent =
-    session.status === 'waiting_approval'
+    sessionPhase === 'waiting_approval'
       ? theme.colors.tertiary
-      : session.status === 'running'
+      : sessionPhase === 'running'
       ? theme.colors.primary
-      : session.status === 'failed'
+      : sessionPhase === 'failed'
       ? theme.colors.error
       : theme.colors.outlineVariant;
   const conversationBoundaryStart = formatConversationBoundaryTime(
@@ -1978,7 +2001,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
         rightAction={
           <View style={styles.topStatusCluster}>
             <StatusChip
-              label={isDraft ? t('session.phase.notStarted') : sessionPhaseLabel[sessionPhase]}
+              label={isDraft ? t('session.phase.notStarted') : phaseLabel(sessionPhase)}
               type={isDraft ? 'neutral' : sessionPhaseType[sessionPhase]}
             />
             <Text
@@ -2064,7 +2087,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               style={[
                 styles.headerAccent,
                 { backgroundColor: statusAccent },
-                session.status === 'running' && isDark
+                sessionPhase === 'running' && isDark
                   ? theme.glow.primary
                   : null,
               ]}
@@ -2074,11 +2097,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 <IconBadge
                   name={isCodexSession ? 'code' : 'agent'}
                   tone={
-                    session.status === 'waiting_approval' ? 'tertiary' : 'primary'
+                    sessionPhase === 'waiting_approval' ? 'tertiary' : 'primary'
                   }
                   size={44}
                   iconSize={22}
-                  filled={session.status === 'running'}
+                  filled={sessionPhase === 'running'}
                 />
                 <View style={styles.headerTitle}>
                   <View style={styles.titleTapRow}>

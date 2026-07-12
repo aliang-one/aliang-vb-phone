@@ -34,6 +34,8 @@ export interface AppTheme {
     onError: string;
     errorContainer: string;
     onErrorContainer: string;
+    success: string;
+    warning: string;
   };
   typography: {
     displayLg: TextStyle;
@@ -74,6 +76,8 @@ export interface AppTheme {
     primary: object;
     secondary: object;
     error: object;
+    success: object;
+    warning: object;
   };
 }
 

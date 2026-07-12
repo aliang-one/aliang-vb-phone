@@ -120,6 +120,123 @@ describe('appendAgentMessage', () => {
     });
   });
 
+  it('does not flash the previous completed v2 run while a new send is pending', async () => {
+    let resolveSend:
+      | ((value: {
+          message_id: string;
+          status: string;
+          run_id: string;
+          run_state: 'queued';
+          run_state_version: number;
+        }) => void)
+      | undefined;
+    (platformTransport.sendAiMessage as jest.Mock).mockReturnValue(
+      new Promise(resolve => {
+        resolveSend = resolve;
+      }),
+    );
+    useControlCenterStore.setState({
+      vibeRuns: [
+        {
+          ...run(),
+          status: 'idle',
+          phase: 'completed',
+          latestRunId: 'old-run',
+          runState: 'completed',
+          runStateVersion: 8,
+        },
+      ],
+    });
+
+    const send = useControlCenterStore
+      .getState()
+      .appendAgentMessage('s1', 'new turn', 'text');
+    expect(useControlCenterStore.getState().vibeRuns[0]).toMatchObject({
+      status: 'running',
+      phase: 'running',
+      optimisticRunPending: true,
+      optimisticRunBaseVersion: 8,
+    });
+
+    resolveSend?.({
+      message_id: 'server-new',
+      status: 'running',
+      run_id: 'new-run',
+      run_state: 'queued',
+      run_state_version: 9,
+    });
+    await send;
+    expect(useControlCenterStore.getState().vibeRuns[0]).toMatchObject({
+      activeRunId: 'new-run',
+      latestRunId: 'new-run',
+      runState: 'queued',
+      runStateVersion: 9,
+      optimisticRunPending: false,
+    });
+  });
+
+  it('does not regress a WS-completed run when the HTTP accepted response arrives late', async () => {
+    let resolveSend:
+      | ((value: {
+          message_id: string;
+          status: string;
+          run_id: string;
+          run_state: 'queued';
+          run_state_version: number;
+        }) => void)
+      | undefined;
+    (platformTransport.sendAiMessage as jest.Mock).mockReturnValue(
+      new Promise(resolve => {
+        resolveSend = resolve;
+      }),
+    );
+    useControlCenterStore.setState({
+      vibeRuns: [
+        {
+          ...run(),
+          latestRunId: 'old-run',
+          runState: 'completed',
+          runStateVersion: 8,
+        },
+      ],
+    });
+    const send = useControlCenterStore
+      .getState()
+      .appendAgentMessage('s1', 'fast turn', 'text');
+
+    useControlCenterStore.setState(state => ({
+      vibeRuns: state.vibeRuns.map(item =>
+        item.id === 's1'
+          ? {
+              ...item,
+              status: 'idle',
+              phase: 'completed',
+              activeRunId: undefined,
+              latestRunId: 'new-run',
+              runState: 'completed',
+              runStateVersion: 11,
+              optimisticRunPending: false,
+              optimisticRunBaseVersion: undefined,
+            }
+          : item,
+      ),
+    }));
+    resolveSend?.({
+      message_id: 'server-fast',
+      status: 'running',
+      run_id: 'new-run',
+      run_state: 'queued',
+      run_state_version: 9,
+    });
+    await send;
+    expect(useControlCenterStore.getState().vibeRuns[0]).toMatchObject({
+      status: 'idle',
+      phase: 'completed',
+      runState: 'completed',
+      runStateVersion: 11,
+    });
+  });
+
   describe('claude_code 并发 guard 与 composer 锁 / 停止按钮同源(status 事件驱动)', () => {
     beforeEach(() => {
       jest.clearAllMocks();
@@ -157,6 +274,18 @@ describe('appendAgentMessage', () => {
       setRun({ status: 'waiting_approval', provider: 'claude_code' });
       await expect(
         useControlCenterStore.getState().appendAgentMessage('s1', 'next-c', 'text'),
+      ).rejects.toThrow('Claude Code is still running');
+    });
+
+    it('v2 runState=waiting_approval 即使裸 status=idle 也拦截', async () => {
+      setRun({
+        status: 'idle',
+        provider: 'claude_code',
+        runState: 'waiting_approval',
+        runStateVersion: 4,
+      });
+      await expect(
+        useControlCenterStore.getState().appendAgentMessage('s1', 'next-d', 'text'),
       ).rejects.toThrow('Claude Code is still running');
     });
   });

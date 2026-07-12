@@ -373,7 +373,7 @@ class PlatformTransport {
     sessionId: string,
     content: string,
     mode: 'voice' | 'text' = 'text',
-  ): Promise<{ message_id: string; status: string }> {
+  ): ReturnType<typeof apiSendAiMessage> {
     return apiSendAiMessage(sessionId, content, [], mode);
   }
 
@@ -381,7 +381,7 @@ class PlatformTransport {
     sessionId: string,
     content: string,
     mode: 'voice' | 'text' = 'text',
-  ): Promise<{ message_id: string; status: string }> {
+  ): ReturnType<typeof apiSendAiSteer> {
     return apiSendAiSteer(sessionId, content, [], mode);
   }
 

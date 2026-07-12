@@ -18,6 +18,7 @@ import {
   mergeVibeRunSnapshot,
   removeDeviceFromState,
   resolveRefreshAction,
+  isConnectionFailed,
 } from '../internals';
 
 // Minimal run mock — only fields the helpers touch. Cast through unknown so we
@@ -248,6 +249,173 @@ describe('mergeVibeRunSnapshot 双向 stale 守卫(事件驱动 status 的配套
   });
 });
 
+describe('mergeVibeRunSnapshot protocol v2 revision authority', () => {
+  it('lets the first versioned snapshot replace an unversioned optimistic state', () => {
+    const existing = makeRun({
+      id: 's1',
+      status: 'running',
+      phase: 'running',
+      lastActivityMs: 86_400_000,
+    });
+    const incoming = makeRun({
+      id: 's1',
+      status: 'idle',
+      phase: 'completed',
+      runState: 'completed',
+      runStateVersion: 1,
+      lastActivityMs: 10,
+    });
+    expect(mergeVibeRunSnapshot(existing, incoming)).toMatchObject({
+      status: 'idle',
+      phase: 'completed',
+      runState: 'completed',
+      runStateVersion: 1,
+    });
+  });
+
+  it('does not let an unversioned snapshot overwrite established v2 state', () => {
+    const existing = makeRun({
+      id: 's1',
+      status: 'idle',
+      phase: 'completed',
+      runState: 'completed',
+      runStateVersion: 4,
+    });
+    const incoming = makeRun({
+      id: 's1',
+      status: 'running',
+      phase: 'running',
+      lastActivityMs: 999_999,
+    });
+    expect(mergeVibeRunSnapshot(existing, incoming)).toMatchObject({
+      status: 'idle',
+      phase: 'completed',
+      runState: 'completed',
+      runStateVersion: 4,
+    });
+  });
+
+  it('accepts a newer completed state even when the phone activity clock is ahead', () => {
+    const existing = makeRun({
+      id: 's1',
+      status: 'running',
+      phase: 'running',
+      activeRunId: 'r1',
+      runState: 'running',
+      runStateVersion: 4,
+      lastActivityMs: 86_400_000,
+    });
+    const incoming = makeRun({
+      id: 's1',
+      status: 'idle',
+      phase: 'completed',
+      latestRunId: 'r1',
+      runState: 'completed',
+      runStateVersion: 5,
+      lastActivityMs: 10,
+    });
+    const merged = mergeVibeRunSnapshot(existing, incoming);
+    expect(merged.status).toBe('idle');
+    expect(merged.phase).toBe('completed');
+    expect(merged.runState).toBe('completed');
+    expect(merged.runStateVersion).toBe(5);
+  });
+
+  it('rejects an older running snapshot after completion', () => {
+    const existing = makeRun({
+      id: 's1',
+      status: 'idle',
+      phase: 'completed',
+      latestRunId: 'r1',
+      runState: 'completed',
+      runStateVersion: 8,
+    });
+    const incoming = makeRun({
+      id: 's1',
+      status: 'running',
+      phase: 'running',
+      activeRunId: 'r1',
+      runState: 'running',
+      runStateVersion: 7,
+      lastActivityMs: 999_999,
+    });
+    const merged = mergeVibeRunSnapshot(existing, incoming);
+    expect(merged.status).toBe('idle');
+    expect(merged.phase).toBe('completed');
+    expect(merged.runStateVersion).toBe(8);
+  });
+
+  it('does not let a same-revision conflicting snapshot flip state', () => {
+    const existing = makeRun({
+      id: 's1',
+      status: 'idle',
+      phase: 'completed',
+      runState: 'completed',
+      runStateVersion: 3,
+    });
+    const incoming = makeRun({
+      id: 's1',
+      status: 'running',
+      phase: 'running',
+      runState: 'running',
+      runStateVersion: 3,
+    });
+    expect(mergeVibeRunSnapshot(existing, incoming)).toMatchObject({
+      status: 'idle',
+      phase: 'completed',
+      runState: 'completed',
+      runStateVersion: 3,
+    });
+  });
+
+  it('keeps an optimistic new run above snapshots from the previous revision', () => {
+    const existing = makeRun({
+      id: 's1',
+      status: 'running',
+      phase: 'running',
+      optimisticRunPending: true,
+      optimisticRunBaseVersion: 8,
+    });
+    const oldCompleted = makeRun({
+      id: 's1',
+      status: 'idle',
+      phase: 'completed',
+      latestRunId: 'old-run',
+      runState: 'completed',
+      runStateVersion: 8,
+    });
+    expect(mergeVibeRunSnapshot(existing, oldCompleted)).toMatchObject({
+      status: 'running',
+      phase: 'running',
+      optimisticRunPending: true,
+    });
+  });
+
+  it('lets the first newer run revision clear optimistic authority', () => {
+    const existing = makeRun({
+      id: 's1',
+      status: 'running',
+      phase: 'running',
+      optimisticRunPending: true,
+      optimisticRunBaseVersion: 8,
+    });
+    const nextRun = makeRun({
+      id: 's1',
+      status: 'running',
+      phase: 'running',
+      activeRunId: 'new-run',
+      latestRunId: 'new-run',
+      runState: 'queued',
+      runStateVersion: 9,
+    });
+    expect(mergeVibeRunSnapshot(existing, nextRun)).toMatchObject({
+      activeRunId: 'new-run',
+      runStateVersion: 9,
+      optimisticRunPending: false,
+    });
+  });
+});
+
 // Minimal device/project mocks — only fields the relation helpers touch. Cast
 // through unknown so we don't materialize the full literal.
 const makeDevice = (over: Partial<Device> & { id: string }): Device =>
@@ -404,5 +572,30 @@ describe('resolveRefreshAction (断线/初始化失败自愈判定)', () => {
 
   it('!serverMode + 无 token(已登出)→ noop(不空跑)', () => {
     expect(resolveRefreshAction(false, false)).toBe('noop');
+  });
+});
+
+describe('isConnectionFailed (从未连上 → 显连接失败卡)', () => {
+  // 用户报告:home/vibe/device 全空白、下拉无反应。根因=停在「init 失败」状态。
+  // 三者全满足才显卡:!serverMode + 从未同步 + 确有失败原因(lastConnectError)。
+  // lastConnectError 这一条排除「冷启动加载中」窗口,避免正常开 app 闪假告警。
+  it('init 失败(未连上 + 从未同步 + 有错误)→ true [BUG 现场]', () => {
+    expect(isConnectionFailed(false, null, 'HTTP 502')).toBe(true);
+  });
+
+  it('冷启动加载中(未连上 + 从未同步 + 还没失败)→ false(不闪假告警)', () => {
+    expect(isConnectionFailed(false, null, null)).toBe(false);
+  });
+
+  it('连上了(serverMode=true)→ false,即便尚未同步', () => {
+    expect(isConnectionFailed(true, null, null)).toBe(false);
+  });
+
+  it('曾同步过(lastSyncedAt 有值)后断线 → false(算 stale 暂态,不显失败卡)', () => {
+    expect(isConnectionFailed(false, Date.now(), 'network')).toBe(false);
+  });
+
+  it('正常连上且有数据 → false', () => {
+    expect(isConnectionFailed(true, Date.now(), null)).toBe(false);
   });
 });

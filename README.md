@@ -97,8 +97,17 @@ To learn more about React Native, take a look at the following resources:
 - [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
 
 ```bash
+export ALIANG_RELEASE_STORE_FILE=/absolute/path/to/release.jks
+export ALIANG_RELEASE_STORE_PASSWORD='<store-password>'
+export ALIANG_RELEASE_KEY_ALIAS='<key-alias>'
+export ALIANG_RELEASE_KEY_PASSWORD='<key-password>'
+cd android
 ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
 
-adb install android/app/build/outputs/apk/release/app-release.apk
+adb install app/build/outputs/apk/release/app-release.apk
 ```
 
+Release builds fail closed when production signing is missing or only partially
+configured. For an internal test APK only, set
+`ALLOW_DEBUG_RELEASE_SIGNING=true`; that artifact is debug-signed and must not
+be distributed as a production update.

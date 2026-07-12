@@ -50,6 +50,10 @@ export const darkTheme: AppTheme = {
     onError: '#1E1E1E',
     errorContainer: '#5A1D1D',
     onErrorContainer: '#F48771',
+
+    // Success / Warning — phase accent tokens (session card: 进行中=绿, 待批准=黄)
+    success: '#73C991',
+    warning: '#E5C36B',
   },
   typography: {
     displayLg: {
@@ -177,6 +181,18 @@ export const darkTheme: AppTheme = {
       shadowOffset: { width: 0, height: 0 },
       shadowOpacity: 0.25,
       shadowRadius: 4,
+    },
+    success: {
+      shadowColor: '#73C991',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.22,
+      shadowRadius: 5,
+    },
+    warning: {
+      shadowColor: '#E5C36B',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.22,
+      shadowRadius: 5,
     },
   },
 };

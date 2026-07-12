@@ -173,6 +173,22 @@ export interface VibeCodingRun {
    * a lack of ai.delta. Undefined for older servers; callers fall back.
    */
   phase?: 'running' | 'waiting_approval' | 'completed' | 'failed';
+  activeRunId?: string;
+  latestRunId?: string;
+  runState?:
+    | 'queued'
+    | 'running'
+    | 'waiting_approval'
+    | 'cancelling'
+    | 'completed'
+    | 'failed'
+    | 'cancelled'
+    | 'timed_out';
+  /** Monotonic server-owned state version; wall-clock timestamps never replace it. */
+  runStateVersion?: number;
+  /** Client-only optimistic new-run guard; never serialized to Server. */
+  optimisticRunPending?: boolean;
+  optimisticRunBaseVersion?: number;
   objective: string;
   model: string;
   projectBudget?: AgentBudgetInfo;

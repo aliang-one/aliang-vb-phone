@@ -16,6 +16,8 @@ import { TopAppBar } from '../../components/layout/TopAppBar';
 import { DeferredMount } from '../../components/shared/DeferredMount';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { StatusChip } from '../../components/shared/StatusChip';
+import { ConnectionFailedCard } from '../../components/shared/ConnectionFailedCard';
+import { isConnectionFailed } from '../../store/internals';
 import { UsageSummaryCard } from '../../components/vibecoding/UsageSummaryCard';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { DeviceControlCard } from '../../components/vibecoding/DeviceControlCard';
@@ -140,6 +142,15 @@ export const CommandCenterScreen: React.FC = () => {
   const serverMode = useControlCenterStore(state => state.serverMode);
   const refreshFromServer = useControlCenterStore(
     state => state.refreshFromServer,
+  );
+  const lastSyncedAt = useControlCenterStore(state => state.lastSyncedAt);
+  const lastConnectError = useControlCenterStore(
+    state => state.lastConnectError,
+  );
+  const connectionFailed = isConnectionFailed(
+    serverMode,
+    lastSyncedAt,
+    lastConnectError,
   );
   const [refreshing, setRefreshing] = useState(false);
 
@@ -458,6 +469,9 @@ export const CommandCenterScreen: React.FC = () => {
           />
         }
       >
+        {connectionFailed ? (
+          <ConnectionFailedCard error={lastConnectError} onRetry={handleRefresh} />
+        ) : null}
         <DeferredMount
           fallback={
             <View style={styles.deferredPlaceholder}>

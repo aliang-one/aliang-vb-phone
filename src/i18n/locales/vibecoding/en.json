@@ -188,6 +188,7 @@
     "noQuestion": "No question yet",
     "deleteFailed": "Delete failed — the device may be offline, please retry.",
     "copiedId": "Copied session ID — open it in the terminal via `claude --resume <id>`.",
+    "rename": "Rename",
     "renameTitle": "Rename",
     "renamePlaceholder": "Enter a new session title",
     "titleEmpty": "Title cannot be empty.",
@@ -200,6 +201,12 @@
     "cancel": "Cancel",
     "save": "Save",
     "delete": "Delete"
+  },
+  "phaseLabel": {
+    "running": "In progress",
+    "waiting_approval": "Awaiting approval",
+    "completed": "Completed",
+    "failed": "Failed"
   },
   "approvals": {
     "collapseResolved": "Collapse resolved approvals",

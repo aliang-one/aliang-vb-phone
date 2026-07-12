@@ -44,6 +44,19 @@ export interface ServerAiSession {
    * callers fall back to deriveSessionPhase.
    */
   phase?: 'running' | 'waiting_approval' | 'completed' | 'failed';
+  active_run_id?: string;
+  latest_run_id?: string;
+  run_state?:
+    | 'queued'
+    | 'running'
+    | 'waiting_approval'
+    | 'cancelling'
+    | 'completed'
+    | 'failed'
+    | 'cancelled'
+    | 'timed_out';
+  run_state_version?: number;
+  last_agent_event_seq?: number;
   project_path?: string;
   mode: 'chat' | 'vibe' | 'review' | 'agent';
   title?: string;
@@ -294,12 +307,20 @@ export const createAiSession = (input: {
     timeoutMs: AI_TURN_REQUEST_TIMEOUT_MS,
   });
 
+export interface SendAiMessageResponse {
+  message_id: string;
+  status: string;
+  run_id?: string;
+  run_state?: ServerAiSession['run_state'];
+  run_state_version?: number;
+}
+
 export const sendAiMessage = (
   sessionId: string,
   content: string,
   attachments: unknown[] = [],
   mode: 'voice' | 'text' = 'text',
-): Promise<{ message_id: string; status: string }> =>
+): Promise<SendAiMessageResponse> =>
   apiPost(`/api/ai/sessions/${sessionId}/messages`, { content, attachments, mode }, {
     timeoutMs: AI_TURN_REQUEST_TIMEOUT_MS,
   });
@@ -309,7 +330,7 @@ export const sendAiSteer = (
   content: string,
   attachments: unknown[] = [],
   mode: 'voice' | 'text' = 'text',
-): Promise<{ message_id: string; status: string }> =>
+): Promise<SendAiMessageResponse> =>
   apiPost(`/api/ai/sessions/${sessionId}/steers`, { content, attachments, mode }, {
     timeoutMs: AI_TURN_REQUEST_TIMEOUT_MS,
   });

@@ -49,7 +49,9 @@
     "deviceOfflineTitle": "桌面 Agent 未连接",
     "deviceOfflineDetail": "电脑端 Agent 当前不在线。请确认 Agent 正在运行并已连接到同一台服务，然后重试。",
     "agentTimeoutTitle": "Agent 响应超时",
-    "agentTimeoutDetail": "桌面 Agent 未能及时响应，请稍后重试，或确认 Agent 没有被其他任务占用。"
+    "agentTimeoutDetail": "桌面 Agent 未能及时响应，请稍后重试，或确认 Agent 没有被其他任务占用。",
+    "connectionFailedTitle": "无法连接平台服务",
+    "connectionFailedBody": "数据加载失败。请检查网络后点「重试」;若持续失败,可能是服务端暂不可用。"
   },
   "voice": {
     "nativeUnavailable": "语音输入不可用:原生音频模块未安装,请重新构建 App(iOS 需 pod install)",

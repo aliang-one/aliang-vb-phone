@@ -72,6 +72,43 @@ def enableProguardInReleaseBuilds = false
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+def releaseSigningValue = { String name ->
+    def propertyValue = project.findProperty(name)?.toString()?.trim()
+    propertyValue ?: System.getenv(name)?.trim()
+}
+def releaseStoreFilePath = releaseSigningValue('ALIANG_RELEASE_STORE_FILE')
+def releaseStorePassword = releaseSigningValue('ALIANG_RELEASE_STORE_PASSWORD')
+def releaseKeyAlias = releaseSigningValue('ALIANG_RELEASE_KEY_ALIAS')
+def releaseKeyPassword = releaseSigningValue('ALIANG_RELEASE_KEY_PASSWORD')
+def releaseSigningValues = [
+    releaseStoreFilePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+]
+def hasAnyReleaseSigningValue = releaseSigningValues.any { it }
+def hasReleaseSigning = releaseSigningValues.every { it }
+def allowDebugReleaseSigning =
+    (releaseSigningValue('ALLOW_DEBUG_RELEASE_SIGNING') ?: 'false').toBoolean()
+
+if (hasAnyReleaseSigningValue && !hasReleaseSigning) {
+    throw new GradleException(
+        'Android release signing is partially configured. Set all ALIANG_RELEASE_* values.',
+    )
+}
+if (
+    gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') } &&
+    !hasReleaseSigning &&
+    !allowDebugReleaseSigning
+) {
+    throw new GradleException(
+        'Release signing is required. Configure ALIANG_RELEASE_STORE_FILE, ' +
+        'ALIANG_RELEASE_STORE_PASSWORD, ALIANG_RELEASE_KEY_ALIAS and ' +
+        'ALIANG_RELEASE_KEY_PASSWORD. For an internal-only test APK, explicitly ' +
+        'set ALLOW_DEBUG_RELEASE_SIGNING=true.',
+    )
+}
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -93,15 +130,26 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(releaseStoreFilePath)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            } else if (allowDebugReleaseSigning) {
+                // Explicit internal-testing escape hatch. Never use for distribution.
+                signingConfig signingConfigs.debug
+            }
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }

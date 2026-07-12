@@ -3,7 +3,10 @@ import type { AgentCommandInfo, VibeCodingRun, VibeStatus } from '../../data/pla
 import { platformTransport } from '../../services/platformTransport';
 import { refreshSessionCommands as refreshSessionCommandsApi } from '../../api/sessions';
 import { normalizeProvider, providerLabel } from '../../utils/modelIntensity';
-import { isSessionTurnActive } from '../../utils/sessionPhase';
+import {
+  isAuthoritativeRunLive,
+  isSessionTurnActive,
+} from '../../utils/sessionPhase';
 import type { AgentProvider, ControlCenterState } from '../types';
 import {
   activityNowMs,
@@ -343,53 +346,17 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
   },
 
   pauseAgentSession: async sessionId => {
-    if (!get().serverMode) {
-      throw new Error('Platform connection is required before pausing a VibeCoding session.');
-    }
-    const serverSession = await platformTransport.pauseAiSession(sessionId);
-    set(state => {
-      const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
-      const vibeRuns = state.vibeRuns.map(run =>
-        run.id === nextRun.id ? mergeVibeRunSnapshot(run, nextRun) : run,
-      );
-      return {
-        vibeRuns,
-        devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
-        events: [
-          event('agent.session.paused', 'VibeCoding paused', nextRun.title, 'done', {
-            deviceId: nextRun.deviceId,
-            projectId: nextRun.projectId,
-            sessionId: nextRun.id,
-          }),
-          ...state.events,
-        ].slice(0, 120),
-      };
-    });
+    void sessionId;
+    throw new Error(
+      'Pausing is not supported by the desktop Agent. Interrupt the current turn instead.',
+    );
   },
 
   resumeAgentSession: async sessionId => {
-    if (!get().serverMode) {
-      throw new Error('Platform connection is required before resuming a VibeCoding session.');
-    }
-    const serverSession = await platformTransport.resumeAiSession(sessionId);
-    set(state => {
-      const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
-      const vibeRuns = state.vibeRuns.map(run =>
-        run.id === nextRun.id ? mergeVibeRunSnapshot(run, nextRun) : run,
-      );
-      return {
-        vibeRuns,
-        devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
-        events: [
-          event('agent.session.resumed', 'VibeCoding resumed', nextRun.title, 'running', {
-            deviceId: nextRun.deviceId,
-            projectId: nextRun.projectId,
-            sessionId: nextRun.id,
-          }),
-          ...state.events,
-        ].slice(0, 120),
-      };
-    });
+    void sessionId;
+    throw new Error(
+      'A stopped VibeCoding run cannot be resumed. Send a new message to continue the conversation.',
+    );
   },
 
   terminateAgentSession: async sessionId => {
@@ -481,9 +448,18 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     // 与顶部相位/composer 锁同步),不再因陈旧 running 误拦「Claude Code is still running」。
     // waiting_approval 是服务端主动推送的可靠态,仍拦。
     const status = currentRun?.status;
-    const turnActive =
-      isSessionTurnActive(status ?? 'idle') || status === 'waiting_approval';
-    const sendAsSteer = Boolean(turnActive && provider === 'codex');
+    const executionActive = currentRun
+      ? isAuthoritativeRunLive(
+          currentRun.runStateVersion,
+          currentRun.runState,
+          currentRun.status,
+        )
+      : isSessionTurnActive(status ?? 'idle');
+    const waitingApproval = currentRun?.runStateVersion !== undefined
+      ? currentRun.runState === 'waiting_approval'
+      : status === 'waiting_approval';
+    const turnActive = executionActive || waitingApproval;
+    const sendAsSteer = Boolean(executionActive && provider === 'codex');
     if (turnActive && (provider === 'claude_code' || provider === 'opencode')) {
       pendingMessageSends.delete(sendKey);
       throw new Error(`${providerLabel(provider)} is still running. Stop it before sending another message.`);
@@ -510,6 +486,21 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         return {
           ...run,
           status: 'running' as VibeStatus,
+          // A normal message starts a new server-owned run. Temporarily drop
+          // the previous revision so its completed/failed phase cannot mask
+          // the optimistic running state during the HTTP round trip. A steer
+          // remains on the current run and keeps its authority intact.
+          ...(!sendAsSteer
+            ? {
+                activeRunId: undefined,
+                latestRunId: undefined,
+                runState: undefined,
+                runStateVersion: undefined,
+                phase: 'running' as const,
+                optimisticRunPending: true,
+                optimisticRunBaseVersion: run.runStateVersion ?? -1,
+              }
+            : {}),
           currentStep: sendAsSteer ? 'Steering current Codex turn.' : 'Waiting for AI response.',
           lastActivityMs: activityNowMs(),
           updatedAt: formatActivityLabel(activityNowMs()),
@@ -546,34 +537,56 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         vibeRuns: state.vibeRuns.map(run => {
           if (run.id !== sessionId) return run;
 
+          const responseIsNotOlder =
+            response.run_state_version !== undefined &&
+            (run.runStateVersion === undefined ||
+              response.run_state_version >= run.runStateVersion);
+          const withAcceptedRun = responseIsNotOlder
+            ? {
+                ...run,
+                status: 'running' as VibeStatus,
+                phase: 'running' as const,
+                activeRunId: response.run_id,
+                latestRunId: response.run_id,
+                runState: response.run_state ?? ('queued' as const),
+                runStateVersion: response.run_state_version,
+                optimisticRunPending: false,
+                optimisticRunBaseVersion: undefined,
+              }
+            : {
+                ...run,
+                optimisticRunPending: false,
+                optimisticRunBaseVersion: undefined,
+              };
+
           // 1) Ideal path: optimistic message still present, rename to server id.
-          const optimisticIndex = run.transcript.findIndex(
+          const optimisticIndex = withAcceptedRun.transcript.findIndex(
             item => item.id === optimisticId,
           );
           if (optimisticIndex >= 0) {
-            const optimistic = run.transcript[optimisticIndex];
-            if (optimistic.role !== 'user') return run;
+            const optimistic = withAcceptedRun.transcript[optimisticIndex];
+            if (optimistic.role !== 'user') return withAcceptedRun;
 
             const serverIndex = serverMessageId
-              ? run.transcript.findIndex(item => item.id === serverMessageId)
+              ? withAcceptedRun.transcript.findIndex(item => item.id === serverMessageId)
               : -1;
 
             if (serverMessageId && serverIndex >= 0) {
               // Server copy already present (WebSocket arrived first). Drop
               // optimistic, confirm the server copy.
-              const transcript = run.transcript
+              const transcript = withAcceptedRun.transcript
                 .filter(item => item.id !== optimisticId)
                 .map(item =>
                   item.id === serverMessageId ? { ...item, pending: false } : item,
                 );
               return {
-                ...run,
+                ...withAcceptedRun,
                 transcript,
                 transcriptCount: Math.max(run.transcriptCount ?? 0, transcript.length),
                 lastMessage:
-                  run.lastMessage?.id === optimisticId
+                  withAcceptedRun.lastMessage?.id === optimisticId
                     ? transcript[transcript.length - 1]
-                    : run.lastMessage,
+                    : withAcceptedRun.lastMessage,
               };
             }
 
@@ -583,37 +596,37 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
               id: serverMessageId || optimisticId,
               pending: false,
             };
-            const transcript = run.transcript.slice();
+            const transcript = withAcceptedRun.transcript.slice();
             transcript[optimisticIndex] = confirmedMessage;
             return {
-              ...run,
+              ...withAcceptedRun,
               transcript,
               lastMessage:
-                run.lastMessage?.id === optimisticId
+                withAcceptedRun.lastMessage?.id === optimisticId
                   ? confirmedMessage
-                  : run.lastMessage,
+                  : withAcceptedRun.lastMessage,
             };
           }
 
           // 2) Fallback: optimistic message already gone (WebSocket merged it
           //    away). Find the server copy by id and confirm it.
           if (serverMessageId) {
-            const serverIndex = run.transcript.findIndex(
+            const serverIndex = withAcceptedRun.transcript.findIndex(
               item => item.id === serverMessageId,
             );
             if (serverIndex >= 0) {
-              const serverMsg = run.transcript[serverIndex];
+              const serverMsg = withAcceptedRun.transcript[serverIndex];
               if (serverMsg.role === 'user') {
-                const transcript = run.transcript.slice();
+                const transcript = withAcceptedRun.transcript.slice();
                 transcript[serverIndex] = { ...serverMsg, pending: false };
-                return { ...run, transcript };
+                return { ...withAcceptedRun, transcript };
               }
             }
           }
 
           // 3) Last resort: content-based match (handles edge-case where
           //    server assigned a different id and WebSocket already merged).
-          const byContent = run.transcript.findIndex(
+          const byContent = withAcceptedRun.transcript.findIndex(
             item =>
               item.role === 'user' &&
               item.mode === mode &&
@@ -621,22 +634,22 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
               (item as { pending?: boolean }).pending !== false,
           );
           if (byContent >= 0 && serverMessageId) {
-            const existing = run.transcript[byContent];
+            const existing = withAcceptedRun.transcript[byContent];
             // Already has the server id — just confirm.
             if (existing.id === serverMessageId) {
-              const transcript = run.transcript.slice();
+              const transcript = withAcceptedRun.transcript.slice();
               transcript[byContent] = { ...existing, pending: false };
-              return { ...run, transcript };
+              return { ...withAcceptedRun, transcript };
             }
             // Different id — rename to server id.
-            const transcript = run.transcript.slice();
+            const transcript = withAcceptedRun.transcript.slice();
             transcript[byContent] = { ...existing, id: serverMessageId, pending: false };
-            return { ...run, transcript };
+            return { ...withAcceptedRun, transcript };
           }
 
           // 4) Nothing found — the server copy is already confirmed (or the
           //    message was never created). Return unchanged.
-          return run;
+          return withAcceptedRun;
         }),
       }));
     } catch (error) {
@@ -653,9 +666,26 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
               ? { ...item, pending: false, failed: true }
               : item,
           );
+          const serverAcceptedWhileRequestFailed =
+            !sendAsSteer &&
+            run.runStateVersion !== undefined &&
+            run.runStateVersion > (currentRun?.runStateVersion ?? -1);
+          if (serverAcceptedWhileRequestFailed) {
+            // The HTTP response may have been lost after Server committed and
+            // the WS snapshot arrived. Never restore the previous terminal run
+            // or mark the already-accepted prompt as a failed send.
+            return run;
+          }
           return {
             ...run,
-            status: 'idle' as VibeStatus,
+            status: currentRun?.status ?? ('idle' as VibeStatus),
+            phase: currentRun?.phase,
+            activeRunId: currentRun?.activeRunId,
+            latestRunId: currentRun?.latestRunId,
+            runState: currentRun?.runState,
+            runStateVersion: currentRun?.runStateVersion,
+            optimisticRunPending: false,
+            optimisticRunBaseVersion: undefined,
             currentStep: 'Failed to send. Tap the message to retry.',
             transcript,
           };

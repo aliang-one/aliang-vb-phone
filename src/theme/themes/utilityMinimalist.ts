@@ -36,6 +36,8 @@ export const utilityMinimalist: AppTheme = {
     onError: '#ffffff',
     errorContainer: '#ffdad6',
     onErrorContainer: '#93000a',
+    success: '#1E7A47',
+    warning: '#8A6900',
   },
   typography: {
     displayLg: {
@@ -153,5 +155,7 @@ export const utilityMinimalist: AppTheme = {
     primary: {},
     secondary: {},
     error: {},
+    success: {},
+    warning: {},
   },
 };

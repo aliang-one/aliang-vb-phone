@@ -490,6 +490,10 @@ export function serverAiSessionToVibeRun(
     directory: session.project_path ?? '',
     status: mapSessionStatus(session.status),
     phase: session.phase,
+    activeRunId: session.active_run_id,
+    latestRunId: session.latest_run_id,
+    runState: session.run_state,
+    runStateVersion: session.run_state_version,
     objective: session.objective ?? '',
     model,
     effort: session.effort || undefined,
@@ -717,6 +721,22 @@ export function mergeVibeRunSnapshot(
   const incomingActive = ACTIVE_RUN_STATUS.has(incoming.status);
   const incomingDemotes = existingActive && !incomingActive;
   const incomingFailure = incoming.status === 'failed';
+  const incomingHasVersionAuthority = incoming.runStateVersion !== undefined;
+  const existingHasVersionAuthority = existing.runStateVersion !== undefined;
+  const hasVersionAuthority =
+    existingHasVersionAuthority && incomingHasVersionAuthority;
+  const olderVersion =
+    hasVersionAuthority &&
+    incoming.runStateVersion! < existing.runStateVersion!;
+  const sameVersionStatusConflict =
+    hasVersionAuthority &&
+    incoming.runStateVersion === existing.runStateVersion &&
+    (incoming.status !== existing.status || incoming.phase !== existing.phase);
+  const optimisticRunRejectsOldSnapshot = Boolean(
+    existing.optimisticRunPending &&
+      incomingHasVersionAuthority &&
+      incoming.runStateVersion! <= (existing.optimisticRunBaseVersion ?? -1),
+  );
   const staleDemotion =
     incomingDemotes &&
     !incomingFailure &&
@@ -729,6 +749,15 @@ export function mergeVibeRunSnapshot(
     !existingActive &&
     incomingActive &&
     (incoming.lastActivityMs ?? 0) <= (existing.lastActivityMs ?? 0);
+  // Protocol v2 uses a monotonic server revision. This is the primary guard and
+  // is deliberately independent of Date.now()/last_active_at, so phone/server
+  // clock skew cannot retain running forever or resurrect a completed run. The
+  // timestamp guard remains only for snapshots from legacy servers.
+  const rejectIncomingState = incomingHasVersionAuthority
+    ? olderVersion || sameVersionStatusConflict || optimisticRunRejectsOldSnapshot
+    : existingHasVersionAuthority
+      ? true
+      : staleDemotion || staleReactivation;
   const transcript = incomingHasDetail
     ? mergeAgentMessages(existing.transcript, incoming.transcript)
     : existing.transcript;
@@ -738,12 +767,26 @@ export function mergeVibeRunSnapshot(
   return {
     ...existing,
     ...incoming,
-    status: staleDemotion || staleReactivation ? existing.status : incoming.status,
+    status: rejectIncomingState ? existing.status : incoming.status,
     // Apply the SAME stale guard to the server-authoritative phase: when we
     // reject a snapshot's status demotion/reactivation as stale, also reject
     // its phase (a stale 'completed' must not leak onto a session we know is
     // running, and vice versa). A fresh snapshot's phase always wins.
-    phase: staleDemotion || staleReactivation ? existing.phase : incoming.phase,
+    phase: rejectIncomingState ? existing.phase : incoming.phase,
+    activeRunId: rejectIncomingState ? existing.activeRunId : incoming.activeRunId,
+    latestRunId: rejectIncomingState ? existing.latestRunId : incoming.latestRunId,
+    runState: rejectIncomingState ? existing.runState : incoming.runState,
+    runStateVersion: rejectIncomingState
+      ? existing.runStateVersion
+      : incoming.runStateVersion,
+    optimisticRunPending:
+      existing.optimisticRunPending &&
+      (rejectIncomingState || !incomingHasVersionAuthority),
+    optimisticRunBaseVersion:
+      existing.optimisticRunPending &&
+      (rejectIncomingState || !incomingHasVersionAuthority)
+        ? existing.optimisticRunBaseVersion
+        : undefined,
     lastActivityMs,
     updatedAt: formatActivityLabel(lastActivityMs),
     transcript,
@@ -1578,4 +1621,23 @@ export function resolveRefreshAction(
 ): RefreshAction {
   if (!serverMode) return hasToken ? 'reinitialize' : 'noop';
   return 'refresh';
+}
+
+/**
+ * True 当实时层**确曾尝试连接并失败、且从未成功同步过**。此时列表页应显「连接失败·重试」
+ * 卡片,替代含糊的空白/空态。三者全满足:
+ *  - `!serverMode`:当前未连上。
+ *  - `lastSyncedAt === null`:从未成功同步(首次 init 失败,而非曾连上后的暂态断线——
+ *    那算 stale,不显失败卡)。
+ *  - `lastConnectError !== null`:**确有尝试并失败**。这一条用来排除「冷启动加载中、init
+ *    尚未开始」的窗口——否则每次正常开 app 都会闪一下「连接失败」假告警。
+ *
+ * 用户报告的「home/vibe/device 全空白、下拉无反应」根因就是停在这个状态。
+ */
+export function isConnectionFailed(
+  serverMode: boolean,
+  lastSyncedAt: number | null,
+  lastConnectError: string | null,
+): boolean {
+  return !serverMode && lastSyncedAt === null && lastConnectError !== null;
 }
