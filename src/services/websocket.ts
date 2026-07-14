@@ -4,6 +4,7 @@ import {
   notifySessionInvalidated,
   refreshSession,
 } from '../api/sessionAuth';
+import { getApiAuthToken } from '../api/client';
 import {
   dispatchCommandGenEvent,
   type CommandGenLiveEvent,
@@ -97,7 +98,13 @@ export class MobileWebSocket {
     this.onStateChange?.('connecting');
 
     const baseUrl = await getPlatformServiceBaseUrl();
-    const tokenQuery = this.token ? `?token=${encodeURIComponent(this.token)}` : '';
+    // Read the token LIVE: the access token rotates across a refresh, so both
+    // the initial connect and any post-refresh reconnect must use whatever the
+    // provider holds NOW — not this.token, which is frozen at construction and
+    // goes stale the moment refreshSession rotates the token (reconnecting with
+    // a dead token makes a refreshable soft-expiry escalate to a logout).
+    const liveToken = getApiAuthToken() ?? this.token;
+    const tokenQuery = liveToken ? `?token=${encodeURIComponent(liveToken)}` : '';
     const url = `${toWebSocketUrl(baseUrl)}/ws/mobile${tokenQuery}`;
     const ws = new WebSocket(url);
 
@@ -196,9 +203,9 @@ export class MobileWebSocket {
       this.authRejected = true;
       return;
     }
-    // Refresh extended the session server-side. The local-session token value
-    // is stable across refresh, so reconnecting with this.token works. Mark our
-    // one refresh spent so a still-rejected reconnect tears down instead of loop.
+    // Refresh rotated the access token in the store. Reconnect — doConnect reads
+    // the provider live, so the reconnect carries the fresh token. Mark our one
+    // refresh spent so a still-rejected reconnect tears down instead of looping.
     this.refreshedSinceLastOpen = true;
     this.connectAsync();
   }

@@ -501,7 +501,10 @@ export function serverAiSessionToVibeRun(
     effectiveModelConfig: session.effective_model_config ?? undefined,
     risk: session.risk ?? 'medium',
     currentStep: session.current_step ?? '',
-    branch: session.branch ?? `agent/${session.session_id}`,
+    // Branch is repository metadata. Never synthesize one from a conversation
+    // id: `agent/ai_*` looks like a real Git branch and was the visible symptom
+    // of the duplicate-session bug.
+    branch: session.branch ?? project?.branch ?? '',
     lastActivityMs: Date.parse(session.last_active_at ?? '') || activityNowMs(),
     updatedAt: formatActivityLabel(
       Date.parse(session.last_active_at ?? '') || activityNowMs(),

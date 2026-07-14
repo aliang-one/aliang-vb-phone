@@ -8,6 +8,7 @@ import {
 import type { AgentCommandInfo } from '../data/platformModels';
 
 const AI_TURN_REQUEST_TIMEOUT_MS = 120_000;
+const aiSessionDetailRequests = new Map<string, Promise<ServerAiSession>>();
 
 export interface ServerAiTranscriptPage {
   limit: number;
@@ -220,19 +221,26 @@ export const fetchAiSessions = (): Promise<ServerAiSession[]> =>
 export const fetchAiSession = (
   sessionId: string,
   options?: { refresh?: boolean },
-): Promise<ServerAiSession> =>
-  apiGet<ServerAiSession>(
-    `/api/ai/sessions/${sessionId}${
-      options?.refresh ? '?refresh=true' : ''
-    }`,
-    // The detail GET may trigger a server→agent round trip: the server waits up
-    // to AGENT_REQUEST_TIMEOUT_MS (12s) for the agent to answer ai.session.detail.
-    // The default 8s request timeout would abort BEFORE the agent responds,
-    // stranding the chat on a timeout even though the server eventually got the
-    // history. Allow ~15s so the in-band response (not just the WS push) can
-    // carry the freshly-fetched transcript.
-    { timeoutMs: 15_000 },
-  );
+): Promise<ServerAiSession> => {
+  const refresh = options?.refresh === true;
+  const key = `${sessionId}:${refresh ? 'refresh' : 'cached'}`;
+  const existing = aiSessionDetailRequests.get(key);
+  if (existing) return existing;
+  const request = (async () => {
+    try {
+      return await apiGet<ServerAiSession>(
+        `/api/ai/sessions/${sessionId}${refresh ? '?refresh=true' : ''}`,
+        // The detail GET may trigger a server→agent round trip: the server waits
+        // up to 12s, so leave enough room for the in-band response.
+        { timeoutMs: 15_000 },
+      );
+    } finally {
+      aiSessionDetailRequests.delete(key);
+    }
+  })();
+  aiSessionDetailRequests.set(key, request);
+  return request;
+};
 
 export const fetchAiSessionMessages = (
   sessionId: string,
@@ -285,6 +293,7 @@ export async function fetchStructuredEventDetail(
 
 export const createAiSession = (input: {
   device_id: string;
+  client_request_id?: string;
   project_id?: string;
   project_path?: string;
   mode?: 'chat' | 'vibe' | 'review' | 'agent';

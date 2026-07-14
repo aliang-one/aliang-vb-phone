@@ -90,6 +90,7 @@ import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { useNowTick } from '../../hooks/useNowTick';
 import { useVoiceStt } from '../../hooks/useVoiceStt';
 import { normalizeProvider } from '../../utils/modelIntensity';
+import { createId } from '../../store/internals';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type SessionRoute = RouteProp<RootStackParamList, 'VibeCodingSession'>;
@@ -428,7 +429,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
         ) {
           lastAutoRefreshAtRef.current[focusedSessionId] = now;
           void storeState
-            .loadAgentSessionDetail(focusedSessionId, { refresh: true })
+            // Cache-first recovery shares the mount request and avoids forcing an
+            // agent round trip whenever a running conversation regains focus.
+            .loadAgentSessionDetail(focusedSessionId)
             .catch(() => {
               // Best-effort: live WS + the always-visible manual refresh
               // button are the fallbacks. Cooldown still applies.
@@ -1132,12 +1135,34 @@ export const VibeCodingSessionScreen: React.FC = () => {
     // hint text is ever sent to the server/agent.
     if (isDraft && draftConfig) {
       const sendKey = `draft:${messageMode}:${normalizedContent}`;
+      // The create API does not distinguish voice/text; fingerprint only the
+      // actual server payload so changing composer mode cannot create a second
+      // conversation for the same first message.
+      const requestFingerprint = normalizedContent;
+      const clientRequestId =
+        draftConfig.pendingRequestFingerprint === requestFingerprint &&
+        draftConfig.pendingRequestId
+          ? draftConfig.pendingRequestId
+          : createId('ai-create');
+      if (
+        draftConfig.pendingRequestId !== clientRequestId ||
+        draftConfig.pendingRequestFingerprint !== requestFingerprint
+      ) {
+        navigation.setParams({
+          draftConfig: {
+            ...draftConfig,
+            pendingRequestId: clientRequestId,
+            pendingRequestFingerprint: requestFingerprint,
+          },
+        });
+      }
       sendLockRef.current = sendKey;
       pendingScrollToEndRef.current = true;
       setSendingMessage(true);
       try {
         const sessionId = await startAgentSession({
           deviceId: draftConfig.deviceId,
+          clientRequestId,
           projectId: draftConfig.projectId ?? '',
           directory: draftConfig.directory,
           provider: draftConfig.provider as AgentProvider,

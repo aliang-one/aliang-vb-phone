@@ -382,7 +382,9 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                       { color: theme.colors.onSurfaceVariant },
                     ]}
                   >
-                    {project?.name ?? session.projectId} · {session.branch}
+                    {[project?.name ?? session.projectId, session.branch]
+                      .filter(Boolean)
+                      .join(' · ')}
                   </Text>
                 </View>
                 {session.projectBudget ? (
@@ -431,23 +433,25 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                   ]}
                 />
                 <View style={styles.metaRow}>
-                  <View style={styles.metaCluster}>
-                    <IconBadge
-                      name="git"
-                      tone="neutral"
-                      size={20}
-                      iconSize={11}
-                    />
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        theme.typography.labelSm,
-                        { color: theme.colors.onSurfaceVariant },
-                      ]}
-                    >
-                      {session.branch}
-                    </Text>
-                  </View>
+                  {session.branch ? (
+                    <View style={styles.metaCluster}>
+                      <IconBadge
+                        name="git"
+                        tone="neutral"
+                        size={20}
+                        iconSize={11}
+                      />
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          theme.typography.labelSm,
+                          { color: theme.colors.onSurfaceVariant },
+                        ]}
+                      >
+                        {session.branch}
+                      </Text>
+                    </View>
+                  ) : null}
                   <Text
                     numberOfLines={1}
                     style={[

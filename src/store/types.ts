@@ -193,6 +193,7 @@ export interface UnifiedEvent {
 
 interface StartAgentInput {
   deviceId: string;
+  clientRequestId?: string;
   projectId: string;
   directory: string;
   provider: AgentProvider;

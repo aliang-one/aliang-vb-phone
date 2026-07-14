@@ -7,6 +7,7 @@ import {
 } from '../config/localService';
 import {
   isSessionInvalidError,
+  notifySessionInvalidated,
   refreshSession,
 } from './sessionAuth';
 
@@ -128,18 +129,25 @@ export async function apiFetch<T = unknown>(
   options: ApiFetchOptions = {}
 ): Promise<T> {
   const { headers: optionHeaders, timeoutMs, skipRefreshRetry, ...fetchOptions } = options;
-  const headers: Record<string, string> = {
-    'Accept': 'application/json',
-    'Content-Type': 'application/json',
-    ...normalizeHeaders(optionHeaders),
-  };
-  const token = authTokenProvider?.();
-  if (token && !headers.Authorization && !headers.authorization) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  const requestOptions = {
-    ...fetchOptions,
-    headers
+  // Build request options FRESH on each send: the access token is NOT stable
+  // across a refresh — refreshSession rotates it in the store — so a retry must
+  // re-read the provider. Capturing the token once and reusing the headers on
+  // the post-refresh retry sends the now-dead token, which 401s again and
+  // strands the app "logged in but no data" instead of recovering.
+  const buildRequestOptions = (): RequestInit => {
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      ...normalizeHeaders(optionHeaders),
+    };
+    const token = authTokenProvider?.();
+    if (token && !headers.Authorization && !headers.authorization) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    return {
+      ...fetchOptions,
+      headers,
+    };
   };
   // Send the real request to ONE base URL. An ApiResponseError (an HTTP
   // status response) means the host is reachable — propagate it so the
@@ -148,7 +156,12 @@ export async function apiFetch<T = unknown>(
   // instead of retrying the same dead host.
   const sendTo = async (baseUrl: string): Promise<T> => {
     try {
-      const payload = await requestJson<T>(baseUrl, path, requestOptions, timeoutMs);
+      const payload = await requestJson<T>(
+        baseUrl,
+        path,
+        buildRequestOptions(),
+        timeoutMs,
+      );
       await rememberPlatformServiceBaseUrl(baseUrl);
       return payload;
     } catch (error) {
@@ -192,14 +205,26 @@ export async function apiFetch<T = unknown>(
     return await perform();
   } catch (error) {
     // A session-invalid response (expired local session) is recoverable: rotate
-    // the refresh_token once, which extends the session server-side, then retry.
-    // The access token is stable across refresh, so the retry re-reads the same
-    // (now-valid) token. `refreshSession` fires the teardown itself when refresh
-    // fails; `skipRefreshRetry` (set on the refresh request) prevents recursion.
+    // the refresh_token once, which extends the session server-side and rotates
+    // the access token in the store, then retry with the fresh token
+    // (buildRequestOptions re-reads the provider). `refreshSession` fires the
+    // teardown itself when refresh fails; `skipRefreshRetry` (set on the refresh
+    // request) prevents recursion.
     if (skipRefreshRetry || !isSessionInvalidError(error)) throw error;
     const refreshed = await refreshSession();
     if (!refreshed) throw error;
-    return perform();
+    try {
+      return await perform();
+    } catch (retryError) {
+      // Refresh succeeded but the retried request STILL failed auth → the
+      // rotated token is also rejected (genuinely dead session / hard-expiry).
+      // Tear down to Login instead of leaving the app stuck in the
+      // "refreshed-but-still-failing" state.
+      if (isSessionInvalidError(retryError)) {
+        notifySessionInvalidated();
+      }
+      throw retryError;
+    }
   }
 }
 

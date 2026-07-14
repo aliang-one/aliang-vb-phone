@@ -35,6 +35,8 @@ export type RootStackParamList = {
       provider: EffortProvider;
       model?: string;
       effort?: string;
+      pendingRequestId?: string;
+      pendingRequestFingerprint?: string;
     };
   };
   AgentSessions: { deviceId?: string; projectId?: string } | undefined;

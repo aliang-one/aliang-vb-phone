@@ -1,4 +1,5 @@
 import { accountFetch } from '../src/api/accountClient';
+import { setApiAuthTokenProvider } from '../src/api/client';
 import {
   setSessionRefresher,
   setSessionInvalidationHandler,
@@ -23,11 +24,13 @@ describe('accountFetch refresh-then-retry', () => {
   beforeEach(() => {
     __resetSessionAuthHubForTest();
     setSessionInvalidationHandler(() => {});
+    setApiAuthTokenProvider(null);
     fetchMock = jest.fn();
     (globalThis as { fetch: unknown }).fetch = fetchMock;
   });
 
   afterEach(() => {
+    setApiAuthTokenProvider(null);
     (globalThis as { fetch: unknown }).fetch = originalFetch;
   });
 
@@ -96,5 +99,51 @@ describe('accountFetch refresh-then-retry', () => {
     resolveRefresh(true);
     await expect(a).resolves.toEqual({ ok: true });
     await expect(b).resolves.toEqual({ ok: true });
+  });
+
+  it('rebuilds Authorization with the rotated token on retry (soft-expiry recovery)', async () => {
+    // The refresher rotates the access token in the store, so the provider then
+    // returns the NEW token. The retry MUST send the new token, not the dead one
+    // captured when the request was first built — otherwise a refreshable
+    // session never recovers (the dead token 401s again and the app stays
+    // "logged in but no data").
+    let currentToken = 'T_OLD';
+    setApiAuthTokenProvider(() => currentToken);
+    const refresher = jest.fn(async () => {
+      currentToken = 'T_NEW'; // simulate refreshSession persisting the rotated token
+      return true;
+    });
+    setSessionRefresher(refresher);
+    fetchMock.mockImplementation(async (_url: unknown, init: RequestInit) => {
+      const auth = (init.headers as Record<string, string>)?.Authorization ?? '';
+      if (auth === 'Bearer T_OLD') {
+        return jsonResponse(401, { error: 'authentication_required' });
+      }
+      if (auth === 'Bearer T_NEW') {
+        return jsonResponse(200, { ok: true });
+      }
+      throw new Error(`unexpected Authorization header: ${auth}`);
+    });
+
+    const result = await accountFetch<{ ok: boolean }>('/api/test');
+
+    expect(result).toEqual({ ok: true });
+    expect(refresher).toHaveBeenCalledTimes(1);
+  });
+
+  it('escalates to session-invalidation when the post-refresh retry still fails auth', async () => {
+    // Refresh succeeded but the rotated token is STILL rejected → the session is
+    // genuinely dead (hard-expiry). Must tear down to Login instead of landing
+    // in the stuck "refreshed-but-still-failing" state.
+    setApiAuthTokenProvider(() => 'T_WHATEVER');
+    const refresher = jest.fn(async () => true);
+    setSessionRefresher(refresher);
+    const invalidation = jest.fn();
+    setSessionInvalidationHandler(invalidation);
+    fetchMock.mockResolvedValue(jsonResponse(401, { error: 'authentication_required' }));
+
+    await expect(accountFetch('/api/test')).rejects.toThrow();
+    expect(refresher).toHaveBeenCalledTimes(1);
+    expect(invalidation).toHaveBeenCalledTimes(1);
   });
 });

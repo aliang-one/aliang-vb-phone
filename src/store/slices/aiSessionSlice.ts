@@ -145,6 +145,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         // on ai.message, never on ai.session.create.
         const session = await platformTransport.createAiSession({
           device_id: input.deviceId,
+          client_request_id: input.clientRequestId,
           project_id: projectId || undefined,
           project_path: input.directory,
           mode: 'vibe',

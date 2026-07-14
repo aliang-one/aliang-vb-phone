@@ -9,6 +9,7 @@ import {
 } from '../config/accountService';
 import {
   isSessionInvalidError,
+  notifySessionInvalidated,
   refreshSession,
 } from './sessionAuth';
 
@@ -48,15 +49,23 @@ export async function accountFetch<T = unknown>(
   options: ApiFetchOptions = {},
 ): Promise<T> {
   const { headers: optionHeaders, skipRefreshRetry, baseUrl, ...fetchOptions } = options;
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-    'Content-Type': 'application/json',
-    ...normalizeHeaders(optionHeaders),
+  // Build headers FRESH per runCandidates call: the access token is NOT stable
+  // across a refresh — refreshSession rotates it in the store — so a retry must
+  // re-read the provider. Capturing the token once and reusing the headers on
+  // the post-refresh retry sends the now-dead token, which 401s again and
+  // strands the app "logged in but no data" instead of recovering.
+  const buildHeaders = (): Record<string, string> => {
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...normalizeHeaders(optionHeaders),
+    };
+    const token = getApiAuthToken();
+    if (token && !headers.Authorization && !headers.authorization) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    return headers;
   };
-  const token = getApiAuthToken();
-  if (token && !headers.Authorization && !headers.authorization) {
-    headers.Authorization = `Bearer ${token}`;
-  }
   let lastError: unknown;
 
   // An explicit baseUrl overrides the candidate list (scan-login targets the Go
@@ -67,6 +76,7 @@ export async function accountFetch<T = unknown>(
     ? [normalizeAccountBaseUrl(baseUrl)]
     : ACCOUNT_BASE_URL_CANDIDATES;
   const runCandidates = async (): Promise<T> => {
+    const headers = buildHeaders();
     for (const candidate of baseCandidates) {
       try {
         const url = `${candidate}${path}`;
@@ -114,13 +124,24 @@ export async function accountFetch<T = unknown>(
     return await runCandidates();
   } catch (error) {
     // Recoverable session expiry: rotate the refresh_token once (extends the
-    // session server-side) then retry. The token value is stable across refresh,
-    // so the retry re-reads the same token. `refreshSession` tears down itself on
-    // failure; `skipRefreshRetry` (set by the refresh request) prevents recursion.
+    // session server-side and rotates the access token in the store), then retry
+    // with the fresh token (runCandidates → buildHeaders re-reads the provider).
+    // `refreshSession` tears down itself on failure; `skipRefreshRetry` (set by
+    // the refresh request) prevents recursion.
     if (skipRefreshRetry || !isSessionInvalidError(error)) throw error;
     const refreshed = await refreshSession();
     if (!refreshed) throw error;
-    return runCandidates();
+    try {
+      return await runCandidates();
+    } catch (retryError) {
+      // Refresh succeeded but the retried request STILL failed auth → the
+      // rotated token is also rejected (genuinely dead session / hard-expiry).
+      // Tear down to Login instead of leaving the app stuck.
+      if (isSessionInvalidError(retryError)) {
+        notifySessionInvalidated();
+      }
+      throw retryError;
+    }
   }
 }
 

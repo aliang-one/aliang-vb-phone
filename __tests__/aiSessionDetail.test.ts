@@ -19,7 +19,11 @@ jest.mock('../src/api/client', () => ({
 
 import { mergeVibeRunSnapshot, serverAiSessionToVibeRun } from '../src/store/internals';
 import type { VibeCodingRun } from '../src/data/platformModels';
-import { fetchAiSession, interruptAiSession } from '../src/api/sessions';
+import {
+  createAiSession,
+  fetchAiSession,
+  interruptAiSession,
+} from '../src/api/sessions';
 import type { PlatformAiSessionSnapshot } from '../src/services/platformTransport';
 import { ApiResponseError, apiGet, apiPost } from '../src/api/client';
 
@@ -97,6 +101,41 @@ describe('serverAiSessionToVibeRun detail signalling', () => {
     );
     expect(run.model).toBe('Claude Code');
   });
+
+  it('does not fabricate an agent/ai_* Git branch', () => {
+    const run = serverAiSessionToVibeRun(
+      baseSession({ session_id: 'ai_canonical', branch: undefined }),
+      [],
+      [],
+    );
+    expect(run.branch).toBe('');
+  });
+});
+
+describe('createAiSession idempotency', () => {
+  beforeEach(() => {
+    mockedApiPost.mockClear();
+  });
+  afterEach(() => {
+    mockedApiPost.mockClear();
+  });
+
+  it('forwards the stable client request id in the create body', async () => {
+    await createAiSession({
+      device_id: 'device-1',
+      client_request_id: 'ai-create-123456',
+      message: 'first message',
+      provider: 'claudecode',
+    });
+    expect(mockedApiPost).toHaveBeenCalledWith(
+      '/api/ai/sessions',
+      expect.objectContaining({
+        client_request_id: 'ai-create-123456',
+        message: 'first message',
+      }),
+      { timeoutMs: 120000 },
+    );
+  });
 });
 
 describe('mergeVibeRunSnapshot status authority', () => {
@@ -163,6 +202,31 @@ describe('fetchAiSession refresh option', () => {
       '/api/ai/sessions/sess-1?refresh=true',
       { timeoutMs: 15000 },
     );
+  });
+
+  it('shares concurrent requests for the same session and refresh mode', async () => {
+    let resolveRequest!: (value: unknown) => void;
+    mockedApiGet.mockReturnValueOnce(
+      new Promise(resolve => {
+        resolveRequest = resolve;
+      }),
+    );
+
+    const first = fetchAiSession('sess-shared');
+    const second = fetchAiSession('sess-shared');
+
+    expect(mockedApiGet).toHaveBeenCalledTimes(1);
+    expect(second).toBe(first);
+    resolveRequest(baseSession());
+    await Promise.all([first, second]);
+  });
+
+  it('keeps forced refresh separate from a cache-first request', async () => {
+    const cached = fetchAiSession('sess-modes');
+    const refreshed = fetchAiSession('sess-modes', { refresh: true });
+
+    expect(mockedApiGet).toHaveBeenCalledTimes(2);
+    await Promise.all([cached, refreshed]);
   });
 });
 
