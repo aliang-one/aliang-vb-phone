@@ -26,6 +26,7 @@ import { IconBadge } from '../../components/visual/IconBadge';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { catalogEffortOptions, useModelOptions } from '../../hooks/useModelOptions';
+import { useRecentModelOptions } from '../../hooks/useRecentModelOptions';
 import {
   EFFORT_PROVIDERS,
   availableProviders,
@@ -90,12 +91,18 @@ export const CreateVibeCodingScreen: React.FC = () => {
   );
   // Per-provider model chips (codex / claude_code / opencode),
   // from the live catalog with a hardcoded fallback. Lead with "默认" (clear).
+  const serverModelOptions = useMemo(
+    () => catalogModelOptions(provider, providerCatalog),
+    [provider, providerCatalog],
+  );
+  const { modelOptions: recentFirstModelOptions, rememberModel } =
+    useRecentModelOptions(provider, serverModelOptions);
   const modelOptions = useMemo(
     () => [
       { label: t('sessionSettings.defaultChip'), value: '' },
-      ...catalogModelOptions(provider, providerCatalog),
+      ...recentFirstModelOptions,
     ],
-    [provider, providerCatalog, t],
+    [recentFirstModelOptions, t],
   );
   // Keep the selected provider valid for this device: if it's unavailable (e.g.
   // defaulted to codex but only claude code is installed), switch to one that is.
@@ -150,6 +157,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
 
   const handleCreate = () => {
     if (creating || !device) return;
+    rememberModel(model);
     // Project selected → run inside its path (no separate directory). Custom
     // path → use the typed value, falling back to the device's first
     // authorized directory.

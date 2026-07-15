@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -27,6 +27,7 @@ import {
   type EffortProvider,
 } from '../../utils/modelIntensity';
 import { catalogEffortOptions, useModelOptions } from '../../hooks/useModelOptions';
+import { useRecentModelOptions } from '../../hooks/useRecentModelOptions';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type SessionSettingsRoute = RouteProp<RootStackParamList, 'SessionSettings'>;
@@ -61,10 +62,19 @@ export const SessionSettingsScreen: React.FC = () => {
   const effortOptions = catalogEffortOptions(provider, providerCatalog);
   // Provider-aware model chips (codex: gpt-5.4/5.5, claude_code: glm-5.1/5.2),
   // led by "默认" (clear → inherit).
-  const modelOptions = [
-    { label: t('sessionSettings.defaultChip'), value: '' },
-    ...catalogModelOptions(provider, providerCatalog),
-  ];
+  const serverModelOptions = useMemo(
+    () => catalogModelOptions(provider, providerCatalog),
+    [provider, providerCatalog],
+  );
+  const { modelOptions: recentFirstModelOptions, rememberModel } =
+    useRecentModelOptions(provider, serverModelOptions);
+  const modelOptions = useMemo(
+    () => [
+      { label: t('sessionSettings.defaultChip'), value: '' },
+      ...recentFirstModelOptions,
+    ],
+    [recentFirstModelOptions, t],
+  );
   const effective = session?.effectiveModelConfig;
   const userDefaultLabel = t('sessionSettings.userDefault');
   const effectiveLabel = effective
@@ -100,6 +110,7 @@ export const SessionSettingsScreen: React.FC = () => {
         model: modelBase.trim(),
         effort: effortDraft.trim(),
       });
+      rememberModel(modelBase);
       navigation.goBack();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('sessionSettings.saveFailed'));

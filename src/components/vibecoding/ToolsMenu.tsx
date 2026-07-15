@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import {
   type EffortProvider,
 } from '../../utils/modelIntensity';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { useRecentModelOptions } from '../../hooks/useRecentModelOptions';
 
 export interface ToolsMenuProps {
   onClose: () => void;
@@ -36,6 +37,8 @@ export interface ToolsMenuProps {
   sessionId?: string;
   /** Current reasoning effort (provider-specific); undefined/'' = no override. */
   effort?: string;
+  /** Server-recommended models for this provider, supplied by the session. */
+  serverModelOptions?: Array<{ label: string; value: string }>;
   /**
    * Resolved effort options for the provider. When supplied, the chips render
    * the live server catalog's efforts (codex 4, claude 6); otherwise the
@@ -66,6 +69,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
   commands,
   effort,
   effortOptions,
+  serverModelOptions,
   effectiveLabel,
   onSaveSettings,
   onInsertCommand,
@@ -74,13 +78,22 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
   const { theme, isDark } = useTheme();
   const { t } = useTranslation('vibecoding');
   const isCodex = provider === 'codex';
-  // Provider-aware model chips (codex: gpt-5.4/5.5, claude_code: glm-5.1/5.2),
-  // led by "默认" (clear → inherit). Hardcoded fallback; matches the server
-  // catalog seed.
-  const modelOptions = [
-    { label: t('toolsMenu.defaultModel'), value: '' },
-    ...modelPresetsFor(provider),
-  ];
+  const recommendedModelOptions = useMemo(
+    () =>
+      serverModelOptions?.length
+        ? serverModelOptions
+        : modelPresetsFor(provider),
+    [provider, serverModelOptions],
+  );
+  const { modelOptions: recentFirstModelOptions, rememberModel } =
+    useRecentModelOptions(provider, recommendedModelOptions);
+  const modelOptions = useMemo(
+    () => [
+      { label: t('toolsMenu.defaultModel'), value: '' },
+      ...recentFirstModelOptions,
+    ],
+    [recentFirstModelOptions, t],
+  );
   // The parent conditionally mounts this component, so each open is a fresh
   // mount and these drafts initialize from the latest session props — no
   // useEffect re-sync needed (which avoided a post-render setState storm).
@@ -135,6 +148,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
         model: modelBase.trim(),
         effort: effortDraft.trim(),
       });
+      rememberModel(modelBase);
       setSettingsDirty(false);
       setSaving(false);
       // Auto-close on a successful save (clear `saving` first so we don't

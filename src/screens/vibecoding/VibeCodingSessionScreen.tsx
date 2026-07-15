@@ -89,7 +89,10 @@ import { deriveLivePulse } from '../../utils/activitySummary';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { useNowTick } from '../../hooks/useNowTick';
 import { useVoiceStt } from '../../hooks/useVoiceStt';
-import { normalizeProvider } from '../../utils/modelIntensity';
+import {
+  catalogModelOptions,
+  normalizeProvider,
+} from '../../utils/modelIntensity';
 import { createId } from '../../store/internals';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -1978,6 +1981,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
     sessionProvider,
     providerCatalog,
   );
+  const sessionModelOptions = catalogModelOptions(
+    sessionProvider,
+    providerCatalog,
+  );
   const effective = session.effectiveModelConfig;
   const effectiveLabel = effective
     ? [
@@ -3039,6 +3046,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               model={session.model}
               provider={sessionProvider}
               effort={session.effort ?? ''}
+              serverModelOptions={sessionModelOptions}
               effortOptions={sessionEffortOptions}
               effectiveLabel={effectiveLabel ?? undefined}
               commands={
