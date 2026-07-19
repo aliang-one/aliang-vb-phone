@@ -126,6 +126,13 @@
     "notFoundSubtitle": "NOT FOUND",
     "noDevice": "no device",
     "approval": "APPROVAL",
+    "skillTrust": {
+      "title": "项目 Skills",
+      "trusted": "已信任",
+      "untrusted": "未信任",
+      "toggle": "信任项目 Claude Skills",
+      "saveFailed": "项目 Skill 信任设置保存失败"
+    },
     "scheme": {
       "balanced": "Balanced",
       "allowAll": "Allow all",

@@ -45,6 +45,13 @@ const claudeCommands: AgentCommandInfo[] = [
   { name: 'clear', description: '清空上下文', scope: 'builtin' },
   { name: 'compact', description: '压缩历史', scope: 'builtin' },
   { name: 'mycmd', description: '项目自定义', argHint: '<file>', scope: 'project' },
+  {
+    name: 'review-pr',
+    description: '审查 PR',
+    argHint: '<number>',
+    scope: 'project',
+    kind: 'skill',
+  },
 ];
 
 const defaultProps = (overrides: Partial<React.ComponentProps<typeof ToolsMenu>> = {}) => ({
@@ -70,6 +77,23 @@ describe('ToolsMenu', () => {
     expect(() => findByTestID(root, 'tools-cmd-clear')).not.toThrow();
     expect(() => findByTestID(root, 'tools-cmd-compact')).not.toThrow();
     expect(() => findByTestID(root, 'tools-cmd-mycmd')).not.toThrow();
+    expect(() => findByTestID(root, 'tools-cmd-review-pr')).not.toThrow();
+    expect(texts.some(t => t === 'Skills')).toBe(true);
+    expect(texts.some(t => t === '内置命令')).toBe(true);
+  });
+
+  it('hides Skills that are not user-invocable', () => {
+    const root = wrap(
+      <ToolsMenu
+        {...defaultProps({
+          commands: [
+            ...claudeCommands,
+            { name: 'background-only', kind: 'skill', userInvocable: false },
+          ],
+        })}
+      />,
+    );
+    expect(() => findByTestID(root, 'tools-cmd-background-only')).toThrow();
   });
 
   it('inserts a command as editable text (with leading slash + arg hint) and closes', () => {

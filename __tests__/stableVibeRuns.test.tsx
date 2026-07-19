@@ -77,10 +77,12 @@ describe('toStableRun (pure helper)', () => {
     expect(second.status).toBe('completed');
   });
 
-  it('returns a NEW reference when lastActivityMs changed', () => {
+  it('coalesces volatile activity changes within 500ms, then publishes', () => {
     const run = baseRun({ id: 'pure-stable-3', lastActivityMs: 1000 });
-    const first = toStableRun(run);
-    expect(toStableRun({ ...run, lastActivityMs: 2000 })).not.toBe(first);
+    const first = toStableRun(run, 1000);
+    const changed = { ...run, lastActivityMs: 2000 };
+    expect(toStableRun(changed, 1200)).toBe(first);
+    expect(toStableRun(changed, 1500)).not.toBe(first);
   });
 
   it('returns the SAME reference when only transcript changed (streaming text)', () => {
@@ -119,7 +121,7 @@ describe('useStableVibeRuns (rendered hook)', () => {
     act(() => {
       renderer = TestRenderer.create(<Probe />);
     });
-    return () => renderer!.unmount();
+    return () => act(() => renderer!.unmount());
   };
 
   it('does NOT re-render when only structuredEvents change (thinking churn)', () => {

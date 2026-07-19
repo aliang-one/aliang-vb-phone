@@ -2,82 +2,127 @@ import { useEffect, useRef } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { useControlCenterStore } from '../store/controlCenterStore';
 import { decideBackgroundNotifications } from '../utils/backgroundNotifications';
-import { displayNotification, requestPermission } from '../services/localNotifications';
+import {
+  displayManagedNotification,
+  getNotificationPermissionStatus,
+  requestPermission,
+} from '../services/localNotifications';
+
+interface BackgroundNotificationOptions {
+  enabled: boolean;
+  userId?: string;
+}
 
 /**
- * 后台本地通知(仅 Android 有效;iOS / 未 rebuild 降级 no-op)。
- *
- * 切后台时快照「基线」(当时已存在的 approval.requested 事件 id + 当时 running 的会话 id);
- * 后台期间 store 每次变更 → 喂纯函数 decideBackgroundNotifications → 弹新通知。
- * 回前台清空基线与已通知集,为下一次后台准备。
- *
- * 判定逻辑(触发口径 / 去重 / 前台抑制)全在 utils/backgroundNotifications(已单测);
- * 本 hook 只做 AppState + store 订阅的接线。
+ * Delivers new unread server notifications while the authenticated Android app
+ * is alive in the background. Server notification IDs are the canonical dedupe
+ * source; native IDs collapse related terminal-state/device updates.
  */
-export function useBackgroundNotifications(): void {
-  const isBackgroundRef = useRef<boolean>(false);
-  const baselineEventIdsRef = useRef<Set<string>>(new Set());
-  const runningAtBackgroundRef = useRef<Set<string>>(new Set());
+export function useBackgroundNotifications({
+  enabled,
+  userId,
+}: BackgroundNotificationOptions): void {
+  const isBackgroundRef = useRef(false);
+  const baselineNotificationIdsRef = useRef<Set<string>>(new Set());
   const alreadyNotifiedRef = useRef<Set<string>>(new Set());
+  const inFlightRef = useRef<Set<string>>(new Set());
+  const permissionGrantedRef = useRef(false);
+  const checkRef = useRef<() => void>(() => undefined);
 
-  // store 变更 → 判定 → 弹通知(仅后台生效)。
   useEffect(() => {
+    if (!enabled || !userId) {
+      permissionGrantedRef.current = false;
+      return;
+    }
+    let cancelled = false;
+    void requestPermission().then(granted => {
+      if (!cancelled) {
+        permissionGrantedRef.current = granted;
+        if (granted) checkRef.current();
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, userId]);
+
+  useEffect(() => {
+    const snapshot = () => {
+      baselineNotificationIdsRef.current = new Set(
+        useControlCenterStore.getState().notifications.map(item => item.id),
+      );
+      alreadyNotifiedRef.current = new Set();
+      inFlightRef.current = new Set();
+    };
+
+    if (!enabled || !userId) {
+      isBackgroundRef.current = false;
+      snapshot();
+      return;
+    }
+
     const check = () => {
-      if (!isBackgroundRef.current) return;
+      if (!isBackgroundRef.current || !permissionGrantedRef.current) return;
       const state = useControlCenterStore.getState();
+      const excluded = new Set([
+        ...alreadyNotifiedRef.current,
+        ...inFlightRef.current,
+      ]);
       const result = decideBackgroundNotifications({
         isBackground: true,
-        events: state.events,
-        runs: state.vibeRuns,
-        approvals: state.approvals,
-        baselineEventIds: baselineEventIdsRef.current,
-        runningAtBackground: runningAtBackgroundRef.current,
-        alreadyNotified: alreadyNotifiedRef.current,
+        notifications: state.notifications,
+        baselineNotificationIds: baselineNotificationIdsRef.current,
+        alreadyNotified: excluded,
+        userId,
       });
-      alreadyNotifiedRef.current = result.notifiedKeys;
-      for (const n of result.notifications) {
-        void displayNotification({
-          title: n.title,
-          body: n.body,
-          // data 值须为 string(notify-kit / Android Bundle 对齐)。
+      for (const notification of result.notifications) {
+        inFlightRef.current.add(notification.key);
+        void displayManagedNotification({
+          id: notification.nativeId,
+          title: notification.title,
+          body: notification.body,
+          createdAt: notification.createdAt,
           data: {
-            type: n.data.type,
-            sessionId: n.data.sessionId ?? '',
-            approvalId: n.data.approvalId ?? '',
+            type: notification.data.type,
+            notificationId: notification.data.notificationId,
+            sessionId: notification.data.sessionId ?? '',
+            approvalId: notification.data.approvalId ?? '',
+            deviceId: notification.data.deviceId ?? '',
+            userId: notification.data.userId ?? '',
           },
+        }).then(displayed => {
+          inFlightRef.current.delete(notification.key);
+          if (displayed) alreadyNotifiedRef.current.add(notification.key);
         });
       }
     };
-    return useControlCenterStore.subscribe(check);
-  }, []);
+    checkRef.current = check;
 
-  // AppState 布防 / 撤防 + 首次权限申请。
-  useEffect(() => {
-    const snapshot = () => {
-      const state = useControlCenterStore.getState();
-      baselineEventIdsRef.current = new Set(
-        state.events.filter(e => e.type === 'approval.requested').map(e => e.id),
-      );
-      runningAtBackgroundRef.current = new Set(
-        state.vibeRuns.filter(r => r.status === 'running').map(r => r.id),
-      );
-      alreadyNotifiedRef.current = new Set();
-    };
+    const unsubscribeStore = useControlCenterStore.subscribe(check);
     const onChange = (next: AppStateStatus) => {
       const goingBackground = next !== 'active';
       if (goingBackground && !isBackgroundRef.current) {
-        snapshot(); // 记基线
+        snapshot();
         isBackgroundRef.current = true;
+        void getNotificationPermissionStatus().then(status => {
+          permissionGrantedRef.current = status === 'authorized';
+          if (status === 'authorized') checkRef.current();
+        });
       } else if (!goingBackground && isBackgroundRef.current) {
         isBackgroundRef.current = false;
-        snapshot(); // 清空,为下次后台准备
+        snapshot();
       }
     };
-    const subscription = AppState.addEventListener('change', onChange);
-    // 冷启动可能直接落在后台态
+    const appStateSubscription = AppState.addEventListener('change', onChange);
     isBackgroundRef.current = AppState.currentState !== 'active';
-    if (isBackgroundRef.current) snapshot();
-    void requestPermission(); // Android 13+ POST_NOTIFICATIONS(ios/未rebuild → no-op)
-    return () => subscription.remove();
-  }, []);
+    snapshot();
+
+    return () => {
+      unsubscribeStore();
+      appStateSubscription.remove();
+      checkRef.current = () => undefined;
+      isBackgroundRef.current = false;
+      inFlightRef.current.clear();
+    };
+  }, [enabled, userId]);
 }

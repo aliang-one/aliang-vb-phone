@@ -23,9 +23,27 @@
     "subscriptions": "订阅 SUBSCRIPTIONS",
     "modelConfig": "模型配置 MODEL CONFIG",
     "platformService": "PLATFORM SERVICE",
+    "notifications": "通知 NOTIFICATIONS",
     "capacity": "CAPACITY",
     "inputMode": "INPUT MODE",
     "theme": "THEME"
+  },
+  "notifications": {
+    "systemTitle": "系统通知",
+    "enable": "开启通知",
+    "openSettings": "打开系统通知设置",
+    "status": {
+      "unsupported": "当前平台或安装包不支持",
+      "not_determined": "尚未请求通知权限",
+      "denied": "通知权限已被系统阻止",
+      "authorized": "允许接收后台提醒"
+    },
+    "shortStatus": {
+      "unsupported": "不可用",
+      "not_determined": "未设置",
+      "denied": "已阻止",
+      "authorized": "已开启"
+    }
   },
   "account": {
     "notLoggedIn": "未登录",

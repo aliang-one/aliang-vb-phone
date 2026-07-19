@@ -27,7 +27,7 @@ import {
 
 type AiSessionSlice = Pick<
   ControlCenterState,
-  | 'vibeRuns' | 'previewLinks'
+  | 'vibeRuns' | 'previewLinks' | 'sessionCommands'
   | 'startAgentSession' | 'loadAgentSessionDetail' | 'pauseAgentSession'
   | 'interruptAgentSession' | 'resumeAgentSession' | 'terminateAgentSession' | 'updateAgentSession'
   | 'deleteAgentSession' | 'appendAgentMessage' | 'loadEarlierAgentMessages'
@@ -38,8 +38,8 @@ type AiSessionSlice = Pick<
 
 const pendingMessageSends = new Set<string>();
 
-// On-demand `/`-command discovery: 1h auto-gate + in-flight dedup, keyed by
-// project (commands are project-scoped). Pure in-memory — a restart re-fetches.
+// On-demand capability discovery: 1h auto-gate + in-flight dedup, keyed by
+// session. Skills are not project-static; active CLI settings/version matter.
 const COMMANDS_REFRESH_MIN_INTERVAL_MS = 60 * 60 * 1000;
 const lastCommandsRefreshAt = new Map<string, number>();
 const refreshingCommands = new Map<string, Promise<AgentCommandInfo[]>>();
@@ -60,13 +60,13 @@ const providerDefaultModelLabel = (provider: AgentProvider): string =>
 export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSessionSlice> = (set, get) => ({
   vibeRuns: [],
   previewLinks: [],
+  sessionCommands: {},
 
   refreshSessionCommands: async (sessionId, options) => {
     const force = options?.force ?? false;
     const run = get().vibeRuns.find(r => r.id === sessionId);
     const projectId = run?.projectId ?? '';
-    // Key by project (commands are project-scoped); fall back to sessionId.
-    const key = projectId || sessionId;
+    const key = sessionId;
 
     // In-flight dedup: reuse a running refresh for the same project so repeated
     // ToolsMenu opens / button clicks coalesce into ONE request.
@@ -83,25 +83,22 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         const res = await refreshSessionCommandsApi(sessionId, wantsFetch);
         // Record only genuine agent fetches so the gate reflects real freshness
         // (cache/persisted/offline responses don't advance it).
-        if (res.source === 'agent') lastCommandsRefreshAt.set(key, Date.now());
+        if (res.source === 'agent' && res.verified !== false) {
+          lastCommandsRefreshAt.set(key, Date.now());
+        } else if (res.verified === false) {
+          lastCommandsRefreshAt.delete(key);
+        }
         commands = res.commands ?? [];
       } catch {
         // Discovery is best-effort: a 404 (server not yet updated), timeout, or
-        // agent-offline must NOT crash the ToolsMenu auto-refresh or the
-        // composer refresh button. Fall back to whatever the project already has.
-        return get().projects.find(p => p.id === projectId)?.availableCommands ?? [];
+        // agent-offline must NOT crash the ToolsMenu auto-refresh or composer.
+        return get().sessionCommands[sessionId]
+          ?? get().projects.find(p => p.id === projectId)?.availableCommands
+          ?? [];
       }
-      // Mirror into the project so the typeahead + ToolsMenu read one source.
-      if (projectId) {
-        set(state => {
-          if (!state.projects.some(p => p.id === projectId)) return {};
-          return {
-            projects: state.projects.map(p =>
-              p.id === projectId ? { ...p, availableCommands: commands } : p,
-            ),
-          };
-        });
-      }
+      set(state => ({
+        sessionCommands: { ...state.sessionCommands, [sessionId]: commands },
+      }));
       return commands;
     })();
 
@@ -418,13 +415,18 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       throw new Error('Platform connection is required before deleting a VibeCoding session.');
     }
     await platformTransport.deleteAiSession(sessionId);
-    set(state => ({
-      vibeRuns: state.vibeRuns.filter(item => item.id !== sessionId),
-      devices: state.devices.map(device => ({
+    set(state => {
+      const sessionCommands = { ...state.sessionCommands };
+      delete sessionCommands[sessionId];
+      return {
+        vibeRuns: state.vibeRuns.filter(item => item.id !== sessionId),
+        sessionCommands,
+        devices: state.devices.map(device => ({
         ...device,
         activeSessionIds: device.activeSessionIds.filter(id => id !== sessionId),
-      })),
-    }));
+        })),
+      };
+    });
   },
 
   appendAgentMessage: async (sessionId, content, mode) => {

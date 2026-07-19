@@ -17,10 +17,14 @@ import {
   getInitialNotificationData,
 } from './src/services/localNotifications';
 import {
-  resolveNotificationTapTarget,
   type NotificationTapData,
 } from './src/utils/notificationTap';
+import {
+  notificationTapIdentity,
+  processNotificationTap,
+} from './src/utils/notificationNavigation';
 import { useSessionStore } from './stores/useSettingsStore';
+import { useControlCenterStore } from './src/store/controlCenterStore';
 import type { AppInitialProps } from './src/app/debugInitialProps';
 
 function AppContent({ debugDeviceTerminal }: AppInitialProps = {}) {
@@ -30,35 +34,81 @@ function AppContent({ debugDeviceTerminal }: AppInitialProps = {}) {
   usePresenceHeartbeat();
   // Android 后台本地通知:后台收到 approval / 回合结算 → 弹系统通知;点击跳会话。
   // iOS / 未 rebuild → 降级 no-op(见 services/localNotifications)。
-  useBackgroundNotifications();
+  const hasHydrated = useSessionStore(state => state.hasHydrated);
+  const token = useSessionStore(state => state.token);
+  const userId = useSessionStore(state => state.user?.id);
+  useBackgroundNotifications({
+    enabled: hasHydrated && Boolean(token && userId),
+    userId,
+  });
 
   // 通知点击 → 跳对应会话。两条路径:onForegroundEvent(后台点开拉起)+
   // getInitialNotification(冷启动被通知拉起)。后者需等 hydrate+登录+navigator 就绪。
   useEffect(() => {
-    const unsub = onNotificationPress(data => {
-      const target = resolveNotificationTapTarget(
-        data as unknown as NotificationTapData | undefined,
-      );
-      if (target && navigationRef.isReady()) {
-        navigationRef.navigate(target.route, target.params);
-      }
-    });
     let cancelled = false;
-    void getInitialNotificationData().then(data => {
-      const target = resolveNotificationTapTarget(
-        data as unknown as NotificationTapData | undefined,
-      );
-      if (!target) return;
-      const tryNav = () => {
-        if (cancelled) return;
-        const { hasHydrated, token } = useSessionStore.getState();
-        if (hasHydrated && token && navigationRef.isReady()) {
-          navigationRef.navigate(target.route, target.params);
-        } else {
-          setTimeout(tryNav, 200);
+    const handled = new Set<string>();
+    const handleTap = (raw: Record<string, unknown> | undefined) => {
+      const data = raw as NotificationTapData | undefined;
+      const identity = notificationTapIdentity(data);
+      if (identity && handled.has(identity)) return;
+      if (identity) {
+        handled.add(identity);
+        if (handled.size > 50) handled.delete(handled.values().next().value!);
+      }
+      void processNotificationTap(data, {
+        getSession: () => {
+          const session = useSessionStore.getState();
+          return {
+            hasHydrated: session.hasHydrated,
+            token: session.token,
+            userId: session.user?.id,
+          };
+        },
+        isNavigationReady: () => navigationRef.isReady(),
+        navigate: target => {
+          if (target.route === 'VibeCodingSession') {
+            navigationRef.navigate('VibeCodingSession', target.params);
+          } else if (target.route === 'DeviceDetail') {
+            navigationRef.navigate('DeviceDetail', target.params);
+          } else {
+            navigationRef.navigate('NotificationCenter');
+          }
+        },
+        markRead: async notificationId => {
+          useControlCenterStore.setState(state => ({
+            notifications: state.notifications.map(item =>
+              item.id === notificationId ? { ...item, read: true } : item,
+            ),
+          }));
+          const deadline = Date.now() + 10_000;
+          while (!cancelled && Date.now() <= deadline) {
+            const controlCenter = useControlCenterStore.getState();
+            if (controlCenter.serverMode) {
+              await controlCenter.markNotificationRead(notificationId).catch(
+                error => {
+                  console.warn('[notifications] failed to sync read state', error);
+                },
+              );
+              return;
+            }
+            await new Promise<void>(resolve => setTimeout(resolve, 200));
+          }
+        },
+        isCancelled: () => cancelled,
+      }).then(result => {
+        if (
+          identity &&
+          (result === 'timeout' || result === 'cancelled' || result === 'invalid')
+        ) {
+          handled.delete(identity);
         }
-      };
-      tryNav();
+      });
+    };
+    const unsub = onNotificationPress(handleTap);
+    void getInitialNotificationData().then(data => {
+      if (!cancelled) {
+        handleTap(data);
+      }
     });
     return () => {
       cancelled = true;

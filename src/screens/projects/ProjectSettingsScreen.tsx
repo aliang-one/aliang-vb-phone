@@ -5,6 +5,7 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from 'react-native';
@@ -33,6 +34,9 @@ export const ProjectSettingsScreen: React.FC = () => {
   const route = useRoute<ProjectSettingsRoute>();
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
+  const updateProject = useControlCenterStore(state => state.updateProject);
+  const [skillTrustSaving, setSkillTrustSaving] = React.useState(false);
+  const [skillTrustError, setSkillTrustError] = React.useState<string | null>(null);
   const { refreshing, handleRefresh } = useRefreshWithFeedback();
 
   const project = projects.find(item => item.id === route.params.projectId);
@@ -50,6 +54,7 @@ export const ProjectSettingsScreen: React.FC = () => {
   }
 
   const approvalScheme = project.approvalScheme ?? 'balanced';
+  const skillTrusted = project.claudeSkillTrusted === true;
   const approvalSchemeLabel =
     approvalScheme === 'allow_all'
       ? t('projectSettings.scheme.allowAll')
@@ -150,6 +155,45 @@ export const ProjectSettingsScreen: React.FC = () => {
             projectId={project.id}
             scheme={approvalScheme}
           />
+          <GlassPanel style={styles.skillTrustPanel}>
+            <View style={styles.skillTrustRow}>
+              <View style={styles.skillTrustCopy}>
+                <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+                  {t('projectSettings.skillTrust.title')}
+                </Text>
+                <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                  {skillTrusted
+                    ? t('projectSettings.skillTrust.trusted')
+                    : t('projectSettings.skillTrust.untrusted')}
+                </Text>
+              </View>
+              <Switch
+                value={skillTrusted}
+                disabled={skillTrustSaving}
+                accessibilityLabel={t('projectSettings.skillTrust.toggle')}
+                trackColor={{
+                  false: theme.colors.surfaceContainerHighest,
+                  true: theme.colors.primaryContainer,
+                }}
+                thumbColor={skillTrusted ? theme.colors.primary : theme.colors.onSurfaceVariant}
+                onValueChange={value => {
+                  setSkillTrustError(null);
+                  setSkillTrustSaving(true);
+                  void updateProject(project.id, { claudeSkillTrusted: value })
+                    .catch(error => {
+                      console.warn('[project-settings] failed to update Skill trust', error);
+                      setSkillTrustError(t('projectSettings.skillTrust.saveFailed'));
+                    })
+                    .finally(() => setSkillTrustSaving(false));
+                }}
+              />
+            </View>
+            {skillTrustError ? (
+              <Text style={[theme.typography.labelSm, { color: theme.colors.error }]}>
+                {skillTrustError}
+              </Text>
+            ) : null}
+          </GlassPanel>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaWrapper>
@@ -202,5 +246,20 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     gap: 2,
     borderWidth: 1,
+  },
+  skillTrustPanel: {
+    marginTop: 14,
+    padding: 14,
+  },
+  skillTrustRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  skillTrustCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
   },
 });

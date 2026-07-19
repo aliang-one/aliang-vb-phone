@@ -2,7 +2,7 @@
 // and confirms into a fresh DeviceTerminal seeded with `initialCommand`.
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
-import { Text, TouchableOpacity } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { VibeCodingListScreen } from '../src/screens/vibecoding/VibeCodingListScreen';
 import { ThemeContext } from '../src/theme/ThemeContext';
@@ -132,6 +132,24 @@ describe('VibeCodingListScreen NEW TERM long-press → voice→bash', () => {
       tab?.props.onPress();
     });
   };
+
+  it('keeps Vibecoding and Terminals as fixed-width pager pages', () => {
+    act(() => {
+      screen = renderScreen();
+    });
+
+    const vibePageStyle = StyleSheet.flatten(
+      findByTestId(screen!.root, 'vibecoding-page')[0].props.style,
+    );
+    const terminalPageStyle = StyleSheet.flatten(
+      findByTestId(screen!.root, 'terminals-page')[0].props.style,
+    );
+    expect(typeof vibePageStyle.width).toBe('number');
+    expect(vibePageStyle.width).toBeGreaterThan(0);
+    expect(terminalPageStyle.width).toBe(vibePageStyle.width);
+    expect(vibePageStyle.flex).toBeUndefined();
+    expect(terminalPageStyle.flex).toBeUndefined();
+  });
 
   it('tap opens device choice, then creates an empty terminal on the selected device', () => {
     act(() => {

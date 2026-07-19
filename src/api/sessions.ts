@@ -348,6 +348,9 @@ export interface RefreshSessionCommandsResponse {
   source: 'cache' | 'persisted' | 'agent' | 'agent-offline';
   fetched_at: string;
   commands: AgentCommandInfo[];
+  verified?: boolean;
+  claude_version?: string;
+  capability_generation?: string;
 }
 
 /**

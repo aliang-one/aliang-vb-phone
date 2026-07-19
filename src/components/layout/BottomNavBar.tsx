@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
+import { View, StyleSheet, Dimensions, TouchableOpacity } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -34,9 +34,6 @@ const ICON_SPRING = { damping: 11, stiffness: 200, mass: 0.55 };
 const SLIDE_SPRING = { damping: 22, stiffness: 260, mass: 0.7 };
 // Press squish: fast and tight
 const PRESS_SPRING = { damping: 16, stiffness: 320, mass: 0.6 };
-
-const AnimatedTouchableOpacity =
-  Animated.createAnimatedComponent(TouchableOpacity);
 
 const BAR_WIDTH = 22;
 
@@ -80,26 +77,30 @@ const TabItem: React.FC<TabItemProps> = ({ isFocused, label, icon, onPress }) =>
   };
 
   return (
-    <AnimatedTouchableOpacity
-      onPress={onPress}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
-      activeOpacity={1}
-      style={styles.tab}>
-      <Animated.View style={iconWrapStyle}>
-        <IconBadge
-          name={icon}
-          tone={isFocused ? 'primary' : 'neutral'}
-          size={34}
-          iconSize={17}
-          filled={isFocused}
-        />
-      </Animated.View>
-      <Animated.Text
-        style={[theme.typography.labelCaps, styles.tabLabel, labelStyle]}>
-        {label.toUpperCase()}
-      </Animated.Text>
-    </AnimatedTouchableOpacity>
+    <View style={styles.tabSlot}>
+      <TouchableOpacity
+        accessibilityRole="tab"
+        accessibilityState={{ selected: isFocused }}
+        onPress={onPress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        activeOpacity={1}
+        style={styles.tabButton}>
+        <Animated.View style={iconWrapStyle}>
+          <IconBadge
+            name={icon}
+            tone={isFocused ? 'primary' : 'neutral'}
+            size={34}
+            iconSize={17}
+            filled={isFocused}
+          />
+        </Animated.View>
+        <Animated.Text
+          style={[theme.typography.labelCaps, styles.tabLabel, labelStyle]}>
+          {label.toUpperCase()}
+        </Animated.Text>
+      </TouchableOpacity>
+    </View>
   );
 };
 
@@ -265,8 +266,13 @@ const styles = StyleSheet.create({
     height: 60,
     paddingTop: 8,
   },
-  tab: {
+  tabSlot: {
     flex: 1,
+    alignSelf: 'stretch',
+  },
+  tabButton: {
+    width: '100%',
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 8,

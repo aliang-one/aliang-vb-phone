@@ -23,6 +23,7 @@
     "offlineSuffix": " · 离线",
     "actionApprove": "APPROVE",
     "actionDeny": "DENY",
+    "actionMore": "更多",
     "openSession": "OPEN SESSION"
   },
   "notification": {

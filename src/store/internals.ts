@@ -323,6 +323,12 @@ export function platformDeviceToClient(sd: PlatformDeviceSnapshot): Device {
         description: cmd.description,
         argHint: cmd.argHint,
         scope: (cmd.scope as AgentCommandScope | undefined) ?? undefined,
+        kind: cmd.kind,
+        origin: cmd.origin,
+        source: cmd.source,
+        userInvocable: cmd.userInvocable,
+        modelInvocable: cmd.modelInvocable,
+        remote: cmd.remote,
       })),
     })),
     history: sd.history.map(entry => ({
@@ -362,6 +368,7 @@ export function serverProjectToClient(sp: PlatformProjectSnapshot): Project {
     availableCommands: sp.available_commands ?? [],
     // Project-scoped approval policy (Phase B): mirror the server's scheme.
     approvalScheme: sp.approval_policy?.scheme ?? 'balanced',
+    claudeSkillTrusted: sp.claude_skill_trusted === true,
     modelConfig: sp.model_config,
     provider: sp.provider ?? undefined,
     model: sp.model ?? undefined,
@@ -1589,6 +1596,7 @@ export const emptySessionData = () => ({
   devices: [],
   projects: [],
   vibeRuns: [],
+  sessionCommands: {},
   previewLinks: [],
   terminalSessions: [],
   terminalCommandHistory: {},

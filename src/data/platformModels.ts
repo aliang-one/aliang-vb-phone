@@ -23,6 +23,7 @@ export interface Project {
   availableCommands?: AgentCommandInfo[];
   /** Active approval-policy scheme (project-scoped; defaults to balanced). */
   approvalScheme?: ApprovalScheme;
+  claudeSkillTrusted?: boolean;
   /** Project-scoped model/effort selections keyed by provider tab. */
   modelConfig?: ProjectProviderModelConfig;
   /** Legacy single-provider override from older server payloads. */
@@ -102,7 +103,8 @@ export interface Device {
   createdAt?: string;
 }
 
-export type AgentCommandScope = 'builtin' | 'user' | 'project';
+export type AgentCommandScope = 'builtin' | 'user' | 'project' | 'plugin';
+export type AgentCommandKind = 'builtin' | 'command' | 'skill' | 'mcp_prompt';
 
 /**
  * A discoverable `/`-style command for an AI coding tool (e.g. a Claude Code
@@ -124,6 +126,11 @@ export interface AgentCommandInfo {
   description?: string;
   argHint?: string;
   scope?: AgentCommandScope;
+  kind?: AgentCommandKind;
+  origin?: 'project' | 'user' | 'plugin';
+  source?: string;
+  userInvocable?: boolean;
+  modelInvocable?: boolean;
   /** Remote-execution category; absent ≈ 'prompt'. Drives the typeahead badge. */
   remote?: AgentCommandRemote;
 }

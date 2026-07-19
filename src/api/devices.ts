@@ -29,6 +29,12 @@ export interface ServerDevice {
       description?: string;
       argHint?: string;
       scope?: string;
+      kind?: 'builtin' | 'command' | 'skill' | 'mcp_prompt';
+      origin?: 'project' | 'user' | 'plugin';
+      source?: string;
+      userInvocable?: boolean;
+      modelInvocable?: boolean;
+      remote?: 'prompt' | 'local' | 'unsupported';
     }>;
   }>;
   history: Array<{

@@ -23,9 +23,27 @@
     "subscriptions": "SUBSCRIPTIONS",
     "modelConfig": "MODEL CONFIG",
     "platformService": "PLATFORM SERVICE",
+    "notifications": "NOTIFICATIONS",
     "capacity": "CAPACITY",
     "inputMode": "INPUT MODE",
     "theme": "THEME"
+  },
+  "notifications": {
+    "systemTitle": "System notifications",
+    "enable": "ENABLE NOTIFICATIONS",
+    "openSettings": "OPEN SYSTEM SETTINGS",
+    "status": {
+      "unsupported": "Unavailable on this platform or build",
+      "not_determined": "Permission has not been requested",
+      "denied": "Permission is blocked in system settings",
+      "authorized": "Background alerts are allowed"
+    },
+    "shortStatus": {
+      "unsupported": "UNAVAILABLE",
+      "not_determined": "NOT SET",
+      "denied": "BLOCKED",
+      "authorized": "ENABLED"
+    }
   },
   "account": {
     "notLoggedIn": "Not signed in",

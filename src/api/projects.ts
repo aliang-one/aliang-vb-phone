@@ -53,6 +53,7 @@ export interface ServerProject {
   git_changed_count?: number;
   detected_ports?: number[];
   source_tools?: string[];
+  claude_skill_trusted?: boolean;
   /** Effective `/`-command surface (project > user > builtin), server-computed. */
   available_commands?: AgentCommandInfo[];
   /** Project-scoped approval policy (Phase B): scheme + version + hash. */
@@ -150,6 +151,7 @@ export const updateProject = (
     is_git_repo: boolean;
     detected_ports: number[];
     source_tools: string[];
+    claude_skill_trusted: boolean;
     approval_policy: {
       scheme?: ApprovalScheme;
       custom_rule_overrides?: Record<string, ApprovalDecision>;

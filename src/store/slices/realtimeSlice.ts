@@ -1,8 +1,8 @@
 import type { StateCreator } from 'zustand';
 import { platformTransport } from '../../services/platformTransport';
 import { getApiAuthToken } from '../../api/client';
-import { cancelDeltaBatch, cancelRefreshDebounce } from '../streaming';
-import { cancelStructuredBatch } from '../structuredBatching';
+import { cancelRefreshDebounce } from '../streaming';
+import { cancelAiStreamBatch } from '../aiStreamBatching';
 import { cancelTerminalBatch } from '../terminalBatching';
 import type { ControlCenterState, RefreshOutcome } from '../types';
 import {
@@ -48,8 +48,7 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
 
   initializeFromServer: async (token) => {
     platformTransport.disconnect();
-    cancelDeltaBatch();
-    cancelStructuredBatch();
+    cancelAiStreamBatch();
     cancelTerminalBatch();
     cancelRefreshDebounce();
     set(state => {
@@ -91,8 +90,7 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
     } catch (error) {
       console.warn('[store] Failed to initialize from server:', error);
       platformTransport.disconnect();
-      cancelDeltaBatch();
-    cancelStructuredBatch();
+      cancelAiStreamBatch();
       cancelRefreshDebounce();
       set({
         wsConnected: false,
@@ -163,8 +161,7 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
 
   disconnectFromServer: () => {
     platformTransport.disconnect();
-    cancelDeltaBatch();
-    cancelStructuredBatch();
+    cancelAiStreamBatch();
     cancelTerminalBatch();
     cancelRefreshDebounce();
     set({ wsConnected: false, serverMode: false });
@@ -172,8 +169,7 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
 
   resetSessionData: () => {
     platformTransport.disconnect();
-    cancelDeltaBatch();
-    cancelStructuredBatch();
+    cancelAiStreamBatch();
     cancelTerminalBatch();
     cancelRefreshDebounce();
     set({

@@ -2,21 +2,15 @@ import { create } from 'zustand';
 import { shallow, useShallow } from 'zustand/shallow';
 import type { PreviewLink, VibeCodingRun, VibeStatus } from '../data/platformModels';
 import { routeTerminalOutputToEmulator } from '../components/terminal/TerminalEmulator';
-import { applyDeltasToRuns } from '../utils/deltaBatch';
 import { terminalDisplayUpdate } from '../utils/terminalOutput';
 import {
-  flushDeltas,
-  pushDelta,
-  registerDeltaApplier,
-  scheduleRefreshDebounce,
-} from './streaming';
-import {
-  flushStructuredEvents,
-  isStructuredTransportEvent,
-  pushStructuredEvent,
-  registerStructuredApplier,
-  type StructuredTransportEvent,
-} from './structuredBatching';
+  flushAiStreamEvents,
+  isAiStreamTransportEvent,
+  pushAiStreamEvent,
+  registerAiStreamApplier,
+} from './aiStreamBatching';
+import { applyAiStreamEventsToRuns } from './aiStreamReducer';
+import { scheduleRefreshDebounce } from './streaming';
 import {
   flushTerminalOutput,
   pushTerminalOutput,
@@ -59,10 +53,7 @@ import { createTerminalSlice } from './slices/terminalSlice';
 import { createApprovalSlice } from './slices/approvalSlice';
 import { createAiSessionSlice } from './slices/aiSessionSlice';
 import { createDeviceProjectSlice } from './slices/deviceProjectSlice';
-import {
-  applyStructuredEvent,
-  reconcileStructured,
-} from './slices/structuredSlice';
+import { reconcileStructured } from './slices/structuredSlice';
 
 const EMPTY_SESSION_APPROVALS: ControlCenterState['approvals'] = [];
 
@@ -101,12 +92,8 @@ export const useVibeRun = (sessionId: string | undefined) =>
 // never structuredEvents). That saturated the JS thread and starved the
 // tap→navigate transition → "tapping into a thinking session is laggy".
 //
-// `toStableRun` returns the SAME run object reference across updates that only
-// touched the high-frequency bulk arrays (structuredEvents / events /
-// transcript), by caching per-id and reusing the cached run whenever its
-// metadata fingerprint is unchanged. `useStableVibeRuns` pairs that with
-// `useShallow`, so a list screen re-renders ONLY when a VISIBLE metadata field
-// actually changes — never per thinking token / streaming delta.
+// `toStableRun` publishes semantic changes immediately, but coalesces volatile
+// stream previews (step/activity/last assistant message) to at most twice/sec.
 //
 // The cached run's bulk arrays may be stale (frozen at the last metadata
 // change); that is fine because list screens/cards render metadata only, and
@@ -117,43 +104,66 @@ export const useVibeRun = (sessionId: string | undefined) =>
 
 // The high-frequency bulk arrays lists never display — excluded from the
 // metadata fingerprint so churn on them doesn't invalidate list subscriptions.
-const VIBE_RUN_BULK_KEYS = [
+const VIBE_RUN_NON_SEMANTIC_KEYS = [
   'structuredEvents',
   'events',
   'transcript',
+  'currentStep',
+  'lastActivityMs',
+  'updatedAt',
+  'transcriptCount',
+  'lastMessage',
 ] as const;
+
+const LIST_STREAM_PUBLISH_MS = 500;
 
 const stableRunCache = new Map<
   string,
-  { meta: Record<string, unknown>; run: VibeCodingRun }
+  {
+    semantic: Record<string, unknown>;
+    volatile: Record<string, unknown>;
+    run: VibeCodingRun;
+    publishedAt: number;
+  }
 >();
 
-/** Metadata fingerprint of a run — every field EXCEPT the bulk arrays. Built by
- *  shallow-copy + delete (not destructuring) so it auto-includes any future
- *  metadata field without an explicit allow-list to maintain. */
-function vibeRunMeta(run: VibeCodingRun): Record<string, unknown> {
+function vibeRunSemanticMeta(run: VibeCodingRun): Record<string, unknown> {
   const meta: Record<string, unknown> = { ...run };
-  for (const key of VIBE_RUN_BULK_KEYS) {
+  for (const key of VIBE_RUN_NON_SEMANTIC_KEYS) {
     delete meta[key];
   }
   return meta;
 }
 
-/** Return a run object that is referentially stable across updates touching only
- *  the bulk arrays. Exposed for testing. */
-export function toStableRun(run: VibeCodingRun): VibeCodingRun {
-  const meta = vibeRunMeta(run);
+function vibeRunVolatileMeta(run: VibeCodingRun): Record<string, unknown> {
+  return {
+    currentStep: run.currentStep,
+    lastActivityMs: run.lastActivityMs,
+    updatedAt: run.updatedAt,
+    transcriptCount: run.transcriptCount,
+    lastMessageId: run.lastMessage?.id,
+    lastMessageRole: run.lastMessage?.role,
+    lastMessageContent: run.lastMessage?.content,
+  };
+}
+
+/** Stable list projection: semantic changes publish immediately; high-frequency
+ * stream preview changes publish at most every 500ms. Exposed for testing. */
+export function toStableRun(run: VibeCodingRun, now = Date.now()): VibeCodingRun {
+  const semantic = vibeRunSemanticMeta(run);
+  const volatile = vibeRunVolatileMeta(run);
   const cached = stableRunCache.get(run.id);
-  if (cached !== undefined && shallow(cached.meta, meta)) {
-    return cached.run;
+  if (cached !== undefined && shallow(cached.semantic, semantic)) {
+    if (shallow(cached.volatile, volatile)) return cached.run;
+    if (now - cached.publishedAt < LIST_STREAM_PUBLISH_MS) return cached.run;
   }
-  stableRunCache.set(run.id, { meta, run });
+  stableRunCache.set(run.id, { semantic, volatile, run, publishedAt: now });
   return run;
 }
 
 /** Subscribe to all AI sessions as referentially-stable run objects for LIST
- *  rendering. Re-renders the subscriber ONLY when a visible metadata field
- *  changes — NOT per thinking token / streaming delta. Prefer this over
+ *  rendering. Semantic changes publish immediately; volatile stream previews
+ *  publish at most twice/sec. Prefer this over
  *  `state.vibeRuns` in any screen that renders a session list/cards. */
 export function useStableVibeRuns(): VibeCodingRun[] {
   return useControlCenterStore(
@@ -314,61 +324,24 @@ export const applyOutputToSession = (
 // ------------------------------------------------------------
 // The five domain slices (./slices/*) are composed into one store. The
 // cross-domain transport dispatcher stays here at the root because it routes
-// events to every domain via get()/set(). The mutable streaming-batching state
-// it shares with the realtime slice lives in ./streaming (single owner), and the
-// store wires the delta applier into it at creation.
+// events to every domain via get()/set(). The mutable AI stream batching state
+// lives in ./aiStreamBatching, and the store wires its applier here.
 // ============================================================
 export const useControlCenterStore = create<ControlCenterState>()(
   (set, get, store) => {
-    // Let ./streaming flush buffered ai.delta tokens back into the store
-    // without it having to depend on zustand.
-    registerDeltaApplier(deltas =>
+    // Delta and structured activity share one ordered 100ms queue. A single
+    // transaction keeps mixed thinking/text streams from flushing each other
+    // per event and preserves untouched run identities.
+    registerAiStreamApplier(events =>
       set(state => {
-        const vibeRuns = applyDeltasToRuns(
+        const vibeRuns = applyAiStreamEventsToRuns(
           state.vibeRuns,
-          deltas,
+          events,
           () => createId('msg'),
           shortTime,
         );
-        return {
-          vibeRuns: evictOverflowVibeRuns(
-            vibeRuns.map(run => ({
-              ...run,
-              transcript: trimTranscript(run.transcript),
-            })),
-          ),
-        };
-      }),
-    );
-
-    // Let ./structuredBatching flush buffered structured activity events
-    // (ai.command/file_change/thinking/usage/task) back into the store without
-    // it depending on zustand. The agent emits these — especially ai.thinking —
-    // at LLM-token rate (dozens/sec during a thinking phase), so one
-    // identity-preserving write per flush window turns a per-token re-render
-    // storm into ~10/sec. Events are grouped by session and folded in arrival
-    // order via applyStructuredEvent (upsert by eventId); untouched runs keep
-    // their object reference so a fine-grained useVibeRun(id) subscriber on
-    // another session doesn't re-render.
-    registerStructuredApplier((events: StructuredTransportEvent[]) =>
-      set(state => {
-        const bySession = new Map<string, StructuredTransportEvent[]>();
-        for (const ev of events) {
-          const arr = bySession.get(ev.sessionId);
-          if (arr) arr.push(ev);
-          else bySession.set(ev.sessionId, [ev]);
-        }
-        let changed = false;
-        const next = state.vibeRuns.map(run => {
-          const mine = bySession.get(run.id);
-          if (!mine) return run;
-          changed = true;
-          return mine.reduce(
-            (current, ev) => applyStructuredEvent(current, ev),
-            run,
-          );
-        });
-        return { vibeRuns: changed ? evictOverflowVibeRuns(next) : state.vibeRuns };
+        if (vibeRuns === state.vibeRuns) return state;
+        return { vibeRuns: evictOverflowVibeRuns(vibeRuns) };
       }),
     );
 
@@ -424,29 +397,24 @@ export const useControlCenterStore = create<ControlCenterState>()(
       // No session is viewed until a chat screen focuses.
       currentlyViewedSessionId: undefined,
       handleTransportEvent: transportEvent => {
-        // Apply any buffered streaming tokens before handling a different event,
-        // so ordering is preserved (e.g. an `ai.done` reflects every preceding
-        // token). `ai.delta` is the only buffered type — see its case below.
-        // flushDeltas / pushDelta + the batching buffers live in ./streaming; the
-        // applier that writes flushed deltas into vibeRuns was registered above.
+        // Stream events share one queue. Any non-stream event is an ordering
+        // boundary, so ai.done/snapshots always observe preceding text/activity.
 
         // Per-event isolation (L0 dispatcher boundary): a reducer throwing for
         // one event must not propagate to the WS onmessage callback and break the
         // realtime pipeline. Each transport event is independent, so we catch,
         // log, and keep the connection alive for subsequent events.
         try {
-          if (transportEvent.type !== 'ai.delta') {
-            flushDeltas();
+          if (isAiStreamTransportEvent(transportEvent)) {
+            flushTerminalOutput();
+            pushAiStreamEvent(transportEvent);
+            return;
           }
+          // Lifecycle and snapshot events are ordering boundaries: commit every
+          // preceding stream event before applying the authoritative update.
+          flushAiStreamEvents();
           if (transportEvent.type !== 'terminal.output') {
             flushTerminalOutput();
-          }
-          // Structured activity is buffered the same way — flush it before any
-          // NON-structured event so ordering is preserved (e.g. ai.done must see
-          // the final thinking/command state). A structured event itself stays
-          // buffered and is handled by its own case below.
-          if (!isStructuredTransportEvent(transportEvent)) {
-            flushStructuredEvents();
           }
 
           switch (transportEvent.type) {
@@ -599,19 +567,6 @@ export const useControlCenterStore = create<ControlCenterState>()(
                   };
                 }),
               }));
-              return;
-            }
-
-            case 'ai.delta': {
-              // Buffer the token; pushDelta schedules a single coalesced flush per
-              // flush window so subscribed screens re-render once per flush instead
-              // of once per token. Buffered deltas are merged in one set() on flush.
-              pushDelta({
-                sessionId: transportEvent.sessionId,
-                delta: transportEvent.delta,
-                currentStep: transportEvent.currentStep || undefined,
-                messageId: transportEvent.messageId,
-              });
               return;
             }
 
@@ -810,64 +765,11 @@ export const useControlCenterStore = create<ControlCenterState>()(
               return;
             }
 
-            case 'ai.command':
-            case 'ai.file_change':
-            case 'ai.thinking':
-            case 'ai.usage':
-            case 'ai.task': {
-              // Structured mid-turn events are liveness proof — they flow
-              // during exactly the windows when no ai.delta streams (long bash,
-              // subagent, LLM thinking, between sub-turns). Mirror the server's
-              // settle-cancel: keep status=running locally (+ refresh
-              // lastActivityMs) so the phone doesn't flip to idle mid-gap
-              // between server publishes, then buffer the event. Without this
-              // the top phase (when not yet on server-authoritative phase) and
-              // the composer lock can drop mid-tool. failed/completed/
-              // waiting_approval are preserved.
-              set(state => ({
-                vibeRuns: state.vibeRuns.map(item => {
-                  if (item.id !== transportEvent.sessionId) return item;
-                  if (item.runStateVersion !== undefined) {
-                    const activityMs = activityNowMs();
-                    return {
-                      ...item,
-                      lastActivityMs: activityMs,
-                      updatedAt: formatActivityLabel(activityMs),
-                    };
-                  }
-                  if (
-                    item.status === 'failed' ||
-                    item.status === 'completed' ||
-                    item.status === 'waiting_approval'
-                  ) {
-                    return item;
-                  }
-                  const activityMs = activityNowMs();
-                  return {
-                    ...item,
-                    status: 'running' as VibeStatus,
-                    lastActivityMs: activityMs,
-                    updatedAt: formatActivityLabel(activityMs),
-                  };
-                }),
-              }));
-              // Buffer the event; pushStructuredEvent schedules a single
-              // coalesced flush per window so subscribed screens re-render once
-              // per flush instead of once per token (esp. ai.thinking, which
-              // arrives at LLM-token rate). The flush folds the batch in arrival
-              // order via applyStructuredEvent (upsert by eventId) — see the
-              // applier registered at store creation.
-              pushStructuredEvent(transportEvent);
-              return;
-            }
-
             case 'ai.session.updated': {
               // Preserve wire order across the 100ms client batchers. Deltas /
               // structured events that arrived BEFORE this authoritative
               // snapshot must be applied first; otherwise their delayed timer
               // flush can run after completed and resurrect status=running.
-              flushDeltas();
-              flushStructuredEvents();
               // Recovery edge: `approval.requested` is a one-shot push (no
               // retry-until-ack) that a momentary WS blip can drop, and a turn
               // paused for approval never emits `ai.done` — so the existing

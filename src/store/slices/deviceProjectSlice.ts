@@ -151,6 +151,7 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
       language: input.language,
       description: input.description,
       status: input.status,
+      claude_skill_trusted: input.claudeSkillTrusted,
     });
     const project = serverProjectToClient(serverProject);
     set(state => {

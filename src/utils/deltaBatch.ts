@@ -75,15 +75,31 @@ function resolveAssistantMessageId(
   return collidesWithNonAssistant ? `${rawMessageId}:assistant` : rawMessageId;
 }
 
-function applyDeltasToRun(
+export function applyDeltasToRun(
   run: VibeCodingRun,
   sessionDeltas: DeltaUpdate[],
   makeId: () => string,
   nowLabel: () => string,
+  activityMs = Date.now(),
 ): VibeCodingRun {
   // Mutate one shallow copy of the transcript instead of spreading per delta.
   const transcript = run.transcript.slice();
   let currentStep = run.currentStep;
+  let pendingIndex = -1;
+  let pendingMessageId = '';
+  let pendingChunks: string[] = [];
+
+  const flushPendingChunks = () => {
+    if (pendingIndex < 0 || !pendingChunks.length) return;
+    const message = transcript[pendingIndex];
+    transcript[pendingIndex] = {
+      ...message,
+      content: message.content + pendingChunks.join(''),
+    };
+    pendingIndex = -1;
+    pendingMessageId = '';
+    pendingChunks = [];
+  };
 
   for (const delta of sessionDeltas) {
     const stepCandidate = delta.currentStep || delta.delta.slice(0, 100);
@@ -100,11 +116,14 @@ function applyDeltasToRun(
     );
 
     if (trailing && trailing.role === 'assistant' && trailing.id === messageId) {
-      transcript[lastIndex] = {
-        ...trailing,
-        content: trailing.content + delta.delta,
-      };
+      if (pendingIndex !== lastIndex || pendingMessageId !== messageId) {
+        flushPendingChunks();
+        pendingIndex = lastIndex;
+        pendingMessageId = messageId;
+      }
+      pendingChunks.push(delta.delta);
     } else {
+      flushPendingChunks();
       transcript.push({
         id: messageId || makeId(),
         role: 'assistant',
@@ -114,6 +133,7 @@ function applyDeltasToRun(
       });
     }
   }
+  flushPendingChunks();
 
   const lastMessage = transcript[transcript.length - 1];
 
@@ -121,7 +141,7 @@ function applyDeltasToRun(
     ...run,
     status: 'running',
     currentStep,
-    lastActivityMs: Date.now(),
+    lastActivityMs: activityMs,
     updatedAt: i18n.t('common:time.justNow'),
     transcript,
     transcriptCount: Math.max(run.transcriptCount ?? 0, transcript.length),

@@ -170,6 +170,11 @@
     "save": "保存",
     "upToDate": "已是最新",
     "commands": "快捷指令",
+    "group": {
+      "skill": "Skills",
+      "command": "自定义命令",
+      "builtin": "内置命令"
+    },
     "refresh": "刷新命令列表",
     "refreshing": "刷新中…",
     "refreshButton": "↻ 刷新",
@@ -178,8 +183,9 @@
     "insertCommand": "插入 /{{name}}",
     "scopeProject": "项目",
     "scopeUser": "用户",
+    "scopePlugin": "插件",
     "scopeBuiltin": "内置",
-    "empty": "该 Agent 暂未上报命令。命令来自项目/用户的 .claude/commands;确认 Agent 已更新并重连。"
+    "empty": "该 Agent 暂未上报可用命令或 Skill。"
   },
   "sessionCard": {
     "lastActive": "上次激活 {{label}}",
@@ -246,6 +252,7 @@
   "slash": {
     "scopeProject": "项目",
     "scopeUser": "用户",
+    "scopePlugin": "插件",
     "scopeBuiltin": "内置",
     "remoteLocal": "本机",
     "remoteUnsupported": "本机·不可远程",

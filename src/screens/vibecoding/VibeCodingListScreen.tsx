@@ -246,6 +246,61 @@ export const VibeCodingListScreen: React.FC = () => {
     () => buildDeviceStatusIndex(devices),
     [devices],
   );
+  const projectById = useMemo(
+    () => new Map(projects.map(project => [project.id, project] as const)),
+    [projects],
+  );
+  const projectSearchIndex = useMemo(
+    () =>
+      new Map(
+        projects.map(project => [
+          project.id,
+          [
+            project.id,
+            project.name,
+            project.path,
+            project.branch,
+            project.language,
+            project.description,
+            project.packageManager,
+            ...(project.detectedPorts ?? []).map(String),
+            ...(project.sourceTools ?? []),
+          ]
+            .filter(Boolean)
+            .join('\n')
+            .toLowerCase(),
+        ]),
+      ),
+    [projects],
+  );
+  const deviceSearchIndex = useMemo(
+    () =>
+      new Map(
+        devices.map(device => [
+          device.id,
+          [
+            device.id,
+            device.name,
+            device.host,
+            device.location,
+            device.os,
+            device.agentVersion,
+            ...(device.authorizedDirectories ?? []),
+            ...(device.tools ?? []).flatMap(tool => [
+              tool.id,
+              tool.name,
+              tool.command,
+              tool.path,
+              tool.description,
+            ]),
+          ]
+            .filter(Boolean)
+            .join('\n')
+            .toLowerCase(),
+        ]),
+      ),
+    [devices],
+  );
 
   const normalizedQuery = query.trim().toLowerCase();
   const matchesQuery = useCallback(
@@ -260,49 +315,31 @@ export const VibeCodingListScreen: React.FC = () => {
     () =>
       vibeRuns
         .filter(session => {
-          const project = projects.find(item => item.id === session.projectId);
-          const device = devices.find(item => item.id === session.deviceId);
+          const project = projectById.get(session.projectId);
           const displayTitle = formatVibeSessionTitle(session.title, {
             directory: session.directory,
             projectName: project?.name,
           });
-          const sessionMatchesQuery = matchesQuery([
-            session.id,
-            session.title,
-            displayTitle,
-            session.objective,
-            session.model,
-            session.status,
-            session.directory,
-            session.branch,
-            session.currentStep,
-            session.risk,
-            session.previewId,
-            session.lastMessage?.content,
-            project?.id,
-            project?.name,
-            project?.path,
-            project?.branch,
-            project?.language,
-            project?.description,
-            project?.packageManager,
-            ...(project?.detectedPorts ?? []).map(String),
-            ...(project?.sourceTools ?? []),
-            device?.id,
-            device?.name,
-            device?.host,
-            device?.location,
-            device?.os,
-            device?.agentVersion,
-            ...(device?.authorizedDirectories ?? []),
-            ...(device?.tools ?? []).flatMap(tool => [
-              tool.id,
-              tool.name,
-              tool.command,
-              tool.path,
-              tool.description,
-            ]),
-          ]);
+          const sessionMatchesQuery =
+            !normalizedQuery ||
+            [
+              session.id,
+              session.title,
+              displayTitle,
+              session.objective,
+              session.model,
+              session.status,
+              session.directory,
+              session.branch,
+              session.currentStep,
+              session.risk,
+              session.previewId,
+              session.lastMessage?.content,
+              projectSearchIndex.get(session.projectId),
+              deviceSearchIndex.get(session.deviceId),
+            ]
+              .filter((value): value is string => Boolean(value))
+              .some(value => value.toLowerCase().includes(normalizedQuery));
           const matchesFilter = filter === 'all' || session.status === filter;
           return sessionMatchesQuery && matchesFilter;
         })
@@ -313,7 +350,15 @@ export const VibeCodingListScreen: React.FC = () => {
             compareSessionsByStableActivity,
           ),
         ),
-    [vibeRuns, projects, devices, filter, matchesQuery, deviceStatusIndex],
+    [
+      vibeRuns,
+      filter,
+      normalizedQuery,
+      projectById,
+      projectSearchIndex,
+      deviceSearchIndex,
+      deviceStatusIndex,
+    ],
   );
   const sessionList = useIncrementalList(filtered, {
     initialCount: 10,
@@ -596,7 +641,15 @@ export const VibeCodingListScreen: React.FC = () => {
       colors={[theme.colors.primary]}
     />
   );
-
+  const filteredStats = useMemo(() => {
+    let approvals = 0;
+    let previews = 0;
+    for (const session of filtered) {
+      if (session.status === 'waiting_approval') approvals += 1;
+      if (session.previewId) previews += 1;
+    }
+    return { approvals, previews };
+  }, [filtered]);
   return (
     <SafeAreaWrapper>
       <TopAppBar title="VibeCoding" subtitle="SESSIONS · TERMINALS" />
@@ -658,7 +711,7 @@ export const VibeCodingListScreen: React.FC = () => {
           style={styles.pager}
         >
           {/* ---------- Page 1: Vibecoding sessions ---------- */}
-          <View style={{ width }}>
+          <View testID="vibecoding-page" style={{ width }}>
             <ScrollView
               nestedScrollEnabled
               contentContainerStyle={styles.content}
@@ -728,24 +781,20 @@ export const VibeCodingListScreen: React.FC = () => {
                   );
                 })}
               </ScrollView>
-
               <View style={styles.summary}>
-                <StatusChip label={`${filtered.length} SESSIONS`} type="info" />
                 <StatusChip
-                  label={`${
-                    filtered.filter(item => item.status === 'waiting_approval')
-                      .length
-                  } APPROVAL`}
+                  label={`${filtered.length} SESSIONS`}
+                  type="info"
+                />
+                <StatusChip
+                  label={`${filteredStats.approvals} APPROVAL`}
                   type="warning"
                 />
                 <StatusChip
-                  label={`${
-                    filtered.filter(item => item.previewId).length
-                  } PREVIEWS`}
+                  label={`${filteredStats.previews} PREVIEWS`}
                   type="info"
                 />
               </View>
-
               {sessionList.visibleItems.map(session => (
                 <VibeSessionCard
                   key={session.id}
@@ -777,7 +826,7 @@ export const VibeCodingListScreen: React.FC = () => {
           </View>
 
           {/* ---------- Page 2: Terminals ---------- */}
-          <View style={{ width }}>
+          <View testID="terminals-page" style={{ width }}>
             <View style={styles.terminalPage}>
               <ScrollView
                 nestedScrollEnabled

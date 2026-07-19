@@ -234,6 +234,8 @@ export interface ControlCenterState {
   devices: Device[];
   projects: Project[];
   vibeRuns: VibeCodingRun[];
+  /** Active Claude/Codex capability snapshot keyed by AI session id. */
+  sessionCommands: Record<string, AgentCommandInfo[]>;
   /**
    * The AI session currently on the chat screen (set on focus, cleared on
    * blur/unmount). The idle demoter never clears this session's resident
@@ -275,6 +277,7 @@ export interface ControlCenterState {
       language: string;
       description: string;
       status: 'active' | 'idle' | 'error' | 'fresh';
+      claudeSkillTrusted: boolean;
     }>,
   ) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
@@ -303,8 +306,8 @@ export interface ControlCenterState {
    * On-demand `/`-command discovery for a session. Auto path (ToolsMenu open,
    * `force=false`) is 1h-gated + in-flight-deduped (cheap). Manual path (input
    * refresh button, `force=true`) bypasses the 1h gate. The server applies a
-   * 10s floor on top. Returns the effective command list (custom/user/project +
-   * builtin baseline) and mirrors it onto the project's availableCommands.
+   * 10s floor on top. Results are stored by session because Skills depend on
+   * the active CLI process, cwd, version, settings and plugins.
    */
   refreshSessionCommands: (
     sessionId: string,

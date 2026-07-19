@@ -9,12 +9,12 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   RefreshControl,
-  TouchableOpacity,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
+  TouchableOpacity,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from 'react-native';
@@ -75,7 +75,6 @@ import {
   LIVE_TURN_WINDOW_MS,
   deriveSessionPhase,
   isAuthoritativeRunLive,
-  isSessionTurnActive,
   lastUnrepliedUserMessageId,
   liveAssistantMessageId,
   phaseLabel,
@@ -88,6 +87,7 @@ import { isSessionSnapshotStale } from '../../utils/sessionSnapshotStale';
 import { deriveLivePulse } from '../../utils/activitySummary';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { useNowTick } from '../../hooks/useNowTick';
+import { useThrottledValue } from '../../hooks/useThrottledValue';
 import { useVoiceStt } from '../../hooks/useVoiceStt';
 import {
   catalogModelOptions,
@@ -117,7 +117,10 @@ const DETAIL_LOAD_TIMEOUT_MS = 15000;
 const FOCUS_AWAY_THRESHOLD_MS = 60_000;
 const AUTO_REFRESH_COOLDOWN_MS = 30_000;
 const SCROLL_FOLLOW_THRESHOLD = 180;
+const LIVE_TRANSCRIPT_RENDER_MS = 200;
+const FOLLOW_TAIL_SCROLL_MS = 120;
 const EMPTY_ACTIVITY_EVENTS: StructuredActivityEvent[] = [];
+const EMPTY_TRANSCRIPT: VibeCodingRun['transcript'] = [];
 
 const eventIcon: Record<string, IconName> = {
   command: 'terminal',
@@ -362,6 +365,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const device = useDevice(session?.deviceId);
   const preview = useSessionPreview(session?.id);
   const sessionApprovals = useSessionApprovals(session?.id);
+  const discoveredSessionCommands = useControlCenterStore(
+    state => (session?.id ? state.sessionCommands[session.id] : undefined),
+  );
   const wsConnected = useControlCenterStore(state => state.wsConnected);
   const loadAgentSessionDetail = useControlCenterStore(
     state => state.loadAgentSessionDetail,
@@ -500,6 +506,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
     null,
   );
   const scrollToEndTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastScrollToEndAtRef = useRef(0);
+  const pendingScrollAnimatedRef = useRef(false);
   const sendLockRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
   const targetSessionIdRef = useRef<string | undefined>(undefined);
@@ -561,13 +569,18 @@ export const VibeCodingSessionScreen: React.FC = () => {
   );
 
   const scheduleScrollToEnd = useCallback((animated = true) => {
-    if (scrollToEndTimer.current) {
-      clearTimeout(scrollToEndTimer.current);
-    }
+    pendingScrollAnimatedRef.current =
+      pendingScrollAnimatedRef.current || animated;
+    if (scrollToEndTimer.current) return;
+    const elapsed = Date.now() - lastScrollToEndAtRef.current;
+    const delay = Math.max(0, FOLLOW_TAIL_SCROLL_MS - elapsed);
     scrollToEndTimer.current = setTimeout(() => {
       scrollToEndTimer.current = null;
-      scrollViewRef.current?.scrollToEnd({ animated });
-    }, 0);
+      lastScrollToEndAtRef.current = Date.now();
+      const shouldAnimate = pendingScrollAnimatedRef.current;
+      pendingScrollAnimatedRef.current = false;
+      scrollViewRef.current?.scrollToEnd({ animated: shouldAnimate });
+    }, delay);
   }, []);
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -611,9 +624,20 @@ export const VibeCodingSessionScreen: React.FC = () => {
   useEffect(() => {
     targetSessionIdRef.current = targetSessionId;
   }, [targetSessionId]);
+  const isSessionLive =
+    session != null &&
+    isAuthoritativeRunLive(
+      session.runStateVersion,
+      session.runState,
+      session.status,
+    );
+  const displayTranscriptSource = useThrottledValue(
+    session?.transcript ?? EMPTY_TRANSCRIPT,
+    isSessionLive ? LIVE_TRANSCRIPT_RENDER_MS : 0,
+  );
   const transcript = useMemo(
-    () => buildDisplayTranscript(session?.transcript ?? []),
-    [session?.transcript],
+    () => buildDisplayTranscript(displayTranscriptSource),
+    [displayTranscriptSource],
   );
   const activityEventsByMessageId = useMemo(() => {
     const byMessageId = new Map<string, StructuredActivityEvent[]>();
@@ -691,18 +715,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
     session?.transcriptPage?.hasMore &&
       session?.transcriptPage?.nextBeforeCursor,
   );
-  const latestTranscriptKey = useMemo(() => {
-    if (!session) return `${targetSessionId}:empty`;
-    const latest = session.transcript[session.transcript.length - 1];
-    if (!latest) return `${targetSessionId}:empty`;
-    return [
-      targetSessionId,
-      session.transcript.length,
-      latest.id,
-      latest.role,
-      latest.content.length,
-    ].join(':');
-  }, [session, targetSessionId]);
   const visibleTurnLayoutKey = useMemo(
     () => visibleTurns.map(turn => turn.id).join('|'),
     [visibleTurns],
@@ -977,14 +989,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
     loadAgentSessionDetail,
   ]);
 
-  useEffect(() => {
-    if (!latestTranscriptKey) return;
-    if (pendingScrollToEndRef.current || followTailRef.current) {
-      pendingScrollToEndRef.current = false;
-      scheduleScrollToEnd(true);
-    }
-  }, [latestTranscriptKey, scheduleScrollToEnd]);
-
   useEffect(
     () => () => {
       mountedRef.current = false;
@@ -1093,13 +1097,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // 结束是确定信号(ai.done),不需要 debounce,也就没有 8s 滞后。
   const now = useNowTick();
   // 统一源头:顶部相位 / composer 锁 / 停止按钮 / 发送 guard / L2-L3 脉冲都看它。
-  const isSessionLive =
-    session != null &&
-    isAuthoritativeRunLive(
-      session.runStateVersion,
-      session.runState,
-      session.status,
-    );
   // L3「哪条助手消息在流式」的高亮锚点:仅当回合在跑时才高亮最后一条 assistant 消息;
   // ai.done→idle 后 isSessionLive 即 false,高亮即时消失(不再拖 8s)。
   const liveMessageId = useMemo(
@@ -1385,8 +1382,19 @@ export const VibeCodingSessionScreen: React.FC = () => {
       const id = (item?.id ?? '').toLowerCase().replace(/^ai:/, '');
       return variants.includes(id);
     });
-    return mergeCommands(provider, tool?.commands);
-  }, [device?.tools, session?.model, session?.provider]);
+    return mergeCommands(
+      provider,
+      discoveredSessionCommands
+        ?? project?.availableCommands
+        ?? tool?.commands,
+    );
+  }, [
+    device?.tools,
+    discoveredSessionCommands,
+    project?.availableCommands,
+    session?.model,
+    session?.provider,
+  ]);
 
   const approvals = useMemo(() => {
     if (!session) return sessionApprovals;
@@ -1617,8 +1625,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     interruptAgentSession,
     session,
     t,
-    voiceStt.status,
-    voiceStt.stop,
+    voiceStt,
   ]);
   // Structured-activity attachment (P3.3). `transcript` is the coalesced
   // DisplayTranscriptMessage[] — each assistant bubble already carries the
@@ -1684,25 +1691,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
     });
     return positions;
   }, [conversationItems, orphanActivityMessageIds.length]);
-  const latestConversationKey = useMemo(() => {
-    const latest = conversationItems[conversationItems.length - 1];
-    if (!latest) return `${targetSessionId}:empty`;
-    return [
-      targetSessionId,
-      conversationItems.length,
-      latest.id,
-      latest.timestamp,
-    ].join(':');
-  }, [conversationItems, targetSessionId]);
-
-  useEffect(() => {
-    if (!latestConversationKey) return;
-    if (pendingScrollToEndRef.current || followTailRef.current) {
-      pendingScrollToEndRef.current = false;
-      scheduleScrollToEnd(true);
-    }
-  }, [latestConversationKey, scheduleScrollToEnd]);
-
   const handleSaveToolsSettings = useCallback(
     async (patch: { model: string; effort: string }) => {
       if (!session) return;
@@ -2077,7 +2065,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
           onContentSizeChange={(_, _height) => {
             if (pendingScrollToEndRef.current || followTailRef.current) {
               pendingScrollToEndRef.current = false;
-              scheduleScrollToEnd(true);
+              scheduleScrollToEnd(!isSessionLive);
             }
           }}
           onScroll={handleScroll}
@@ -3049,11 +3037,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               serverModelOptions={sessionModelOptions}
               effortOptions={sessionEffortOptions}
               effectiveLabel={effectiveLabel ?? undefined}
-              commands={
-                project?.availableCommands?.length
-                  ? project.availableCommands
-                  : sessionCommands
-              }
+              commands={sessionCommands}
               sessionId={session.id}
               onSaveSettings={handleSaveToolsSettings}
               onInsertCommand={handleInsertCommand}
@@ -3111,11 +3095,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
             input={input}
             onInputChange={setInput}
             voiceDraft={voiceDraft}
-            commands={
-              project?.availableCommands?.length
-                ? project.availableCommands
-                : sessionCommands
-            }
+            commands={sessionCommands}
             sessionId={session.id}
             voiceStt={voiceStt}
             sendingMessage={sendingMessage}

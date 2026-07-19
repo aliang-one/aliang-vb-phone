@@ -1,166 +1,133 @@
-import { decideBackgroundNotifications } from '../backgroundNotifications';
-import type { UnifiedEvent, ApprovalRequest } from '../../store/types';
-import type { VibeCodingRun } from '../../data/platformModels';
+import {
+  decideBackgroundNotifications,
+  nativeNotificationId,
+} from '../backgroundNotifications';
+import type { PushNotificationItem } from '../../store/types';
 
-const ev = (over: Partial<UnifiedEvent> & { id: string }): UnifiedEvent => ({
-  type: 'approval.requested',
-  title: 't',
-  detail: 'd',
-  status: 'info',
-  timestamp: '2026-06-30T00:00:00Z',
-  ...over,
+const notification = (
+  overrides: Partial<PushNotificationItem> & { id: string },
+): PushNotificationItem => ({
+  type: 'approval',
+  title: 'Title',
+  body: 'Body',
+  read: false,
+  createdAt: '2026-07-15T00:00:00.000Z',
+  ...overrides,
 });
-// VibeCodingRun has many required fields the pure fn never reads; cast a partial.
-const run = (over: Partial<VibeCodingRun> & { id: string }): VibeCodingRun =>
-  ({
-    title: 'S',
-    deviceId: 'd',
-    projectId: 'p',
-    directory: '/',
-    status: 'running',
-    objective: '',
-    model: '',
-    ...over,
-  }) as VibeCodingRun;
-const approval = (over: Partial<ApprovalRequest> & { id: string }): ApprovalRequest => ({
-  kind: 'file_write',
-  title: '审批标题',
-  summary: '摘要',
-  deviceId: 'd',
-  risk: 'medium',
-  status: 'pending',
-  createdAt: '',
-  ...over,
-});
+
 const baseInput = {
   isBackground: true,
-  events: [] as UnifiedEvent[],
-  runs: [] as VibeCodingRun[],
-  approvals: [] as ApprovalRequest[],
-  baselineEventIds: new Set<string>(),
-  runningAtBackground: new Set<string>(),
+  notifications: [] as PushNotificationItem[],
+  baselineNotificationIds: new Set<string>(),
   alreadyNotified: new Set<string>(),
+  userId: 'user-1',
 };
 
 describe('decideBackgroundNotifications', () => {
-  it('前台一律不弹', () => {
-    const r = decideBackgroundNotifications({
+  it('suppresses all native delivery while foregrounded', () => {
+    const result = decideBackgroundNotifications({
       ...baseInput,
       isBackground: false,
-      events: [ev({ id: 'e1', approvalId: 'a1' })],
+      notifications: [notification({ id: 'n1' })],
     });
-    expect(r.notifications).toHaveLength(0);
+    expect(result.notifications).toEqual([]);
   });
 
-  it('后台新增 approval(非基线)→ 弹一次,正文取 approvals 查得的 title', () => {
-    const r = decideBackgroundNotifications({
+  it('delivers a new unread server notification with canonical identity', () => {
+    const result = decideBackgroundNotifications({
       ...baseInput,
-      events: [ev({ id: 'e1', approvalId: 'a1', sessionId: 's1' })],
-      approvals: [approval({ id: 'a1', title: 'T', summary: 'Sum' })],
+      notifications: [
+        notification({
+          id: 'n1',
+          approvalId: 'approval-1',
+          sessionId: 'session-1',
+        }),
+      ],
     });
-    expect(r.notifications).toHaveLength(1);
-    expect(r.notifications[0].title).toBe('需要审批');
-    expect(r.notifications[0].body).toBe('T');
-    expect(r.notifications[0].data).toEqual({
-      type: 'approval',
-      sessionId: 's1',
-      approvalId: 'a1',
-    });
-    expect(r.notifiedKeys.has('approval:a1')).toBe(true);
+    expect(result.notifications).toEqual([
+      expect.objectContaining({
+        key: 'notification:n1',
+        nativeId: 'vibe_approval_approval-1',
+        data: {
+          type: 'approval',
+          notificationId: 'n1',
+          sessionId: 'session-1',
+          approvalId: 'approval-1',
+          deviceId: undefined,
+          userId: 'user-1',
+        },
+      }),
+    ]);
   });
 
-  it('基线里已有的 approval(切后台前就在)→ 不弹', () => {
-    const r = decideBackgroundNotifications({
+  it('does not redeliver baseline, read, or already delivered records', () => {
+    const result = decideBackgroundNotifications({
       ...baseInput,
-      events: [ev({ id: 'e1', approvalId: 'a1' })],
-      baselineEventIds: new Set(['e1']),
+      notifications: [
+        notification({ id: 'baseline' }),
+        notification({ id: 'read', read: true }),
+        notification({ id: 'delivered' }),
+        notification({ id: 'new' }),
+      ],
+      baselineNotificationIds: new Set(['baseline']),
+      alreadyNotified: new Set(['notification:delivered']),
     });
-    expect(r.notifications).toHaveLength(0);
+    expect(result.notifications.map(item => item.key)).toEqual([
+      'notification:new',
+    ]);
   });
 
-  it('同一 approval 第二次计算 → 去重,不重复弹', () => {
-    const first = decideBackgroundNotifications({
+  it('orders a burst oldest first so the final tray state is authoritative', () => {
+    const result = decideBackgroundNotifications({
       ...baseInput,
-      events: [ev({ id: 'e1', approvalId: 'a1' })],
+      notifications: [
+        notification({ id: 'later', createdAt: '2026-07-15T00:00:02.000Z' }),
+        notification({ id: 'earlier', createdAt: '2026-07-15T00:00:01.000Z' }),
+      ],
     });
-    const second = decideBackgroundNotifications({
-      ...baseInput,
-      events: [ev({ id: 'e1', approvalId: 'a1' })],
-      alreadyNotified: first.notifiedKeys,
-    });
-    expect(second.notifications).toHaveLength(0);
+    expect(result.notifications.map(item => item.key)).toEqual([
+      'notification:earlier',
+      'notification:later',
+    ]);
   });
 
-  it('切后台时正在 running 的会话 → completed → 弹「会话已完成」', () => {
-    const r = decideBackgroundNotifications({
-      ...baseInput,
-      runs: [run({ id: 's1', status: 'completed', title: 'MySession' })],
-      runningAtBackground: new Set(['s1']),
+  it('uses one stable native ID for contradictory session terminal updates', () => {
+    const failed = notification({
+      id: 'failed',
+      type: 'error',
+      sessionId: 'session/1',
     });
-    expect(r.notifications).toHaveLength(1);
-    expect(r.notifications[0].title).toBe('会话已完成');
-    expect(r.notifications[0].data).toEqual({ type: 'session_done', sessionId: 's1' });
+    const completed = notification({
+      id: 'completed',
+      type: 'completed',
+      sessionId: 'session/1',
+    });
+    expect(nativeNotificationId(failed)).toBe(
+      'vibe_session_session_1_terminal',
+    );
+    expect(nativeNotificationId(completed)).toBe(
+      'vibe_session_session_1_terminal',
+    );
   });
 
-  it('切后台时正在 running 的会话 → idle → 弹完成(idle 视为结算)', () => {
-    const r = decideBackgroundNotifications({
+  it('maps completion, error, and device records to navigation data', () => {
+    const result = decideBackgroundNotifications({
       ...baseInput,
-      runs: [run({ id: 's1', status: 'idle' })],
-      runningAtBackground: new Set(['s1']),
+      notifications: [
+        notification({ id: 'done', type: 'completed', sessionId: 's1' }),
+        notification({ id: 'error', type: 'error', sessionId: 's2' }),
+        notification({
+          id: 'offline',
+          type: 'device_offline',
+          deviceId: 'd1',
+        }),
+      ],
     });
-    expect(r.notifications[0].title).toBe('会话已完成');
-  });
-
-  it('切后台时正在 running 的会话 → failed → 弹「会话失败」', () => {
-    const r = decideBackgroundNotifications({
-      ...baseInput,
-      runs: [run({ id: 's1', status: 'failed' })],
-      runningAtBackground: new Set(['s1']),
-    });
-    expect(r.notifications[0].title).toBe('会话失败');
-    expect(r.notifications[0].data.type).toBe('session_failed');
-  });
-
-  it('切后台时不在 running 的会话结算 → 不弹(避免噪音)', () => {
-    const r = decideBackgroundNotifications({
-      ...baseInput,
-      runs: [run({ id: 's1', status: 'completed' })],
-      runningAtBackground: new Set(), // s1 不在基线
-    });
-    expect(r.notifications).toHaveLength(0);
-  });
-
-  it('中途态(waiting_approval/testing/paused 等)→ 不弹完成', () => {
-    const statuses = [
-      'waiting_approval',
-      'testing',
-      'paused',
-      'preview_ready',
-      'waiting_user',
-    ] as const;
-    for (const status of statuses) {
-      const r = decideBackgroundNotifications({
-        ...baseInput,
-        runs: [run({ id: 's1', status })],
-        runningAtBackground: new Set(['s1']),
-      });
-      expect(r.notifications).toHaveLength(0);
-    }
-  });
-
-  it('会话先 failed 再 completed → failed 与 done 各至多一次(去重)', () => {
-    const r1 = decideBackgroundNotifications({
-      ...baseInput,
-      runs: [run({ id: 's1', status: 'failed' })],
-      runningAtBackground: new Set(['s1']),
-    });
-    const r2 = decideBackgroundNotifications({
-      ...baseInput,
-      runs: [run({ id: 's1', status: 'completed' })],
-      runningAtBackground: new Set(['s1']),
-      alreadyNotified: r1.notifiedKeys,
-    });
-    expect(r1.notifications.map(n => n.title)).toEqual(['会话失败']);
-    expect(r2.notifications.map(n => n.title)).toEqual(['会话已完成']);
+    expect(result.notifications.map(item => item.data.type)).toEqual([
+      'session_done',
+      'session_failed',
+      'device_offline',
+    ]);
+    expect(result.notifications[2].nativeId).toBe('vibe_device_d1_offline');
   });
 });

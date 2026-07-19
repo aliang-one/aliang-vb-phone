@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -8,7 +8,7 @@ import {
   ScrollView,
   TouchableOpacity,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
@@ -29,6 +29,12 @@ import { useSessionStore } from '../../../stores/useSettingsStore';
 import { ratioPercent, daysUntil, formatDate } from '../../utils/format';
 import type { AccountSubscription } from '../../api/account';
 import { UserModelDefaultCard } from '../../components/account/UserModelDefaultCard';
+import {
+  getNotificationPermissionStatus,
+  openNotificationSettings,
+  requestPermission,
+  type LocalNotificationPermissionStatus,
+} from '../../services/localNotifications';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -55,6 +61,16 @@ export const SettingsScreen: React.FC = () => {
   const wsConnected = useControlCenterStore(state => state.wsConnected);
   const serverMode = useControlCenterStore(state => state.serverMode);
   const [refreshingAccount, setRefreshingAccount] = useState(false);
+  const [notificationPermission, setNotificationPermission] =
+    useState<LocalNotificationPermissionStatus>('unsupported');
+  const [updatingNotificationPermission, setUpdatingNotificationPermission] =
+    useState(false);
+
+  const refreshNotificationPermission = useCallback(() => {
+    void getNotificationPermissionStatus().then(setNotificationPermission);
+  }, []);
+
+  useFocusEffect(refreshNotificationPermission);
 
   // The Account tab's first visit instantiates a heavy subtree (SVG RingMeters,
   // IconBadges, several panels) in one synchronous JS-thread commit that races
@@ -164,6 +180,20 @@ export const SettingsScreen: React.FC = () => {
     disconnectFromServer();
     resetSessionData();
     await logout();
+  };
+
+  const handleNotificationPermission = async () => {
+    setUpdatingNotificationPermission(true);
+    try {
+      if (notificationPermission === 'not_determined') {
+        await requestPermission();
+      } else {
+        await openNotificationSettings();
+      }
+      setNotificationPermission(await getNotificationPermissionStatus());
+    } finally {
+      setUpdatingNotificationPermission(false);
+    }
   };
 
   const renderSectionTitle = (label: string) => (
@@ -414,6 +444,38 @@ export const SettingsScreen: React.FC = () => {
                 style={styles.serviceButton}
               />
             </View>
+
+            {renderSectionTitle(t('sections.notifications'))}
+            <GlassPanel style={styles.panel}>
+              <View style={styles.settingRow}>
+                <View style={styles.settingCopy}>
+                  <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                    {t('notifications.systemTitle')}
+                  </Text>
+                  <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                    {t(`notifications.status.${notificationPermission}`)}
+                  </Text>
+                </View>
+                <StatusChip
+                  label={t(`notifications.shortStatus.${notificationPermission}`)}
+                  type={notificationPermission === 'authorized' ? 'success' : 'warning'}
+                />
+              </View>
+              <View style={styles.serviceActionsInset}>
+                <GlowButton
+                  title={
+                    notificationPermission === 'not_determined'
+                      ? t('notifications.enable')
+                      : t('notifications.openSettings')
+                  }
+                  onPress={() => void handleNotificationPermission()}
+                  loading={updatingNotificationPermission}
+                  disabled={notificationPermission === 'unsupported'}
+                  variant="secondary"
+                  style={styles.serviceButton}
+                />
+              </View>
+            </GlassPanel>
 
             {renderSectionTitle(t('sections.capacity'))}
             <View style={styles.capacityGrid}>
@@ -684,6 +746,15 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 12,
     gap: 16,
+  },
+  settingCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  serviceActionsInset: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingBottom: 12,
   },
   divider: {
     height: 1,

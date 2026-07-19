@@ -20,6 +20,7 @@ const scopeLabel = (
 ): string | null => {
   if (scope === 'project') return t('slash.scopeProject');
   if (scope === 'user') return t('slash.scopeUser');
+  if (scope === 'plugin') return t('slash.scopePlugin');
   if (scope === 'builtin') return t('slash.scopeBuiltin');
   return null;
 };
@@ -45,7 +46,7 @@ export const SlashCommandSuggestions: React.FC<SlashCommandSuggestionsProps> = (
   // relevance — maximizes recall (finds /brainstorming from "brnst", not just
   // prefixes) while ordering the best matches first. Deduped by name, capped.
   const filtered = useMemo(
-    () => searchCommands(commands, query, MAX_ROWS),
+    () => searchCommands(commands.filter(c => c.userInvocable !== false), query, MAX_ROWS),
     [commands, query],
   );
 

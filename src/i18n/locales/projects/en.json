@@ -126,6 +126,13 @@
     "notFoundSubtitle": "NOT FOUND",
     "noDevice": "no device",
     "approval": "APPROVAL",
+    "skillTrust": {
+      "title": "Project Skills",
+      "trusted": "Trusted",
+      "untrusted": "Not trusted",
+      "toggle": "Trust project Claude Skills",
+      "saveFailed": "Failed to save project Skill trust"
+    },
     "scheme": {
       "balanced": "Balanced",
       "allowAll": "Allow all",

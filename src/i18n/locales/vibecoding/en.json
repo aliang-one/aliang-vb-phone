@@ -170,6 +170,11 @@
     "save": "Save",
     "upToDate": "Up to date",
     "commands": "Commands",
+    "group": {
+      "skill": "Skills",
+      "command": "Custom commands",
+      "builtin": "Built-in commands"
+    },
     "refresh": "Refresh commands",
     "refreshing": "Refreshing…",
     "refreshButton": "↻ Refresh",
@@ -178,8 +183,9 @@
     "insertCommand": "Insert /{{name}}",
     "scopeProject": "Project",
     "scopeUser": "User",
+    "scopePlugin": "Plugin",
     "scopeBuiltin": "Built-in",
-    "empty": "This agent has not reported any commands yet. Commands come from the project/user .claude/commands; make sure the agent is updated and reconnected."
+    "empty": "This agent has not reported any available commands or Skills yet."
   },
   "sessionCard": {
     "lastActive": "Last active {{label}}",
@@ -246,6 +252,7 @@
   "slash": {
     "scopeProject": "Project",
     "scopeUser": "User",
+    "scopePlugin": "Plugin",
     "scopeBuiltin": "Built-in",
     "remoteLocal": "Local",
     "remoteUnsupported": "Local · no remote",

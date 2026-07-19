@@ -1,42 +1,55 @@
 import { resolveNotificationTapTarget } from '../notificationTap';
 
 describe('resolveNotificationTapTarget', () => {
-  it('approval → VibeCodingSession 带 sessionId + approvalId', () => {
-    const t = resolveNotificationTapTarget({
-      type: 'approval',
-      sessionId: 's1',
-      approvalId: 'a1',
-    });
-    expect(t).toEqual({
+  it('opens an approval in its session', () => {
+    expect(
+      resolveNotificationTapTarget({
+        type: 'approval',
+        sessionId: 's1',
+        approvalId: 'a1',
+      }),
+    ).toEqual({
       route: 'VibeCodingSession',
       params: { sessionId: 's1', approvalId: 'a1' },
     });
   });
 
-  it('session_done → 只带 sessionId(approvalId 不带)', () => {
-    const t = resolveNotificationTapTarget({ type: 'session_done', sessionId: 's1' });
-    expect(t?.route).toBe('VibeCodingSession');
-    expect(t?.params.sessionId).toBe('s1');
-    expect(t?.params.approvalId).toBeUndefined();
+  it('opens a terminal session update without unrelated approval data', () => {
+    expect(
+      resolveNotificationTapTarget({
+        type: 'session_done',
+        sessionId: 's1',
+        approvalId: 'a1',
+      }),
+    ).toEqual({
+      route: 'VibeCodingSession',
+      params: { sessionId: 's1', approvalId: undefined },
+    });
   });
 
-  it('缺 sessionId → null(无处可跳)', () => {
+  it('opens an offline device directly', () => {
+    expect(
+      resolveNotificationTapTarget({
+        type: 'device_offline',
+        deviceId: 'd1',
+      }),
+    ).toEqual({ route: 'DeviceDetail', params: { deviceId: 'd1' } });
+  });
+
+  it('opens the notification center for a burst summary', () => {
+    expect(resolveNotificationTapTarget({ type: 'summary' })).toEqual({
+      route: 'NotificationCenter',
+      params: undefined,
+    });
+  });
+
+  it('rejects malformed or missing target IDs', () => {
     expect(
       resolveNotificationTapTarget({ type: 'approval', approvalId: 'a1' }),
     ).toBeNull();
-  });
-
-  it('null/undefined → null', () => {
+    expect(
+      resolveNotificationTapTarget({ type: 'device_offline', deviceId: ' ' }),
+    ).toBeNull();
     expect(resolveNotificationTapTarget(null)).toBeNull();
-    expect(resolveNotificationTapTarget(undefined)).toBeNull();
-  });
-
-  it('非 approval 类型即使带 approvalId 也不带', () => {
-    const t = resolveNotificationTapTarget({
-      type: 'session_failed',
-      sessionId: 's1',
-      approvalId: 'a1',
-    });
-    expect(t?.params.approvalId).toBeUndefined();
   });
 });

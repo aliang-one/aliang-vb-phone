@@ -91,6 +91,28 @@ def hasReleaseSigning = releaseSigningValues.every { it }
 def allowDebugReleaseSigning =
     (releaseSigningValue('ALLOW_DEBUG_RELEASE_SIGNING') ?: 'false').toBoolean()
 
+// ABIs packaged into release builds. Default arm64-v8a covers the vast majority
+// of modern Android devices and keeps the APK small (~1/3 of a full multi-ABI
+// build). Override per build via ALIANG_ABI_FILTERS (comma-separated), e.g.
+// "arm64-v8a,armeabi-v7a,x86_64,x86" for a full universal APK. Only applied to
+// release tasks; debug keeps every ABI for emulators. Set on defaultConfig
+// (not buildType) so it reliably drives mergeNativeLibs/packageApp inputs and
+// invalidates the UP-TO-DATE cache when the value changes.
+def isReleaseTask = gradle.startParameter.taskNames.any {
+    it.toLowerCase().contains('release')
+}
+def releaseAbiFilters = isReleaseTask
+    ? ((releaseSigningValue('ALIANG_ABI_FILTERS') ?: 'arm64-v8a')
+        .split(',').collect { it.trim() }.findAll { it })
+    : []
+// ndk.abiFilters restricts which ABIs CMake compiles (faster builds), but in
+// this AGP version it does NOT strip prebuilt .so bundled in AAR dependencies
+// during mergeNativeLibs — they still land in the APK. packaging.jniLibs.excludes
+// is the reliable strip: exclude every lib/<abi>/* NOT in the requested set.
+// (Empty for debug → keep all ABIs for emulators.)
+def ALL_ABIS = ['arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86', 'mips', 'mips64']
+def excludedAbis = isReleaseTask ? (ALL_ABIS - releaseAbiFilters) : []
+
 if (hasAnyReleaseSigningValue && !hasReleaseSigning) {
     throw new GradleException(
         'Android release signing is partially configured. Set all ALIANG_RELEASE_* values.',
@@ -122,6 +144,10 @@ android {
         versionCode 1
         versionName "1.0"
         manifestPlaceholders = [usesCleartextTraffic: "true"]
+        // Release-only ABI filter (see releaseAbiFilters). Empty for debug.
+        ndk {
+            if (releaseAbiFilters) abiFilters(*releaseAbiFilters)
+        }
     }
     signingConfigs {
         debug {
@@ -152,6 +178,39 @@ android {
             }
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+        }
+    }
+}
+
+// ndk.abiFilters restricts which ABIs CMake compiles, but in this AGP version
+// it does NOT strip prebuilt .so bundled in AAR dependencies (hermes/fbjni/jsi
+// runtime libs) — they survive into the APK as dead weight (~30MB for the
+// non-target ABIs). packaging.jniLibs.excludes doesn't catch them either (they
+// arrive via prefab). So after mergeReleaseNativeLibs writes its output, delete
+// the lib/<abi>/ dirs for every ABI not in the release filter. This runs before
+// packaging+signing, so the final APK is signed once and is truly single-ABI.
+// No-op for debug (excludedAbis is empty there).
+if (isReleaseTask) {
+    tasks.matching { it.name == 'mergeReleaseNativeLibs' }.configureEach {
+        // The doLast below mutates the merged output (deletes lib/<abi>/ dirs).
+        // Register the requested ABI set as a task input so switching filters
+        // (arm64 → full → arm32 …) invalidates UP-TO-DATE and forces a fresh
+        // re-merge — otherwise a later build reuses the previously-stripped
+        // output and ships the wrong ABI set.
+        inputs.property('aliangAbiFilter', releaseAbiFilters.join(','))
+        doLast {
+            if (!excludedAbis) return
+            outputs.files.files.each { outFile ->
+                def libDir = new File(outFile, 'lib')
+                if (!libDir.exists()) return
+                excludedAbis.each { abi ->
+                    def d = new File(libDir, abi)
+                    if (d.exists()) {
+                        println "[aliang-abi] stripping merged lib/${abi}/ (${d.listFiles()?.length ?: 0} files)"
+                        d.deleteDir()
+                    }
+                }
+            }
         }
     }
 }

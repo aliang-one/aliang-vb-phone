@@ -23,6 +23,7 @@
     "offlineSuffix": " · Offline",
     "actionApprove": "APPROVE",
     "actionDeny": "DENY",
+    "actionMore": "MORE",
     "openSession": "OPEN SESSION"
   },
   "notification": {

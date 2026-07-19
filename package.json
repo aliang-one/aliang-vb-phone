@@ -5,6 +5,11 @@
   "scripts": {
     "android": "node scripts/run-android.js",
     "android:raw": "react-native run-android",
+    "android:release": "node scripts/build-android-release.js",
+    "android:release:arm64": "node scripts/build-android-release.js arm64-v8a",
+    "android:release:arm32": "node scripts/build-android-release.js armeabi-v7a",
+    "android:release:amd64": "node scripts/build-android-release.js x86_64",
+    "android:release:full": "node scripts/build-android-release.js arm64-v8a,armeabi-v7a,x86_64,x86",
     "ios": "node scripts/run-ios.js",
     "ios:raw": "react-native run-ios",
     "lint": "eslint .",

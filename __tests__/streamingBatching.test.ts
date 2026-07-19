@@ -60,6 +60,16 @@ const deltaEvent = (delta: string, messageId = 'msg-A', currentStep = '') =>
     raw: {},
   });
 
+const thinkingEvent = (sessionId: string, chars: number) => ({
+  type: 'ai.thinking' as const,
+  sessionId,
+  messageId: `msg-${sessionId}`,
+  active: true,
+  chars,
+  eventId: `thinking-${sessionId}`,
+  raw: {},
+});
+
 // Dispatching any non-ai.delta event flushes pending deltas at the very start of
 // the handler — used both as a flush trigger and to drain leftover state in setup.
 const dispatchStatus = () =>
@@ -124,5 +134,44 @@ describe('realtime streaming batching', () => {
 
     // The canceled token must NOT have been applied to the fresh run.
     expect(transcriptContent()).toBe('Hello');
+  });
+
+  it('coalesces interleaved delta and thinking events into one store write', () => {
+    const second = { ...run(), id: 's2', title: 'run-s2' };
+    const untouched = { ...run(), id: 's3', title: 'run-s3' };
+    useControlCenterStore.setState({
+      vibeRuns: [run(), second, untouched],
+      events: [],
+    });
+    const untouchedRef = useControlCenterStore.getState().vibeRuns[2];
+    let writes = 0;
+    const unsubscribe = useControlCenterStore.subscribe((state, previous) => {
+      if (state.vibeRuns !== previous.vibeRuns) writes += 1;
+    });
+
+    const store = useControlCenterStore.getState();
+    for (let index = 0; index < 20; index += 1) {
+      store.handleTransportEvent(deltaEvent(` ${index}`));
+      store.handleTransportEvent(thinkingEvent('s2', index));
+    }
+
+    expect(writes).toBe(0);
+    jest.advanceTimersByTime(DELTA_FLUSH_MS);
+    expect(writes).toBe(1);
+    expect(useControlCenterStore.getState().vibeRuns[2]).toBe(untouchedRef);
+    unsubscribe();
+  });
+
+  it('starts a fresh timer window after an ordering-boundary flush', () => {
+    const store = useControlCenterStore.getState();
+    store.handleTransportEvent(deltaEvent(' first'));
+    dispatchStatus();
+    expect(transcriptContent()).toBe('Hello first');
+
+    store.handleTransportEvent(deltaEvent(' second'));
+    jest.advanceTimersByTime(DELTA_FLUSH_MS - 1);
+    expect(transcriptContent()).toBe('Hello first');
+    jest.advanceTimersByTime(1);
+    expect(transcriptContent()).toBe('Hello first second');
   });
 });

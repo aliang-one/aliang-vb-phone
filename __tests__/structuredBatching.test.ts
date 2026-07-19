@@ -28,7 +28,7 @@ jest.mock('../src/services/platformTransport', () => ({
 
 jest.useFakeTimers();
 
-// Mirror of STRUCTURED_FLUSH_MS in store/structuredBatching.ts. Kept local (not
+// Mirror of STREAM_FLUSH_MS in store/aiStreamBatching.ts. Kept local (not
 // imported) because the constant is module-private; if the flush window changes
 // there, update this too.
 const STRUCTURED_FLUSH_MS = 100;

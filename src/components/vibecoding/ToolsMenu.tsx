@@ -62,6 +62,15 @@ export interface ToolsMenuProps {
 const commandInsertText = (cmd: AgentCommandInfo) =>
   `/${cmd.name}${cmd.argHint ? ` ${cmd.argHint}` : ''}`;
 
+type CommandGroup = 'skill' | 'command' | 'builtin';
+
+const commandGroup = (cmd: AgentCommandInfo): CommandGroup =>
+  cmd.kind === 'skill'
+    ? 'skill'
+    : cmd.scope === 'builtin' || cmd.kind === 'builtin'
+      ? 'builtin'
+      : 'command';
+
 export const ToolsMenu: React.FC<ToolsMenuProps> = ({
   onClose,
   model,
@@ -110,8 +119,8 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
 
   // Auto-sync discovered `/`-commands on open. force=false → the store applies
   // its 1h gate + in-flight dedup, so within the hour this is a cheap persisted
-  // read (no agent round-trip). Results land in project.availableCommands → the
-  // `commands` prop updates → this menu re-renders live with any new commands.
+  // read (no agent round-trip). Results land in the session capability snapshot,
+  // then the `commands` prop updates and this menu re-renders.
   const refreshSessionCommands = useControlCenterStore(s => s.refreshSessionCommands);
   const [refreshingCommands, setRefreshingCommands] = useState(false);
   useEffect(() => {
@@ -170,6 +179,16 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
   const idleBorder = isDark ? 'rgba(255,255,255,0.08)' : theme.colors.outlineVariant;
   const rowBorder = isDark ? 'rgba(255,255,255,0.06)' : theme.colors.outlineVariant;
   const activeBg = isDark ? 'rgba(86,156,214,0.14)' : 'rgba(0,81,174,0.08)';
+  const visibleCommands = useMemo(
+    () => commands.filter(command => command.userInvocable !== false),
+    [commands],
+  );
+  const commandGroups = useMemo(
+    () => (['skill', 'command', 'builtin'] as const)
+      .map(kind => ({ kind, commands: visibleCommands.filter(c => commandGroup(c) === kind) }))
+      .filter(group => group.commands.length > 0),
+    [visibleCommands],
+  );
 
   const chipStyle = (active: boolean) => [
     styles.chip,
@@ -202,7 +221,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
           <Text
             style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}
             numberOfLines={1}>
-            {t('toolsMenu.subtitle', { agent: agentLabel, count: commands.length })}
+            {t('toolsMenu.subtitle', { agent: agentLabel, count: visibleCommands.length })}
           </Text>
         </View>
         <TouchableOpacity
@@ -362,62 +381,89 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
             </Text>
           </TouchableOpacity>
         </View>
-        {commands.length ? (
+        {visibleCommands.length ? (
           <View style={styles.commandList}>
-            {commands.map(cmd => {
-              const remoteLabel =
-                cmd.remote === 'local'
-                  ? t('toolsMenu.remoteLocal')
-                  : cmd.remote === 'unsupported'
-                    ? t('toolsMenu.remoteUnsupported')
-                    : null;
-              const dim = cmd.remote === 'unsupported';
-              return (
-              <TouchableOpacity
-                key={`${cmd.scope ?? 'cmd'}-${cmd.name}`}
-                testID={`tools-cmd-${cmd.name}`}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel={t('toolsMenu.insertCommand', { name: cmd.name })}
-                onPress={() => handleInsert(cmd)}
-                style={[styles.commandRow, { borderColor: rowBorder }, dim && styles.commandRowDim]}>
-                <View style={styles.commandMain}>
-                  <Text
-                    style={[theme.typography.codeSm, { color: accent }, styles.commandName]}>
-                    /{cmd.name}
-                    {cmd.argHint ? ` ${cmd.argHint}` : ''}
-                  </Text>
-                  <View style={styles.commandBadges}>
-                    {remoteLabel ? (
-                      <Text
-                        style={[
-                          theme.typography.labelSm,
-                          { color: theme.colors.onSurfaceVariant },
-                        ]}>
-                        {remoteLabel}
-                      </Text>
-                    ) : null}
-                    {cmd.scope ? (
-                      <Text
-                        style={[
-                          theme.typography.labelSm,
-                          { color: theme.colors.onSurfaceVariant, opacity: 0.6 },
-                        ]}>
-                        {cmd.scope === 'project' ? t('toolsMenu.scopeProject') : cmd.scope === 'user' ? t('toolsMenu.scopeUser') : t('toolsMenu.scopeBuiltin')}
-                      </Text>
-                    ) : null}
-                  </View>
-                </View>
-                {cmd.description ? (
-                  <Text
-                    style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}
-                    numberOfLines={1}>
-                    {cmd.description}
-                  </Text>
-                ) : null}
-              </TouchableOpacity>
-              );
-            })}
+            {commandGroups.map(group => (
+              <View key={group.kind} style={styles.commandGroup}>
+                <Text
+                  style={[
+                    theme.typography.labelSm,
+                    styles.commandGroupLabel,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}>
+                  {t(`toolsMenu.group.${group.kind}`)}
+                </Text>
+                {group.commands.map(cmd => {
+                  const remoteLabel =
+                    cmd.remote === 'local'
+                      ? t('toolsMenu.remoteLocal')
+                      : cmd.remote === 'unsupported'
+                        ? t('toolsMenu.remoteUnsupported')
+                        : null;
+                  const dim = cmd.remote === 'unsupported';
+                  const scopeLabel =
+                    cmd.scope === 'project'
+                      ? t('toolsMenu.scopeProject')
+                      : cmd.scope === 'user'
+                        ? t('toolsMenu.scopeUser')
+                        : cmd.scope === 'plugin'
+                          ? t('toolsMenu.scopePlugin')
+                          : t('toolsMenu.scopeBuiltin');
+                  return (
+                    <TouchableOpacity
+                      key={`${cmd.kind ?? 'cmd'}-${cmd.scope ?? 'cmd'}-${cmd.name}`}
+                      testID={`tools-cmd-${cmd.name}`}
+                      activeOpacity={0.7}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('toolsMenu.insertCommand', { name: cmd.name })}
+                      onPress={() => handleInsert(cmd)}
+                      style={[
+                        styles.commandRow,
+                        { borderColor: rowBorder },
+                        dim && styles.commandRowDim,
+                      ]}>
+                      <View style={styles.commandMain}>
+                        <Text
+                          style={[theme.typography.codeSm, { color: accent }, styles.commandName]}>
+                          /{cmd.name}
+                          {cmd.argHint ? ` ${cmd.argHint}` : ''}
+                        </Text>
+                        <View style={styles.commandBadges}>
+                          {remoteLabel ? (
+                            <Text
+                              style={[
+                                theme.typography.labelSm,
+                                { color: theme.colors.onSurfaceVariant },
+                              ]}>
+                              {remoteLabel}
+                            </Text>
+                          ) : null}
+                          {cmd.scope ? (
+                            <Text
+                              style={[
+                                theme.typography.labelSm,
+                                { color: theme.colors.onSurfaceVariant, opacity: 0.6 },
+                              ]}>
+                              {scopeLabel}
+                            </Text>
+                          ) : null}
+                        </View>
+                      </View>
+                      {cmd.description ? (
+                        <Text
+                          style={[
+                            theme.typography.bodySm,
+                            { color: theme.colors.onSurfaceVariant },
+                          ]}
+                          numberOfLines={1}>
+                          {cmd.description}
+                        </Text>
+                      ) : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ))}
           </View>
         ) : (
           <View style={[styles.emptyCommands, { borderColor: rowBorder }]}>
@@ -506,11 +552,17 @@ const styles = StyleSheet.create({
     marginBottom: 7,
   },
   commandList: {
+    gap: 10,
+  },
+  commandGroup: {
     gap: 6,
+  },
+  commandGroupLabel: {
+    textTransform: 'uppercase',
   },
   commandRow: {
     borderWidth: 1,
-    borderRadius: 9,
+    borderRadius: 8,
     paddingHorizontal: 11,
     paddingVertical: 8,
     gap: 2,
@@ -538,6 +590,6 @@ const styles = StyleSheet.create({
     gap: 9,
     padding: 11,
     borderWidth: 1,
-    borderRadius: 9,
+    borderRadius: 8,
   },
 });

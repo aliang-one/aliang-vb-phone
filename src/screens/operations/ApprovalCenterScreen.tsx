@@ -1,5 +1,12 @@
 import React, { useCallback, useState } from 'react';
-import { FlatList, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  FlatList,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
@@ -9,13 +16,16 @@ import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useTheme } from '../../theme/useTheme';
-import { ApprovalRequest, useControlCenterStore } from '../../store/controlCenterStore';
+import {
+  ApprovalRequest,
+  useControlCenterStore,
+} from '../../store/controlCenterStore';
 import { IconBadge, IconName } from '../../components/visual/IconBadge';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { newestFirst } from '../../utils/timeSort';
-import type { ControlCenterState } from '../../store/types';
 import { useTranslation } from 'react-i18next';
+import { ApprovalQuickPolicySheet } from '../../components/vibecoding/ApprovalQuickPolicySheet';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -49,6 +59,16 @@ export const ApprovalCenterScreen: React.FC = () => {
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
   const resolveApproval = useControlCenterStore(state => state.resolveApproval);
+  const [resolvingApproval, setResolvingApproval] = useState<{
+    id: string;
+    decision: 'approved' | 'denied';
+    selectedOptionId?: string;
+  } | null>(null);
+  const [quickPolicyFor, setQuickPolicyFor] = useState<{
+    approvalId: string;
+    projectId: string;
+    toolName?: string;
+  } | null>(null);
   const handleOpenSession = useCallback(
     (sessionId: string) =>
       navigation.navigate('VibeCodingSession', { sessionId }),
@@ -56,21 +76,46 @@ export const ApprovalCenterScreen: React.FC = () => {
   );
   const [filter, setFilter] = useState<ApprovalFilter>('pending');
 
-  const filtered = approvals.filter(item => {
-    if (filter === 'pending') {
-      return item.status === 'pending';
-    }
-    if (filter === 'resolved') {
-      return item.status !== 'pending';
-    }
-    return true;
-  }).sort((left, right) => newestFirst(left.createdAt, right.createdAt));
+  const handleResolveApproval = useCallback(
+    (
+      approvalId: string,
+      decision: 'approved' | 'denied',
+      options?: { selectedOptionId?: string; message?: string },
+    ) => {
+      if (resolvingApproval) return;
+      setResolvingApproval({
+        id: approvalId,
+        decision,
+        selectedOptionId: options?.selectedOptionId,
+      });
+      resolveApproval(approvalId, decision, options)
+        .catch(error => {
+          console.warn('[approvals] failed to resolve approval', error);
+        })
+        .finally(() => setResolvingApproval(null));
+    },
+    [resolveApproval, resolvingApproval],
+  );
+
+  const filtered = approvals
+    .filter(item => {
+      if (filter === 'pending') {
+        return item.status === 'pending';
+      }
+      if (filter === 'resolved') {
+        return item.status !== 'pending';
+      }
+      return true;
+    })
+    .sort((left, right) => newestFirst(left.createdAt, right.createdAt));
   const approvalList = useIncrementalList(filtered, {
     initialCount: 16,
     step: 16,
     resetKey: filter,
   });
-  const pendingCount = approvals.filter(item => item.status === 'pending').length;
+  const pendingCount = approvals.filter(
+    item => item.status === 'pending',
+  ).length;
 
   return (
     <SafeAreaWrapper>
@@ -91,15 +136,32 @@ export const ApprovalCenterScreen: React.FC = () => {
         data={approvalList.visibleItems}
         keyExtractor={item => item.id}
         renderItem={({ item }) => {
-          const device = devices.find(deviceItem => deviceItem.id === item.deviceId);
-          const project = projects.find(projectItem => projectItem.id === item.projectId);
+          const device = devices.find(
+            deviceItem => deviceItem.id === item.deviceId,
+          );
+          const project = projects.find(
+            projectItem => projectItem.id === item.projectId,
+          );
           return (
             <ApprovalCard
               item={item}
               deviceName={device?.name ?? item.deviceId ?? ''}
               deviceOffline={device?.status === 'offline'}
-              projectName={project?.name ?? item.projectId ?? t('approval.projectNone')}
-              resolveApproval={resolveApproval}
+              projectName={
+                project?.name ?? item.projectId ?? t('approval.projectNone')
+              }
+              resolvingApproval={resolvingApproval}
+              onResolve={handleResolveApproval}
+              onOpenPolicy={
+                item.projectId
+                  ? () =>
+                      setQuickPolicyFor({
+                        approvalId: item.id,
+                        projectId: item.projectId ?? '',
+                        toolName: item.toolName,
+                      })
+                  : undefined
+              }
               onOpenSession={handleOpenSession}
             />
           );
@@ -112,15 +174,16 @@ export const ApprovalCenterScreen: React.FC = () => {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filters}>
+            contentContainerStyle={styles.filters}
+          >
             {filterValues.map(value => {
               const active = value === filter;
               const label =
                 value === 'pending'
                   ? t('approval.filterPending')
                   : value === 'resolved'
-                    ? t('approval.filterResolved')
-                    : t('approval.filterAll');
+                  ? t('approval.filterResolved')
+                  : t('approval.filterAll');
               return (
                 <TouchableOpacity
                   key={value}
@@ -128,18 +191,19 @@ export const ApprovalCenterScreen: React.FC = () => {
                   onPress={() => setFilter(value)}
                   style={[
                     styles.filterChip,
+                    active
+                      ? isDark
+                        ? styles.filterChipActiveDark
+                        : styles.filterChipActiveLight
+                      : styles.filterChipInactive,
                     {
                       borderRadius: theme.borderRadius.full,
                       borderColor: active
                         ? theme.colors.primary
                         : theme.colors.outlineVariant,
-                      backgroundColor: active
-                        ? isDark
-                          ? 'rgba(86, 156, 214, 0.12)'
-                          : 'rgba(0, 81, 174, 0.08)'
-                        : 'transparent',
                     },
-                  ]}>
+                  ]}
+                >
                   <Text
                     style={[
                       theme.typography.labelSm,
@@ -148,7 +212,8 @@ export const ApprovalCenterScreen: React.FC = () => {
                           ? theme.colors.primary
                           : theme.colors.onSurfaceVariant,
                       },
-                    ]}>
+                    ]}
+                  >
                     {label}
                   </Text>
                 </TouchableOpacity>
@@ -160,10 +225,20 @@ export const ApprovalCenterScreen: React.FC = () => {
           <GlassPanel style={styles.emptyPanel}>
             <IconBadge name="approval" tone="neutral" size={42} iconSize={21} />
             <View style={styles.emptyCopy}>
-              <Text style={[theme.typography.titleMd, { color: theme.colors.onSurfaceVariant }]}>
+              <Text
+                style={[
+                  theme.typography.titleMd,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
                 {t('approval.emptyTitle')}
               </Text>
-              <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+              <Text
+                style={[
+                  theme.typography.bodySm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
                 {t('approval.emptyBody')}
               </Text>
             </View>
@@ -176,6 +251,17 @@ export const ApprovalCenterScreen: React.FC = () => {
             onPress={approvalList.showMore}
           />
         }
+      />
+      <ApprovalQuickPolicySheet
+        projectId={quickPolicyFor?.projectId ?? ''}
+        toolName={quickPolicyFor?.toolName}
+        open={quickPolicyFor !== null}
+        onClose={() => setQuickPolicyFor(null)}
+        onApplied={() => {
+          const target = quickPolicyFor;
+          if (!target) return;
+          handleResolveApproval(target.approvalId, 'approved');
+        }}
       />
     </SafeAreaWrapper>
   );
@@ -191,12 +277,18 @@ const Meta: React.FC<MetaProps> = ({ label, value }) => {
 
   return (
     <View style={styles.meta}>
-      <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
+      <Text
+        style={[
+          theme.typography.labelCaps,
+          { color: theme.colors.onSurfaceVariant },
+        ]}
+      >
         {label}
       </Text>
       <Text
         numberOfLines={1}
-        style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
+        style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}
+      >
         {value}
       </Text>
     </View>
@@ -208,22 +300,47 @@ interface ApprovalCardProps {
   deviceName: string;
   deviceOffline: boolean;
   projectName: string;
-  resolveApproval: ControlCenterState['resolveApproval'];
+  resolvingApproval: {
+    id: string;
+    decision: 'approved' | 'denied';
+    selectedOptionId?: string;
+  } | null;
+  onResolve: (
+    approvalId: string,
+    decision: 'approved' | 'denied',
+    options?: { selectedOptionId?: string; message?: string },
+  ) => void;
+  onOpenPolicy?: () => void;
   onOpenSession: (sessionId: string) => void;
 }
 
 const ApprovalCard: React.FC<ApprovalCardProps> = React.memo(
-  ({ item, deviceName, deviceOffline, projectName, resolveApproval, onOpenSession }) => {
+  ({
+    item,
+    deviceName,
+    deviceOffline,
+    projectName,
+    resolvingApproval,
+    onResolve,
+    onOpenPolicy,
+    onOpenSession,
+  }) => {
     const { theme } = useTheme();
     const { t } = useTranslation('operations');
     const pending = item.status === 'pending';
+    const resolving = resolvingApproval?.id === item.id;
+    const anotherApprovalResolving = Boolean(
+      resolvingApproval && resolvingApproval.id !== item.id,
+    );
+    const actionsDisabled = deviceOffline || anotherApprovalResolving;
     const kindLabel = t(approvalKindKey[item.kind] ?? 'approval.kindFallback');
     const iconName = approvalIcon[item.kind] ?? 'approval';
     const optionChoices = item.options ?? [];
     return (
       <GlassPanel
         glowColor={pending ? 'secondary' : 'none'}
-        style={styles.approvalCard}>
+        style={styles.approvalCard}
+      >
         <View style={styles.cardHeader}>
           <IconBadge
             name={iconName}
@@ -232,12 +349,21 @@ const ApprovalCard: React.FC<ApprovalCardProps> = React.memo(
             iconSize={21}
           />
           <View style={styles.titleBlock}>
-            <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
+            <Text
+              style={[
+                theme.typography.labelCaps,
+                { color: theme.colors.primary },
+              ]}
+            >
               {kindLabel.toUpperCase()}
             </Text>
             <Text
               numberOfLines={2}
-              style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+              style={[
+                theme.typography.titleMd,
+                { color: theme.colors.onSurface },
+              ]}
+            >
               {item.title}
             </Text>
           </View>
@@ -252,32 +378,76 @@ const ApprovalCard: React.FC<ApprovalCardProps> = React.memo(
             }
           />
         </View>
-        <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+        <Text
+          style={[
+            theme.typography.bodySm,
+            { color: theme.colors.onSurfaceVariant },
+          ]}
+        >
           {item.summary}
         </Text>
         {item.command ? (
-          <Text
-            selectable
-            style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
-            {item.command}
-          </Text>
+          <View
+            style={[
+              styles.detailBlock,
+              {
+                backgroundColor: theme.colors.surfaceContainerLow,
+                borderColor: theme.colors.outlineVariant,
+                borderRadius: theme.borderRadius.md,
+              },
+            ]}
+          >
+            <Text
+              selectable
+              style={[theme.typography.codeSm, { color: theme.colors.primary }]}
+            >
+              {item.command}
+            </Text>
+          </View>
         ) : null}
         {item.files?.length ? (
-          <View style={styles.fileList}>
+          <View
+            style={[
+              styles.detailBlock,
+              styles.fileList,
+              {
+                backgroundColor: theme.colors.surfaceContainerLow,
+                borderColor: theme.colors.outlineVariant,
+                borderRadius: theme.borderRadius.md,
+              },
+            ]}
+          >
             {item.files.map(file => (
               <Text
                 key={file}
                 numberOfLines={1}
-                style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+                style={[
+                  theme.typography.codeSm,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
                 {file}
               </Text>
             ))}
           </View>
         ) : null}
-        <View style={styles.metaRow}>
-          <Meta label={t('approval.metaDevice')} value={`${deviceName}${deviceOffline ? t('approval.offlineSuffix') : ''}`} />
+        <View
+          style={[
+            styles.metaRow,
+            { borderTopColor: theme.colors.outlineVariant },
+          ]}
+        >
+          <Meta
+            label={t('approval.metaDevice')}
+            value={`${deviceName}${
+              deviceOffline ? t('approval.offlineSuffix') : ''
+            }`}
+          />
           <Meta label={t('approval.metaProject')} value={projectName} />
-          <Meta label={t('approval.metaRisk')} value={item.risk.toUpperCase()} />
+          <Meta
+            label={t('approval.metaRisk')}
+            value={item.risk.toUpperCase()}
+          />
           <Meta label={t('approval.metaTime')} value={item.createdAt} />
         </View>
         {pending && optionChoices.length ? (
@@ -289,33 +459,70 @@ const ApprovalCard: React.FC<ApprovalCardProps> = React.memo(
                   key={option.id}
                   title={option.label.toUpperCase()}
                   onPress={() =>
-                    resolveApproval(item.id, decision, {
+                    onResolve(item.id, decision, {
                       selectedOptionId: option.id,
                       message: option.response,
                     })
                   }
-                  disabled={deviceOffline}
+                  loading={
+                    resolving &&
+                    resolvingApproval?.selectedOptionId === option.id
+                  }
+                  disabled={actionsDisabled}
                   variant={decision === 'denied' ? 'outline' : 'primary'}
+                  style={styles.optionAction}
                 />
               );
             })}
+            {onOpenPolicy ? (
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={t('approval.actionMore')}
+                testID={`approval-more-${item.id}`}
+                disabled={deviceOffline || Boolean(resolvingApproval)}
+                onPress={onOpenPolicy}
+                style={styles.moreLink}
+              >
+                <Text
+                  style={[
+                    theme.typography.labelCaps,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {t('approval.actionMore')} ···
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         ) : pending ? (
           <View style={styles.actionRow}>
             <GlowButton
               title={t('approval.actionApprove')}
-              disabled={deviceOffline}
-              onPress={() => resolveApproval(item.id, 'approved')}
+              disabled={actionsDisabled}
+              loading={resolving && resolvingApproval?.decision === 'approved'}
+              onPress={() => onResolve(item.id, 'approved')}
               variant="primary"
               style={styles.primaryAction}
             />
             <GlowButton
               title={t('approval.actionDeny')}
-              disabled={deviceOffline}
-              onPress={() => resolveApproval(item.id, 'denied')}
+              disabled={actionsDisabled}
+              loading={resolving && resolvingApproval?.decision === 'denied'}
+              onPress={() => onResolve(item.id, 'denied')}
               variant="outline"
               style={styles.secondaryAction}
             />
+            {onOpenPolicy ? (
+              <GlowButton
+                title={t('approval.actionMore')}
+                testID={`approval-more-${item.id}`}
+                disabled={deviceOffline || Boolean(resolvingApproval)}
+                onPress={onOpenPolicy}
+                variant="outline"
+                style={styles.moreAction}
+                textStyle={styles.moreActionText}
+              />
+            ) : null}
           </View>
         ) : item.sessionId ? (
           <TouchableOpacity
@@ -327,8 +534,11 @@ const ApprovalCard: React.FC<ApprovalCardProps> = React.memo(
                 borderColor: theme.colors.outlineVariant,
                 borderRadius: theme.borderRadius.full,
               },
-            ]}>
-            <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+            ]}
+          >
+            <Text
+              style={[theme.typography.codeSm, { color: theme.colors.primary }]}
+            >
               {t('approval.openSession')}
             </Text>
           </TouchableOpacity>
@@ -357,10 +567,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
   },
+  filterChipActiveDark: {
+    backgroundColor: 'rgba(86, 156, 214, 0.12)',
+  },
+  filterChipActiveLight: {
+    backgroundColor: 'rgba(0, 81, 174, 0.08)',
+  },
+  filterChipInactive: {
+    backgroundColor: 'transparent',
+  },
   approvalCard: {
-    padding: 12,
-    marginBottom: 10,
-    gap: 10,
+    padding: 14,
+    marginBottom: 12,
+    gap: 12,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -370,7 +589,13 @@ const styles = StyleSheet.create({
   },
   titleBlock: {
     flex: 1,
+    minWidth: 0,
     gap: 4,
+  },
+  detailBlock: {
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
   },
   fileList: {
     gap: 4,
@@ -378,7 +603,10 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    columnGap: 8,
+    rowGap: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 11,
   },
   meta: {
     width: '48%',
@@ -386,16 +614,37 @@ const styles = StyleSheet.create({
   },
   actionRow: {
     flexDirection: 'row',
+    alignItems: 'stretch',
     gap: 8,
   },
   primaryAction: {
-    flex: 1,
+    flex: 2,
+    minHeight: 52,
   },
   secondaryAction: {
-    minWidth: 96,
+    flex: 1,
+    minHeight: 52,
+    paddingHorizontal: 10,
+  },
+  moreAction: {
+    minWidth: 64,
+    minHeight: 52,
+    paddingHorizontal: 8,
+  },
+  moreActionText: {
+    fontSize: 11,
   },
   optionActionStack: {
     gap: 8,
+  },
+  optionAction: {
+    alignSelf: 'stretch',
+    minHeight: 48,
+  },
+  moreLink: {
+    alignSelf: 'flex-end',
+    paddingHorizontal: 4,
+    paddingVertical: 7,
   },
   openButton: {
     borderWidth: 1,

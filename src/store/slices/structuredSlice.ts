@@ -9,7 +9,7 @@ import { tail, STRUCTURED_EVENTS_CAP } from '../internals';
 // (P2.1 transport events already carry camelCase fields + eventId.) The
 // file_change transport field `kind` (create/edit/delete/rename) is renamed to
 // `changeKind` on the activity to avoid colliding with the union discriminant.
-function transportToActivity(
+export function transportToActivity(
   ev: PlatformTransportEvent,
 ): StructuredActivityEvent | null {
   switch (ev.type) {
@@ -74,41 +74,48 @@ export function applyStructuredEvent(
   run: VibeCodingRun,
   ev: PlatformTransportEvent,
 ): VibeCodingRun {
-  const activity = transportToActivity(ev);
-  if (!activity) return run;
-  const idx = run.structuredEvents.findIndex(
-    e => e.eventId === activity.eventId,
+  return applyStructuredEventsToRun(run, [ev]);
+}
+
+export function applyStructuredEventsToRun(
+  run: VibeCodingRun,
+  events: PlatformTransportEvent[],
+): VibeCodingRun {
+  if (!events.length) return run;
+  const byId = new Map(
+    run.structuredEvents.map(event => [event.eventId, event] as const),
   );
-  let nextEvents: StructuredActivityEvent[];
-  if (idx >= 0) {
-    const prev = run.structuredEvents[idx];
-    if (activity.kind === 'command' && prev.kind === 'command') {
-      // Two-state merge: keep started's command/cwd if completed omits them;
-      // always take the latest status/exitCode.
-      const merged = {
+  const order = run.structuredEvents.map(event => event.eventId);
+  let changed = false;
+
+  for (const event of events) {
+    const activity = transportToActivity(event);
+    if (!activity) continue;
+    const prev = byId.get(activity.eventId);
+    let next: StructuredActivityEvent;
+    if (!prev) {
+      next = activity;
+      order.push(activity.eventId);
+    } else if (activity.kind === 'command' && prev.kind === 'command') {
+      next = {
         ...prev,
         ...activity,
         command: activity.command ?? prev.command,
         cwd: activity.cwd ?? prev.cwd,
       };
-      nextEvents = run.structuredEvents.map((e, i) =>
-        i === idx ? merged : e,
-      );
     } else if (activity.kind === 'task' && prev.kind === 'task') {
-      // Task list is replaced wholesale (latest snapshot wins).
-      nextEvents = run.structuredEvents.map((e, i) =>
-        i === idx ? activity : e,
-      );
+      next = activity;
     } else {
-      nextEvents = run.structuredEvents.map((e, i) =>
-        i === idx
-          ? ({ ...prev, ...activity } as StructuredActivityEvent)
-          : e,
-      );
+      next = { ...prev, ...activity } as StructuredActivityEvent;
     }
-  } else {
-    nextEvents = [...run.structuredEvents, activity];
+    byId.set(activity.eventId, next);
+    changed = true;
   }
+
+  if (!changed) return run;
+  const nextEvents = order
+    .map(eventId => byId.get(eventId))
+    .filter((event): event is StructuredActivityEvent => Boolean(event));
   // Hard floor (safety net): cap resident structured activity per session so a
   // long-running active session can't grow structuredEvents without bound.
   // Oldest events drop first (ring-buffer); they remain on the server and are
