@@ -30,6 +30,7 @@ import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { ToolsMenu } from '../../components/vibecoding/ToolsMenu';
 import { MessageComposer } from '../../components/vibecoding/MessageComposer';
+import { GoalStatusBar } from '../../components/vibecoding/GoalStatusBar';
 import { mergeCommands } from '../../utils/agentCommands';
 import { TranscriptMessageList } from '../../components/vibecoding/TranscriptMessageList';
 import { ConversationScrubber } from '../../components/vibecoding/ConversationScrubber';
@@ -94,6 +95,7 @@ import {
   normalizeProvider,
 } from '../../utils/modelIntensity';
 import { createId } from '../../store/internals';
+import { createGoal, fetchGoals, queueGoalMessage } from '../../api/goals';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type SessionRoute = RouteProp<RootStackParamList, 'VibeCodingSession'>;
@@ -1130,6 +1132,46 @@ export const VibeCodingSessionScreen: React.FC = () => {
     if (!normalizedContent || sendLockRef.current) {
       return false;
     }
+    const goalCommandMatch = normalizedContent.match(/^\/goal(?:\s+([\s\S]+))?$/i);
+    if (goalCommandMatch) {
+      const goalCommand = goalCommandMatch[1]?.trim();
+      const goalDeviceId = isDraft ? draftConfig!.deviceId : session!.deviceId;
+      const goalProjectPath = isDraft ? draftConfig!.directory : session?.directory;
+      const sendKey = goalCommand ? createId('goal-create') : 'goal-open';
+      sendLockRef.current = sendKey;
+      setSendingMessage(true);
+      try {
+        if (!goalCommand) {
+          const goals = await fetchGoals({ deviceId: goalDeviceId, projectPath: goalProjectPath });
+          const selected = goals.find(goal => !['completed', 'cancelled', 'abandoned'].includes(goal.state)) ?? goals[0];
+          if (!selected) {
+            setDetailError('当前项目还没有 Goal，请输入 /goal <目标> 创建。');
+            return false;
+          }
+          await loadAgentSessionDetail(selected.ai_session_id);
+          setCreatedSessionId(selected.ai_session_id);
+          navigation.setParams({ sessionId: selected.ai_session_id, draftConfig: undefined });
+          return true;
+        }
+        const created = await createGoal({
+          deviceId: goalDeviceId,
+          projectId: isDraft ? draftConfig?.projectId : session?.projectId,
+          projectPath: goalProjectPath,
+          objective: goalCommand,
+          idempotencyKey: sendKey,
+          provider: isDraft ? draftConfig?.provider : session?.provider,
+          model: isDraft ? draftConfig?.model : session?.model,
+          effort: isDraft ? draftConfig?.effort : session?.effort,
+        });
+        await loadAgentSessionDetail(created.ai_session_id);
+        setCreatedSessionId(created.ai_session_id);
+        navigation.setParams({ sessionId: created.ai_session_id, draftConfig: undefined });
+        return true;
+      } finally {
+        if (sendLockRef.current === sendKey) sendLockRef.current = null;
+        setSendingMessage(false);
+      }
+    }
     // Draft mode: no session yet. The first message CREATES the session — send
     // ONLY this real message (startAgentSession does create+message). No init /
     // hint text is ever sent to the server/agent.
@@ -1206,6 +1248,19 @@ export const VibeCodingSessionScreen: React.FC = () => {
     // a stale error banner alongside new messages.
     if (detailError) setDetailError('');
     try {
+      if (session.purpose === 'goal') {
+        const goalId = session.goalSummary?.goalId;
+        if (!goalId) {
+          throw new Error('Goal 状态尚未同步，暂时不能发送消息');
+        }
+        await queueGoalMessage(goalId, {
+          content: normalizedContent,
+          mode: messageMode,
+          idempotencyKey: createId('goal-message'),
+          expectedStateVersion: session.goalSummary?.stateVersion,
+        });
+        return true;
+      }
       await appendAgentMessage(session.id, normalizedContent, messageMode);
       return true;
     } catch (error) {
@@ -3088,6 +3143,17 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 GO
               </Text>
             </TouchableOpacity>
+          ) : null}
+          {session?.purpose === 'goal' ? (
+            <GoalStatusBar
+              summary={session.goalSummary}
+              onPress={() =>
+                navigation.navigate('GoalDetail', {
+                  goalId: session.goalSummary?.goalId ?? session.id,
+                  sourceSessionId: session.id,
+                })
+              }
+            />
           ) : null}
           <MessageComposer
             mode={mode}

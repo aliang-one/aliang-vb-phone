@@ -39,6 +39,7 @@ export type RootStackParamList = {
       pendingRequestFingerprint?: string;
     };
   };
+  GoalDetail: { goalId: string; sourceSessionId?: string };
   AgentSessions: { deviceId?: string; projectId?: string } | undefined;
   SessionSettings: { sessionId: string };
   EventStream:

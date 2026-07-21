@@ -2,6 +2,7 @@ import type {
   AgentCommandScope,
   AgentEvent,
   Device,
+  GoalSummary,
   PreviewLink,
   Project,
   StructuredActivityEvent,
@@ -485,6 +486,37 @@ export function serverAiSessionToVibeRun(
     transcript,
     lastMessage && lastMessage.role === 'user' ? lastMessage : undefined,
   );
+  const goalSummary: GoalSummary | undefined = session.goal_summary
+    ? {
+        goalId: session.goal_summary.goal_id,
+        objective: session.goal_summary.objective,
+        state: session.goal_summary.state,
+        stateVersion: session.goal_summary.state_version,
+        completedTasks: session.goal_summary.completed_tasks,
+        totalTasks: session.goal_summary.total_tasks,
+        currentTask: session.goal_summary.current_task,
+        currentRunHealth: session.goal_summary.current_run_health,
+        attention: session.goal_summary.attention,
+        primaryActionKind: session.goal_summary.primary_action_kind,
+        primaryActionLabel: session.goal_summary.primary_action_label,
+        provider: session.goal_summary.provider,
+        driver: session.goal_summary.driver,
+        workspaceRelation: session.goal_summary.workspace_relation,
+        updatedAt: session.goal_summary.updated_at,
+        tasks: session.goal_summary.tasks?.map(task => ({
+          id: task.id,
+          title: task.title,
+          status: task.status,
+          isCurrent: task.is_current,
+        })),
+        checks: session.goal_summary.checks?.map(check => ({
+          id: check.id,
+          title: check.title,
+          status: check.status,
+          detail: check.detail,
+        })),
+      }
+    : undefined;
 
   return {
     id: session.session_id,
@@ -496,6 +528,8 @@ export function serverAiSessionToVibeRun(
     projectId: project?.id ?? '',
     directory: session.project_path ?? '',
     status: mapSessionStatus(session.status),
+    purpose: session.purpose,
+    goalSummary,
     phase: session.phase,
     activeRunId: session.active_run_id,
     latestRunId: session.latest_run_id,
@@ -774,6 +808,15 @@ export function mergeVibeRunSnapshot(
   const events = incomingHasDetail
     ? mergeAgentEvents(existing.events, incoming.events)
     : existing.events;
+  const incomingGoalVersion = incoming.goalSummary?.stateVersion;
+  const existingGoalVersion = existing.goalSummary?.stateVersion;
+  const goalSummary = !incoming.goalSummary
+    ? existing.goalSummary
+    : incomingGoalVersion !== undefined &&
+      existingGoalVersion !== undefined &&
+      incomingGoalVersion < existingGoalVersion
+      ? existing.goalSummary
+      : incoming.goalSummary;
   return {
     ...existing,
     ...incoming,
@@ -829,6 +872,8 @@ export function mergeVibeRunSnapshot(
     // transcript-less list snapshot omits it, so keep the last known value
     // rather than letting the spread wipe it.
     sourceSessionId: incoming.sourceSessionId ?? existing.sourceSessionId,
+    purpose: incoming.purpose ?? existing.purpose,
+    goalSummary,
   };
 }
 
@@ -855,6 +900,10 @@ export function hasMeaningfulVibeRunUpdate(
     existing.eventCount !== incoming.eventCount ||
     existing.filesTouchedCount !== incoming.filesTouchedCount ||
     existing.gitChangedCount !== incoming.gitChangedCount ||
+    (incoming.purpose !== undefined && existing.purpose !== incoming.purpose) ||
+    (incoming.goalSummary !== undefined &&
+      (existing.goalSummary?.stateVersion !== incoming.goalSummary.stateVersion ||
+        existing.goalSummary?.state !== incoming.goalSummary.state)) ||
     existing.retryActive !== incoming.retryActive ||
     existing.retryAttempt !== incoming.retryAttempt ||
     existing.retryErrorStatus !== incoming.retryErrorStatus ||

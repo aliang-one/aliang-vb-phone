@@ -19,6 +19,7 @@ import { ChangeReviewScreen } from '../../screens/projects/ChangeReviewScreen';
 import { CreateVibeCodingScreen } from '../../screens/vibecoding/CreateVibeCodingScreen';
 import { AgentSessionsScreen } from '../../screens/vibecoding/AgentSessionsScreen';
 import { VibeCodingSessionScreen } from '../../screens/vibecoding/VibeCodingSessionScreen';
+import { GoalDetailScreen } from '../../screens/vibecoding/GoalDetailScreen';
 import { SessionSettingsScreen } from '../../screens/vibecoding/SessionSettingsScreen';
 import { ApprovalCenterScreen } from '../../screens/operations/ApprovalCenterScreen';
 import { EventStreamScreen } from '../../screens/operations/EventStreamScreen';
@@ -260,6 +261,7 @@ export const RootNavigator = ({ debugDeviceTerminal }: RootNavigatorProps) => {
           <Stack.Screen name="CreateVibeCoding" component={CreateVibeCodingScreen} />
           <Stack.Screen name="AgentSessions" component={AgentSessionsScreen} />
           <Stack.Screen name="VibeCodingSession" component={VibeCodingSessionScreen} />
+          <Stack.Screen name="GoalDetail" component={GoalDetailScreen} />
           <Stack.Screen name="SessionSettings" component={SessionSettingsScreen} />
           <Stack.Screen name="EventStream" component={EventStreamScreen} />
           <Stack.Screen name="ApprovalCenter" component={ApprovalCenterScreen} />

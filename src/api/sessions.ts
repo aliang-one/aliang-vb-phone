@@ -5,7 +5,7 @@ import {
   apiPatch,
   apiPost,
 } from './client';
-import type { AgentCommandInfo } from '../data/platformModels';
+import type { AgentCommandInfo, GoalState } from '../data/platformModels';
 
 const AI_TURN_REQUEST_TIMEOUT_MS = 120_000;
 const aiSessionDetailRequests = new Map<string, Promise<ServerAiSession>>();
@@ -29,6 +29,36 @@ export interface ServerAiMessage {
   content: string;
   timestamp: string;
   index?: number;
+}
+
+export interface ServerGoalSummary {
+  goal_id: string;
+  objective?: string;
+  state: GoalState;
+  state_version?: number;
+  completed_tasks?: number;
+  total_tasks?: number;
+  current_task?: string;
+  current_run_health?: string;
+  attention?: string;
+  primary_action_kind?: string;
+  primary_action_label?: string;
+  provider?: string;
+  driver?: string;
+  workspace_relation?: 'exact' | 'advanced' | 'unavailable';
+  updated_at?: string;
+  tasks?: Array<{
+    id: string;
+    title: string;
+    status?: string;
+    is_current?: boolean;
+  }>;
+  checks?: Array<{
+    id: string;
+    title: string;
+    status?: string;
+    detail?: string;
+  }>;
 }
 
 export interface ServerAiSession {
@@ -60,6 +90,8 @@ export interface ServerAiSession {
   last_agent_event_seq?: number;
   project_path?: string;
   mode: 'chat' | 'vibe' | 'review' | 'agent';
+  purpose?: 'chat' | 'goal';
+  goal_summary?: ServerGoalSummary;
   title?: string;
   objective?: string;
   model?: string;

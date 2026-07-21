@@ -21,6 +21,7 @@ export type IconName =
   | 'event'
   | 'preview'
   | 'chat'
+  | 'goal'
   | 'user'
   | 'git'
   | 'code'
@@ -39,7 +40,14 @@ export type IconName =
   | 'settings'
   | 'close';
 
-type Tone = 'primary' | 'secondary' | 'tertiary' | 'error' | 'neutral';
+type Tone =
+  | 'primary'
+  | 'secondary'
+  | 'tertiary'
+  | 'success'
+  | 'warning'
+  | 'error'
+  | 'neutral';
 
 interface IconBadgeProps {
   name: IconName;
@@ -58,6 +66,10 @@ const toneToColor = (tone: Tone, colors: ReturnType<typeof useTheme>['theme']['c
       return colors.secondary;
     case 'tertiary':
       return colors.tertiary;
+    case 'success':
+      return colors.success;
+    case 'warning':
+      return colors.warning;
     case 'error':
       return colors.error;
     case 'neutral':
@@ -202,6 +214,14 @@ const IconShape: React.FC<IconShapeProps> = ({ name, stroke }) => {
         <>
           <Path d="M5 6.5h14v8.5a3 3 0 0 1-3 3H10l-4 3v-3H5a3 3 0 0 1-3-3V9.5a3 3 0 0 1 3-3Z" stroke={stroke} {...common} />
           <Path d="M7.5 11h9M7.5 14h5" stroke={stroke} {...common} />
+        </>
+      );
+    case 'goal':
+      return (
+        <>
+          <Circle cx="12" cy="12" r="7" stroke={stroke} {...common} />
+          <Circle cx="12" cy="12" r="2" fill={stroke} />
+          <Path d="M12 3v2M12 19v2M3 12h2M19 12h2" stroke={stroke} {...common} />
         </>
       );
     case 'user':

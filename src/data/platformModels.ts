@@ -166,6 +166,74 @@ export type VibeStatus =
   | 'completed'
   | 'paused';
 
+export type GoalState =
+  | 'planning'
+  | 'planning_failed'
+  | 'awaiting_approval'
+  | 'active'
+  | 'verifying'
+  | 'paused'
+  | 'blocked'
+  | 'budget_limited'
+  | 'cancel_requested'
+  | 'abandoned'
+  | 'cancelled'
+  | 'completed';
+
+export interface GoalTaskSummary {
+  id: string;
+  title: string;
+  status?: string;
+  isCurrent?: boolean;
+  failureAttempt?: number;
+}
+
+export interface GoalCheckSummary {
+  id: string;
+  title: string;
+  status?: string;
+  detail?: string;
+}
+
+export interface GoalRevisionSummary {
+  id: string;
+  number: number;
+  objective: string;
+  constraints: string[];
+  nonGoals: string[];
+  budget?: {
+    maxAttemptsPerTask?: number;
+    maxTurns?: number;
+    deadlineAt?: string;
+    commandTimeoutMs?: number;
+    providerUsageLimit?: number;
+  };
+  manifestDigest?: string;
+  createdAt?: string;
+}
+
+/** Bounded, server-authoritative Goal summary embedded in an AI session snapshot. */
+export interface GoalSummary {
+  goalId: string;
+  objective?: string;
+  state: GoalState;
+  stateVersion?: number;
+  completedTasks?: number;
+  totalTasks?: number;
+  currentTask?: string;
+  currentRunHealth?: string;
+  attention?: string;
+  primaryActionKind?: string;
+  primaryActionLabel?: string;
+  provider?: string;
+  driver?: string;
+  workspaceRelation?: 'exact' | 'advanced' | 'unavailable';
+  updatedAt?: string;
+  revision?: GoalRevisionSummary;
+  tasks?: GoalTaskSummary[];
+  checks?: GoalCheckSummary[];
+}
+
 export interface VibeCodingRun {
   id: string;
   title: string;
@@ -173,6 +241,10 @@ export interface VibeCodingRun {
   projectId: string;
   directory: string;
   status: VibeStatus;
+  /** Server-owned session purpose. Goal UI is rendered only for `goal`. */
+  purpose?: 'chat' | 'goal';
+  /** Optional Goal summary; absence means the phone must show syncing, not 0/0. */
+  goalSummary?: GoalSummary;
   /**
    * Server-authoritative display phase ('running'|'waiting_approval'|
    * 'completed'|'failed'). Preferred over the phone's local silence-based
