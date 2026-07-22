@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
+  Switch,
 } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
@@ -55,9 +56,9 @@ export interface ToolsMenuProps {
   activeExecutionLabel?: string;
   /** Goal sessions expose commands here but keep their execution profile immutable. */
   settingsEditable?: boolean;
-  /** Ordinary chat, an unsent Goal objective, or an already-created Goal session. */
+  /** Whether this conversation has Goal disabled, ready to send, or already active. */
   goalMode?: 'ordinary' | 'draft' | 'active';
-  /** Switches the ordinary composer into or out of Goal objective entry. */
+  /** Toggles Goal objective entry without changing the underlying conversation. */
   onGoalModeChange?: (mode: 'ordinary' | 'draft') => void;
   /** Persist the edited model + effort. Empty strings clear; the model is a
    *  clean base name (effort is sent as a separate field, never baked in). */
@@ -191,6 +192,8 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
   const idleBorder = isDark ? 'rgba(255,255,255,0.08)' : theme.colors.outlineVariant;
   const rowBorder = isDark ? 'rgba(255,255,255,0.06)' : theme.colors.outlineVariant;
   const activeBg = isDark ? 'rgba(86,156,214,0.14)' : 'rgba(0,81,174,0.08)';
+  const goalEnabled = goalMode !== 'ordinary';
+  const goalToggleDisabled = goalMode === 'active' || !onGoalModeChange;
   const visibleCommands = useMemo(
     () => commands.filter(command => command.userInvocable !== false),
     [commands],
@@ -249,55 +252,35 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
       </View>
 
       <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
-        <Text
-          style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }, styles.fieldLabel]}>
-          对话模式
-        </Text>
         <View
           style={[
-            styles.modeSelector,
+            styles.goalToggleRow,
             { borderColor: idleBorder, backgroundColor: theme.colors.surfaceContainerLow },
           ]}>
-          {([
-            { key: 'ordinary', label: '普通对话' },
-            { key: 'draft', label: 'Goal' },
-          ] as const).map(option => {
-            const active = option.key === 'ordinary'
-              ? goalMode === 'ordinary'
-              : goalMode === 'draft' || goalMode === 'active';
-            const disabled = goalMode === 'active' || !onGoalModeChange;
-            return (
-              <TouchableOpacity
-                key={option.key}
-                testID={`tools-mode-${option.key === 'ordinary' ? 'ordinary' : 'goal'}`}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active, disabled }}
-                disabled={disabled}
-                activeOpacity={0.72}
-                onPress={() => {
-                  onGoalModeChange?.(option.key);
-                  onClose();
-                }}
-                style={[
-                  styles.modeOption,
-                  active && { backgroundColor: activeBg },
-                ]}>
-                <Text style={[theme.typography.labelMd, { color: active ? accent : theme.colors.onSurfaceVariant }]}>
-                  {option.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+          <IconBadge
+            name="goal"
+            tone={goalEnabled ? 'primary' : 'neutral'}
+            size={28}
+            iconSize={14}
+          />
+          <View style={styles.goalToggleCopy}>
+            <Text style={[theme.typography.labelMd, { color: theme.colors.onSurface }]}>Goal</Text>
+            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+              {goalMode === 'active' ? '进行中' : goalMode === 'draft' ? '目标待发送' : '关闭'}
+            </Text>
+          </View>
+          <Switch
+            testID="tools-goal-toggle"
+            accessibilityLabel="Goal"
+            accessibilityHint={goalMode === 'active' ? '当前 Goal 已创建' : undefined}
+            accessibilityState={{ disabled: goalToggleDisabled }}
+            value={goalEnabled}
+            disabled={goalToggleDisabled}
+            onValueChange={enabled => onGoalModeChange?.(enabled ? 'draft' : 'ordinary')}
+            trackColor={{ false: theme.colors.outlineVariant, true: accent }}
+            ios_backgroundColor={theme.colors.outlineVariant}
+          />
         </View>
-        {goalMode === 'draft' ? (
-          <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }, styles.modeHint]}>
-            下一条输入将创建 Goal；模型和 Effort 可在发送前调整。
-          </Text>
-        ) : goalMode === 'active' ? (
-          <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }, styles.modeHint]}>
-            当前对话已绑定 Goal，后续输入都会发送给这个 Goal。
-          </Text>
-        ) : null}
         {activeExecutionLabel ? (
           <View style={[styles.effectiveRow, { borderRadius: theme.borderRadius.md, borderColor: rowBorder, backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : theme.colors.surfaceContainerLow }]}>
             <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>本轮实际</Text>
@@ -591,21 +574,19 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     marginTop: 10,
   },
-  modeSelector: {
+  goalToggleRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
     borderWidth: 1,
     borderRadius: 8,
-    padding: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginTop: 10,
   },
-  modeOption: {
+  goalToggleCopy: {
     flex: 1,
-    minHeight: 34,
-    borderRadius: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modeHint: {
-    marginTop: 6,
+    minWidth: 0,
   },
   fieldLabel: {
     marginTop: 10,

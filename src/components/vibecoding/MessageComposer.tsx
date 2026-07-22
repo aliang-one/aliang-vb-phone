@@ -29,6 +29,7 @@ import type { UseVoiceSttResult } from '../../hooks/useVoiceStt';
 import { SlashCommandSuggestions } from './SlashCommandSuggestions';
 import type { AgentCommandInfo } from '../../data/platformModels';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { isGoalCommand } from '../../utils/goalComposer';
 
 export type ComposerMode = 'voice' | 'text';
 
@@ -295,7 +296,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   const isRecording = status === 'recording';
   const hasDraft = Boolean(voiceDraft);
   const composerDisabled = !(goalDraft || goalSession) && (deviceOffline || Boolean(readOnlyReason));
-  const isGoalCommandInput = /^\/goal(?:\s|$)/i.test(input.trim());
+  const isGoalCommandInput = isGoalCommand(input);
   // Slash-command typeahead: active only while the whole input is a single
   // `/token` (slash first, command-name chars, no space yet) in text mode. A
   // space ends the command name and hides the dropdown.

@@ -88,6 +88,7 @@ import {
 import { isSessionSnapshotStale } from '../../utils/sessionSnapshotStale';
 import { deriveLivePulse } from '../../utils/activitySummary';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
+import { isGoalCommand, parseGoalCommand } from '../../utils/goalComposer';
 import { useNowTick } from '../../hooks/useNowTick';
 import { useThrottledValue } from '../../hooks/useThrottledValue';
 import { useVoiceStt } from '../../hooks/useVoiceStt';
@@ -1182,7 +1183,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
     };
   };
 
-  const enterGoalDraft = useCallback((objective = '', previousDraft = input) => {
+  const enterGoalDraft = useCallback((
+    objective = '',
+    previousDraft = input,
+    options: { keepToolsOpen?: boolean } = {},
+  ) => {
     if (session?.purpose === 'goal') return;
     if (['connecting', 'recording', 'stopping'].includes(voiceStt.status)) {
       void voiceStt.stop();
@@ -1191,7 +1196,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     setGoalDraftActive(true);
     setMode('text');
     setInput(objective);
-    setToolsMenuVisible(false);
+    if (!options.keepToolsOpen) setToolsMenuVisible(false);
     setDetailError('');
   }, [goalDraftActive, input, session?.purpose, voiceStt]);
 
@@ -1271,9 +1276,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
     if (goalDraftActive && session?.purpose !== 'goal') {
       return createProjectGoal(normalizedContent);
     }
-    const goalCommandMatch = normalizedContent.match(/^\/goal(?:\s+([\s\S]+))?$/i);
-    if (goalCommandMatch && session?.purpose !== 'goal') {
-      const goalCommand = goalCommandMatch[1]?.trim();
+    const parsedGoalCommand = parseGoalCommand(normalizedContent);
+    if (parsedGoalCommand !== null && session?.purpose !== 'goal') {
+      const goalCommand = parsedGoalCommand.trim();
       if (goalCommand) return createProjectGoal(goalCommand);
       enterGoalDraft();
       return true;
@@ -1359,15 +1364,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
         if (!goalId) {
           throw new Error('Goal 状态尚未同步，暂时不能发送消息');
         }
-        const replanMatch = normalizedContent.match(/^\/goal(?:\s+([\s\S]+))?$/i);
-        const replacementObjective = replanMatch?.[1]?.trim();
-        if (replanMatch && !replacementObjective) {
+        const parsedReplanObjective = parseGoalCommand(normalizedContent);
+        const replacementObjective = parsedReplanObjective?.trim();
+        if (parsedReplanObjective !== null && !replacementObjective) {
           throw new Error('请输入 /goal <新的完整目标> 来重新规划');
         }
         await queueGoalMessage(goalId, {
           content: replacementObjective ?? normalizedContent,
           mode: messageMode,
-          kind: replanMatch ? 'replan_request' : 'goal_message',
+          kind: parsedReplanObjective !== null ? 'replan_request' : 'goal_message',
           idempotencyKey: createId('goal-message'),
           expectedStateVersion: session.goalSummary?.stateVersion,
         });
@@ -1504,8 +1509,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
 
   const handleSendText = () => {
     const nextInput = input.trim();
-    const isGoalCommand = /^\/goal(?:\s|$)/i.test(nextInput);
-    const isGoalSend = goalDraftActive || session?.purpose === 'goal' || isGoalCommand;
+    const goalCommand = isGoalCommand(nextInput);
+    const isGoalSend = goalDraftActive || session?.purpose === 'goal' || goalCommand;
     if (!isGoalSend && (deviceOffline || shouldDisableComposerForProvider)) return;
     if (!nextInput || sendingMessage) {
       return;
@@ -1897,9 +1902,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
 
   const handleComposerInputChange = useCallback((value: string) => {
     if (!goalDraftActive && session?.purpose !== 'goal') {
-      const match = value.match(/^\/goal(?:\s+([\s\S]*))?$/i);
-      if (match) {
-        enterGoalDraft(match[1] ?? '', '');
+      const objective = parseGoalCommand(value);
+      if (objective !== null) {
+        enterGoalDraft(objective, '');
         return;
       }
     }
@@ -1908,8 +1913,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
 
   const handleInsertCommand = useCallback(
     (text: string) => {
-      if (/^\/goal(?:\s|$)/i.test(text)) {
-        const candidate = text.replace(/^\/goal/i, '').trim();
+      const goalObjective = parseGoalCommand(text);
+      if (goalObjective !== null) {
+        const candidate = goalObjective.trim();
         enterGoalDraft(candidate.startsWith('<') ? '' : candidate);
         return;
       }
@@ -3314,7 +3320,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               settingsEditable={session.purpose !== 'goal'}
               goalMode={session.purpose === 'goal' ? 'active' : goalDraftActive ? 'draft' : 'ordinary'}
               onGoalModeChange={nextMode => {
-                if (nextMode === 'draft') enterGoalDraft();
+                if (nextMode === 'draft') enterGoalDraft('', input, { keepToolsOpen: true });
                 else exitGoalDraft();
               }}
               commands={sessionCommands}
@@ -3385,7 +3391,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               onMore={() => setToolsMenuVisible(true)}
             />
           ) : goalDraftActive ? (
-            <GoalDraftBar creating={goalCreating} onExit={exitGoalDraft} />
+            <GoalDraftBar objective={input} creating={goalCreating} onExit={exitGoalDraft} />
           ) : null}
           <MessageComposer
             mode={mode}

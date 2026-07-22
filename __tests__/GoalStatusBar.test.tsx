@@ -96,4 +96,16 @@ describe('GoalStatusBar', () => {
     expect(renderer!.root.findByProps({ testID: 'goal-draft-exit' }).props.disabled).toBe(true);
     expect(visibleText(renderer!)).toContain('正在创建 Goal');
   });
+
+  it('shows the current unsent objective in the Goal draft bar', () => {
+    let renderer: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = ReactTestRenderer.create(
+        <ThemeContext.Provider value={{ theme: utilityMinimalist, mode: 'light', setMode: jest.fn(), isDark: false }}>
+          <GoalDraftBar objective="完成登录流程" onExit={jest.fn()} />
+        </ThemeContext.Provider>,
+      );
+    });
+    expect(visibleText(renderer!)).toContain('完成登录流程');
+  });
 });

@@ -191,9 +191,11 @@ export const GoalStatusBar: React.FC<GoalStatusBarProps> = ({
 
 export const GoalDraftBar: React.FC<{
   creating?: boolean;
+  objective?: string;
   onExit: () => void;
-}> = ({ creating = false, onExit }) => {
+}> = ({ creating = false, objective = '', onExit }) => {
   const { theme } = useTheme();
+  const objectiveLabel = objective.trim() || '目标待输入';
   return (
     <View
       testID="goal-draft-bar"
@@ -208,7 +210,7 @@ export const GoalDraftBar: React.FC<{
       <View style={styles.draftCopy}>
         <Text style={[theme.typography.labelMd, { color: theme.colors.onSurface }]}>Goal</Text>
         <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
-          {creating ? '正在创建 Goal' : '本次输入将作为 Goal 目标发送'}
+          {creating ? '正在创建 Goal' : objectiveLabel}
         </Text>
       </View>
       <TouchableOpacity

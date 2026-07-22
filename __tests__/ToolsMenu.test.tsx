@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
-import { Text, TextInput, TouchableOpacity } from 'react-native';
+import { Switch, Text, TextInput, TouchableOpacity } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
@@ -88,18 +88,32 @@ describe('ToolsMenu', () => {
     const root = wrap(
       <ToolsMenu {...defaultProps({ onGoalModeChange, onClose })} />,
     );
-    act(() => findByTestID(root, 'tools-mode-goal').props.onPress());
+    act(() => findByTestID(root, 'tools-goal-toggle').props.onValueChange(true));
     expect(onGoalModeChange).toHaveBeenCalledWith('draft');
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(root.root.findAllByType(TextInput).length).toBeGreaterThan(0);
   });
 
-  it('keeps the mode selector locked inside a created Goal session', () => {
+  it('can switch an unsent Goal draft back off without closing tools', () => {
+    const onGoalModeChange = jest.fn();
+    const onClose = jest.fn();
+    const root = wrap(
+      <ToolsMenu {...defaultProps({ goalMode: 'draft', onGoalModeChange, onClose })} />,
+    );
+    act(() => findByTestID(root, 'tools-goal-toggle').props.onValueChange(false));
+    expect(onGoalModeChange).toHaveBeenCalledWith('ordinary');
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('keeps the Goal toggle on and locked inside a created Goal session', () => {
     const onGoalModeChange = jest.fn();
     const root = wrap(
       <ToolsMenu {...defaultProps({ goalMode: 'active', onGoalModeChange })} />,
     );
-    expect(findByTestID(root, 'tools-mode-ordinary').props.disabled).toBe(true);
-    expect(findByTestID(root, 'tools-mode-goal').props.accessibilityState.selected).toBe(true);
+    const goalToggle = findByTestID(root, 'tools-goal-toggle');
+    expect(goalToggle.type).toBe(Switch);
+    expect(goalToggle.props.disabled).toBe(true);
+    expect(goalToggle.props.value).toBe(true);
   });
 
   it('hides Skills that are not user-invocable', () => {
