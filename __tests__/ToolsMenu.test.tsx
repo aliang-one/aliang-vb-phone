@@ -179,4 +179,25 @@ describe('ToolsMenu', () => {
     // The xhigh effort chip is the active (seeded) one.
     expect(() => findByTestID(root, 'tools-effort-xhigh')).not.toThrow();
   });
+
+  it('shows current and next profiles while keeping Goal settings read-only', () => {
+    const onSaveSettings = jest.fn();
+    const root = wrap(
+      <ToolsMenu
+        {...defaultProps({
+          activeExecutionLabel: 'model=gpt-old · effort=medium · v2',
+          effectiveLabel: 'model=gpt-new · effort=high',
+          settingsEditable: false,
+          onSaveSettings,
+        })}
+      />,
+    );
+    const texts = root.root.findAllByType(Text).map(item => String(item.props.children));
+    expect(texts).toContain('本轮实际');
+    expect(texts).toContain('下轮配置');
+    expect(texts.some(item => item.includes('Goal 的执行配置在创建时固定'))).toBe(true);
+    expect(root.root.findAllByType(TextInput)).toHaveLength(0);
+    expect(chipByLabel(root, '保存')).toBeUndefined();
+    expect(onSaveSettings).not.toHaveBeenCalled();
+  });
 });

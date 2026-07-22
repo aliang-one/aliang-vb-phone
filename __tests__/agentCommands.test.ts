@@ -4,9 +4,10 @@ describe('agentCommands', () => {
   it('falls back to the full builtin surface when the agent reports nothing', () => {
     // Production Go agent (no discovery) → undefined → universal builtins fill in.
     const claude = mergeCommands('claude_code', undefined);
-    expect(claude.map(c => c.name)).toEqual(
-      builtinCommandsFor('claude_code').map(c => c.name),
-    );
+    expect(claude.map(c => c.name)).toEqual([
+      'goal',
+      ...builtinCommandsFor('claude_code').map(c => c.name),
+    ]);
     expect(claude.some(c => c.name === 'clear')).toBe(true);
     expect(claude.some(c => c.name === 'compact')).toBe(true);
 
@@ -14,9 +15,10 @@ describe('agentCommands', () => {
     expect(codex.some(c => c.name === 'diff')).toBe(true);
 
     const opencode = mergeCommands('opencode', undefined);
-    expect(opencode.map(c => c.name)).toEqual(
-      builtinCommandsFor('opencode').map(c => c.name),
-    );
+    expect(opencode.map(c => c.name)).toEqual([
+      'goal',
+      ...builtinCommandsFor('opencode').map(c => c.name),
+    ]);
     expect(opencode.some(c => c.name === 'model')).toBe(true);
   });
 
@@ -25,8 +27,9 @@ describe('agentCommands', () => {
       { name: 'mycmd', description: '项目自定义', scope: 'project' as const },
     ];
     const merged = mergeCommands('claude_code', agent);
-    // Agent (custom) command first.
-    expect(merged[0]).toEqual(agent[0]);
+    // Product commands stay prominent, then Agent custom commands.
+    expect(merged[0].name).toBe('goal');
+    expect(merged[1]).toEqual(agent[0]);
     // Builtins fill the rest.
     expect(merged.some(c => c.name === 'clear')).toBe(true);
     // No duplicate of the agent command.
@@ -44,9 +47,28 @@ describe('agentCommands', () => {
     expect(clears[0].description).toBe('agent 的真实描述');
   });
 
+  it('keeps the Aliang /goal command authoritative over a provider command', () => {
+    const merged = mergeCommands('codex', [
+      { name: 'goal', description: 'provider goal', remote: 'unsupported' },
+    ]);
+    const goals = merged.filter(command => command.name === 'goal');
+    expect(goals).toHaveLength(1);
+    expect(goals[0].description).not.toBe('provider goal');
+    expect(goals[0].remote).toBe('prompt');
+  });
+
   it('is never empty for a known provider', () => {
     expect(mergeCommands('claude_code', []).length).toBeGreaterThan(0);
     expect(mergeCommands('codex', []).length).toBeGreaterThan(0);
     expect(mergeCommands('opencode', []).length).toBeGreaterThan(0);
   });
+
+  it.each(['claude_code', 'codex', 'opencode'] as const)(
+    'always exposes the product-level /goal command for %s',
+    provider => {
+      expect(mergeCommands(provider, []).find(command => command.name === 'goal')).toEqual(
+        expect.objectContaining({ argHint: expect.any(String), scope: 'builtin' }),
+      );
+    },
+  );
 });

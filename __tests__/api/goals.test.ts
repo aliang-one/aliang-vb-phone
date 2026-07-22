@@ -63,6 +63,28 @@ describe('Goal API', () => {
     });
   });
 
+  it('sends a Goal replacement as an explicit replan request', async () => {
+    mockedPost.mockResolvedValue({
+      goal_id: 'goal-1', message_id: 'message-2', status: 'replanning',
+    });
+
+    await queueGoalMessage('goal-1', {
+      content: 'Replace the legacy API with the new contract',
+      mode: 'text',
+      kind: 'replan_request',
+      idempotencyKey: 'goal-replan-1',
+      expectedStateVersion: 9,
+    });
+
+    expect(mockedPost).toHaveBeenCalledWith('/api/goals/goal-1/messages', {
+      content: 'Replace the legacy API with the new contract',
+      mode: 'text',
+      kind: 'replan_request',
+      idempotency_key: 'goal-replan-1',
+      expected_state_version: 9,
+    });
+  });
+
   it('creates a Goal as a product command payload', async () => {
     mockedPost.mockResolvedValue({
       goal_id: 'goal-1',
@@ -97,6 +119,8 @@ describe('Goal API', () => {
     expect(goalSnapshotToSummary({
       goal_id: 'goal-1',
       state: 'awaiting_approval',
+      model: 'glm-5.2',
+      effort: 'high',
       revision: {
         id: 'revision-1',
         number: 2,
@@ -109,7 +133,10 @@ describe('Goal API', () => {
           command_timeout_ms: 60_000,
         },
       },
-    }).revision).toEqual({
+    })).toEqual(expect.objectContaining({
+      model: 'glm-5.2',
+      effort: 'high',
+      revision: {
       id: 'revision-1',
       number: 2,
       objective: 'Finish Goal support',
@@ -124,7 +151,8 @@ describe('Goal API', () => {
       },
       manifestDigest: undefined,
       createdAt: undefined,
-    });
+      },
+    }));
   });
 
   it('maps task retry progress into the phone model', () => {

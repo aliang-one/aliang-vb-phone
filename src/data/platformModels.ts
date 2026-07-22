@@ -226,6 +226,8 @@ export interface GoalSummary {
   primaryActionKind?: string;
   primaryActionLabel?: string;
   provider?: string;
+  model?: string;
+  effort?: string;
   driver?: string;
   workspaceRelation?: 'exact' | 'advanced' | 'unavailable';
   updatedAt?: string;
@@ -273,6 +275,16 @@ export interface VibeCodingRun {
   projectBudget?: AgentBudgetInfo;
   /** Reasoning effort (provider-specific); undefined = no override. */
   effort?: string;
+  /** Monotonic server version for session-level model/effort edits. */
+  modelConfigVersion?: number;
+  /** Immutable profile captured for the active or most recently issued Run. */
+  activeExecutionProfile?: {
+    version: number;
+    provider?: string;
+    model?: string;
+    effort?: string;
+    capturedAt: string;
+  };
   /**
    * Authoritative AI provider, derived from the server session's
    * `provider`/`tool` (see normalizeProvider). Drives provider-aware effort

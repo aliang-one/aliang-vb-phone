@@ -373,8 +373,15 @@ class PlatformTransport {
     sessionId: string,
     content: string,
     mode: 'voice' | 'text' = 'text',
+    expectedModelConfigVersion?: number,
   ): ReturnType<typeof apiSendAiMessage> {
-    return apiSendAiMessage(sessionId, content, [], mode);
+    return apiSendAiMessage(
+      sessionId,
+      content,
+      [],
+      mode,
+      expectedModelConfigVersion,
+    );
   }
 
   sendAiSteer(

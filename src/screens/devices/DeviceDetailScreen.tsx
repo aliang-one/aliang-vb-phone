@@ -292,6 +292,14 @@ export const DeviceDetailScreen: React.FC = () => {
         </View>
         <View style={styles.actionGridRow}>
           <ActionGridCard
+            icon="port"
+            title={t('portMappings.actionTitle')}
+            subtitle={t('portMappings.actionSubtitle')}
+            onPress={() =>
+              navigation.navigate('PortMappings', { deviceId: device.id })
+            }
+          />
+          <ActionGridCard
             icon="agent"
             title="Sessions"
             subtitle={`${sessions.length} session${
@@ -301,6 +309,8 @@ export const DeviceDetailScreen: React.FC = () => {
               navigation.navigate('AgentSessions', { deviceId: device.id })
             }
           />
+        </View>
+        <View style={styles.actionGridRow}>
           <ActionGridCard
             icon="event"
             title="Events"

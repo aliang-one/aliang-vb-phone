@@ -386,6 +386,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     if (!get().serverMode) {
       throw new Error('Platform connection is required before updating a VibeCoding session.');
     }
+    const current = get().vibeRuns.find(run => run.id === sessionId);
     const serverSession = await platformTransport.updateAiSession(sessionId, {
       title: input.title,
       objective: input.objective,
@@ -399,6 +400,10 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       // Separate field. "" clears, undefined = unchanged. Gateway derives the
       // codex reasoning level from it; never bake it into the model name.
       effort: input.effort,
+      expected_model_config_version:
+        input.model !== undefined || input.effort !== undefined
+          ? current?.modelConfigVersion
+          : undefined,
     });
     set(state => {
       const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
@@ -526,7 +531,12 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     try {
       const response = sendAsSteer
         ? await platformTransport.sendAiSteer(sessionId, normalizedContent, mode)
-        : await platformTransport.sendAiMessage(sessionId, normalizedContent, mode);
+        : await platformTransport.sendAiMessage(
+            sessionId,
+            normalizedContent,
+            mode,
+            currentRun?.modelConfigVersion,
+          );
       // The server persists the user message under its own id (e.g. `msg_abc123`).
       // Reconcile: the optimistic bubble's id is replaced with the server's id
       // so subsequent server state sync (WebSocket `ai.session.updated`) merges

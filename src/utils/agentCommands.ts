@@ -24,7 +24,7 @@ const buildBuiltinAgentCommands = (): Record<EffortProvider, AgentCommandInfo[]>
   claude_code: [
     { name: 'clear', description: i18n.t('vibecoding:command.clear.description'), scope: 'builtin', remote: 'local' },
     { name: 'compact', description: i18n.t('vibecoding:command.compact.description'), scope: 'builtin', remote: 'local' },
-    { name: 'model', description: i18n.t('vibecoding:command.model.description'), argHint: '<model>', scope: 'builtin', remote: 'local' },
+    { name: 'model', description: i18n.t('vibecoding:command.model.description'), scope: 'builtin', remote: 'local' },
     { name: 'review', description: i18n.t('vibecoding:command.review.description'), scope: 'builtin', remote: 'prompt' },
     { name: 'cost', description: i18n.t('vibecoding:command.cost.description'), scope: 'builtin', remote: 'local' },
     { name: 'memory', description: i18n.t('vibecoding:command.memory.description'), scope: 'builtin', remote: 'unsupported' },
@@ -34,16 +34,26 @@ const buildBuiltinAgentCommands = (): Record<EffortProvider, AgentCommandInfo[]>
   codex: [
     { name: 'diff', description: i18n.t('vibecoding:command.diff.description'), scope: 'builtin', remote: 'local' },
     { name: 'clear', description: i18n.t('vibecoding:command.clear.description'), scope: 'builtin', remote: 'local' },
-    { name: 'model', description: i18n.t('vibecoding:command.model.description'), argHint: '<model>', scope: 'builtin', remote: 'local' },
+    { name: 'model', description: i18n.t('vibecoding:command.model.description'), scope: 'builtin', remote: 'local' },
   ],
   opencode: [
     { name: 'init', description: i18n.t('vibecoding:command.initOpencode.description'), scope: 'builtin', remote: 'prompt' },
     { name: 'help', description: i18n.t('vibecoding:command.helpOpencode.description'), scope: 'builtin', remote: 'local' },
-    { name: 'model', description: i18n.t('vibecoding:command.model.description'), argHint: '<provider/model>', scope: 'builtin', remote: 'local' },
+    { name: 'model', description: i18n.t('vibecoding:command.model.description'), scope: 'builtin', remote: 'local' },
     { name: 'undo', description: i18n.t('vibecoding:command.undo.description'), scope: 'builtin', remote: 'local' },
     { name: 'redo', description: i18n.t('vibecoding:command.redo.description'), scope: 'builtin', remote: 'local' },
   ],
 });
+
+const buildProductCommands = (): AgentCommandInfo[] => [
+  {
+    name: 'goal',
+    description: i18n.t('vibecoding:command.goal.description'),
+    argHint: i18n.t('vibecoding:command.goal.argHint'),
+    scope: 'builtin',
+    remote: 'prompt',
+  },
+];
 
 export const BUILTIN_AGENT_COMMANDS: Record<EffortProvider, AgentCommandInfo[]> =
   buildBuiltinAgentCommands();
@@ -64,10 +74,19 @@ export const mergeCommands = (
   provider: EffortProvider,
   agentCommands: AgentCommandInfo[] | undefined,
 ): AgentCommandInfo[] => {
-  const agent = agentCommands ?? [];
-  const seen = new Set(agent.map(c => c.name.toLowerCase()));
+  const product = buildProductCommands();
+  const productNames = new Set(product.map(command => command.name.toLowerCase()));
+  // Product commands are dispatched by the phone/server and must not be
+  // shadowed by a provider-native command with the same spelling.
+  const agent = (agentCommands ?? []).filter(
+    command => !productNames.has(command.name.toLowerCase()),
+  );
+  const seen = new Set([
+    ...productNames,
+    ...agent.map(command => command.name.toLowerCase()),
+  ]);
   const filled = builtinCommandsFor(provider).filter(
     b => !seen.has(b.name.toLowerCase()),
   );
-  return [...agent, ...filled];
+  return [...product, ...agent, ...filled];
 };

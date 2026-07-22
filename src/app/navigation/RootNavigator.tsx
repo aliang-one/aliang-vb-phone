@@ -10,6 +10,7 @@ import { MainTabNavigator } from './MainTabNavigator';
 import { LoginScreen } from '../../screens/auth/LoginScreen';
 import { DeviceCameraScannerScreen } from '../../screens/devices/DeviceCameraScannerScreen';
 import { DeviceDetailScreen } from '../../screens/devices/DeviceDetailScreen';
+import { PortMappingsScreen } from '../../screens/devices/PortMappingsScreen';
 import { DeviceTerminalScreen } from '../../screens/devices/DeviceTerminalScreen';
 import { ProjectScanScreen } from '../../screens/devices/ProjectScanScreen';
 import { ProjectDetailScreen } from '../../screens/projects/ProjectDetailScreen';
@@ -252,6 +253,7 @@ export const RootNavigator = ({ debugDeviceTerminal }: RootNavigatorProps) => {
           <Stack.Screen name="MainTabs" component={MainTabNavigator} />
           <Stack.Screen name="DeviceCameraScanner" component={DeviceCameraScannerScreen} />
           <Stack.Screen name="DeviceDetail" component={DeviceDetailScreen} />
+          <Stack.Screen name="PortMappings" component={PortMappingsScreen} />
           <Stack.Screen name="DeviceTerminal" component={DeviceTerminalScreen} />
           <Stack.Screen name="ProjectScan" component={ProjectScanScreen} />
           <Stack.Screen name="ProjectDetail" component={ProjectDetailScreen} />

@@ -36,6 +36,9 @@ export type IconName =
   | 'plus'
   | 'minus'
   | 'refresh'
+  | 'copy'
+  | 'external'
+  | 'trash'
   | 'chevron'
   | 'settings'
   | 'close';
@@ -296,6 +299,27 @@ const IconShape: React.FC<IconShapeProps> = ({ name, stroke }) => {
         <>
           <Path d="M21 12a9 9 0 1 1-2.6-6.3" stroke={stroke} {...common} />
           <Path d="M21 3v5h-5" stroke={stroke} {...common} />
+        </>
+      );
+    case 'copy':
+      return (
+        <>
+          <Rect x="8" y="8" width="11" height="11" rx="2" stroke={stroke} {...common} />
+          <Path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" stroke={stroke} {...common} />
+        </>
+      );
+    case 'external':
+      return (
+        <>
+          <Path d="M14 5h5v5M19 5l-8 8" stroke={stroke} {...common} />
+          <Path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5" stroke={stroke} {...common} />
+        </>
+      );
+    case 'trash':
+      return (
+        <>
+          <Path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13" stroke={stroke} {...common} />
+          <Path d="M10 11v5M14 11v5" stroke={stroke} {...common} />
         </>
       );
     case 'chevron':

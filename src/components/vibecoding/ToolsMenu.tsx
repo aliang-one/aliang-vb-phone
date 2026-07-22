@@ -51,6 +51,10 @@ export interface ToolsMenuProps {
    * MODEL field so the user knows what the agent actually runs with today.
    */
   effectiveLabel?: string;
+  /** Actual immutable profile used by the active/current Run. */
+  activeExecutionLabel?: string;
+  /** Goal sessions expose commands here but keep their execution profile immutable. */
+  settingsEditable?: boolean;
   /** Persist the edited model + effort. Empty strings clear; the model is a
    *  clean base name (effort is sent as a separate field, never baked in). */
   onSaveSettings: (patch: { model: string; effort: string }) => Promise<void>;
@@ -80,6 +84,8 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
   effortOptions,
   serverModelOptions,
   effectiveLabel,
+  activeExecutionLabel,
+  settingsEditable = true,
   onSaveSettings,
   onInsertCommand,
   sessionId,
@@ -237,6 +243,14 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
       </View>
 
       <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
+        {activeExecutionLabel ? (
+          <View style={[styles.effectiveRow, { borderRadius: theme.borderRadius.md, borderColor: rowBorder, backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : theme.colors.surfaceContainerLow }]}>
+            <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>本轮实际</Text>
+            <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface, flexShrink: 1 }]} numberOfLines={2}>
+              {activeExecutionLabel}
+            </Text>
+          </View>
+        ) : null}
         {effectiveLabel ? (
           <View
             style={[
@@ -254,7 +268,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
                 theme.typography.labelCaps,
                 { color: theme.colors.onSurfaceVariant },
               ]}>
-              {t('toolsMenu.effective')}
+              {activeExecutionLabel ? '下轮配置' : t('toolsMenu.effective')}
             </Text>
             <Text
               style={[
@@ -267,6 +281,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
           </View>
         ) : null}
 
+        {settingsEditable ? <>
         {/* MODEL */}
         <Text
           style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }, styles.fieldLabel]}>
@@ -342,6 +357,11 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
             );
           })}
         </View>
+        </> : (
+          <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }, styles.readOnlyHint]}>
+            Goal 的执行配置在创建时固定，后续任务与重新规划使用同一配置。
+          </Text>
+        )}
 
         {error ? (
           <Text style={[theme.typography.bodySm, { color: theme.colors.error }, styles.errorText]}>
@@ -349,13 +369,15 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
           </Text>
         ) : null}
 
-        <GlowButton
-          title={saving ? t('toolsMenu.saving') : settingsDirty ? t('toolsMenu.save') : t('toolsMenu.upToDate')}
-          onPress={handleSave}
-          disabled={saving || !settingsDirty}
-          variant={settingsDirty ? 'primary' : 'outline'}
-          style={styles.saveButton}
-        />
+        {settingsEditable ? (
+          <GlowButton
+            title={saving ? t('toolsMenu.saving') : settingsDirty ? t('toolsMenu.save') : t('toolsMenu.upToDate')}
+            onPress={handleSave}
+            disabled={saving || !settingsDirty}
+            variant={settingsDirty ? 'primary' : 'outline'}
+            style={styles.saveButton}
+          />
+        ) : null}
 
         {/* Commands — separated */}
         <View style={[styles.divider, { borderTopColor: rowBorder }]} />
@@ -539,6 +561,9 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     marginTop: 11,
+  },
+  readOnlyHint: {
+    marginTop: 10,
   },
   divider: {
     marginTop: 12,

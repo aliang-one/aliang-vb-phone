@@ -120,6 +120,25 @@ describe('appendAgentMessage', () => {
     });
   });
 
+  it('binds a new turn to the model config version visible when Send is pressed', async () => {
+    useControlCenterStore.setState(state => ({
+      vibeRuns: state.vibeRuns.map(item => ({ ...item, modelConfigVersion: 7 })),
+    }));
+    (platformTransport.sendAiMessage as jest.Mock).mockResolvedValue({
+      message_id: 'server-versioned',
+      status: 'running',
+    });
+
+    await useControlCenterStore.getState().appendAgentMessage('s1', 'versioned', 'text');
+
+    expect(platformTransport.sendAiMessage).toHaveBeenCalledWith(
+      's1',
+      'versioned',
+      'text',
+      7,
+    );
+  });
+
   it('does not flash the previous completed v2 run while a new send is pending', async () => {
     let resolveSend:
       | ((value: {

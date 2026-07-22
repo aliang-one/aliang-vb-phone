@@ -133,7 +133,7 @@ const GoalSummaryHeader: React.FC<{ summary?: GoalSummary }> = ({ summary }) => 
           </Text>
           <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
             {summary
-              ? `${label}${summary.provider ? ` · ${summary.provider}` : ''}${summary.driver ? ` / ${summary.driver}` : ''}`
+              ? `${label}${summary.provider ? ` · ${summary.provider}` : ''}${summary.driver ? ` / ${summary.driver}` : ''}${summary.model ? ` · ${summary.model}` : ''}${summary.effort ? ` / ${summary.effort}` : ''}`
               : '正在获取权威状态'}
           </Text>
         </View>

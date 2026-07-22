@@ -44,6 +44,8 @@ export interface ServerGoalSummary {
   primary_action_kind?: string;
   primary_action_label?: string;
   provider?: string;
+  model?: string;
+  effort?: string;
   driver?: string;
   workspace_relation?: 'exact' | 'advanced' | 'unavailable';
   updated_at?: string;
@@ -107,6 +109,14 @@ export interface ServerAiSession {
    * suffix. Empty/omit = no effort override (CLI/gateway default).
    */
   effort?: string;
+  model_config_version?: number;
+  active_execution_profile?: {
+    version: number;
+    provider?: string;
+    model?: string;
+    effort?: string;
+    captured_at: string;
+  };
   /**
    * Server-resolved effective model config for this session: the concrete
    * provider/model/effort the agent will actually run with, plus where each
@@ -361,8 +371,14 @@ export const sendAiMessage = (
   content: string,
   attachments: unknown[] = [],
   mode: 'voice' | 'text' = 'text',
+  expectedModelConfigVersion?: number,
 ): Promise<SendAiMessageResponse> =>
-  apiPost(`/api/ai/sessions/${sessionId}/messages`, { content, attachments, mode }, {
+  apiPost(`/api/ai/sessions/${sessionId}/messages`, {
+    content,
+    attachments,
+    mode,
+    expected_model_config_version: expectedModelConfigVersion,
+  }, {
     timeoutMs: AI_TURN_REQUEST_TIMEOUT_MS,
   });
 
@@ -448,6 +464,7 @@ export const updateAiSession = (
      * codex reasoning level from it (NOT from the model name).
      */
     effort: string;
+    expected_model_config_version: number;
   }>,
 ): Promise<ServerAiSession> =>
   apiPatch<ServerAiSession>(`/api/ai/sessions/${sessionId}`, input);

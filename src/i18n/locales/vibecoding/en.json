@@ -9,6 +9,10 @@
     "awaitingInput": "Awaiting your input"
   },
   "command": {
+    "goal": {
+      "description": "Create a Goal; replace and replan it inside a Goal session",
+      "argHint": "<objective>"
+    },
     "clear": {
       "description": "Clear the current conversation context"
     },
@@ -16,7 +20,7 @@
       "description": "Compact conversation history to save context"
     },
     "model": {
-      "description": "Switch model"
+      "description": "Show the current model; switch it in session settings"
     },
     "review": {
       "description": "Review code changes"
@@ -226,6 +230,8 @@
     "stopGenerate": "Stop generating",
     "send": "Send",
     "sendPlaceholder": "Send a direction...",
+    "sendPlaceholderWithGoal": "Send a message, or type /goal to create a goal",
+    "goal": "Goal",
     "voiceError": "Voice input failed, tap to retry",
     "tapToSpeak": "Tap to start speaking",
     "tools": "Tools & settings",
@@ -238,6 +244,20 @@
     "statusRecording": "Listening… release to end",
     "statusStopping": "Recognizing…",
     "statusConnecting": "Connecting to voice service…"
+  },
+  "goalCreate": {
+    "title": "Goal",
+    "subtitle": "Project objective",
+    "activeTitle": "In progress",
+    "openActive": "View progress",
+    "newTitle": "New Goal",
+    "placeholder": "Describe the objective to complete",
+    "create": "Create Goal",
+    "creating": "Creating…",
+    "loading": "Syncing Goal…",
+    "failed": "Goal creation failed. Please retry.",
+    "entryLabel": "Open Goal",
+    "progress": "{{completed}}/{{total}} tasks"
   },
   "voiceInput": {
     "placeholder": "Enter a new session title",

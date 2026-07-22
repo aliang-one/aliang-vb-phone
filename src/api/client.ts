@@ -256,6 +256,10 @@ export async function apiPut<T = unknown>(path: string, body?: unknown, options:
   });
 }
 
+export async function apiDelete<T = unknown>(path: string, options: ApiFetchOptions = {}): Promise<T> {
+  return apiFetch<T>(path, { ...options, method: 'DELETE' });
+}
+
 function normalizeHeaders(headers?: HeadersInitLike): Record<string, string> {
   if (!headers) return {};
   if (headers instanceof Headers) {

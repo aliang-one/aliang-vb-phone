@@ -132,6 +132,22 @@ export const SessionSettingsScreen: React.FC = () => {
     );
   }
 
+  if (session.purpose === 'goal') {
+    return (
+      <SafeAreaWrapper>
+        <TopAppBar title={t('sessionSettings.title')} onBack={navigation.goBack} />
+        <View style={styles.goalReadOnly}>
+          <GlassPanel style={styles.noteCard}>
+            <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>GOAL 配置</Text>
+            <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>模型与推理强度在 Goal 创建时固定。</Text>
+            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>规划、任务执行和重新规划使用同一份配置，普通会话设置不会覆盖它。</Text>
+            {effectiveLabel ? <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>{effectiveLabel}</Text> : null}
+          </GlassPanel>
+        </View>
+      </SafeAreaWrapper>
+    );
+  }
+
   return (
     <SafeAreaWrapper>
       <TopAppBar title={t('sessionSettings.title')} subtitle={t('sessionSettings.subtitle')} onBack={navigation.goBack} />
@@ -315,6 +331,10 @@ export const SessionSettingsScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
+  goalReadOnly: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
   scrollView: {
     flex: 1,
   },

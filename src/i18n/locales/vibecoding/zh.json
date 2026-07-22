@@ -9,6 +9,10 @@
     "awaitingInput": "等待你的输入"
   },
   "command": {
+    "goal": {
+      "description": "创建 Goal；Goal 会话中用于更换目标并重新规划",
+      "argHint": "<目标>"
+    },
     "clear": {
       "description": "清空当前对话上下文"
     },
@@ -16,7 +20,7 @@
       "description": "压缩对话历史以节省上下文"
     },
     "model": {
-      "description": "切换模型"
+      "description": "查看当前模型；切换请使用会话设置"
     },
     "review": {
       "description": "审查代码变更"
@@ -226,6 +230,8 @@
     "stopGenerate": "停止生成",
     "send": "发送",
     "sendPlaceholder": "Send a direction...",
+    "sendPlaceholderWithGoal": "发送消息，或输入 /goal 创建目标",
+    "goal": "Goal",
     "voiceError": "语音输入出错，点击重试",
     "tapToSpeak": "点按开始说话",
     "tools": "工具与设置",
@@ -238,6 +244,20 @@
     "statusRecording": "正在聆听…松开结束",
     "statusStopping": "识别中…",
     "statusConnecting": "连接语音服务…"
+  },
+  "goalCreate": {
+    "title": "Goal",
+    "subtitle": "项目目标",
+    "activeTitle": "正在进行",
+    "openActive": "查看进度",
+    "newTitle": "新建 Goal",
+    "placeholder": "输入要持续完成的目标",
+    "create": "创建 Goal",
+    "creating": "正在创建…",
+    "loading": "正在同步 Goal…",
+    "failed": "Goal 创建失败，请重试",
+    "entryLabel": "打开 Goal",
+    "progress": "{{completed}}/{{total}} 个任务"
   },
   "voiceInput": {
     "placeholder": "输入新的会话标题",

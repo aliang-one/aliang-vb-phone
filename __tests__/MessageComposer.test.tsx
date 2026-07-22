@@ -108,6 +108,7 @@ const defaultProps = (
   deviceOffline: false,
   toolsMenuVisible: false,
   onToggleTools: jest.fn(),
+  onOpenGoal: jest.fn(),
   onVoiceCapture: jest.fn(),
   onSendVoice: jest.fn(),
   onSendText: jest.fn(),
@@ -152,6 +153,43 @@ describe('MessageComposer', () => {
       findByTestID(root, 'composer-send').props.onPress();
     });
     expect(onSendText).toHaveBeenCalled();
+  });
+
+  it('shows the persistent Goal entry and opens it while the Agent is offline', () => {
+    const onOpenGoal = jest.fn();
+    const root = wrap(
+      <MessageComposer
+        {...defaultProps({ deviceOffline: true, onOpenGoal })}
+      />,
+    );
+    act(() => {
+      findByTestID(root, 'composer-goal').props.onPress();
+    });
+    expect(onOpenGoal).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps /goal sendable while an ordinary provider turn is running', () => {
+    const root = wrap(
+      <MessageComposer
+        {...defaultProps({
+          input: '/goal 完成登录流程',
+          deviceOffline: true,
+          readOnlyReason: 'provider running',
+          canInterruptTurn: true,
+          onInterruptTurn: jest.fn(),
+        })}
+      />,
+    );
+    expect(() => findByTestID(root, 'composer-send')).not.toThrow();
+    expect(findByTestID(root, 'composer-send').props.disabled).toBe(false);
+    expect(() => findByTestID(root, 'composer-interrupt')).toThrow();
+  });
+
+  it('surfaces the /goal hint in the ordinary text composer', () => {
+    const root = wrap(
+      <MessageComposer {...defaultProps({ showGoalHint: true })} />,
+    );
+    expect(root.root.findByType(TextInput).props.placeholder).toContain('/goal');
   });
 
   it('replaces send with interrupt while a turn is running', () => {

@@ -21,7 +21,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import Svg, { Path, Rect } from 'react-native-svg';
+import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
 import { GlowButton } from '../shared/GlowButton';
@@ -53,6 +53,10 @@ export interface MessageComposerProps {
   autoFocusText?: boolean;
   toolsMenuVisible: boolean;
   onToggleTools: () => void;
+  /** Product-level Goal entry. Available even when the desktop Agent is offline. */
+  onOpenGoal: () => void;
+  goalActive?: boolean;
+  showGoalHint?: boolean;
   onTextInputFocus?: () => void;
   /** Toggles start/stop of voice capture. */
   onVoiceCapture: () => void;
@@ -70,7 +74,7 @@ export interface MessageComposerProps {
 
 // ---------- icons (inline SVG; no shared icon lib ships mic/keyboard/send) ----------
 
-type ComposerIconName = 'mic' | 'keyboard' | 'send' | 'sparkle' | 'stop' | 'refresh' | 'sliders';
+type ComposerIconName = 'mic' | 'keyboard' | 'send' | 'sparkle' | 'stop' | 'refresh' | 'sliders' | 'goal';
 
 interface ComposerIconProps {
   name: ComposerIconName;
@@ -131,6 +135,13 @@ const ComposerIcon: React.FC<ComposerIconProps> = ({ name, size = 22, color }) =
           stroke={color}
           {...common}
         />
+      )}
+      {name === 'goal' && (
+        <>
+          <Circle cx="12" cy="12" r="8" stroke={color} {...common} />
+          <Circle cx="12" cy="12" r="3" stroke={color} {...common} />
+          <Path d="M12 2v3M22 12h-3" stroke={color} {...common} />
+        </>
       )}
     </Svg>
   );
@@ -268,6 +279,9 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   autoFocusText,
   toolsMenuVisible,
   onToggleTools,
+  onOpenGoal,
+  goalActive = false,
+  showGoalHint = false,
   onTextInputFocus,
   onVoiceCapture,
   onVoiceCaptureStart,
@@ -285,6 +299,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   const isRecording = status === 'recording';
   const hasDraft = Boolean(voiceDraft);
   const composerDisabled = deviceOffline || Boolean(readOnlyReason);
+  const isGoalCommandInput = /^\/goal(?:\s|$)/i.test(input.trim());
   // Slash-command typeahead: active only while the whole input is a single
   // `/token` (slash first, command-name chars, no space yet) in text mode. A
   // space ends the command name and hides the dropdown.
@@ -419,7 +434,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
     // and showing one signals a different (tap-to-stop) model, which confused
     // the interaction. During a voice recording the slot falls through to the
     // non-interactive placeholder, unless a turn is streaming (then interrupt).
-    if (canInterruptTurn && onInterruptTurn) {
+    if (canInterruptTurn && onInterruptTurn && !isGoalCommandInput) {
       return (
         <TouchableOpacity
           accessibilityRole="button"
@@ -447,7 +462,10 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
       );
     }
     if (mode === 'text') {
-      const canSend = input.trim().length > 0 && !sendingMessage && !composerDisabled;
+      const canSend =
+        input.trim().length > 0 &&
+        !sendingMessage &&
+        (!composerDisabled || isGoalCommandInput);
       return (
         <TouchableOpacity
           accessibilityRole="button"
@@ -513,7 +531,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
           onChangeText={onInputChange}
           onFocus={onTextInputFocus}
           autoFocus={autoFocusText}
-          placeholder={t('composer.sendPlaceholder')}
+          placeholder={t(showGoalHint ? 'composer.sendPlaceholderWithGoal' : 'composer.sendPlaceholder')}
           placeholderTextColor={theme.colors.onSurfaceVariant}
           multiline
           style={[
@@ -623,6 +641,29 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
         />
       ) : null}
       <View style={styles.composerRow}>
+        <TouchableOpacity
+          testID="composer-goal"
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={t('goalCreate.entryLabel')}
+          onPress={onOpenGoal}
+          style={[
+            styles.ctrlBtn,
+            {
+              borderRadius: theme.borderRadius.full,
+              backgroundColor: goalActive
+                ? `${theme.colors.primary}1F`
+                : ctrlBg.backgroundColor,
+              borderWidth: 1,
+              borderColor: goalActive ? theme.colors.primary : 'transparent',
+            },
+          ]}>
+          <ComposerIcon
+            name="goal"
+            size={20}
+            color={goalActive ? theme.colors.primary : theme.colors.onSurfaceVariant}
+          />
+        </TouchableOpacity>
         <TouchableOpacity
           activeOpacity={0.7}
           accessibilityRole="button"

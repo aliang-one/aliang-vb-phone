@@ -20,6 +20,8 @@ export interface ServerGoalSnapshot {
   primary_action_kind?: string;
   primary_action_label?: string;
   provider?: string;
+  model?: string;
+  effort?: string;
   driver?: string;
   workspace_relation?: 'exact' | 'advanced' | 'unavailable';
   updated_at?: string;
@@ -103,6 +105,8 @@ export const goalSnapshotToSummary = (snapshot: ServerGoalSnapshot): GoalSummary
   primaryActionKind: snapshot.primary_action_kind,
   primaryActionLabel: snapshot.primary_action_label,
   provider: snapshot.provider,
+  model: snapshot.model,
+  effort: snapshot.effort,
   driver: snapshot.driver,
   workspaceRelation: snapshot.workspace_relation,
   updatedAt: snapshot.updated_at,
@@ -172,7 +176,7 @@ export const createGoal = (input: {
 export interface GoalMessageReceipt {
   goal_id: string;
   message_id: string;
-  status: 'queued' | 'requires_replan' | 'rejected';
+  status: 'queued' | 'queued_for_replan' | 'replanning' | 'rejected';
   state_version?: number;
   applies_to_run?: number;
 }
@@ -199,6 +203,9 @@ export const queueGoalMessage = (
   input: {
     content: string;
     mode: 'voice' | 'text';
+    kind?: 'goal_message' | 'replan_request';
+    constraints?: string[];
+    nonGoals?: string[];
     idempotencyKey: string;
     expectedStateVersion?: number;
   },
@@ -208,6 +215,9 @@ export const queueGoalMessage = (
     {
       content: input.content,
       mode: input.mode,
+      kind: input.kind,
+      constraints: input.constraints,
+      non_goals: input.nonGoals,
       idempotency_key: input.idempotencyKey,
       expected_state_version: input.expectedStateVersion,
     },

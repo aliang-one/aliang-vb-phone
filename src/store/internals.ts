@@ -500,6 +500,8 @@ export function serverAiSessionToVibeRun(
         primaryActionKind: session.goal_summary.primary_action_kind,
         primaryActionLabel: session.goal_summary.primary_action_label,
         provider: session.goal_summary.provider,
+        model: session.goal_summary.model,
+        effort: session.goal_summary.effort,
         driver: session.goal_summary.driver,
         workspaceRelation: session.goal_summary.workspace_relation,
         updatedAt: session.goal_summary.updated_at,
@@ -538,6 +540,16 @@ export function serverAiSessionToVibeRun(
     objective: session.objective ?? '',
     model,
     effort: session.effort || undefined,
+    modelConfigVersion: session.model_config_version ?? 1,
+    activeExecutionProfile: session.active_execution_profile
+      ? {
+          version: session.active_execution_profile.version,
+          provider: session.active_execution_profile.provider,
+          model: session.active_execution_profile.model,
+          effort: session.active_execution_profile.effort,
+          capturedAt: session.active_execution_profile.captured_at,
+        }
+      : undefined,
     provider: normalizeProvider(session.provider, session.tool),
     effectiveModelConfig: session.effective_model_config ?? undefined,
     risk: session.risk ?? 'medium',
@@ -855,6 +867,10 @@ export function mergeVibeRunSnapshot(
     // "当前有效" hint survives reconnect refreshes.
     effectiveModelConfig:
       incoming.effectiveModelConfig ?? existing.effectiveModelConfig,
+    modelConfigVersion:
+      incoming.modelConfigVersion ?? existing.modelConfigVersion,
+    activeExecutionProfile:
+      incoming.activeExecutionProfile ?? existing.activeExecutionProfile,
     lastMessage:
       (incomingHasDetail
         ? transcript[transcript.length - 1] ?? incoming.lastMessage
