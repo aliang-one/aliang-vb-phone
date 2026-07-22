@@ -108,7 +108,6 @@ const defaultProps = (
   deviceOffline: false,
   toolsMenuVisible: false,
   onToggleTools: jest.fn(),
-  onOpenGoal: jest.fn(),
   onVoiceCapture: jest.fn(),
   onSendVoice: jest.fn(),
   onSendText: jest.fn(),
@@ -155,17 +154,35 @@ describe('MessageComposer', () => {
     expect(onSendText).toHaveBeenCalled();
   });
 
-  it('shows the persistent Goal entry and opens it while the Agent is offline', () => {
-    const onOpenGoal = jest.fn();
+  it('does not occupy the left composer rail with a Goal button', () => {
     const root = wrap(
       <MessageComposer
-        {...defaultProps({ deviceOffline: true, onOpenGoal })}
+        {...defaultProps({ deviceOffline: true })}
       />,
     );
-    act(() => {
-      findByTestID(root, 'composer-goal').props.onPress();
-    });
-    expect(onOpenGoal).toHaveBeenCalledTimes(1);
+    expect(() => findByTestID(root, 'composer-goal')).toThrow();
+    expect(() => findByTestID(root, 'composer-toggle')).not.toThrow();
+  });
+
+  it('keeps an unsent Goal text-only and sendable independently of Provider state', () => {
+    const onModeChange = jest.fn();
+    const root = wrap(
+      <MessageComposer
+        {...defaultProps({
+          input: '完成登录流程',
+          goalDraft: true,
+          deviceOffline: true,
+          readOnlyReason: 'provider running',
+          canInterruptTurn: true,
+          onInterruptTurn: jest.fn(),
+          onModeChange,
+        })}
+      />,
+    );
+    expect(root.root.findByType(TextInput).props.placeholder).toBe('描述这个 Goal…');
+    expect(findByTestID(root, 'composer-toggle').props.disabled).toBe(true);
+    expect(findByTestID(root, 'composer-send').props.disabled).toBe(false);
+    expect(() => findByTestID(root, 'composer-interrupt')).toThrow();
   });
 
   it('keeps /goal sendable while an ordinary provider turn is running', () => {

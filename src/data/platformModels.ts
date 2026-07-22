@@ -171,6 +171,8 @@ export type GoalState =
   | 'planning_failed'
   | 'awaiting_approval'
   | 'active'
+  | 'approval_pending'
+  | 'pause_requested'
   | 'verifying'
   | 'paused'
   | 'blocked'

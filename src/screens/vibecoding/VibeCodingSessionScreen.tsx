@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Alert,
   ScrollView,
   TouchableOpacity,
   type NativeSyntheticEvent,
@@ -30,8 +31,7 @@ import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { ToolsMenu } from '../../components/vibecoding/ToolsMenu';
 import { MessageComposer } from '../../components/vibecoding/MessageComposer';
-import { GoalStatusBar } from '../../components/vibecoding/GoalStatusBar';
-import { GoalCreateSheet } from '../../components/vibecoding/GoalCreateSheet';
+import { GoalDraftBar, GoalStatusBar } from '../../components/vibecoding/GoalStatusBar';
 import { mergeCommands } from '../../utils/agentCommands';
 import { TranscriptMessageList } from '../../components/vibecoding/TranscriptMessageList';
 import { ConversationScrubber } from '../../components/vibecoding/ConversationScrubber';
@@ -98,8 +98,10 @@ import {
 import { createId } from '../../store/internals';
 import {
   createGoal,
-  fetchGoals,
+  deleteGoal,
+  pauseGoal,
   queueGoalMessage,
+  resumeGoal,
   type ServerGoalSnapshot,
 } from '../../api/goals';
 import { ApiResponseError } from '../../api/client';
@@ -126,6 +128,11 @@ const goalRequestErrorMessage = (error: unknown): string => {
     if (error.code === 'ai_control_disabled') return '当前设备未开启 AI 控制。';
     if (error.code === 'path_not_authorized') return '当前项目目录未被设备授权。';
     if (error.code === 'goal_repository_unavailable') return 'Goal 状态存储暂时不可用。';
+    if (error.code === 'goal_state_version_conflict') return 'Goal 状态已变化，已重新同步，请再试一次。';
+    if (error.code === 'goal_pause_in_progress') return '当前一轮尚未结束，暂停完成后才能继续。';
+    if (error.code === 'goal_not_pauseable') return '当前 Goal 状态不能暂停，已重新同步。';
+    if (error.code === 'goal_not_paused') return 'Goal 已不在暂停状态，已重新同步。';
+    if (error.code === 'goal_deleted') return '这个 Goal 已被删除。';
     return error.message || `Goal 请求失败（HTTP ${error.status}）`;
   }
   if (error instanceof Error && error.message) return error.message;
@@ -556,13 +563,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
     prevTop: number;
   } | null>(null);
   const [sendingMessage, setSendingMessage] = useState(false);
-  const [goalSheetOpen, setGoalSheetOpen] = useState(false);
-  const [goalObjective, setGoalObjective] = useState('');
-  const [goalSheetSyncing, setGoalSheetSyncing] = useState(false);
-  const [goalSheetCreating, setGoalSheetCreating] = useState(false);
-  const [goalSheetError, setGoalSheetError] = useState('');
-  const [activeProjectGoal, setActiveProjectGoal] = useState<
-    (ServerGoalSnapshot & { ai_session_id: string }) | undefined
+  const [goalDraftActive, setGoalDraftActive] = useState(false);
+  const [goalCreating, setGoalCreating] = useState(false);
+  const goalDraftPreviousInputRef = useRef('');
+  const [goalControlAction, setGoalControlAction] = useState<
+    'pause' | 'resume' | 'delete' | undefined
   >();
   const [interruptingTurn, setInterruptingTurn] = useState(false);
   const [toolsMenuVisible, setToolsMenuVisible] = useState(false);
@@ -1177,12 +1182,32 @@ export const VibeCodingSessionScreen: React.FC = () => {
     };
   };
 
+  const enterGoalDraft = useCallback((objective = '', previousDraft = input) => {
+    if (session?.purpose === 'goal') return;
+    if (['connecting', 'recording', 'stopping'].includes(voiceStt.status)) {
+      void voiceStt.stop();
+    }
+    if (!goalDraftActive) goalDraftPreviousInputRef.current = previousDraft;
+    setGoalDraftActive(true);
+    setMode('text');
+    setInput(objective);
+    setToolsMenuVisible(false);
+    setDetailError('');
+  }, [goalDraftActive, input, session?.purpose, voiceStt]);
+
+  const exitGoalDraft = useCallback(() => {
+    if (goalCreating) return;
+    setGoalDraftActive(false);
+    setInput(goalDraftPreviousInputRef.current);
+    goalDraftPreviousInputRef.current = '';
+  }, [goalCreating]);
+
   const enterGoalSession = (
     goal: ServerGoalSnapshot & { ai_session_id: string },
   ) => {
-    setGoalSheetOpen(false);
-    setGoalSheetError('');
-    setGoalObjective('');
+    setGoalDraftActive(false);
+    goalDraftPreviousInputRef.current = '';
+    setInput('');
     setCreatedSessionId(goal.ai_session_id);
     navigation.setParams({
       sessionId: goal.ai_session_id,
@@ -1193,42 +1218,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
         `Goal 已创建，正在重新同步会话：${goalRequestErrorMessage(error)}`,
       );
     });
-  };
-
-  const syncProjectGoal = async () => {
-    const context = goalContext();
-    if (!context) return;
-    setGoalSheetSyncing(true);
-    setGoalSheetError('');
-    try {
-      const goals = await fetchGoals({
-        deviceId: context.deviceId,
-        projectPath: context.projectPath,
-      });
-      setActiveProjectGoal(
-        goals.find(
-          goal => !['completed', 'cancelled', 'abandoned'].includes(goal.state),
-        ),
-      );
-    } catch (error) {
-      setGoalSheetError(goalRequestErrorMessage(error));
-    } finally {
-      setGoalSheetSyncing(false);
-    }
-  };
-
-  const openGoalEntry = () => {
-    if (session?.purpose === 'goal') {
-      navigation.navigate('GoalDetail', {
-        goalId: session.goalSummary?.goalId ?? session.id,
-        sourceSessionId: session.id,
-      });
-      return;
-    }
-    setGoalSheetOpen(true);
-    setActiveProjectGoal(undefined);
-    setGoalSheetError('');
-    void syncProjectGoal();
   };
 
   const createProjectGoal = async (objective: string): Promise<boolean> => {
@@ -1244,8 +1233,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     goalCreateRequestRef.current = { fingerprint, requestId };
     sendLockRef.current = requestId;
     setSendingMessage(true);
-    setGoalSheetCreating(true);
-    setGoalSheetError('');
+    setGoalCreating(true);
     setDetailError('');
     try {
       const created = await createGoal({
@@ -1263,44 +1251,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
       return true;
     } catch (error) {
       const message = goalRequestErrorMessage(error);
-      setGoalSheetError(message);
       setDetailError(message);
       return false;
     } finally {
       if (sendLockRef.current === requestId) sendLockRef.current = null;
       setSendingMessage(false);
-      setGoalSheetCreating(false);
-    }
-  };
-
-  const openExistingProjectGoal = async (): Promise<boolean> => {
-    const context = goalContext();
-    if (!context || sendLockRef.current) return false;
-    const sendKey = 'goal-open';
-    sendLockRef.current = sendKey;
-    setSendingMessage(true);
-    setDetailError('');
-    try {
-      const goals = await fetchGoals({
-        deviceId: context.deviceId,
-        projectPath: context.projectPath,
-      });
-      const selected =
-        goals.find(
-          goal => !['completed', 'cancelled', 'abandoned'].includes(goal.state),
-        ) ?? goals[0];
-      if (!selected) {
-        setDetailError('当前项目还没有 Goal，请输入 /goal <目标> 创建。');
-        return false;
-      }
-      enterGoalSession(selected);
-      return true;
-    } catch (error) {
-      setDetailError(goalRequestErrorMessage(error));
-      return false;
-    } finally {
-      if (sendLockRef.current === sendKey) sendLockRef.current = null;
-      setSendingMessage(false);
+      setGoalCreating(false);
     }
   };
 
@@ -1312,12 +1268,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
     if (!normalizedContent || sendLockRef.current) {
       return false;
     }
+    if (goalDraftActive && session?.purpose !== 'goal') {
+      return createProjectGoal(normalizedContent);
+    }
     const goalCommandMatch = normalizedContent.match(/^\/goal(?:\s+([\s\S]+))?$/i);
     if (goalCommandMatch && session?.purpose !== 'goal') {
       const goalCommand = goalCommandMatch[1]?.trim();
-      return goalCommand
-        ? createProjectGoal(goalCommand)
-        : openExistingProjectGoal();
+      if (goalCommand) return createProjectGoal(goalCommand);
+      enterGoalDraft();
+      return true;
     }
     // Draft mode: no session yet. The first message CREATES the session — send
     // ONLY this real message (startAgentSession does create+message). No init /
@@ -1384,7 +1343,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     // 的「重试」)会让服务端 claimAiSessionForRun 把 error 翻回 running。store 的
     // appendAgentMessage 也会乐观地先把 status 置 running。composer 已解锁,这里
     // 不能再硬闸 failed——否则按钮看着能点、点下去静默 no-op。
-    if (!session || shouldDisableComposerForProvider) {
+    if (!session || (shouldDisableComposerForProvider && session.purpose !== 'goal')) {
       return false;
     }
     const sendKey = `${session.id}:${messageMode}:${normalizedContent}`;
@@ -1428,7 +1387,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
   };
 
   const handleVoiceCaptureStart = useCallback(() => {
-    if (deviceOffline || shouldDisableComposerForProvider) return;
+    if (goalDraftActive) return;
+    if (
+      session?.purpose !== 'goal' &&
+      (deviceOffline || shouldDisableComposerForProvider)
+    ) return;
     if (
       voiceStt.status === 'recording' ||
       voiceStt.status === 'connecting' ||
@@ -1446,12 +1409,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
         }
       },
     });
-  }, [deviceOffline, shouldDisableComposerForProvider, voiceStt, session, project]);
+  }, [deviceOffline, goalDraftActive, shouldDisableComposerForProvider, voiceStt, session, project]);
 
   const handleVoiceCaptureEnd = useCallback(() => {
-    if (deviceOffline) return;
     void voiceStt.stop();
-  }, [deviceOffline, voiceStt]);
+  }, [voiceStt]);
 
   const handleVoiceCapture = useCallback(() => {
     if (
@@ -1468,7 +1430,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // 方案A：转写结果直接发送，不经 AI 润色。
   const handleSendVoice = () => {
     const draft = voiceDraft.trim();
-    if (deviceOffline || shouldDisableComposerForProvider || !draft || sendingMessage) {
+    if (
+      goalDraftActive ||
+      !draft ||
+      sendingMessage ||
+      (session?.purpose !== 'goal' && (deviceOffline || shouldDisableComposerForProvider))
+    ) {
       return;
     }
     void appendUserMessage(draft, 'voice')
@@ -1538,10 +1505,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const handleSendText = () => {
     const nextInput = input.trim();
     const isGoalCommand = /^\/goal(?:\s|$)/i.test(nextInput);
-    if (!isGoalCommand && (deviceOffline || shouldDisableComposerForProvider)) return;
+    const isGoalSend = goalDraftActive || session?.purpose === 'goal' || isGoalCommand;
+    if (!isGoalSend && (deviceOffline || shouldDisableComposerForProvider)) return;
     if (!nextInput || sendingMessage) {
       return;
     }
+    if (goalDraftActive) setToolsMenuVisible(false);
     setInput('');
     // On failure the store keeps the message as a client-only `failed` bubble
     // (retryable / dismissable). The composer input is intentionally NOT
@@ -1550,12 +1519,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
     // next message is always clean.
     void appendUserMessage(nextInput, 'text')
       .then(sent => {
-        if (!sent && isGoalCommand) {
+        if (!sent && isGoalSend) {
           setInput(current => current || nextInput);
         }
       })
       .catch(error => {
-        if (isGoalCommand) {
+        if (isGoalSend) {
           setDetailError(goalRequestErrorMessage(error));
           setInput(current => current || nextInput);
         }
@@ -1804,7 +1773,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // running。失败原因由底部气泡 failedLabel(「会话失败 · 网关502…」)承担,这里不阻断输入。
   const composerReadOnlyReason = isDraft
     ? undefined
-    : shouldDisableComposerForProvider
+    : session?.purpose !== 'goal' && shouldDisableComposerForProvider
       ? t('session.composer.claudeRunning')
       : undefined;
   // 停止按钮显隐:与顶部相位 / composer 锁同源(看 isSessionLive),不裸读 session.status。
@@ -1813,6 +1782,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // waiting_approval 是服务端主动推送的可靠态(区别于 settle 的陈旧 running),沿用:
   // 审批等待中仍允许打断回合。
   const canInterruptTurn =
+    session?.purpose !== 'goal' &&
+    !goalDraftActive &&
     !deviceOffline &&
     !interruptingTurn &&
     session?.status !== 'failed' &&
@@ -1912,19 +1883,94 @@ export const VibeCodingSessionScreen: React.FC = () => {
   }, [conversationItems, orphanActivityMessageIds.length]);
   const handleSaveToolsSettings = useCallback(
     async (patch: { model: string; effort: string }) => {
+      if (isDraft && draftConfig) {
+        navigation.setParams({
+          draftConfig: { ...draftConfig, model: patch.model, effort: patch.effort },
+        });
+        return;
+      }
       if (!session) return;
       await updateAgentSession(session.id, patch);
     },
-    [session, updateAgentSession],
+    [draftConfig, isDraft, navigation, session, updateAgentSession],
   );
+
+  const handleComposerInputChange = useCallback((value: string) => {
+    if (!goalDraftActive && session?.purpose !== 'goal') {
+      const match = value.match(/^\/goal(?:\s+([\s\S]*))?$/i);
+      if (match) {
+        enterGoalDraft(match[1] ?? '', '');
+        return;
+      }
+    }
+    setInput(value);
+  }, [enterGoalDraft, goalDraftActive, session?.purpose]);
 
   const handleInsertCommand = useCallback(
     (text: string) => {
+      if (/^\/goal(?:\s|$)/i.test(text)) {
+        const candidate = text.replace(/^\/goal/i, '').trim();
+        enterGoalDraft(candidate.startsWith('<') ? '' : candidate);
+        return;
+      }
       if (mode !== 'text') setMode('text');
       setInput(prev => (prev.trim() ? `${prev.trim()} ${text}` : text));
     },
-    [mode],
+    [enterGoalDraft, mode],
   );
+
+  const runGoalControl = useCallback(async (action: 'pause' | 'resume') => {
+    const goalId = session?.goalSummary?.goalId;
+    const stateVersion = session?.goalSummary?.stateVersion;
+    if (!session || !goalId || stateVersion === undefined || goalControlAction) return;
+    setGoalControlAction(action);
+    setDetailError('');
+    try {
+      const controlPayload = {
+        expectedStateVersion: stateVersion,
+        idempotencyKey: createId(`goal-${action}`),
+      };
+      if (action === 'pause') await pauseGoal(goalId, controlPayload);
+      else await resumeGoal(goalId, controlPayload);
+      await loadAgentSessionDetail(session.id, { refresh: true });
+    } catch (error) {
+      setDetailError(goalRequestErrorMessage(error));
+      void loadAgentSessionDetail(session.id, { refresh: true }).catch(() => undefined);
+    } finally {
+      setGoalControlAction(undefined);
+    }
+  }, [goalControlAction, loadAgentSessionDetail, session]);
+
+  const confirmDeleteGoal = useCallback(() => {
+    const goalId = session?.goalSummary?.goalId;
+    const stateVersion = session?.goalSummary?.stateVersion;
+    if (!session || !goalId || stateVersion === undefined || goalControlAction) return;
+    Alert.alert(
+      '删除 Goal',
+      'Goal 将停止后续执行并从手机列表隐藏。执行记录会保留用于状态审计。',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '删除',
+          style: 'destructive',
+          onPress: () => {
+            setGoalControlAction('delete');
+            setDetailError('');
+            void deleteGoal(goalId, {
+              expectedStateVersion: stateVersion,
+              idempotencyKey: createId('goal-delete'),
+            })
+              .then(() => navigation.goBack())
+              .catch(error => {
+                setDetailError(goalRequestErrorMessage(error));
+                void loadAgentSessionDetail(session.id, { refresh: true }).catch(() => undefined);
+              })
+              .finally(() => setGoalControlAction(undefined));
+          },
+        },
+      ],
+    );
+  }, [goalControlAction, loadAgentSessionDetail, navigation, session]);
 
   const renderApprovalCard = (approval: ApprovalRequest) => {
     const pending = approval.status === 'pending';
@@ -3266,6 +3312,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
               effectiveLabel={effectiveLabel ?? undefined}
               activeExecutionLabel={activeExecutionLabel ?? undefined}
               settingsEditable={session.purpose !== 'goal'}
+              goalMode={session.purpose === 'goal' ? 'active' : goalDraftActive ? 'draft' : 'ordinary'}
+              onGoalModeChange={nextMode => {
+                if (nextMode === 'draft') enterGoalDraft();
+                else exitGoalDraft();
+              }}
               commands={sessionCommands}
               sessionId={session.id}
               onSaveSettings={handleSaveToolsSettings}
@@ -3321,19 +3372,28 @@ export const VibeCodingSessionScreen: React.FC = () => {
           {session?.purpose === 'goal' ? (
             <GoalStatusBar
               summary={session.goalSummary}
-              onPress={() =>
+              actionLoading={goalControlAction}
+              onView={() =>
                 navigation.navigate('GoalDetail', {
                   goalId: session.goalSummary?.goalId ?? session.id,
                   sourceSessionId: session.id,
                 })
               }
+              onPause={() => void runGoalControl('pause')}
+              onResume={() => void runGoalControl('resume')}
+              onDelete={confirmDeleteGoal}
+              onMore={() => setToolsMenuVisible(true)}
             />
+          ) : goalDraftActive ? (
+            <GoalDraftBar creating={goalCreating} onExit={exitGoalDraft} />
           ) : null}
           <MessageComposer
             mode={mode}
-            onModeChange={setMode}
+            onModeChange={nextMode => {
+              if (!goalDraftActive) setMode(nextMode);
+            }}
             input={input}
-            onInputChange={setInput}
+            onInputChange={handleComposerInputChange}
             voiceDraft={voiceDraft}
             commands={sessionCommands}
             sessionId={session.id}
@@ -3345,9 +3405,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
             readOnlyReason={composerReadOnlyReason}
             autoFocusText={autoFocusText}
             toolsMenuVisible={toolsMenuVisible}
+            toolsDisabled={goalDraftActive && goalCreating}
             onToggleTools={() => setToolsMenuVisible(value => !value)}
-            onOpenGoal={openGoalEntry}
-            goalActive={session?.purpose === 'goal'}
+            goalDraft={goalDraftActive}
+            goalSession={session?.purpose === 'goal'}
             showGoalHint={session?.purpose !== 'goal'}
             onTextInputFocus={() => {
               setAutoFocusText(false);
@@ -3378,24 +3439,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
           if (!target) return;
           handleResolveApproval(target.approvalId, 'approved');
         }}
-      />
-      <GoalCreateSheet
-        open={goalSheetOpen}
-        projectPath={goalContext()?.projectPath}
-        objective={goalObjective}
-        activeGoal={activeProjectGoal}
-        syncing={goalSheetSyncing}
-        creating={goalSheetCreating}
-        error={goalSheetError}
-        onClose={() => setGoalSheetOpen(false)}
-        onObjectiveChange={value => {
-          setGoalObjective(value);
-          if (goalSheetError) setGoalSheetError('');
-        }}
-        onCreate={() => {
-          void createProjectGoal(goalObjective);
-        }}
-        onOpenActive={enterGoalSession}
       />
     </SafeAreaWrapper>
   );

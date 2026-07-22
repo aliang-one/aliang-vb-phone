@@ -6,7 +6,12 @@ import type { GoalSummary } from '../../data/platformModels';
 
 type GoalStatusBarProps = {
   summary?: GoalSummary;
-  onPress: () => void;
+  onView: () => void;
+  onPause?: () => void;
+  onResume?: () => void;
+  onDelete?: () => void;
+  onMore?: () => void;
+  actionLoading?: 'pause' | 'resume' | 'delete';
 };
 
 const stateLabels: Record<string, string> = {
@@ -14,6 +19,8 @@ const stateLabels: Record<string, string> = {
   planning_failed: '规划需处理',
   awaiting_approval: '等待确认',
   active: '执行中',
+  approval_pending: '等待审批',
+  pause_requested: '等待本轮结束',
   verifying: '验证中',
   paused: '已暂停',
   blocked: '需要处理',
@@ -43,7 +50,46 @@ const toneForState = (state?: string): 'primary' | 'success' | 'warning' | 'erro
   }
 };
 
-export const GoalStatusBar: React.FC<GoalStatusBarProps> = ({ summary, onPress }) => {
+const GoalAction: React.FC<{
+  label: string;
+  testID: string;
+  onPress?: () => void;
+  disabled?: boolean;
+  destructive?: boolean;
+}> = ({ label, testID, onPress, disabled, destructive }) => {
+  const { theme } = useTheme();
+  return (
+    <TouchableOpacity
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      activeOpacity={0.65}
+      disabled={disabled || !onPress}
+      onPress={onPress}
+      style={styles.actionButton}>
+      <Text
+        style={[
+          theme.typography.labelSm,
+          {
+            color: destructive ? theme.colors.error : theme.colors.primary,
+            opacity: disabled || !onPress ? 0.45 : 1,
+          },
+        ]}>
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+};
+
+export const GoalStatusBar: React.FC<GoalStatusBarProps> = ({
+  summary,
+  onView,
+  onPause,
+  onResume,
+  onDelete,
+  onMore,
+  actionLoading,
+}) => {
   const { theme } = useTheme();
   const state = summary?.state;
   const completed = summary?.completedTasks;
@@ -59,14 +105,13 @@ export const GoalStatusBar: React.FC<GoalStatusBarProps> = ({ summary, onPress }
     : undefined;
   const label = state ? stateLabels[state] ?? state : '同步中';
   const hasAttention = Boolean(summary?.attention) || state === 'blocked';
+  const pausePending = state === 'pause_requested';
+  const paused = state === 'paused';
+  const canPause = ['active', 'approval_pending', 'verifying'].includes(state ?? '');
 
   return (
-    <TouchableOpacity
+    <View
       testID="goal-status-bar"
-      accessibilityRole="button"
-      accessibilityLabel={`Goal，${label}${hasProgress ? `，已完成 ${completed}/${total}` : ''}`}
-      activeOpacity={0.78}
-      onPress={onPress}
       style={[
         styles.container,
         {
@@ -74,15 +119,50 @@ export const GoalStatusBar: React.FC<GoalStatusBarProps> = ({ summary, onPress }
           borderColor: theme.colors.outlineVariant,
         },
       ]}>
-      <IconBadge name="goal" tone={toneForState(state)} size={32} iconSize={16} />
-      <View style={styles.copy}>
-        <View style={styles.titleRow}>
-          <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>GOAL</Text>
-          <Text style={[theme.typography.labelMd, { color: theme.colors.onSurface }]} numberOfLines={1}>
-            {label}
-          </Text>
-          {hasAttention ? <View style={[styles.attentionDot, { backgroundColor: theme.colors.error }]} /> : null}
+      <View style={styles.topRow}>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={`查看 Goal，${label}${hasProgress ? `，已完成 ${completed}/${total}` : ''}`}
+          activeOpacity={0.72}
+          onPress={onView}
+          style={styles.summaryButton}>
+          <IconBadge name="goal" tone={toneForState(state)} size={30} iconSize={15} />
+          <View style={styles.titleRow}>
+            <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>GOAL</Text>
+            <Text style={[theme.typography.labelMd, { color: theme.colors.onSurface }]} numberOfLines={1}>
+              {label}
+            </Text>
+            {hasAttention ? <View style={[styles.attentionDot, { backgroundColor: theme.colors.error }]} /> : null}
+          </View>
+        </TouchableOpacity>
+        <View style={styles.actions}>
+          <GoalAction label="查看" testID="goal-action-view" onPress={onView} />
+          {paused ? (
+            <GoalAction
+              label={actionLoading === 'resume' ? '继续中' : '继续'}
+              testID="goal-action-resume"
+              onPress={onResume}
+              disabled={Boolean(actionLoading)}
+            />
+          ) : canPause || pausePending ? (
+            <GoalAction
+              label={pausePending || actionLoading === 'pause' ? '暂停中' : '暂停'}
+              testID="goal-action-pause"
+              onPress={onPause}
+              disabled={pausePending || Boolean(actionLoading)}
+            />
+          ) : null}
+          <GoalAction
+            label={actionLoading === 'delete' ? '删除中' : '删除'}
+            testID="goal-action-delete"
+            onPress={onDelete}
+            disabled={Boolean(actionLoading)}
+            destructive
+          />
+          <GoalAction label="更多" testID="goal-action-more" onPress={onMore} />
         </View>
+      </View>
+      <View style={styles.copy}>
         <View style={styles.metaRow}>
           {hasProgress ? (
             <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
@@ -105,26 +185,73 @@ export const GoalStatusBar: React.FC<GoalStatusBarProps> = ({ summary, onPress }
           </View>
         ) : null}
       </View>
-      <Text style={[theme.typography.labelSm, { color: theme.colors.primary }]}>查看</Text>
-    </TouchableOpacity>
+    </View>
+  );
+};
+
+export const GoalDraftBar: React.FC<{
+  creating?: boolean;
+  onExit: () => void;
+}> = ({ creating = false, onExit }) => {
+  const { theme } = useTheme();
+  return (
+    <View
+      testID="goal-draft-bar"
+      style={[
+        styles.draftContainer,
+        {
+          backgroundColor: theme.colors.surfaceContainerLow,
+          borderColor: theme.colors.primary,
+        },
+      ]}>
+      <IconBadge name="goal" tone="primary" size={28} iconSize={14} />
+      <View style={styles.draftCopy}>
+        <Text style={[theme.typography.labelMd, { color: theme.colors.onSurface }]}>Goal</Text>
+        <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+          {creating ? '正在创建 Goal' : '本次输入将作为 Goal 目标发送'}
+        </Text>
+      </View>
+      <TouchableOpacity
+        testID="goal-draft-exit"
+        accessibilityRole="button"
+        accessibilityLabel="退出 Goal 输入"
+        disabled={creating}
+        onPress={onExit}
+        style={styles.actionButton}>
+        <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant, opacity: creating ? 0.45 : 1 }]}>退出</Text>
+      </TouchableOpacity>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    minHeight: 48,
+    minHeight: 56,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 7,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
+    gap: 5,
   },
-  copy: { flex: 1, minWidth: 0, gap: 2 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 },
+  topRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  summaryButton: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 7 },
+  actions: { flexDirection: 'row', alignItems: 'center', flexShrink: 0 },
+  actionButton: { minHeight: 28, minWidth: 34, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  copy: { minWidth: 0, gap: 2, paddingLeft: 37 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 7, minWidth: 0 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 },
   attentionDot: { width: 6, height: 6, borderRadius: 3 },
   track: { height: 3, borderRadius: 2, overflow: 'hidden', marginTop: 2 },
   fill: { height: 3, borderRadius: 2 },
+  draftContainer: {
+    minHeight: 44,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  draftCopy: { flex: 1, minWidth: 0 },
 });

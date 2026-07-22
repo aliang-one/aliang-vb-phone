@@ -23,6 +23,7 @@ export interface ServerGoalSnapshot {
   model?: string;
   effort?: string;
   driver?: string;
+  deleted_at?: string;
   workspace_relation?: 'exact' | 'advanced' | 'unavailable';
   updated_at?: string;
   revision?: {
@@ -251,3 +252,30 @@ export const abandonGoal = (
       idempotency_key: input.idempotencyKey,
     },
   );
+
+type GoalControlInput = {
+  expectedStateVersion: number;
+  idempotencyKey: string;
+};
+
+const controlGoal = (
+  goalId: string,
+  action: 'pause' | 'resume' | 'delete',
+  input: GoalControlInput,
+): Promise<ServerGoalSnapshot> =>
+  apiPost<ServerGoalSnapshot>(
+    `/api/goals/${encodeURIComponent(goalId)}/${action}`,
+    {
+      expected_state_version: input.expectedStateVersion,
+      idempotency_key: input.idempotencyKey,
+    },
+  );
+
+export const pauseGoal = (goalId: string, input: GoalControlInput): Promise<ServerGoalSnapshot> =>
+  controlGoal(goalId, 'pause', input);
+
+export const resumeGoal = (goalId: string, input: GoalControlInput): Promise<ServerGoalSnapshot> =>
+  controlGoal(goalId, 'resume', input);
+
+export const deleteGoal = (goalId: string, input: GoalControlInput): Promise<ServerGoalSnapshot> =>
+  controlGoal(goalId, 'delete', input);

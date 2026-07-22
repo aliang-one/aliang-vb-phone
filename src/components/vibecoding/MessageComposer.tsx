@@ -21,7 +21,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import Svg, { Path, Rect } from 'react-native-svg';
 import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
 import { GlowButton } from '../shared/GlowButton';
@@ -52,10 +52,12 @@ export interface MessageComposerProps {
       after "编辑" transfers a voice draft into the text field. */
   autoFocusText?: boolean;
   toolsMenuVisible: boolean;
+  toolsDisabled?: boolean;
   onToggleTools: () => void;
-  /** Product-level Goal entry. Available even when the desktop Agent is offline. */
-  onOpenGoal: () => void;
-  goalActive?: boolean;
+  /** Unsent Goal objective mode. It is text-only and independent of Provider state. */
+  goalDraft?: boolean;
+  /** Created Goal session. Messages are queued by the server even while Provider work is running. */
+  goalSession?: boolean;
   showGoalHint?: boolean;
   onTextInputFocus?: () => void;
   /** Toggles start/stop of voice capture. */
@@ -74,7 +76,7 @@ export interface MessageComposerProps {
 
 // ---------- icons (inline SVG; no shared icon lib ships mic/keyboard/send) ----------
 
-type ComposerIconName = 'mic' | 'keyboard' | 'send' | 'sparkle' | 'stop' | 'refresh' | 'sliders' | 'goal';
+type ComposerIconName = 'mic' | 'keyboard' | 'send' | 'sparkle' | 'stop' | 'refresh' | 'sliders';
 
 interface ComposerIconProps {
   name: ComposerIconName;
@@ -135,13 +137,6 @@ const ComposerIcon: React.FC<ComposerIconProps> = ({ name, size = 22, color }) =
           stroke={color}
           {...common}
         />
-      )}
-      {name === 'goal' && (
-        <>
-          <Circle cx="12" cy="12" r="8" stroke={color} {...common} />
-          <Circle cx="12" cy="12" r="3" stroke={color} {...common} />
-          <Path d="M12 2v3M22 12h-3" stroke={color} {...common} />
-        </>
       )}
     </Svg>
   );
@@ -278,9 +273,10 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   readOnlyReason,
   autoFocusText,
   toolsMenuVisible,
+  toolsDisabled = false,
   onToggleTools,
-  onOpenGoal,
-  goalActive = false,
+  goalDraft = false,
+  goalSession = false,
   showGoalHint = false,
   onTextInputFocus,
   onVoiceCapture,
@@ -298,13 +294,13 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   const isVoiceActive = ACTIVE_STATUSES.includes(status);
   const isRecording = status === 'recording';
   const hasDraft = Boolean(voiceDraft);
-  const composerDisabled = deviceOffline || Boolean(readOnlyReason);
+  const composerDisabled = !(goalDraft || goalSession) && (deviceOffline || Boolean(readOnlyReason));
   const isGoalCommandInput = /^\/goal(?:\s|$)/i.test(input.trim());
   // Slash-command typeahead: active only while the whole input is a single
   // `/token` (slash first, command-name chars, no space yet) in text mode. A
   // space ends the command name and hides the dropdown.
   const slashMatch =
-    mode === 'text' ? input.match(/^\/([a-zA-Z0-9_-]*)$/) : null;
+    mode === 'text' && !goalDraft ? input.match(/^\/([a-zA-Z0-9_-]*)$/) : null;
   const slashQuery = slashMatch ? slashMatch[1].toLowerCase() : '';
 
   // Manual `/`-command refresh (force=true bypasses the 1h gate + server 10s
@@ -410,7 +406,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
     // by accident.
     const targetMode: ComposerMode = mode === 'text' ? 'voice' : 'text';
     const iconName: ComposerIconName = mode === 'text' ? 'mic' : 'keyboard';
-    const disabled = Boolean(readOnlyReason) || isVoiceActive;
+    const disabled = goalDraft || Boolean(readOnlyReason) || isVoiceActive;
     return (
       <TouchableOpacity
         accessibilityRole="button"
@@ -434,7 +430,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
     // and showing one signals a different (tap-to-stop) model, which confused
     // the interaction. During a voice recording the slot falls through to the
     // non-interactive placeholder, unless a turn is streaming (then interrupt).
-    if (canInterruptTurn && onInterruptTurn && !isGoalCommandInput) {
+    if (canInterruptTurn && onInterruptTurn && !isGoalCommandInput && !goalDraft) {
       return (
         <TouchableOpacity
           accessibilityRole="button"
@@ -465,7 +461,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
       const canSend =
         input.trim().length > 0 &&
         !sendingMessage &&
-        (!composerDisabled || isGoalCommandInput);
+        (!composerDisabled || isGoalCommandInput || goalDraft);
       return (
         <TouchableOpacity
           accessibilityRole="button"
@@ -507,7 +503,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   // ----- the adaptive content area -----
 
   const renderContent = () => {
-    if (readOnlyReason) {
+    if (readOnlyReason && !(goalDraft || goalSession)) {
       return (
         <View style={styles.inlineRow}>
           <ComposerIcon name="stop" size={18} color={theme.colors.onSurfaceVariant} />
@@ -531,7 +527,10 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
           onChangeText={onInputChange}
           onFocus={onTextInputFocus}
           autoFocus={autoFocusText}
-          placeholder={t(showGoalHint ? 'composer.sendPlaceholderWithGoal' : 'composer.sendPlaceholder')}
+          editable={!sendingMessage}
+          placeholder={goalDraft
+            ? '描述这个 Goal…'
+            : t(showGoalHint ? 'composer.sendPlaceholderWithGoal' : 'composer.sendPlaceholder')}
           placeholderTextColor={theme.colors.onSurfaceVariant}
           multiline
           style={[
@@ -642,32 +641,10 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
       ) : null}
       <View style={styles.composerRow}>
         <TouchableOpacity
-          testID="composer-goal"
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel={t('goalCreate.entryLabel')}
-          onPress={onOpenGoal}
-          style={[
-            styles.ctrlBtn,
-            {
-              borderRadius: theme.borderRadius.full,
-              backgroundColor: goalActive
-                ? `${theme.colors.primary}1F`
-                : ctrlBg.backgroundColor,
-              borderWidth: 1,
-              borderColor: goalActive ? theme.colors.primary : 'transparent',
-            },
-          ]}>
-          <ComposerIcon
-            name="goal"
-            size={20}
-            color={goalActive ? theme.colors.primary : theme.colors.onSurfaceVariant}
-          />
-        </TouchableOpacity>
-        <TouchableOpacity
           activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel={t('composer.tools')}
+          disabled={toolsDisabled}
           onPress={onToggleTools}
           style={[
             styles.ctrlBtn,
@@ -678,6 +655,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
                 : ctrlBg.backgroundColor,
               borderWidth: 1,
               borderColor: toolsMenuVisible ? theme.colors.primary : 'transparent',
+              opacity: toolsDisabled ? 0.45 : 1,
             },
           ]}
         >
@@ -717,7 +695,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
                 renderAnimatedContent()
               )}
             </View>
-            {mode === 'text' && sessionId ? (
+            {mode === 'text' && sessionId && !goalDraft ? (
               <TouchableOpacity
                 activeOpacity={0.7}
                 accessibilityRole="button"

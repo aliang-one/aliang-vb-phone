@@ -22,8 +22,8 @@ import { useControlCenterStore } from '../../store/controlCenterStore';
 import { createId } from '../../store/internals';
 import type { GoalSummary } from '../../data/platformModels';
 import {
-  abandonGoal,
   approveGoalPlan,
+  deleteGoal,
   fetchGoalEvents,
   fetchGoalSnapshot,
   goalSnapshotToSummary,
@@ -39,6 +39,8 @@ const stateLabels: Record<string, string> = {
   planning_failed: '规划需处理',
   awaiting_approval: '等待确认',
   active: '执行中',
+  approval_pending: '等待审批',
+  pause_requested: '等待本轮结束',
   verifying: '验证中',
   paused: '已暂停',
   blocked: '需要处理',
@@ -66,6 +68,11 @@ const eventLabels: Record<string, string> = {
   'goal.blocked': 'Goal 被阻塞',
   'goal.completed': 'Goal 已完成',
   'goal.abandoned': 'Goal 已放弃',
+  'goal.pause.requested': '已请求暂停，等待本轮结束',
+  'goal.pause.awaiting_verification': '本轮结束，等待验证后暂停',
+  'goal.paused': 'Goal 已暂停',
+  'goal.resumed': 'Goal 已继续',
+  'goal.deleted': 'Goal 已删除',
 };
 
 const taskStateLabels: Record<string, string> = {
@@ -178,9 +185,8 @@ export const GoalDetailScreen: React.FC = () => {
     Boolean(summary.revision?.id) &&
     typeof summary.stateVersion === 'number';
   const actionLabel = canApprove ? (summary?.primaryActionLabel ?? '确认计划') : '刷新状态';
-  const canAbandon = Boolean(
+  const canDelete = Boolean(
     summary &&
-    !['completed', 'cancelled', 'abandoned'].includes(summary.state) &&
     typeof summary.stateVersion === 'number',
   );
 
@@ -255,36 +261,34 @@ export const GoalDetailScreen: React.FC = () => {
     }
   }, [canApprove, loadAgentSessionDetail, refreshGoal, route.params.sourceSessionId, summary]);
 
-  const performAbandon = useCallback(async () => {
+  const performDelete = useCallback(async () => {
     if (!summary || summary.stateVersion === undefined) return;
     setActionLoading(true);
     setActionFeedback('');
     try {
-      const snapshot = await abandonGoal(summary.goalId, {
+      await deleteGoal(summary.goalId, {
         expectedStateVersion: summary.stateVersion,
-        idempotencyKey: createId('goal-abandon'),
+        idempotencyKey: createId('goal-delete'),
       });
-      setSummary(current => newerGoalSummary(current, goalSnapshotToSummary(snapshot)));
-      setActionFeedback('Goal 已放弃，不会再派发新的运行');
-      await refreshGoal();
+      navigation.goBack();
     } catch (error) {
-      setActionFeedback(error instanceof Error ? error.message : '放弃失败，请重试');
+      setActionFeedback(error instanceof Error ? error.message : '删除失败，请重试');
       await refreshGoal();
     } finally {
       setActionLoading(false);
     }
-  }, [refreshGoal, summary]);
+  }, [navigation, refreshGoal, summary]);
 
-  const confirmAbandon = useCallback(() => {
+  const confirmDelete = useCallback(() => {
     Alert.alert(
-      '放弃 Goal？',
-      '历史与检查结果会保留，但此 Goal 不会再执行。',
+      '删除 Goal？',
+      'Goal 将停止后续执行并从手机列表隐藏，历史与检查结果仍会保留。',
       [
-        { text: '继续执行', style: 'cancel' },
-        { text: '放弃', style: 'destructive', onPress: performAbandon },
+        { text: '取消', style: 'cancel' },
+        { text: '删除', style: 'destructive', onPress: performDelete },
       ],
     );
-  }, [performAbandon]);
+  }, [performDelete]);
 
   return (
     <SafeAreaWrapper>
@@ -297,7 +301,7 @@ export const GoalDetailScreen: React.FC = () => {
         stickyHeaderIndices={[0]}
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: (canAbandon ? 180 : 110) + insets.bottom },
+          { paddingBottom: (canDelete ? 180 : 110) + insets.bottom },
         ]}
         accessibilityLabel="Goal 详情">
         <GoalSummaryHeader summary={summary} />
@@ -414,15 +418,15 @@ export const GoalDetailScreen: React.FC = () => {
           style={styles.actionButton}
           testID="goal-primary-action"
         />
-        {canAbandon ? (
+        {canDelete ? (
           <TouchableOpacity
             accessibilityRole="button"
-            accessibilityLabel="放弃 Goal"
-            onPress={confirmAbandon}
+            accessibilityLabel="删除 Goal"
+            onPress={confirmDelete}
             disabled={actionLoading}
             style={styles.abandonButton}
-            testID="goal-abandon-action">
-            <Text style={[theme.typography.labelMd, { color: theme.colors.error }]}>放弃 Goal</Text>
+            testID="goal-delete-action">
+            <Text style={[theme.typography.labelMd, { color: theme.colors.error }]}>删除 Goal</Text>
           </TouchableOpacity>
         ) : null}
       </View>

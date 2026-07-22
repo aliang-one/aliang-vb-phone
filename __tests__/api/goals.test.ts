@@ -3,11 +3,14 @@ import {
   abandonGoal,
   approveGoalPlan,
   createGoal,
+  deleteGoal,
   fetchGoalEvents,
   fetchGoals,
   fetchGoalSnapshot,
   goalSnapshotToSummary,
   queueGoalMessage,
+  pauseGoal,
+  resumeGoal,
 } from '../../src/api/goals';
 
 jest.mock('../../src/api/client', () => ({
@@ -210,6 +213,22 @@ describe('Goal API', () => {
     expect(mockedPost).toHaveBeenCalledWith('/api/goals/goal%2F1/abandon', {
       expected_state_version: 9,
       idempotency_key: 'abandon-1',
+    });
+  });
+
+  it.each([
+    ['pause', pauseGoal],
+    ['resume', resumeGoal],
+    ['delete', deleteGoal],
+  ] as const)('sends %s with state and idempotency guards', async (action, invoke) => {
+    mockedPost.mockResolvedValue({ goal_id: 'goal/1', state: 'active' });
+    await invoke('goal/1', {
+      expectedStateVersion: 11,
+      idempotencyKey: `goal-${action}-1`,
+    });
+    expect(mockedPost).toHaveBeenCalledWith(`/api/goals/goal%2F1/${action}`, {
+      expected_state_version: 11,
+      idempotency_key: `goal-${action}-1`,
     });
   });
 });

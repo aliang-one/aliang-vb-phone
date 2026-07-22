@@ -82,6 +82,26 @@ describe('ToolsMenu', () => {
     expect(texts.some(t => t === '内置命令')).toBe(true);
   });
 
+  it('switches into Goal draft mode from the same panel as model and effort', () => {
+    const onGoalModeChange = jest.fn();
+    const onClose = jest.fn();
+    const root = wrap(
+      <ToolsMenu {...defaultProps({ onGoalModeChange, onClose })} />,
+    );
+    act(() => findByTestID(root, 'tools-mode-goal').props.onPress());
+    expect(onGoalModeChange).toHaveBeenCalledWith('draft');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the mode selector locked inside a created Goal session', () => {
+    const onGoalModeChange = jest.fn();
+    const root = wrap(
+      <ToolsMenu {...defaultProps({ goalMode: 'active', onGoalModeChange })} />,
+    );
+    expect(findByTestID(root, 'tools-mode-ordinary').props.disabled).toBe(true);
+    expect(findByTestID(root, 'tools-mode-goal').props.accessibilityState.selected).toBe(true);
+  });
+
   it('hides Skills that are not user-invocable', () => {
     const root = wrap(
       <ToolsMenu
