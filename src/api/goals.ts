@@ -17,6 +17,8 @@ export interface ServerGoalSnapshot {
   current_task?: string;
   current_run_health?: string;
   attention?: string;
+  planning_error_code?: string;
+  planning_error_detail?: string;
   primary_action_kind?: string;
   primary_action_label?: string;
   provider?: string;
@@ -103,6 +105,8 @@ export const goalSnapshotToSummary = (snapshot: ServerGoalSnapshot): GoalSummary
   currentTask: snapshot.current_task,
   currentRunHealth: snapshot.current_run_health,
   attention: snapshot.attention,
+  planningErrorCode: snapshot.planning_error_code,
+  planningErrorDetail: snapshot.planning_error_detail,
   primaryActionKind: snapshot.primary_action_kind,
   primaryActionLabel: snapshot.primary_action_label,
   provider: snapshot.provider,
@@ -126,6 +130,17 @@ export const newerGoalSummary = (
     incoming.stateVersion < current.stateVersion
   ) {
     return current;
+  }
+  if (current?.stateVersion !== undefined && incoming.stateVersion === current.stateVersion) {
+    return {
+      ...current,
+      ...incoming,
+      planningErrorCode: incoming.planningErrorCode ?? current.planningErrorCode,
+      planningErrorDetail: incoming.planningErrorDetail ?? current.planningErrorDetail,
+      revision: incoming.revision ?? current.revision,
+      tasks: incoming.tasks ?? current.tasks,
+      checks: incoming.checks ?? current.checks,
+    };
   }
   return incoming;
 };

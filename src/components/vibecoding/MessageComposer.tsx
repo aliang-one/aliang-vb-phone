@@ -407,7 +407,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
     // by accident.
     const targetMode: ComposerMode = mode === 'text' ? 'voice' : 'text';
     const iconName: ComposerIconName = mode === 'text' ? 'mic' : 'keyboard';
-    const disabled = goalDraft || Boolean(readOnlyReason) || isVoiceActive;
+    const disabled = Boolean(readOnlyReason) || isVoiceActive;
     return (
       <TouchableOpacity
         accessibilityRole="button"

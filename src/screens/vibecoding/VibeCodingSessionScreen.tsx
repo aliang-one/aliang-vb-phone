@@ -127,6 +127,7 @@ const goalRequestErrorMessage = (error: unknown): string => {
   if (error instanceof ApiResponseError) {
     if (error.status === 404) return '当前服务端版本不支持 Goal，请升级服务端后重试。';
     if (error.code === 'ai_control_disabled') return '当前设备未开启 AI 控制。';
+    if (error.code === 'goal_capability_missing') return '电脑 Agent 版本过旧或尚未重新连接，请更新 Agent 并重新登录后再试。';
     if (error.code === 'path_not_authorized') return '当前项目目录未被设备授权。';
     if (error.code === 'goal_repository_unavailable') return 'Goal 状态存储暂时不可用。';
     if (error.code === 'goal_state_version_conflict') return 'Goal 状态已变化，已重新同步，请再试一次。';
@@ -1392,7 +1393,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
   };
 
   const handleVoiceCaptureStart = useCallback(() => {
-    if (goalDraftActive) return;
     if (
       session?.purpose !== 'goal' &&
       (deviceOffline || shouldDisableComposerForProvider)
@@ -1414,7 +1414,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
         }
       },
     });
-  }, [deviceOffline, goalDraftActive, shouldDisableComposerForProvider, voiceStt, session, project]);
+  }, [deviceOffline, shouldDisableComposerForProvider, voiceStt, session, project]);
 
   const handleVoiceCaptureEnd = useCallback(() => {
     void voiceStt.stop();
@@ -1436,7 +1436,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const handleSendVoice = () => {
     const draft = voiceDraft.trim();
     if (
-      goalDraftActive ||
       !draft ||
       sendingMessage ||
       (session?.purpose !== 'goal' && (deviceOffline || shouldDisableComposerForProvider))
@@ -3395,9 +3394,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
           ) : null}
           <MessageComposer
             mode={mode}
-            onModeChange={nextMode => {
-              if (!goalDraftActive) setMode(nextMode);
-            }}
+            onModeChange={nextMode => setMode(nextMode)}
             input={input}
             onInputChange={handleComposerInputChange}
             voiceDraft={voiceDraft}

@@ -115,6 +115,8 @@ describe('Goal detail snapshot versioning', () => {
       state_version: 4,
       driver: 'server_goal',
       workspace_relation: 'exact',
+      planning_error_code: 'planner_agent_error',
+      planning_error_detail: 'Codex could not reach the configured provider',
     });
 
     expect(incoming).toEqual(
@@ -122,6 +124,8 @@ describe('Goal detail snapshot versioning', () => {
         objective: 'Deliver the Goal UI',
         driver: 'server_goal',
         workspaceRelation: 'exact',
+        planningErrorCode: 'planner_agent_error',
+        planningErrorDetail: 'Codex could not reach the configured provider',
       }),
     );
     expect(
@@ -130,5 +134,24 @@ describe('Goal detail snapshot versioning', () => {
         incoming,
       ).state,
     ).toBe('verifying');
+  });
+
+  it('keeps planning diagnostics when an equal-version realtime summary is sparse', () => {
+    const current = {
+      goalId: 'goal-1',
+      state: 'planning_failed' as const,
+      stateVersion: 6,
+      planningErrorCode: 'planner_agent_error',
+      planningErrorDetail: 'Codex could not reach the configured provider',
+    };
+
+    expect(newerGoalSummary(current, {
+      goalId: 'goal-1',
+      state: 'planning_failed',
+      stateVersion: 6,
+    })).toEqual(expect.objectContaining({
+      planningErrorCode: current.planningErrorCode,
+      planningErrorDetail: current.planningErrorDetail,
+    }));
   });
 });

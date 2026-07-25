@@ -225,6 +225,8 @@ export interface GoalSummary {
   currentTask?: string;
   currentRunHealth?: string;
   attention?: string;
+  planningErrorCode?: string;
+  planningErrorDetail?: string;
   primaryActionKind?: string;
   primaryActionLabel?: string;
   provider?: string;

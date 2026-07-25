@@ -163,6 +163,11 @@ const GoalSummaryHeader: React.FC<{ summary?: GoalSummary }> = ({ summary }) => 
       {summary?.attention ? (
         <Text style={[theme.typography.bodyMd, { color: theme.colors.error }]}>{summary.attention}</Text>
       ) : null}
+      {summary?.planningErrorDetail ? (
+        <Text style={[theme.typography.bodySm, { color: theme.colors.error }]}>
+          {summary.planningErrorDetail}
+        </Text>
+      ) : null}
     </View>
   );
 };
