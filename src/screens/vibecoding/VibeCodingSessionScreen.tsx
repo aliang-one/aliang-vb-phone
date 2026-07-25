@@ -1215,10 +1215,16 @@ export const VibeCodingSessionScreen: React.FC = () => {
     goalDraftPreviousInputRef.current = '';
     setInput('');
     setCreatedSessionId(goal.ai_session_id);
-    navigation.setParams({
-      sessionId: goal.ai_session_id,
-      draftConfig: undefined,
-    });
+    // If the goal attached to the current conversation session, stay on it
+    // (history preserved, goal is a state of the existing conversation).
+    // Only navigate when a brand-new goal session was created (e.g., from a
+    // draft with no prior conversation).
+    if (goal.ai_session_id !== session?.id) {
+      navigation.setParams({
+        sessionId: goal.ai_session_id,
+        draftConfig: undefined,
+      });
+    }
     void loadAgentSessionDetail(goal.ai_session_id).catch(error => {
       setDetailError(
         `Goal 已创建，正在重新同步会话：${goalRequestErrorMessage(error)}`,
@@ -1251,6 +1257,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
         provider: context.provider,
         model: context.model,
         effort: context.effort,
+        // Attach to the existing conversation (preserve history) when there is
+        // one; only let the server create a fresh goal session from a draft.
+        aiSessionId: !isDraft && session ? session.id : undefined,
       });
       goalCreateRequestRef.current = null;
       enterGoalSession(created);

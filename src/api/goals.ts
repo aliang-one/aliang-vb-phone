@@ -175,6 +175,9 @@ export const createGoal = (input: {
   provider?: string;
   model?: string;
   effort?: string;
+  // Optional: attach the goal to an existing ordinary AiSession (preserves the
+  // conversation history) instead of creating a new dedicated goal session.
+  aiSessionId?: string;
 }): Promise<ServerGoalSnapshot & { ai_session_id: string }> =>
   apiPost<ServerGoalSnapshot & { ai_session_id: string }>('/api/goals', {
     device_id: input.deviceId,
@@ -187,6 +190,7 @@ export const createGoal = (input: {
     model: input.model,
     effort: input.effort,
     client_request_id: input.idempotencyKey,
+    ai_session_id: input.aiSessionId,
   });
 
 export interface GoalMessageReceipt {
