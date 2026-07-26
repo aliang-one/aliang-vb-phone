@@ -32,6 +32,7 @@ import { StatusChip } from '../../components/shared/StatusChip';
 import { ToolsMenu } from '../../components/vibecoding/ToolsMenu';
 import { MessageComposer } from '../../components/vibecoding/MessageComposer';
 import { GoalDraftBar, GoalStatusBar } from '../../components/vibecoding/GoalStatusBar';
+import { GoalDeletedFold } from '../../components/vibecoding/GoalDeletedFold';
 import { mergeCommands } from '../../utils/agentCommands';
 import { TranscriptMessageList } from '../../components/vibecoding/TranscriptMessageList';
 import { ConversationScrubber } from '../../components/vibecoding/ConversationScrubber';
@@ -67,12 +68,17 @@ import { buildDisplayTranscript } from '../../utils/agentTranscript';
 import {
   approvalTimelineItemId,
   buildConversationTimeline,
+  goalFoldTimelineItemId,
 } from '../../utils/conversationTimeline';
 import { deriveTurnScrubberStops } from '../../utils/conversationScrubber';
 import {
   buildConversationTurns,
   type ConversationTurn,
 } from '../../utils/conversationTurns';
+import {
+  buildGoalFolds,
+  type GoalFoldGroup,
+} from '../../utils/goalFolds';
 import {
   LIVE_TURN_WINDOW_MS,
   deriveSessionPhase,
@@ -675,9 +681,25 @@ export const VibeCodingSessionScreen: React.FC = () => {
     session?.transcript ?? EMPTY_TRANSCRIPT,
     isSessionLive ? LIVE_TRANSCRIPT_RENDER_MS : 0,
   );
-  const transcript = useMemo(
-    () => buildDisplayTranscript(displayTranscriptSource),
+  // Hidden messages (server folded away when their owning Goal is abandoned)
+  // never flow through the ordinary transcript/turn pipeline — instead they
+  // are grouped globally by goalId and rendered as GoalDeletedFold segments
+  // at each group's earliest-message position. Filter them out here so the
+  // coalesced display transcript stays clean.
+  const visibleDisplaySource = useMemo(
+    () =>
+      displayTranscriptSource.filter(
+        message => !(message.hiddenAt && message.goalId),
+      ),
     [displayTranscriptSource],
+  );
+  const goalFolds = useMemo<GoalFoldGroup[]>(
+    () => buildGoalFolds(displayTranscriptSource),
+    [displayTranscriptSource],
+  );
+  const transcript = useMemo(
+    () => buildDisplayTranscript(visibleDisplaySource),
+    [visibleDisplaySource],
   );
   const activityEventsByMessageId = useMemo(() => {
     const byMessageId = new Map<string, StructuredActivityEvent[]>();
@@ -1671,8 +1693,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
   );
   const topPendingApproval = pendingApprovals[0];
   const conversationItems = useMemo(
-    () => buildConversationTimeline(visibleTurns, pendingApprovals),
-    [pendingApprovals, visibleTurns],
+    () => buildConversationTimeline(visibleTurns, pendingApprovals, goalFolds),
+    [pendingApprovals, visibleTurns, goalFolds],
   );
 
   const handleJumpToApproval = useCallback(
@@ -2817,6 +2839,35 @@ export const VibeCodingSessionScreen: React.FC = () => {
                               />
                             );
                           })}
+                        </View>
+                      );
+                    }
+
+                    if (item.kind === 'goal-fold') {
+                      // Server-folded Goal chatter: one fold per goalId at the
+                      // group's earliest-message position. objective is taken
+                      // from the live goalSummary if it still matches the fold's
+                      // goalId (rare — usually the Goal is already gone); falls
+                      // back to undefined and GoalDeletedFold shows the default
+                      // "目标已删除" placeholder.
+                      const foldObjective =
+                        session?.goalSummary?.goalId === item.fold.goalId
+                          ? session.goalSummary.objective
+                          : undefined;
+                      return (
+                        <View
+                          key={item.id}
+                          style={styles.turnGroup}
+                          onLayout={event => {
+                            const { y, height } = event.nativeEvent.layout;
+                            handleConversationItemLayout(item.id, y, height);
+                          }}
+                        >
+                          <GoalDeletedFold
+                            goalId={item.fold.goalId}
+                            objective={foldObjective}
+                            messages={item.fold.messages}
+                          />
                         </View>
                       );
                     }

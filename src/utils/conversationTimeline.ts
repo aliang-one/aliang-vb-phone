@@ -1,8 +1,12 @@
 import type { ApprovalRequest } from '../store/types';
 import type { ConversationTurn } from './conversationTurns';
+import type { GoalFoldGroup } from './goalFolds';
 
 export const approvalTimelineItemId = (approvalId: string) =>
   `approval:${approvalId}`;
+
+/** Stable id for a Goal-deleted fold's position in the timeline. */
+export const goalFoldTimelineItemId = (goalId: string) => `goal-fold:${goalId}`;
 
 export type ConversationTimelineItem =
   | {
@@ -16,6 +20,12 @@ export type ConversationTimelineItem =
       id: string;
       timestamp: string;
       approval: ApprovalRequest;
+    }
+  | {
+      kind: 'goal-fold';
+      id: string;
+      timestamp: string;
+      fold: GoalFoldGroup;
     };
 
 type SortableTimelineItem = ConversationTimelineItem & {
@@ -31,6 +41,7 @@ const parseTimestamp = (timestamp: string) => {
 export const buildConversationTimeline = (
   turns: ConversationTurn[],
   approvals: ApprovalRequest[],
+  folds: GoalFoldGroup[] = [],
 ): ConversationTimelineItem[] => {
   const items: SortableTimelineItem[] = [
     ...turns.map((turn, index) => ({
@@ -48,6 +59,14 @@ export const buildConversationTimeline = (
       approval,
       order: turns.length * 2 + index,
       timestampMs: parseTimestamp(approval.createdAt),
+    })),
+    ...folds.map((fold, index) => ({
+      kind: 'goal-fold' as const,
+      id: goalFoldTimelineItemId(fold.goalId),
+      timestamp: fold.anchorTimestamp,
+      fold,
+      order: turns.length * 2 + approvals.length * 2 + index,
+      timestampMs: parseTimestamp(fold.anchorTimestamp),
     })),
   ];
 
