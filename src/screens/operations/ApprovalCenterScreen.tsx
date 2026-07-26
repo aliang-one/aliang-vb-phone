@@ -18,6 +18,7 @@ import { RootStackParamList } from '../../app/navigation/types';
 import { useTheme } from '../../theme/useTheme';
 import {
   ApprovalRequest,
+  useStableVibeRuns,
   useControlCenterStore,
 } from '../../store/controlCenterStore';
 import { IconBadge, IconName } from '../../components/visual/IconBadge';
@@ -58,6 +59,7 @@ export const ApprovalCenterScreen: React.FC = () => {
   const approvals = useControlCenterStore(state => state.approvals);
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
+  const vibeRuns = useStableVibeRuns();
   const resolveApproval = useControlCenterStore(state => state.resolveApproval);
   const [resolvingApproval, setResolvingApproval] = useState<{
     id: string;
@@ -139,8 +141,16 @@ export const ApprovalCenterScreen: React.FC = () => {
           const device = devices.find(
             deviceItem => deviceItem.id === item.deviceId,
           );
+          // Older ai.approval.request rows did not persist projectId. Recover it
+          // from the owning session so existing pending cards still expose the
+          // project-scoped policy actions.
+          const projectId =
+            item.projectId ??
+            (item.sessionId
+              ? vibeRuns.find(run => run.id === item.sessionId)?.projectId
+              : undefined);
           const project = projects.find(
-            projectItem => projectItem.id === item.projectId,
+            projectItem => projectItem.id === projectId,
           );
           return (
             <ApprovalCard
@@ -148,16 +158,16 @@ export const ApprovalCenterScreen: React.FC = () => {
               deviceName={device?.name ?? item.deviceId ?? ''}
               deviceOffline={device?.status === 'offline'}
               projectName={
-                project?.name ?? item.projectId ?? t('approval.projectNone')
+                project?.name ?? projectId ?? t('approval.projectNone')
               }
               resolvingApproval={resolvingApproval}
               onResolve={handleResolveApproval}
               onOpenPolicy={
-                item.projectId
+                projectId
                   ? () =>
                       setQuickPolicyFor({
                         approvalId: item.id,
-                        projectId: item.projectId ?? '',
+                        projectId,
                         toolName: item.toolName,
                       })
                   : undefined
