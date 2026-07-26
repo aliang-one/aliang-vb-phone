@@ -27,6 +27,7 @@ import {
   type PlatformRealtimeEventSnapshot,
   type PlatformTerminalSessionSnapshot,
 } from '../services/platformTransport';
+import { serverAiMessageToAgent } from '../api/sessions';
 import type {
   ApprovalKind,
   ApprovalRequest,
@@ -447,14 +448,7 @@ export function serverAiSessionToVibeRun(
     projects.find(p => sameRemotePath(p.path, session.project_path)) ??
     projects.find(p => p.id === session.project_path);
   const model = aiSessionModelLabel(session);
-  const transcript = (session.transcript ?? []).map(t => ({
-    id: t.id,
-    role: t.role,
-    mode: t.mode as 'voice' | 'text' | 'action' | undefined,
-    content: t.content,
-    timestamp: t.timestamp,
-    index: t.index,
-  }));
+  const transcript = (session.transcript ?? []).map(serverAiMessageToAgent);
   const events = dedupeAgentEvents(
     (session.events ?? []).map(e => ({
       id: e.id,

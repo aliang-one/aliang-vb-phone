@@ -1,7 +1,7 @@
 import type { StateCreator } from 'zustand';
 import type { AgentCommandInfo, VibeCodingRun, VibeStatus } from '../../data/platformModels';
 import { platformTransport } from '../../services/platformTransport';
-import { refreshSessionCommands as refreshSessionCommandsApi } from '../../api/sessions';
+import { refreshSessionCommands as refreshSessionCommandsApi, serverAiMessageToAgent } from '../../api/sessions';
 import { normalizeProvider, providerLabel } from '../../utils/modelIntensity';
 import {
   isAuthoritativeRunLive,
@@ -254,14 +254,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       limit: current.transcriptPage?.limit || 40,
       before,
     });
-    const earlierMessages = response.messages.map(message => ({
-      id: message.id,
-      role: message.role,
-      mode: message.mode as 'voice' | 'text' | 'action' | undefined,
-      content: message.content,
-      timestamp: message.timestamp,
-      index: message.index,
-    }));
+    const earlierMessages = response.messages.map(serverAiMessageToAgent);
 
     set(state => {
       const vibeRuns = state.vibeRuns.map(run => {

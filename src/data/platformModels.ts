@@ -567,6 +567,19 @@ export interface AgentMessage {
    * retryable bubble. Surfaced in the UI with a retry / dismiss affordance.
    */
   failed?: boolean;
+  /**
+   * Server-owned Goal this message belongs to (set by the backend for messages
+   * produced during a Goal-driven run). Matches `goal_id` on the wire. Used by
+   * the phone to fold goal-planning chatter once the Goal is closed. Absent for
+   * ordinary chat sessions and older servers.
+   */
+  goalId?: string;
+  /**
+   * ISO timestamp the server marked this message hidden (e.g. folded away once
+   * the owning Goal is abandoned/completed). Matches `hidden_at` on the wire.
+   * Absent means the message is still visible.
+   */
+  hiddenAt?: string;
 }
 
 export interface AgentTranscriptPage {

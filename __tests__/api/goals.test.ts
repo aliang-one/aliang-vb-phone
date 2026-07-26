@@ -12,6 +12,7 @@ import {
   pauseGoal,
   resumeGoal,
 } from '../../src/api/goals';
+import { serverAiMessageToAgent } from '../../src/api/sessions';
 
 jest.mock('../../src/api/client', () => ({
   apiGet: jest.fn(),
@@ -229,6 +230,55 @@ describe('Goal API', () => {
     expect(mockedPost).toHaveBeenCalledWith(`/api/goals/goal%2F1/${action}`, {
       expected_state_version: 11,
       idempotency_key: `goal-${action}-1`,
+    });
+  });
+
+  it('maps a server AiMessage goal_id/hidden_at into the phone AgentMessage camelCase shape', () => {
+    // Server (Task 8) stamps goal_id/hidden_at on the wire (snake_case). The
+    // phone-side mapper must forward both to the AgentMessage camelCase fields
+    // so the upcoming goal-fold UI (Task 12/13) can hide finished-goal chatter.
+    const mapped = serverAiMessageToAgent({
+      id: 'msg-1',
+      role: 'assistant',
+      mode: 'text',
+      content: 'Planning…',
+      timestamp: '2026-07-27T00:00:00.000Z',
+      index: 3,
+      goal_id: 'G1',
+      hidden_at: '2026-07-27T00:00:01.000Z',
+    });
+    expect(mapped).toEqual({
+      id: 'msg-1',
+      role: 'assistant',
+      mode: 'text',
+      content: 'Planning…',
+      timestamp: '2026-07-27T00:00:00.000Z',
+      index: 3,
+      goalId: 'G1',
+      hiddenAt: '2026-07-27T00:00:01.000Z',
+    });
+  });
+
+  it('treats missing goal_id/hidden_at as undefined without distorting the mapped AgentMessage', () => {
+    // Older servers and ordinary chat sessions omit the new fields entirely —
+    // the mapper must not synthesize values (undefined round-trips cleanly).
+    const mapped = serverAiMessageToAgent({
+      id: 'msg-2',
+      role: 'user',
+      content: 'hi',
+      timestamp: '2026-07-27T00:00:00.000Z',
+    });
+    expect(mapped.goalId).toBeUndefined();
+    expect(mapped.hiddenAt).toBeUndefined();
+    expect(mapped).toEqual({
+      id: 'msg-2',
+      role: 'user',
+      mode: undefined,
+      content: 'hi',
+      timestamp: '2026-07-27T00:00:00.000Z',
+      index: undefined,
+      goalId: undefined,
+      hiddenAt: undefined,
     });
   });
 });

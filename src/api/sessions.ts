@@ -5,7 +5,7 @@ import {
   apiPatch,
   apiPost,
 } from './client';
-import type { AgentCommandInfo, GoalState } from '../data/platformModels';
+import type { AgentCommandInfo, AgentMessage, GoalState } from '../data/platformModels';
 
 const AI_TURN_REQUEST_TIMEOUT_MS = 120_000;
 const aiSessionDetailRequests = new Map<string, Promise<ServerAiSession>>();
@@ -29,6 +29,17 @@ export interface ServerAiMessage {
   content: string;
   timestamp: string;
   index?: number;
+  /**
+   * Server-owned Goal id when this message was produced during a Goal-driven
+   * run. Absent for ordinary chat. Matches `goal_id` from server Task 8.
+   */
+  goal_id?: string;
+  /**
+   * ISO timestamp the server marked this message hidden (folded) — e.g. once
+   * the owning Goal is abandoned/completed. Absent means still visible.
+   * Matches `hidden_at` from server Task 8.
+   */
+  hidden_at?: string;
 }
 
 export interface ServerGoalSummary {
@@ -62,6 +73,24 @@ export interface ServerGoalSummary {
     detail?: string;
   }>;
 }
+
+/**
+ * Map a server `ServerAiMessage` (snake_case wire form) to the phone's
+ * `AgentMessage` (camelCase client model). Centralizes the field-by-field copy
+ * so every transcript/messages call site stays in sync — including the
+ * server-owned Goal metadata (`goal_id` / `hidden_at`) introduced in server
+ * Task 8, which folds goal-planning chatter once a Goal is closed.
+ */
+export const serverAiMessageToAgent = (m: ServerAiMessage): AgentMessage => ({
+  id: m.id,
+  role: m.role,
+  mode: m.mode,
+  content: m.content,
+  timestamp: m.timestamp,
+  index: m.index,
+  goalId: m.goal_id,
+  hiddenAt: m.hidden_at,
+});
 
 export interface ServerAiSession {
   session_id: string;
