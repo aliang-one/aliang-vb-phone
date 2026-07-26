@@ -19,6 +19,11 @@ export interface ServerGoalSnapshot {
   attention?: string;
   planning_error_code?: string;
   planning_error_detail?: string;
+  planning_phase?: string;
+  planning_attempt?: number;
+  planning_thinking_chars?: number;
+  planning_thinking_preview?: string;
+  planning_updated_at?: string;
   primary_action_kind?: string;
   primary_action_label?: string;
   provider?: string;
@@ -107,6 +112,11 @@ export const goalSnapshotToSummary = (snapshot: ServerGoalSnapshot): GoalSummary
   attention: snapshot.attention,
   planningErrorCode: snapshot.planning_error_code,
   planningErrorDetail: snapshot.planning_error_detail,
+  planningPhase: snapshot.planning_phase,
+  planningAttempt: snapshot.planning_attempt,
+  planningThinkingChars: snapshot.planning_thinking_chars,
+  planningThinkingPreview: snapshot.planning_thinking_preview,
+  planningUpdatedAt: snapshot.planning_updated_at,
   primaryActionKind: snapshot.primary_action_kind,
   primaryActionLabel: snapshot.primary_action_label,
   provider: snapshot.provider,

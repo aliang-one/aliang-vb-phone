@@ -168,8 +168,39 @@ const GoalSummaryHeader: React.FC<{ summary?: GoalSummary }> = ({ summary }) => 
           {summary.planningErrorDetail}
         </Text>
       ) : null}
+      {summary?.state === 'planning' &&
+      (summary.planningPhase || summary.planningThinkingPreview || typeof summary.planningAttempt === 'number') ? (
+        <View style={styles.planningLive}>
+          <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+            {planningPhaseLabel(summary.planningPhase)}
+            {typeof summary.planningAttempt === 'number' && summary.planningAttempt > 0
+              ? ` · 第 ${summary.planningAttempt} 次生成` : ''}
+            {typeof summary.planningThinkingChars === 'number' && summary.planningThinkingChars > 0
+              ? ` · 已思考 ${summary.planningThinkingChars} 字` : ''}
+          </Text>
+          {summary.planningThinkingPreview ? (
+            <Text
+              style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}
+              numberOfLines={4}
+            >
+              {summary.planningThinkingPreview}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
+};
+
+const planningPhaseLabel = (phase?: string): string => {
+  switch (phase) {
+    case 'exploring':
+      return '探索工作区中';
+    case 'emitting':
+      return '生成计划中';
+    default:
+      return '规划中';
+  }
 };
 
 export const GoalDetailScreen: React.FC = () => {
@@ -228,6 +259,21 @@ export const GoalDetailScreen: React.FC = () => {
     refreshGoal(controller.signal);
     return () => controller.abort();
   }, [refreshGoal]);
+
+  // While planning, poll the authoritative snapshot so the user SEES the
+  // planner working — phase / attempt / live reasoning preview — instead of a
+  // silent, baffling "规划中". Stops as soon as the goal leaves planning.
+  useEffect(() => {
+    if (summary?.state !== 'planning') return;
+    const controller = new AbortController();
+    const timer = setInterval(() => {
+      refreshGoal(controller.signal).catch(() => {});
+    }, 3000);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [summary?.state, refreshGoal]);
 
   const runPrimaryAction = useCallback(async () => {
     if (!summary) {
@@ -442,6 +488,7 @@ export const GoalDetailScreen: React.FC = () => {
 const styles = StyleSheet.create({
   content: {},
   summary: { paddingHorizontal: 16, paddingVertical: 14, gap: 9, borderBottomWidth: StyleSheet.hairlineWidth },
+  planningLive: { gap: 4, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: 'rgba(127,127,127,0.10)' },
   summaryTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   summaryCopy: { flex: 1, minWidth: 0, gap: 3 },
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },

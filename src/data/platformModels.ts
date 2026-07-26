@@ -227,6 +227,12 @@ export interface GoalSummary {
   attention?: string;
   planningErrorCode?: string;
   planningErrorDetail?: string;
+  /** Live in-flight planning signal (only meaningful while state === 'planning'). */
+  planningPhase?: string;
+  planningAttempt?: number;
+  planningThinkingChars?: number;
+  planningThinkingPreview?: string;
+  planningUpdatedAt?: string;
   primaryActionKind?: string;
   primaryActionLabel?: string;
   provider?: string;
