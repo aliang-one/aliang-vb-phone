@@ -9,9 +9,10 @@ type GoalStatusBarProps = {
   onView: () => void;
   onPause?: () => void;
   onResume?: () => void;
+  onRecover?: () => void;
   onDelete?: () => void;
   onMore?: () => void;
-  actionLoading?: 'pause' | 'resume' | 'delete';
+  actionLoading?: 'pause' | 'resume' | 'recover' | 'delete';
 };
 
 const stateLabels: Record<string, string> = {
@@ -86,6 +87,7 @@ export const GoalStatusBar: React.FC<GoalStatusBarProps> = ({
   onView,
   onPause,
   onResume,
+  onRecover,
   onDelete,
   onMore,
   actionLoading,
@@ -150,6 +152,18 @@ export const GoalStatusBar: React.FC<GoalStatusBarProps> = ({
               testID="goal-action-pause"
               onPress={onPause}
               disabled={pausePending || Boolean(actionLoading)}
+            />
+          ) : null}
+          {summary?.recoverable ? (
+            <GoalAction
+              label={
+                actionLoading === 'recover'
+                  ? '恢复中'
+                  : summary.primaryActionLabel ?? '继续'
+              }
+              testID="goal-action-recover"
+              onPress={onRecover}
+              disabled={Boolean(actionLoading)}
             />
           ) : null}
           <GoalAction

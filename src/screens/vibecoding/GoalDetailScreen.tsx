@@ -28,6 +28,7 @@ import {
   fetchGoalSnapshot,
   goalSnapshotToSummary,
   newerGoalSummary,
+  recoverGoal,
 } from '../../api/goals';
 import type { GoalEventSnapshot } from '../../api/goals';
 
@@ -220,7 +221,16 @@ export const GoalDetailScreen: React.FC = () => {
     summary.state === 'awaiting_approval' &&
     Boolean(summary.revision?.id) &&
     typeof summary.stateVersion === 'number';
-  const actionLabel = canApprove ? (summary?.primaryActionLabel ?? '确认计划') : '刷新状态';
+  const canRecover = Boolean(
+    summary?.recoverable &&
+    typeof summary?.stateVersion === 'number' &&
+    (summary?.primaryActionKind === 'continue' || summary?.primaryActionKind === 'retry'),
+  );
+  const actionLabel = canApprove
+    ? (summary?.primaryActionLabel ?? '确认计划')
+    : canRecover
+      ? (summary?.primaryActionLabel ?? '继续')
+      : '刷新状态';
   const canDelete = Boolean(
     summary &&
     typeof summary.stateVersion === 'number',
@@ -275,9 +285,32 @@ export const GoalDetailScreen: React.FC = () => {
     };
   }, [summary?.state, refreshGoal]);
 
+  const performRecover = useCallback(async () => {
+    if (!summary || summary.stateVersion === undefined) return;
+    setActionLoading(true);
+    setActionFeedback('');
+    try {
+      const snapshot = await recoverGoal(summary.goalId, {
+        expectedStateVersion: summary.stateVersion,
+        idempotencyKey: createId('goal-recover'),
+      });
+      setSummary(current => newerGoalSummary(current, goalSnapshotToSummary(snapshot)));
+      setActionFeedback('已发出恢复指令');
+    } catch (error) {
+      setActionFeedback(error instanceof Error ? error.message : '恢复失败，请重试');
+      await refreshGoal();
+    } finally {
+      setActionLoading(false);
+    }
+  }, [refreshGoal, summary]);
+
   const runPrimaryAction = useCallback(async () => {
     if (!summary) {
       await refreshGoal();
+      return;
+    }
+    if (summary.primaryActionKind === 'continue' || summary.primaryActionKind === 'retry') {
+      await performRecover();
       return;
     }
     if (summary.primaryActionKind !== 'approve_plan') {
@@ -310,7 +343,7 @@ export const GoalDetailScreen: React.FC = () => {
     } finally {
       setActionLoading(false);
     }
-  }, [canApprove, loadAgentSessionDetail, refreshGoal, route.params.sourceSessionId, summary]);
+  }, [canApprove, loadAgentSessionDetail, performRecover, refreshGoal, route.params.sourceSessionId, summary]);
 
   const performDelete = useCallback(async () => {
     if (!summary || summary.stateVersion === undefined) return;

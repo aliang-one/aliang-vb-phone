@@ -83,6 +83,58 @@ describe('GoalStatusBar', () => {
     expect(onResume).toHaveBeenCalledTimes(1);
   });
 
+  it('renders a recover button with the server-provided label when the Goal is recoverable', () => {
+    const onRecover = jest.fn();
+    const renderer = renderBar({
+      onView: jest.fn(),
+      onRecover,
+      summary: {
+        goalId: 'goal-1',
+        state: 'active',
+        recoverable: true,
+        stalled: true,
+        primaryActionKind: 'retry',
+        primaryActionLabel: '重试任务',
+      },
+    });
+    const button = renderer.root.findByProps({ testID: 'goal-action-recover' });
+    expect(visibleText(renderer)).toContain('重试任务');
+    act(() => button.props.onPress());
+    expect(onRecover).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not render a recover button when the Goal is not recoverable', () => {
+    const renderer = renderBar({
+      onView: jest.fn(),
+      onRecover: jest.fn(),
+      summary: {
+        goalId: 'goal-1',
+        state: 'active',
+        recoverable: false,
+      },
+    });
+    expect(() => renderer.root.findByProps({ testID: 'goal-action-recover' })).toThrow();
+  });
+
+  it('disables the recover button and shows 恢复中 while actionLoading is recover', () => {
+    const onRecover = jest.fn();
+    const renderer = renderBar({
+      onView: jest.fn(),
+      onRecover,
+      actionLoading: 'recover',
+      summary: {
+        goalId: 'goal-1',
+        state: 'active',
+        recoverable: true,
+        primaryActionKind: 'continue',
+        primaryActionLabel: '继续',
+      },
+    });
+    const button = renderer.root.findByProps({ testID: 'goal-action-recover' });
+    expect(button.props.disabled).toBe(true);
+    expect(visibleText(renderer)).toContain('恢复中');
+  });
+
   it('locks Goal draft exit while creation is in flight', () => {
     const onExit = jest.fn();
     let renderer: ReactTestRenderer.ReactTestRenderer;

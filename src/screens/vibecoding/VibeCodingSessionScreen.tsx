@@ -108,6 +108,7 @@ import {
   deleteGoal,
   pauseGoal,
   queueGoalMessage,
+  recoverGoal,
   resumeGoal,
   type ServerGoalSnapshot,
 } from '../../api/goals';
@@ -575,7 +576,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const [goalCreating, setGoalCreating] = useState(false);
   const goalDraftPreviousInputRef = useRef('');
   const [goalControlAction, setGoalControlAction] = useState<
-    'pause' | 'resume' | 'delete' | undefined
+    'pause' | 'resume' | 'recover' | 'delete' | undefined
   >();
   const [interruptingTurn, setInterruptingTurn] = useState(false);
   const [toolsMenuVisible, setToolsMenuVisible] = useState(false);
@@ -1955,7 +1956,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     [enterGoalDraft, mode],
   );
 
-  const runGoalControl = useCallback(async (action: 'pause' | 'resume') => {
+  const runGoalControl = useCallback(async (action: 'pause' | 'resume' | 'recover') => {
     const goalId = session?.goalSummary?.goalId;
     const stateVersion = session?.goalSummary?.stateVersion;
     if (!session || !goalId || stateVersion === undefined || goalControlAction) return;
@@ -1967,6 +1968,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
         idempotencyKey: createId(`goal-${action}`),
       };
       if (action === 'pause') await pauseGoal(goalId, controlPayload);
+      else if (action === 'recover') await recoverGoal(goalId, controlPayload);
       else await resumeGoal(goalId, controlPayload);
       await loadAgentSessionDetail(session.id, { refresh: true });
     } catch (error) {
@@ -3446,6 +3448,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               }
               onPause={() => void runGoalControl('pause')}
               onResume={() => void runGoalControl('resume')}
+              onRecover={() => void runGoalControl('recover')}
               onDelete={confirmDeleteGoal}
               onMore={() => setToolsMenuVisible(true)}
             />
