@@ -233,8 +233,17 @@ export interface GoalSummary {
   planningThinkingChars?: number;
   planningThinkingPreview?: string;
   planningUpdatedAt?: string;
-  primaryActionKind?: string;
+  /**
+   * Server-authoritative primary CTA for the Goal. Known literals get autocomplete
+   * and exhaustiveness support; the `string & {}` tail keeps the field forward-
+   * compatible so unrecognized future server values still round-trip cleanly.
+   */
+  primaryActionKind?: 'approve_plan' | 'continue' | 'retry' | (string & {});
   primaryActionLabel?: string;
+  /** True when the run is making no forward progress and a nudge is meaningful. */
+  stalled?: boolean;
+  /** True when the server exposes a user-driven recovery action for this Goal. */
+  recoverable?: boolean;
   provider?: string;
   model?: string;
   effort?: string;

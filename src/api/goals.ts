@@ -26,6 +26,8 @@ export interface ServerGoalSnapshot {
   planning_updated_at?: string;
   primary_action_kind?: string;
   primary_action_label?: string;
+  stalled?: boolean;
+  recoverable?: boolean;
   provider?: string;
   model?: string;
   effort?: string;
@@ -119,6 +121,8 @@ export const goalSnapshotToSummary = (snapshot: ServerGoalSnapshot): GoalSummary
   planningUpdatedAt: snapshot.planning_updated_at,
   primaryActionKind: snapshot.primary_action_kind,
   primaryActionLabel: snapshot.primary_action_label,
+  stalled: snapshot.stalled,
+  recoverable: snapshot.recoverable,
   provider: snapshot.provider,
   model: snapshot.model,
   effort: snapshot.effort,
@@ -308,3 +312,19 @@ export const resumeGoal = (goalId: string, input: GoalControlInput): Promise<Ser
 
 export const deleteGoal = (goalId: string, input: GoalControlInput): Promise<ServerGoalSnapshot> =>
   controlGoal(goalId, 'delete', input);
+
+/**
+ * User-initiated recovery for a stalled Goal run. Server validates the state
+ * version (optimistic concurrency) and dedups retries via the idempotency key.
+ */
+export const recoverGoal = (
+  goalId: string,
+  input: { expectedStateVersion: number; idempotencyKey: string },
+): Promise<ServerGoalSnapshot> =>
+  apiPost<ServerGoalSnapshot>(
+    `/api/goals/${encodeURIComponent(goalId)}/recover`,
+    {
+      expected_state_version: input.expectedStateVersion,
+      idempotency_key: input.idempotencyKey,
+    },
+  );

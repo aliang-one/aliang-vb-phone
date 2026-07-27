@@ -10,6 +10,7 @@ import {
   goalSnapshotToSummary,
   queueGoalMessage,
   pauseGoal,
+  recoverGoal,
   resumeGoal,
 } from '../../src/api/goals';
 import { serverAiMessageToAgent } from '../../src/api/sessions';
@@ -230,6 +231,42 @@ describe('Goal API', () => {
     expect(mockedPost).toHaveBeenCalledWith(`/api/goals/goal%2F1/${action}`, {
       expected_state_version: 11,
       idempotency_key: `goal-${action}-1`,
+    });
+  });
+
+  it('forwards stalled/recoverable from the server snapshot into the Goal summary', () => {
+    // Server (Task 1-2) annotates stalled runs so the phone can surface a
+    // recovery affordance; the mapper must not swallow either flag.
+    expect(goalSnapshotToSummary({
+      goal_id: 'goal-1',
+      state: 'active',
+      stalled: true,
+      recoverable: true,
+    })).toEqual(expect.objectContaining({
+      stalled: true,
+      recoverable: true,
+    }));
+    // Omitted flags round-trip as undefined (older servers / healthy runs).
+    expect(goalSnapshotToSummary({
+      goal_id: 'goal-2',
+      state: 'active',
+    })).toEqual(expect.objectContaining({
+      stalled: undefined,
+      recoverable: undefined,
+    }));
+  });
+
+  it('recovers a stalled Goal via POST with state and idempotency guards', async () => {
+    mockedPost.mockResolvedValue({ goal_id: 'goal/1', state: 'active', recoverable: false });
+
+    await recoverGoal('goal/1', {
+      expectedStateVersion: 13,
+      idempotencyKey: 'goal-recover-1',
+    });
+
+    expect(mockedPost).toHaveBeenCalledWith('/api/goals/goal%2F1/recover', {
+      expected_state_version: 13,
+      idempotency_key: 'goal-recover-1',
     });
   });
 
