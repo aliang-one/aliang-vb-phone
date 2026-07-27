@@ -17,8 +17,7 @@ import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { IconBadge } from '../../components/visual/IconBadge';
 import type { RootStackParamList } from '../../app/navigation/types';
-import { useVibeRun } from '../../store/controlCenterStore';
-import { useControlCenterStore } from '../../store/controlCenterStore';
+import { useControlCenterStore, useSessionApprovalEvents, useVibeRun } from '../../store/controlCenterStore';
 import { createId } from '../../store/internals';
 import type { GoalSummary } from '../../data/platformModels';
 import {
@@ -284,6 +283,20 @@ export const GoalDetailScreen: React.FC = () => {
       clearInterval(timer);
     };
   }, [summary?.state, refreshGoal]);
+  // approval.requested 是一次性推送，不更新 store 的 session.goalSummary.state；
+  // 收到本 session 的 approval 事件就 refreshGoal 拉权威快照，让确认按钮立即
+  // 出现（无需返回重进）。同 approval-not-live-recover-on-turnend 的自愈模式。
+  const approvalEvents = useSessionApprovalEvents(
+    route.params.sourceSessionId ?? route.params.goalId,
+    undefined,
+  );
+  const approvalEventCount = approvalEvents.length;
+  useEffect(() => {
+    if (approvalEventCount === 0) return;
+    const controller = new AbortController();
+    refreshGoal(controller.signal).catch(() => undefined);
+    return () => controller.abort();
+  }, [approvalEventCount, refreshGoal]);
 
   const performRecover = useCallback(async () => {
     if (!summary || summary.stateVersion === undefined) return;
