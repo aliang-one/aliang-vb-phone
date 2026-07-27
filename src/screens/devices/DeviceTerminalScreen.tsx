@@ -24,6 +24,7 @@ import Svg, { Path } from 'react-native-svg';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
+import { useStableMeasurement } from '../../hooks/useStableMeasurement';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { StatusChip } from '../../components/shared/StatusChip';
@@ -198,7 +199,13 @@ export const DeviceTerminalScreen: React.FC = () => {
   const [openRetryToken, setOpenRetryToken] = useState(0);
   const [keyboardProxyFocused, setKeyboardProxyFocused] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
-  const [floatingControlsHeight, setFloatingControlsHeight] = useState(0);
+  // `floatingControlsHeight` feeds `terminalViewportInset` → the terminal
+  // viewport's `paddingBottom`. Storing the raw Fabric sub-pixel value here
+  // re-laid-out the viewport every pass → onLayout fired again → infinite loop
+  // → `Maximum update depth exceeded` crash. The stable hook rounds + bails on
+  // sub-pixel jitter, breaking the feedback loop.
+  const [floatingControlsHeight, setFloatingControlsHeight] =
+    useStableMeasurement(0);
   // Entry B (in-terminal voice FAB → voice→bash → pty): drives the shared
   // VoiceToBashModal in live mode; the confirmed command is injected into the
   // current pty via the same sendToTerminal path the EXECUTE/suggestion chips use.

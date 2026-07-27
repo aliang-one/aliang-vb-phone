@@ -96,6 +96,7 @@ import { deriveLivePulse } from '../../utils/activitySummary';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { isGoalCommand, parseGoalCommand } from '../../utils/goalComposer';
 import { useNowTick } from '../../hooks/useNowTick';
+import { useStableMeasurement } from '../../hooks/useStableMeasurement';
 import { useThrottledValue } from '../../hooks/useThrottledValue';
 import { useVoiceStt } from '../../hooks/useVoiceStt';
 import {
@@ -522,7 +523,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // Transient "已是最早的消息" notice: shown when the user pulls at the top but
   // there is no earlier history to load (and the conversation isn't blank).
   const [noMoreEarlierHint, setNoMoreEarlierHint] = useState(false);
-  const [viewportHeight, setViewportHeight] = useState(0);
+  // ScrollView height from onLayout. Raw Fabric sub-pixel values defeat React's
+  // bailout and can oscillate → `Maximum update depth exceeded`. Rounded + tol.
+  const [viewportHeight, setViewportHeight] = useStableMeasurement(0);
 
   const scrollViewRef = useRef<ScrollView | null>(null);
   const scrollYRef = useRef(0);
@@ -653,7 +656,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
       }, SCROLL_THROTTLE_MS);
     }
   };
-  const [conversationTop, setConversationTop] = useState(0);
+  // Conversation section's y-offset from onLayout — same sub-pixel guard as
+  // viewportHeight. Feeds scroll/scrubber math, must stay stable across passes.
+  const [conversationTop, setConversationTop] = useStableMeasurement(0);
   const [messageLayouts, setMessageLayouts] = useState<
     Record<string, { top: number; height: number }>
   >({});
