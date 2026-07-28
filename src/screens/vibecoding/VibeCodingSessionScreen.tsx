@@ -131,6 +131,22 @@ const SCROLL_THROTTLE_MS = 80;
 // (fetchAiSession); this race is the safety net on top.
 const DETAIL_LOAD_TIMEOUT_MS = 15000;
 
+// Bug 2 fix: createGoal (POST /api/goals) hang 时强制超时阈值。
+// export 出来便于测试断言常量值。
+export const CREATE_GOAL_TIMEOUT_MS = 30_000;
+// Bug 3 fix: sendingMessage 卡死自愈阈值。> createGoal 30s 超时 + 网络重试
+// 余量；正常发送（含 draft startAgentSession）远不到此阈值。
+export const SENDING_STALE_MS = 45_000;
+// Bug 3 fix: 纯函数判定「sendingSinceRef 是否已过期」。提取出来便于测试，
+// 组件内 handleSendText 复用此判定。
+export const isSendingStale = (
+  since: number | null,
+  now: number = Date.now(),
+): boolean => {
+  if (since === null) return false;
+  return now - since > SENDING_STALE_MS;
+};
+
 const goalRequestErrorMessage = (error: unknown): string => {
   if (error instanceof ApiResponseError) {
     if (error.status === 404) return '当前服务端版本不支持 Goal，请升级服务端后重试。';
@@ -549,6 +565,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const lastScrollToEndAtRef = useRef(0);
   const pendingScrollAnimatedRef = useRef(false);
   const sendLockRef = useRef<string | null>(null);
+  // Bug 3 fix: 自愈兜底。setSendingMessage(true) 时戳时间戳；handleSendText
+  // 入口若 isSendingStale(sendingSinceRef.current)，强制清 sendingMessage /
+  // sendLockRef，避免 createGoal / appendAgentMessage 路径异常残留导致
+  // 「有内容也发不出」的卡死。
+  const sendingSinceRef = useRef<number | null>(null);
   const goalCreateRequestRef = useRef<{
     fingerprint: string;
     requestId: string;
@@ -1272,23 +1293,34 @@ export const VibeCodingSessionScreen: React.FC = () => {
         : createId('goal-create');
     goalCreateRequestRef.current = { fingerprint, requestId };
     sendLockRef.current = requestId;
+    sendingSinceRef.current = Date.now();
     setSendingMessage(true);
     setGoalCreating(true);
     setDetailError('');
     try {
-      const created = await createGoal({
-        deviceId: context.deviceId,
-        projectId: context.projectId,
-        projectPath: context.projectPath,
-        objective: normalizedObjective,
-        idempotencyKey: requestId,
-        provider: context.provider,
-        model: context.model,
-        effort: context.effort,
-        // Attach to the existing conversation (preserve history) when there is
-        // one; only let the server create a fresh goal session from a draft.
-        aiSessionId: !isDraft && session ? session.id : undefined,
+      // Bug 2 fix: createGoal (POST /api/goals) 若 hang 不返回，finally 不执行
+      // → sendLockRef / sendingMessage 残留 → 后续发送全部静默 no-op。
+      // 用 Promise.race 加 CREATE_GOAL_TIMEOUT_MS 超时：到点 reject → 进
+      // catch 提示 → finally 必执行清锁。配合 Bug 3 的 sendingSinceRef 兜底。
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`创建 Goal 超时（${CREATE_GOAL_TIMEOUT_MS / 1000}s 无响应）`)), CREATE_GOAL_TIMEOUT_MS);
       });
+      const created = await Promise.race([
+        createGoal({
+          deviceId: context.deviceId,
+          projectId: context.projectId,
+          projectPath: context.projectPath,
+          objective: normalizedObjective,
+          idempotencyKey: requestId,
+          provider: context.provider,
+          model: context.model,
+          effort: context.effort,
+          // Attach to the existing conversation (preserve history) when there is
+          // one; only let the server create a fresh goal session from a draft.
+          aiSessionId: !isDraft && session ? session.id : undefined,
+        }),
+        timeoutPromise,
+      ]);
       goalCreateRequestRef.current = null;
       enterGoalSession(created);
       return true;
@@ -1298,6 +1330,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
       return false;
     } finally {
       if (sendLockRef.current === requestId) sendLockRef.current = null;
+      sendingSinceRef.current = null;
       setSendingMessage(false);
       setGoalCreating(false);
     }
@@ -1349,7 +1382,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
       }
       sendLockRef.current = sendKey;
       pendingScrollToEndRef.current = true;
-      setSendingMessage(true);
+      sendingSinceRef.current = Date.now();
+    setSendingMessage(true);
       try {
         const sessionId = await startAgentSession({
           deviceId: draftConfig.deviceId,
@@ -1379,7 +1413,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
         if (sendLockRef.current === sendKey) {
           sendLockRef.current = null;
         }
-        setSendingMessage(false);
+        sendingSinceRef.current = null;
+      setSendingMessage(false);
       }
     }
     // 失败会话不再阻断发送:失败只是「上一轮没收到回复」,发新消息(或点失败消息旁
@@ -1392,6 +1427,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     const sendKey = `${session.id}:${messageMode}:${normalizedContent}`;
     sendLockRef.current = sendKey;
     pendingScrollToEndRef.current = true;
+    sendingSinceRef.current = Date.now();
     setSendingMessage(true);
     // Clear any previous detail load error so a successful send won't show
     // a stale error banner alongside new messages.
@@ -1425,6 +1461,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
       if (sendLockRef.current === sendKey) {
         sendLockRef.current = null;
       }
+      sendingSinceRef.current = null;
       setSendingMessage(false);
     }
   };
@@ -1548,6 +1585,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
     const goalCommand = isGoalCommand(nextInput);
     const isGoalSend = goalDraftActive || session?.purpose === 'goal' || goalCommand;
     if (!isGoalSend && (deviceOffline || shouldDisableComposerForProvider)) return;
+    // Bug 3 fix: 自愈兜底。若 sendingMessage 已为 true 但距戳时间超过
+    // SENDING_STALE_MS（45s），认定 createGoal / appendAgentMessage 等路径
+    // 异常残留（hang、未捕获 reject、丢 finally），强制清掉 sendingMessage
+    // 和 sendLockRef，让用户能继续发；否则用户看到「有内容也发不出」。
+    if (sendingMessage && isSendingStale(sendingSinceRef.current)) {
+      sendingSinceRef.current = null;
+      setSendingMessage(false);
+      if (sendLockRef.current) sendLockRef.current = null;
+    }
     if (!nextInput || sendingMessage) {
       return;
     }
@@ -3458,7 +3504,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               onMore={() => setToolsMenuVisible(true)}
             />
           ) : goalDraftActive ? (
-            <GoalDraftBar objective={input} creating={goalCreating} onExit={exitGoalDraft} />
+            <GoalDraftBar creating={goalCreating} onExit={exitGoalDraft} />
           ) : null}
           <MessageComposer
             mode={mode}

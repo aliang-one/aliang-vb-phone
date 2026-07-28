@@ -205,11 +205,13 @@ export const GoalStatusBar: React.FC<GoalStatusBarProps> = ({
 
 export const GoalDraftBar: React.FC<{
   creating?: boolean;
-  objective?: string;
   onExit: () => void;
-}> = ({ creating = false, objective = '', onExit }) => {
+}> = ({ creating = false, onExit }) => {
   const { theme } = useTheme();
-  const objectiveLabel = objective.trim() || '目标待输入';
+  // Draft 阶段只显示静态提示，不实时回显输入框内容。
+  // 用户的输入在 composer 里已经可见， Goal 真正的内容在发送成功后由
+  // GoalStatusBar (session.purpose==='goal') 承接显示，避免 draft 时上方
+  // 出现逐字 echo 造成「发送前就显示」的错觉。
   return (
     <View
       testID="goal-draft-bar"
@@ -224,7 +226,7 @@ export const GoalDraftBar: React.FC<{
       <View style={styles.draftCopy}>
         <Text style={[theme.typography.labelMd, { color: theme.colors.onSurface }]}>Goal</Text>
         <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
-          {creating ? '正在创建 Goal' : objectiveLabel}
+          {creating ? '正在创建 Goal' : '正在编辑 Goal'}
         </Text>
       </View>
       <TouchableOpacity

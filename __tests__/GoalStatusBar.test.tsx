@@ -149,15 +149,20 @@ describe('GoalStatusBar', () => {
     expect(visibleText(renderer!)).toContain('正在创建 Goal');
   });
 
-  it('shows the current unsent objective in the Goal draft bar', () => {
+  it('does NOT echo the unsent objective while in Goal draft (only a static hint)', () => {
+    // Bug 1 fix: draft 阶段 GoalDraftBar 不再实时回显输入框内容，只显示
+    // 静态提示「正在编辑 Goal」。真正的内容在发送成功后由 GoalStatusBar 承接。
     let renderer: ReactTestRenderer.ReactTestRenderer;
     act(() => {
       renderer = ReactTestRenderer.create(
         <ThemeContext.Provider value={{ theme: utilityMinimalist, mode: 'light', setMode: jest.fn(), isDark: false }}>
-          <GoalDraftBar objective="完成登录流程" onExit={jest.fn()} />
+          <GoalDraftBar onExit={jest.fn()} />
         </ThemeContext.Provider>,
       );
     });
-    expect(visibleText(renderer!)).toContain('完成登录流程');
+    const text = visibleText(renderer!);
+    expect(text).toContain('正在编辑 Goal');
+    // 不应该出现逐字 echo 的占位文案
+    expect(text).not.toContain('目标待输入');
   });
 });
