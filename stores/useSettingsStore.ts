@@ -67,11 +67,19 @@ export const useSessionStore = create<SessionState>()(
         // (local ut_ tokens), which we leave to the server to validate.
         const exp = decodeJwtExp(token);
         if (exp && isJwtExpired(exp)) {
-          // Locally-known expiry: tear the session down via the central hub
-          // (clears token/user, resets the realtime pipeline) so the app
-          // returns to Login without a wasted /api/auth/me round-trip.
-          notifySessionInvalidated();
-          throw new SessionExpiredError('登录已过期，请重新登录。');
+          // Access JWT expired (~24h TTL). The reactive 401→refresh path only
+          // fires while the app is making requests; on a cold launch AFTER the
+          // token lapsed it never runs, so a still-valid refresh_token was
+          // wasted and the user was forced to re-login roughly every day.
+          // Rotate the access token via the refresh_token first — only tear the
+          // session down when there is no refresh_token or the refresh itself
+          // fails (refresh_token also stale). refreshSession() persists the
+          // fresh token, so fall through and load the user with it.
+          const refreshed = await get().refreshSession();
+          if (!refreshed) {
+            notifySessionInvalidated();
+            throw new SessionExpiredError('登录已过期，请重新登录。');
+          }
         }
         const user = await fetchCurrentUser();
         set({
