@@ -42,6 +42,28 @@ export const PreviewScreen: React.FC = () => {
     },
   );
 
+  // `previewLinks` can be empty when the store was reset (auth refresh / socket
+  // reconnect) or a deep link carries a stale previewId. Without this guard the
+  // render body dereferences `preview.targetUrl` / `.shortUrl` / `.port` /
+  // `.access.toUpperCase()` / `.expiresIn` on undefined → JS red screen.
+  if (!preview) {
+    return (
+      <SafeAreaWrapper>
+        <TopAppBar title="Preview" onBack={navigation.goBack} />
+        <View style={styles.emptyState} testID="preview-empty">
+          <Text
+            style={[
+              theme.typography.bodyMd,
+              { color: theme.colors.onSurfaceVariant },
+            ]}
+          >
+            No active preview link.
+          </Text>
+        </View>
+      </SafeAreaWrapper>
+    );
+  }
+
   return (
     <SafeAreaWrapper>
       <TopAppBar
@@ -228,6 +250,12 @@ const DetailRow: React.FC<DetailRowProps> = ({ label, value }) => {
 const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
   },
   content: {
     paddingHorizontal: 16,
