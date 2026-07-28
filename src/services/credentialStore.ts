@@ -5,8 +5,10 @@
  */
 import * as Keychain from 'react-native-keychain';
 import type { AuthenticationPrompt, SetOptions } from 'react-native-keychain';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export const CREDENTIAL_SERVICE = 'com.aliangvibecodingphone.session';
+const FLAG_KEY = '@saved_credential_flag';
 
 export type StorageMode = 'biometric' | 'plain';
 
@@ -73,5 +75,47 @@ export async function loadCredentials(
     return { status: 'ok', email: result.username, password: result.password };
   } catch {
     return { status: 'unavailable' };
+  }
+}
+
+export interface CredentialFlag {
+  hasCreds: boolean;
+  usesBiometry: boolean;
+}
+
+const DEFAULT_FLAG: CredentialFlag = { hasCreds: false, usesBiometry: false };
+
+/**
+ * Non-sensitive flag in AsyncStorage so the login screen can decide whether to
+ * auto-prompt WITHOUT triggering a biometric prompt just to check existence.
+ * Initial value when absent / unparseable: {hasCreds:false, usesBiometry:false}.
+ */
+export async function readCredentialFlag(): Promise<CredentialFlag> {
+  try {
+    const raw = await AsyncStorage.getItem(FLAG_KEY);
+    if (!raw) return DEFAULT_FLAG;
+    return { ...DEFAULT_FLAG, ...(JSON.parse(raw) as Partial<CredentialFlag>) };
+  } catch {
+    return DEFAULT_FLAG;
+  }
+}
+
+export async function writeCredentialFlag(flag: CredentialFlag): Promise<void> {
+  try {
+    await AsyncStorage.setItem(FLAG_KEY, JSON.stringify(flag));
+  } catch {
+    // non-critical
+  }
+}
+
+/**
+ * Remove stored credentials. NON-atomic with writeCredentialFlag — if the app
+ * crashes between this and the flag write, the LoginScreen self-heal covers it.
+ */
+export async function clearCredentials(): Promise<void> {
+  try {
+    await Keychain.resetGenericPassword({ service: CREDENTIAL_SERVICE });
+  } catch {
+    // best-effort
   }
 }

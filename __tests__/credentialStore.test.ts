@@ -18,6 +18,9 @@ import {
   pickStorageMode,
   saveCredentials,
   loadCredentials,
+  clearCredentials,
+  readCredentialFlag,
+  writeCredentialFlag,
   CREDENTIAL_SERVICE,
 } from '../src/services/credentialStore';
 
@@ -102,5 +105,33 @@ describe('loadCredentials', () => {
     const err = Object.assign(new Error('not enrolled'), { code: 'BIOMETRIC_NOT_ENROLLED' });
     (Keychain.getGenericPassword as jest.Mock).mockRejectedValue(err);
     await expect(loadCredentials({ title: 't' })).resolves.toEqual({ status: 'unavailable' });
+  });
+});
+
+describe('flag + clear', () => {
+  beforeEach(() => jest.resetAllMocks());
+
+  test('readCredentialFlag defaults when absent', async () => {
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(null);
+    await expect(readCredentialFlag()).resolves.toEqual({ hasCreds: false, usesBiometry: false });
+  });
+
+  test('readCredentialFlag returns default on garbage JSON (robustness)', async () => {
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue('not-json{');
+    await expect(readCredentialFlag()).resolves.toEqual({ hasCreds: false, usesBiometry: false });
+  });
+
+  test('writeCredentialFlag persists JSON', async () => {
+    await writeCredentialFlag({ hasCreds: true, usesBiometry: true });
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith(
+      '@saved_credential_flag',
+      JSON.stringify({ hasCreds: true, usesBiometry: true }),
+    );
+  });
+
+  test('clearCredentials calls resetGenericPassword with service', async () => {
+    (Keychain.resetGenericPassword as jest.Mock).mockResolvedValue(true);
+    await clearCredentials();
+    expect(Keychain.resetGenericPassword).toHaveBeenCalledWith({ service: CREDENTIAL_SERVICE });
   });
 });
