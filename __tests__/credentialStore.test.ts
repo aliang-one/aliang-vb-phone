@@ -17,6 +17,7 @@ import * as Keychain from 'react-native-keychain';
 import {
   pickStorageMode,
   saveCredentials,
+  loadCredentials,
   CREDENTIAL_SERVICE,
 } from '../src/services/credentialStore';
 
@@ -69,5 +70,37 @@ describe('saveCredentials', () => {
     (Keychain.setGenericPassword as jest.Mock).mockRejectedValue(new Error('disk'));
     const mode = await saveCredentials('a@b.c', 'pw');
     expect(mode).toBeNull();
+  });
+});
+
+describe('loadCredentials', () => {
+  beforeEach(() => jest.resetAllMocks());
+
+  test('resolves credentials → {status:"ok", email, password}', async () => {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue({
+      service: CREDENTIAL_SERVICE,
+      username: 'a@b.c',
+      password: 'pw',
+    });
+    await expect(loadCredentials({ title: 't' })).resolves.toEqual({
+      status: 'ok',
+      email: 'a@b.c',
+      password: 'pw',
+    });
+    expect(Keychain.getGenericPassword).toHaveBeenCalledWith({
+      service: CREDENTIAL_SERVICE,
+      authenticationPrompt: { title: 't' },
+    });
+  });
+
+  test('getGenericPassword resolves false (cancel OR missing) → {status:"cancelled"}', async () => {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
+    await expect(loadCredentials({ title: 't' })).resolves.toEqual({ status: 'cancelled' });
+  });
+
+  test('getGenericPassword rejects (BIOMETRIC_NOT_ENROLLED) → caught → {status:"unavailable"}', async () => {
+    const err = Object.assign(new Error('not enrolled'), { code: 'BIOMETRIC_NOT_ENROLLED' });
+    (Keychain.getGenericPassword as jest.Mock).mockRejectedValue(err);
+    await expect(loadCredentials({ title: 't' })).resolves.toEqual({ status: 'unavailable' });
   });
 });

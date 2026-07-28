@@ -4,7 +4,7 @@
  * can offer biometric one-tap login.
  */
 import * as Keychain from 'react-native-keychain';
-import type { SetOptions } from 'react-native-keychain';
+import type { AuthenticationPrompt, SetOptions } from 'react-native-keychain';
 
 export const CREDENTIAL_SERVICE = 'com.aliangvibecodingphone.session';
 
@@ -48,5 +48,30 @@ export async function saveCredentials(
     return mode;
   } catch {
     return null;
+  }
+}
+
+export type LoadResult =
+  | { status: 'ok'; email: string; password: string }
+  | { status: 'cancelled' } // getGenericPassword resolved false (cancel or missing)
+  | { status: 'unavailable' }; // getGenericPassword rejected (BIOMETRIC_NOT_ENROLLED, PASSCODE_NOT_SET, …)
+
+/**
+ * Read saved credentials. `getGenericPassword` RESOLVES `false` on missing entry
+ * OR user-cancel (indistinguishable), and REJECTS with error.code on OS refusal.
+ * The 3-way result lets the UI retry only when retry can succeed.
+ */
+export async function loadCredentials(
+  authenticationPrompt: AuthenticationPrompt,
+): Promise<LoadResult> {
+  try {
+    const result = await Keychain.getGenericPassword({
+      service: CREDENTIAL_SERVICE,
+      authenticationPrompt,
+    });
+    if (!result || typeof result === 'boolean') return { status: 'cancelled' };
+    return { status: 'ok', email: result.username, password: result.password };
+  } catch {
+    return { status: 'unavailable' };
   }
 }
