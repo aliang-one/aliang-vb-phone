@@ -33,6 +33,7 @@ import {
   line,
   MAX_RUN_EVENTS,
   MAX_TERMINAL_LINES,
+  MAX_VIBE_RUNS,
   mergeIds,
   mergeVibeRunSnapshot,
   nowTime,
@@ -117,6 +118,26 @@ const VIBE_RUN_NON_SEMANTIC_KEYS = [
 
 const LIST_STREAM_PUBLISH_MS = 500;
 
+/**
+ * Hard cap on the stableRunCache. The cache used to only grow — every session
+ * id ever seen stayed forever, holding a full VibeCodingRun (transcript /
+ * events / structuredEvents) even after the session rotated out of `vibeRuns`
+ * (MAX_VIBE_RUNS). Over weeks of use that was a slow native OOM. Bound it to
+ * the active set size + a slack buffer; FIFO-eviction (Map insertion order)
+ * drops the oldest first-seen ids, which are exactly the runs that aged out.
+ */
+const STABLE_RUN_CACHE_MAX = MAX_VIBE_RUNS + 8;
+
+function pruneStableRunCache(maxSize: number): void {
+  if (stableRunCache.size <= maxSize) return;
+  const excess = stableRunCache.size - maxSize;
+  let removed = 0;
+  for (const key of stableRunCache.keys()) {
+    stableRunCache.delete(key);
+    if (++removed >= excess) break;
+  }
+}
+
 const stableRunCache = new Map<
   string,
   {
@@ -158,7 +179,18 @@ export function toStableRun(run: VibeCodingRun, now = Date.now()): VibeCodingRun
     if (now - cached.publishedAt < LIST_STREAM_PUBLISH_MS) return cached.run;
   }
   stableRunCache.set(run.id, { semantic, volatile, run, publishedAt: now });
+  pruneStableRunCache(STABLE_RUN_CACHE_MAX);
   return run;
+}
+
+/** Test-only: observe the cache size. */
+export function __stableRunCacheSizeForTest(): number {
+  return stableRunCache.size;
+}
+
+/** Test-only: reset the module-level cache between cases. */
+export function __resetStableRunCacheForTest(): void {
+  stableRunCache.clear();
 }
 
 /** Subscribe to all AI sessions as referentially-stable run objects for LIST

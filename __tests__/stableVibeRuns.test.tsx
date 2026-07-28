@@ -22,6 +22,8 @@ import {
   toStableRun,
   useControlCenterStore,
   useStableVibeRuns,
+  __resetStableRunCacheForTest,
+  __stableRunCacheSizeForTest,
 } from '../src/store/controlCenterStore';
 import type { VibeCodingRun } from '../src/data/platformModels';
 
@@ -159,5 +161,57 @@ describe('useStableVibeRuns (rendered hook)', () => {
     });
     expect(probeRenders).toBeGreaterThan(rendersAtMount); // at least one re-render
     unmount();
+  });
+});
+
+describe('toStableRun cache is bounded (no unbounded leak)', () => {
+  // The module-level stableRunCache used to only grow (.get/.set, never delete).
+  // When sessions rotated out of vibeRuns (MAX_VIBE_RUNS=50), their cache
+  // entries — each holding a full VibeCodingRun including transcript/events/
+  // structuredEvents — leaked forever, slowly OOM-ing over weeks of use.
+  beforeEach(() => __resetStableRunCacheForTest());
+
+  it('caps the cache size instead of growing with every new session id', () => {
+    // Insert well past MAX_VIBE_RUNS (50).
+    for (let i = 0; i < 120; i++) {
+      toStableRun(baseRun({ id: `r-${i}` }), 1000 + i);
+    }
+    const sizeAt120 = __stableRunCacheSizeForTest();
+    expect(sizeAt120).toBeLessThan(120); // pruned, not unbounded
+
+    // Keep inserting — the cap must hold, not keep climbing.
+    for (let i = 0; i < 200; i++) {
+      toStableRun(baseRun({ id: `s-${i}` }), 2000 + i);
+    }
+    expect(__stableRunCacheSizeForTest()).toBe(sizeAt120); // stable at the cap
+  });
+
+  it('evicts the OLDEST first-seen run (FIFO = runs that rotated out)', () => {
+    const oldest = baseRun({ id: 'oldest' });
+    toStableRun(oldest, 1000);
+    for (let i = 0; i < 120; i++) {
+      toStableRun(baseRun({ id: `other-${i}` }), 2000 + i);
+    }
+
+    // 'oldest' was inserted first → evicted. Re-submitting it with unchanged
+    // semantic+volatile meta must return the NEW object (cache miss), not the
+    // stale cached ref. If it were still cached, toStableRun would return
+    // cached.run (=== oldest).
+    const resubmitted = baseRun({ id: 'oldest' });
+    expect(toStableRun(resubmitted, 9999)).toBe(resubmitted);
+  });
+
+  it('still serves cache hits for runs that remain active', () => {
+    for (let i = 0; i < 120; i++) {
+      toStableRun(baseRun({ id: `other-${i}` }), 2000 + i);
+    }
+    const recent = baseRun({ id: 'recent' });
+    toStableRun(recent, 5000); // inserted last → within the retained window
+
+    // Re-submit the SAME object. Production updates a run via `{...run, field}`
+    // (spread preserves sibling array refs that `shallow` compares); a fresh
+    // `baseRun()` would create a new `suggestions: []` and falsely miss. A
+    // retained entry must still hit and return the cached reference.
+    expect(toStableRun(recent, 5000)).toBe(recent);
   });
 });
