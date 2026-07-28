@@ -20,6 +20,8 @@ import {
   clearCredentials,
   writeCredentialFlag,
 } from '../src/services/credentialStore';
+import { useToastStore } from '../src/store/toastStore';
+import i18n from '../src/i18n';
 import {
   SessionExpiredError,
   decodeJwtExp,
@@ -124,6 +126,20 @@ export const useSessionStore = create<SessionState>()(
             hasCreds: !!mode,
             usesBiometry: mode === 'biometric',
           });
+          // Informed consent: on the FIRST plain-mode save (biometry unavailable),
+          // tell the user once that the saved login is stored without a biometric
+          // prompt. Subsequent plain saves stay silent.
+          if (mode === 'plain') {
+            try {
+              const shown = await AsyncStorage.getItem('@plain_save_notice_shown');
+              if (!shown) {
+                useToastStore.getState().show(i18n.t('auth:plainModeSavedNotice'));
+                await AsyncStorage.setItem('@plain_save_notice_shown', '1');
+              }
+            } catch {
+              /* best-effort */
+            }
+          }
         } catch {
           // never block login
         }
