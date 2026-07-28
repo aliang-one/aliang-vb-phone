@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  InteractionManager,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -42,6 +43,10 @@ export const LoginScreen: React.FC = () => {
   // Aborts a pending auto-submit if the user starts typing before the biometric
   // prompt resolves.
   const cancelledRef = useRef(false);
+  // Guards against a second focus firing while a prompt is still in flight
+  // (React 19 dev / navigation transitions can re-run the effect). Two concurrent
+  // BiometricPrompts cancel each other → Android ERROR_CANCELED.
+  const promptingRef = useRef(false);
 
   const handleSubmitWith = async (emailArg: string, passwordArg: string) => {
     if (!emailArg.trim() || !passwordArg) return;
@@ -78,31 +83,49 @@ export const LoginScreen: React.FC = () => {
     React.useCallback(() => {
       let mounted = true;
       cancelledRef.current = false;
-      (async () => {
+      if (promptingRef.current) return;
+      promptingRef.current = true;
+      // Defer past the screen transition so the BiometricPrompt host (the
+      // Activity) is resumed/focused before we ask for biometry — otherwise
+      // Android cancels it ("AuthSession is not current", ERROR_CANCELED).
+      const handle = InteractionManager.runAfterInteractions(async () => {
         const flag = await readCredentialFlag();
-        if (!mounted || !flag.hasCreds) return;
+        if (!mounted || !flag.hasCreds) {
+          promptingRef.current = false;
+          return;
+        }
         setBioLoading(true);
         const result: LoadResult = await loadCredentials({
           title: t('biometricPromptTitle'),
           cancel: t('biometricPromptCancel'),
         });
         setBioLoading(false);
-        if (!mounted || cancelledRef.current) return;
+        if (!mounted || cancelledRef.current) {
+          promptingRef.current = false;
+          return;
+        }
         if (result.status === 'ok') {
           setEmail(result.email);
           setPassword(result.password);
           if (flag.usesBiometry) {
             await handleSubmitWith(result.email, result.password);
           }
-        } else {
-          // cancelled OR unavailable → self-heal flag.
+        } else if (result.status === 'unavailable') {
+          // Biometry no longer usable (enrollment removed / passcode off) —
+          // stop prompting.
           await writeCredentialFlag({ hasCreds: false, usesBiometry: false });
-          // retry only when retry can succeed (cancel), not on unavailable.
-          setBioRetry(result.status === 'cancelled' && flag.usesBiometry);
+        } else {
+          // cancelled (user or system). KEEP the flag so the feature survives a
+          // dismiss; offer retry. A stale flag (entry actually gone) self-
+          // corrects on the next successful login, which re-saves the credential.
+          setBioRetry(flag.usesBiometry);
         }
-      })();
+        promptingRef.current = false;
+      });
       return () => {
         mounted = false;
+        handle.cancel();
+        promptingRef.current = false;
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),

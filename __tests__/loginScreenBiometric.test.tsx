@@ -74,21 +74,23 @@ describe('LoginScreen biometric flow', () => {
     expect(useSessionStore.getState().login).toHaveBeenCalledWith('a@b.c', 'pw');
   });
 
-  it('cancel → retry button shown + flag self-healed; login NOT called', async () => {
+  it('cancel → retry button shown + flag KEPT (not self-healed); login NOT called', async () => {
     (readCredentialFlag as jest.Mock).mockResolvedValue({ hasCreds: true, usesBiometry: true });
     (loadCredentials as jest.Mock).mockResolvedValue({ status: 'cancelled' });
     const r = mountScreen();
     await flush();
-    expect(writeCredentialFlag).toHaveBeenCalledWith({ hasCreds: false, usesBiometry: false });
+    // Cancel keeps the flag so the feature survives a dismiss; retry offered.
+    expect(writeCredentialFlag).not.toHaveBeenCalled();
     expect(useSessionStore.getState().login).not.toHaveBeenCalled();
     expect(r.root.findAllByProps({ testID: 'biometric-retry' }).length).toBeGreaterThan(0);
   });
 
-  it('unavailable (reject) → NO retry button, login NOT called', async () => {
+  it('unavailable (reject) → flag cleared, NO retry button, login NOT called', async () => {
     (readCredentialFlag as jest.Mock).mockResolvedValue({ hasCreds: true, usesBiometry: true });
     (loadCredentials as jest.Mock).mockResolvedValue({ status: 'unavailable' });
     const r = mountScreen();
     await flush();
+    expect(writeCredentialFlag).toHaveBeenCalledWith({ hasCreds: false, usesBiometry: false });
     expect(useSessionStore.getState().login).not.toHaveBeenCalled();
     expect(r.root.findAllByProps({ testID: 'biometric-retry' }).length).toBe(0);
   });
