@@ -1478,17 +1478,30 @@ export const VibeCodingSessionScreen: React.FC = () => {
     ) {
       return;
     }
-    setVoiceDraft('');
-    void voiceStt.start({
-      sessionId: session?.id,
-      projectPath: session?.directory ?? project?.path,
-      onComplete: transcript => {
-        if (transcript.trim()) {
+    // Do NOT clear voiceDraft upfront. A previous recording's transcript is
+    // valuable: if this recording fails or its onComplete never fires (short
+    // tap / dropped stt.completed / network blip), the user still has the
+    // earlier transcript to edit or send. We only replace voiceDraft once the
+    // new transcript actually arrives in onComplete.
+    void voiceStt
+      .start({
+        sessionId: session?.id,
+        projectPath: session?.directory ?? project?.path,
+        onComplete: transcript => {
+          // Always overwrite: the latest recording's transcript is the truth.
+          // (Empty transcript → reflects "this take recognized nothing".)
           setVoiceDraft(transcript);
+        },
+      })
+      .then(started => {
+        if (!started) {
+          // Rejected by useVoiceStt (still stopping from a previous take).
+          // Surface it so the user knows the tap didn't begin a recording,
+          // rather than silently doing nothing.
+          Alert.alert(t('common:voice.recognizeFailed'), t('common:voice.recorderBusy'));
         }
-      },
-    });
-  }, [deviceOffline, shouldDisableComposerForProvider, voiceStt, session, project]);
+      });
+  }, [deviceOffline, shouldDisableComposerForProvider, voiceStt, session, project, t]);
 
   const handleVoiceCaptureEnd = useCallback(() => {
     void voiceStt.stop();
@@ -1533,7 +1546,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // and arms a one-shot auto-focus to bring up the keyboard.
   const handleEditVoice = () => {
     const draft = voiceDraft.trim();
-    if (!draft) return;
+    if (!draft) {
+      // Don't silently no-op: the user tapped the edit affordance expecting
+      // feedback. An empty draft means the last recording didn't transcribe
+      // anything (or its result hasn't arrived yet) — tell them, so they know
+      // to re-record instead of wondering why nothing happened.
+      Alert.alert(t('common:voice.recognizeFailed'));
+      return;
+    }
     setInput(draft);
     setVoiceDraft('');
     setMode('text');

@@ -123,7 +123,7 @@ describe('useVoiceStt', () => {
   it('opens the microphone immediately and buffers audio until STT is ready', async () => {
     mount();
 
-    let startPromise!: Promise<void>;
+    let startPromise!: Promise<boolean>;
     await act(async () => {
       startPromise = latest.start();
       await flushMicrotasks();
@@ -163,7 +163,7 @@ describe('useVoiceStt', () => {
   it('stops the recorder on server error so retry can start cleanly', async () => {
     mount();
 
-    let startPromise!: Promise<void>;
+    let startPromise!: Promise<boolean>;
     await act(async () => {
       startPromise = latest.start();
       await flushMicrotasks();
@@ -191,7 +191,7 @@ describe('useVoiceStt', () => {
     expect(latest.errorMessage).toBe('nls down');
 
     mockLifecycle.length = 0;
-    let retryPromise!: Promise<void>;
+    let retryPromise!: Promise<boolean>;
     await act(async () => {
       retryPromise = latest.start();
       await flushMicrotasks();
@@ -213,7 +213,7 @@ describe('useVoiceStt', () => {
   it('throttles live partial captions to avoid rerendering on every STT frame', async () => {
     mount();
 
-    let startPromise!: Promise<void>;
+    let startPromise!: Promise<boolean>;
     await act(async () => {
       startPromise = latest.start();
       await flushMicrotasks();
@@ -256,7 +256,7 @@ describe('useVoiceStt', () => {
   it('stops even when released before the socket finishes connecting', async () => {
     mount();
 
-    let startPromise!: Promise<void>;
+    let startPromise!: Promise<boolean>;
     await act(async () => {
       startPromise = latest.start();
       await flushMicrotasks();
@@ -305,7 +305,7 @@ describe('useVoiceStt', () => {
   it('waits for native recorder stop and sends tail audio before stt.stop', async () => {
     mount();
 
-    let startPromise!: Promise<void>;
+    let startPromise!: Promise<boolean>;
     await act(async () => {
       startPromise = latest.start();
       await flushMicrotasks();
@@ -355,7 +355,7 @@ describe('useVoiceStt', () => {
   it('forces completion when stop is tapped again while stopping', async () => {
     mount();
 
-    let startPromise!: Promise<void>;
+    let startPromise!: Promise<boolean>;
     await act(async () => {
       startPromise = latest.start();
       await flushMicrotasks();
@@ -415,7 +415,7 @@ describe('useVoiceStt', () => {
   it('retains the partial transcript when the gateway errors mid-stream', async () => {
     mount();
     const received: string[] = [];
-    let startPromise!: Promise<void>;
+    let startPromise!: Promise<boolean>;
     await act(async () => {
       startPromise = latest.start({ onComplete: t => received.push(t) });
       await flushMicrotasks();
@@ -452,7 +452,7 @@ describe('useVoiceStt', () => {
 
   it('shows a hard error on disconnect when nothing was transcribed', async () => {
     mount();
-    let startPromise!: Promise<void>;
+    let startPromise!: Promise<boolean>;
     await act(async () => {
       startPromise = latest.start();
       await flushMicrotasks();
@@ -475,5 +475,37 @@ describe('useVoiceStt', () => {
     expect(latest.status).toBe('error');
     expect(latest.errorMessage).toBe('语音连接已断开，请重试');
     expect(mockVoiceRecorderStop).toHaveBeenCalled();
+  });
+
+  // Regression for the "second take silently does nothing" bug: while a
+  // previous recording is still settling (status === 'stopping'), start() must
+  // reject the new take (resolve false) instead of silently accepting it. The
+  // screen reads this boolean to keep the previous transcript around rather
+  // than clearing it and waiting on an onComplete that will never fire.
+  it('rejects a second start with false while a previous take is still stopping', async () => {
+    mount();
+
+    let startPromise!: Promise<boolean>;
+    await act(async () => {
+      startPromise = latest.start();
+      await flushMicrotasks();
+      await resolveConnect();
+      await startPromise;
+    });
+    expect(latest.status).toBe('recording');
+
+    await act(async () => {
+      void latest.stop();
+      await waitPastMinRecording();
+      await flushMicrotasks();
+    });
+    expect(latest.status).toBe('stopping');
+
+    let secondStarted: boolean | undefined;
+    await act(async () => {
+      secondStarted = await latest.start();
+      await flushMicrotasks();
+    });
+    expect(secondStarted).toBe(false);
   });
 });

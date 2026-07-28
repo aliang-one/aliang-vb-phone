@@ -36,7 +36,11 @@ export interface UseVoiceSttResult {
   /** Live caption: committed finals + the in-flight partial. */
   liveCaption: string;
   errorMessage: string;
-  start: (options?: StartOptions) => Promise<void>;
+  // Resolves true if a new recording was actually started; false if rejected
+  // because a previous recording is still in flight (idle/error are the only
+  // states that admit a fresh start). Lets callers avoid clearing stale state
+  // (e.g. a previous transcript) that they'd otherwise be left waiting on.
+  start: (options?: StartOptions) => Promise<boolean>;
   stop: () => Promise<void>;
   cancel: () => void;
 }
@@ -232,7 +236,7 @@ export function useVoiceStt(): UseVoiceSttResult {
 
   const start = useCallback(
     async (options?: StartOptions) => {
-      if (status !== 'idle' && status !== 'error') return;
+      if (status !== 'idle' && status !== 'error') return false;
       setErrorMessage('');
       setLiveCaptionNow('');
       resetBufferedAudio();
@@ -250,7 +254,7 @@ export function useVoiceStt(): UseVoiceSttResult {
         recordingRequestedRef.current = false;
         setStatus('error');
         setErrorMessage(i18n.t('common:voice.notLoggedIn'));
-        return;
+        return false;
       }
 
       setStatus('connecting');
@@ -324,20 +328,20 @@ export function useVoiceStt(): UseVoiceSttResult {
           if (recordingRequestedRef.current) {
             failWith(recorderStartError ?? recorderErrorMessage('voice_recorder_busy'));
           }
-          return;
+          return true;
         }
         if (stopRequestedRef.current || !recordingRequestedRef.current) {
           stopVoiceRecorder();
         }
         if (!stopRequestedRef.current && !recordingRequestedRef.current) {
-          return;
+          return true;
         }
         if (!stopRequestedRef.current) {
           setStatus('recording');
         }
         const connectResult = await connected;
         if (!connectResult.ok) throw connectResult.error;
-        if (!recordingRequestedRef.current && !stopRequestedRef.current) return;
+        if (!recordingRequestedRef.current && !stopRequestedRef.current) return true;
         const sent = socket.sendJson({
           type: 'stt.start',
           request_id: requestId,
@@ -358,27 +362,28 @@ export function useVoiceStt(): UseVoiceSttResult {
         if (stopRequestedRef.current) {
           armStopSafety();
           await stopRecorderAndFlush();
-          if (!stopRequestedRef.current) return;
+          if (!stopRequestedRef.current) return true;
           const stopped = socket.sendJson({ type: 'stt.stop', request_id: requestId });
           if (stopped) {
             armStopSafety();
           } else {
             finishWith(transcriptRef.current);
           }
-          return;
+          return true;
         }
       } catch (error) {
         if (stopRequestedRef.current) {
           finishWith(transcriptRef.current);
-          return;
+          return true;
         }
         const message =
           error instanceof Error && error.message && !error.message.startsWith('stt_')
             ? error.message
             : i18n.t('common:voice.cannotConnect');
-        if (!recordingRequestedRef.current) return;
+        if (!recordingRequestedRef.current) return true;
         failWith(message);
       }
+      return true;
     },
     [
       status,
