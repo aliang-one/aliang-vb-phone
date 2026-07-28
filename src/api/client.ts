@@ -121,7 +121,20 @@ async function requestJson<T>(
   }
 
   const text = await response.text();
-  return (text ? JSON.parse(text) : undefined) as T;
+  if (!text) return undefined as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // 200 with a non-JSON body (proxy 502 HTML page, truncated response, CDN
+    // error page). Without this guard the raw SyntaxError escapes requestJson,
+    // bypasses the ApiResponseError channel, and apiFetch mistakes it for a
+    // dead host (marking a reachable host unreachable + re-discovering). Fold
+    // it into the standard bad-response channel so callers handle it uniformly.
+    throw new ApiResponseError(
+      `Invalid JSON response from ${path} (HTTP ${response.status})`,
+      response.status,
+    );
+  }
 }
 
 export async function apiFetch<T = unknown>(
