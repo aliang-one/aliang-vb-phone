@@ -8,5 +8,10 @@
   "language": {
     "english": "English",
     "chinese": "中文"
-  }
+  },
+  "biometricPromptTitle": "登录 Aliang",
+  "biometricPromptCancel": "取消",
+  "biometricRetry": "使用 Face ID / 指纹登录",
+  "biometricLoading": "正在读取保存的登录信息…",
+  "plainModeSavedNotice": "此设备未启用生物识别，已保存的登录信息将以无门禁方式存储。"
 }

@@ -8,5 +8,10 @@
   "language": {
     "english": "English",
     "chinese": "中文"
-  }
+  },
+  "biometricPromptTitle": "Sign in to Aliang",
+  "biometricPromptCancel": "Cancel",
+  "biometricRetry": "Use Face ID / fingerprint to sign in",
+  "biometricLoading": "Checking saved login…",
+  "plainModeSavedNotice": "Biometrics not enabled on this device — saved login is stored without a biometric prompt."
 }

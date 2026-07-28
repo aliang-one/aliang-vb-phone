@@ -106,5 +106,7 @@
     "metersProjectsValue": "{{count}} synced",
     "metersNotifications": "Notifications",
     "metersNotificationsValue": "{{unread}}/{{total}} unread"
-  }
+  },
+  "clearCredentialsLabel": "清除保存的登录信息",
+  "clearCredentialsConfirm": "已清除保存的登录信息。"
 }

@@ -106,5 +106,7 @@
     "metersProjectsValue": "{{count}} synced",
     "metersNotifications": "Notifications",
     "metersNotificationsValue": "{{unread}}/{{total}} unread"
-  }
+  },
+  "clearCredentialsLabel": "Clear saved login",
+  "clearCredentialsConfirm": "Saved login cleared."
 }
