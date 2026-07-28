@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -17,8 +17,15 @@ import { StatusChip } from '../../components/shared/StatusChip';
 import { Logo } from '../../components/visual/Logo';
 import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
+import { useFocusEffect } from '@react-navigation/native';
 import { useLocale } from '../../i18n/useLocale';
 import { useSessionStore } from '../../../stores/useSettingsStore';
+import {
+  readCredentialFlag,
+  loadCredentials,
+  writeCredentialFlag,
+  type LoadResult,
+} from '../../services/credentialStore';
 import { ALIANG_ACCOUNT_BASE_URL } from '../../config/accountService';
 
 export const LoginScreen: React.FC = () => {
@@ -30,13 +37,18 @@ export const LoginScreen: React.FC = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [bioRetry, setBioRetry] = useState(false);
+  const [bioLoading, setBioLoading] = useState(false);
+  // Aborts a pending auto-submit if the user starts typing before the biometric
+  // prompt resolves.
+  const cancelledRef = useRef(false);
 
-  const handleSubmit = async () => {
-    if (!email.trim() || !password) return;
+  const handleSubmitWith = async (emailArg: string, passwordArg: string) => {
+    if (!emailArg.trim() || !passwordArg) return;
     setLoading(true);
     setError('');
     try {
-      await login(email.trim(), password);
+      await login(emailArg.trim(), passwordArg);
     } catch (nextError) {
       setError(
         nextError instanceof Error
@@ -47,6 +59,54 @@ export const LoginScreen: React.FC = () => {
       setLoading(false);
     }
   };
+
+  const handleSubmit = () => handleSubmitWith(email, password);
+
+  const onEmailChange = (value: string) => {
+    cancelledRef.current = true;
+    setEmail(value);
+  };
+  const onPasswordChange = (value: string) => {
+    cancelledRef.current = true;
+    setPassword(value);
+  };
+
+  // On focus: if saved credentials exist, try biometric one-tap login (or
+  // prefill on biometry-less devices). Self-heals the flag if the keychain
+  // entry is gone, and offers a retry button only when retry can succeed.
+  useFocusEffect(
+    React.useCallback(() => {
+      let mounted = true;
+      cancelledRef.current = false;
+      (async () => {
+        const flag = await readCredentialFlag();
+        if (!mounted || !flag.hasCreds) return;
+        setBioLoading(true);
+        const result: LoadResult = await loadCredentials({
+          title: t('biometricPromptTitle'),
+          cancel: t('biometricPromptCancel'),
+        });
+        setBioLoading(false);
+        if (!mounted || cancelledRef.current) return;
+        if (result.status === 'ok') {
+          setEmail(result.email);
+          setPassword(result.password);
+          if (flag.usesBiometry) {
+            await handleSubmitWith(result.email, result.password);
+          }
+        } else {
+          // cancelled OR unavailable → self-heal flag.
+          await writeCredentialFlag({ hasCreds: false, usesBiometry: false });
+          // retry only when retry can succeed (cancel), not on unavailable.
+          setBioRetry(result.status === 'cancelled' && flag.usesBiometry);
+        }
+      })();
+      return () => {
+        mounted = false;
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
+  );
 
   return (
     <SafeAreaWrapper>
@@ -97,10 +157,41 @@ export const LoginScreen: React.FC = () => {
           </View>
 
           <GlassPanel style={styles.panel}>
+            {bioLoading ? (
+              <View style={styles.bioLoadingRow}>
+                <ActivityIndicator color={theme.colors.primary} size="small" />
+                <Text
+                  style={[
+                    theme.typography.labelSm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}>
+                  {t('biometricLoading')}
+                </Text>
+              </View>
+            ) : null}
+            {bioRetry ? (
+              <GlowButton
+                title={t('biometricRetry')}
+                testID="biometric-retry"
+                onPress={async () => {
+                  const result = await loadCredentials({
+                    title: t('biometricPromptTitle'),
+                    cancel: t('biometricPromptCancel'),
+                  });
+                  if (result.status !== 'ok') return;
+                  cancelledRef.current = false;
+                  setEmail(result.email);
+                  setPassword(result.password);
+                  setBioRetry(false);
+                  await handleSubmitWith(result.email, result.password);
+                }}
+                style={styles.submitButton}
+              />
+            ) : null}
             <Field
               label={t('email')}
               value={email}
-              onChangeText={setEmail}
+              onChangeText={onEmailChange}
               autoCapitalize="none"
               keyboardType="email-address"
               theme={theme}
@@ -109,7 +200,7 @@ export const LoginScreen: React.FC = () => {
             <Field
               label={t('password')}
               value={password}
-              onChangeText={setPassword}
+              onChangeText={onPasswordChange}
               secureTextEntry
               theme={theme}
               isDark={isDark}
@@ -236,6 +327,11 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   syncRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  bioLoadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
