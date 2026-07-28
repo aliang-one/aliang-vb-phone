@@ -122,7 +122,7 @@ const EmptySection: React.FC<{ text: string }> = ({ text }) => {
   return <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurfaceVariant }]}>{text}</Text>;
 };
 
-const GoalSummaryHeader: React.FC<{ summary?: GoalSummary }> = ({ summary }) => {
+export const GoalSummaryHeader: React.FC<{ summary?: GoalSummary }> = ({ summary }) => {
   const { theme } = useTheme();
   const completed = summary?.completedTasks;
   const total = summary?.totalTasks;
@@ -161,7 +161,13 @@ const GoalSummaryHeader: React.FC<{ summary?: GoalSummary }> = ({ summary }) => 
         </View>
       ) : null}
       {summary?.attention ? (
-        <Text style={[theme.typography.bodyMd, { color: theme.colors.error }]}>{summary.attention}</Text>
+        <Text
+          testID="goal-attention"
+          accessibilityLabel="Goal 失败真因"
+          accessibilityRole="text"
+          style={[theme.typography.bodyMd, { color: theme.colors.error }]}>
+          {summary.attention}
+        </Text>
       ) : null}
       {summary?.planningErrorDetail ? (
         <Text style={[theme.typography.bodySm, { color: theme.colors.error }]}>
