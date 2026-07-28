@@ -13,7 +13,12 @@ class MainActivity : ReactActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     setEdgeToEdgeFeatureFlagOn()
-    super.onCreate(savedInstanceState)
+    // Pass null so Android does NOT restore Fragment state. react-native-screens
+    // owns its Screen fragments and refuses to be re-instantiated from a saved
+    // state — restoring them after the OS kills the process in the background
+    // throws `Screen fragments should never be restored` on launch.
+    // See https://github.com/software-mansion/react-native-screens/issues/17#issuecomment-424704067
+    super.onCreate(null)
     configureSystemBars()
   }
 
