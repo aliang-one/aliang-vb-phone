@@ -16,6 +16,11 @@ import { setApiAuthTokenProvider } from '../src/api/client';
 import { platformTransport } from '../src/services/platformTransport';
 import { isActiveTerminalSessionStatus } from '../src/utils/terminalInteraction';
 import {
+  saveCredentials,
+  clearCredentials,
+  writeCredentialFlag,
+} from '../src/services/credentialStore';
+import {
   SessionExpiredError,
   decodeJwtExp,
   isJwtExpired,
@@ -36,6 +41,11 @@ interface SessionState {
   restoreUser: () => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /**
+   * Forget the saved login (Keychain entry + the non-sensitive flag). Wired to
+   * the Settings "clear saved login" row; logout does NOT call this.
+   */
+  clearSavedCredentials: () => Promise<void>;
   /**
    * Rotate the refresh_token and extend the local session server-side. Returns
    * true on success (caller retries/reconnects), false when refresh is
@@ -105,6 +115,18 @@ export const useSessionStore = create<SessionState>()(
         } catch {
           // The app can still enter the workspace if account metrics are delayed.
         }
+        // Silently remember credentials for biometric one-tap login. Best-effort:
+        // a save failure must NEVER block login. The returned mode drives the
+        // non-sensitive flag so the login screen knows whether to auto-prompt.
+        try {
+          const mode = await saveCredentials(email.trim(), password);
+          await writeCredentialFlag({
+            hasCreds: !!mode,
+            usesBiometry: mode === 'biometric',
+          });
+        } catch {
+          // never block login
+        }
       },
       logout: async () => {
         // Best-effort: close any active remote terminals before the token is
@@ -138,6 +160,12 @@ export const useSessionStore = create<SessionState>()(
           operatorName: 'Aliang',
           accountData: null,
         });
+      },
+      clearSavedCredentials: async () => {
+        // Ordered: clear the keychain first, then the flag. NON-atomic — a crash
+        // between the two is covered by the LoginScreen self-heal.
+        await clearCredentials();
+        await writeCredentialFlag({ hasCreds: false, usesBiometry: false });
       },
       refreshSession: async () => {
         const current = get().refreshToken;
