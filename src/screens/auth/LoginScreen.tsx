@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   InteractionManager,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -85,9 +86,12 @@ export const LoginScreen: React.FC = () => {
       cancelledRef.current = false;
       if (promptingRef.current) return;
       promptingRef.current = true;
-      // Defer past the screen transition so the BiometricPrompt host (the
-      // Activity) is resumed/focused before we ask for biometry — otherwise
-      // Android cancels it ("AuthSession is not current", ERROR_CANCELED).
+      // Collapse any open keyboard FIRST. The IME and BiometricPrompt fight for
+      // the window, and when the keyboard is up the prompt gets canceled with
+      // Android ERROR_CANCELED ("AuthSession is not current") — the flaky
+      // "nothing happens" symptom. runAfterInteractions then waits for the
+      // dismiss animation + screen transition to settle before prompting.
+      Keyboard.dismiss();
       const handle = InteractionManager.runAfterInteractions(async () => {
         const flag = await readCredentialFlag();
         if (!mounted || !flag.hasCreds) {
@@ -197,6 +201,8 @@ export const LoginScreen: React.FC = () => {
                 title={t('biometricRetry')}
                 testID="biometric-retry"
                 onPress={async () => {
+                  Keyboard.dismiss();
+                  await new Promise<void>(r => setTimeout(() => r(), 120));
                   const result = await loadCredentials({
                     title: t('biometricPromptTitle'),
                     cancel: t('biometricPromptCancel'),
