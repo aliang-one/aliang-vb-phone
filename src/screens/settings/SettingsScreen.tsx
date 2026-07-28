@@ -26,6 +26,7 @@ import { RingMeter } from '../../components/visual/RingMeter';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore, useStableVibeRuns } from '../../store/controlCenterStore';
 import { useSessionStore } from '../../../stores/useSettingsStore';
+import { useToastStore } from '../../store/toastStore';
 import { ratioPercent, daysUntil, formatDate } from '../../utils/format';
 import type { AccountSubscription } from '../../api/account';
 import { UserModelDefaultCard } from '../../components/account/UserModelDefaultCard';
@@ -56,6 +57,8 @@ export const SettingsScreen: React.FC = () => {
   const operatorName = useSessionStore(state => state.operatorName);
   const accountData = useSessionStore(state => state.accountData);
   const refreshAccountData = useSessionStore(state => state.refreshAccountData);
+  const clearSavedCredentials = useSessionStore(state => state.clearSavedCredentials);
+  const show = useToastStore(s => s.show);
   const disconnectFromServer = useControlCenterStore(state => state.disconnectFromServer);
   const resetSessionData = useControlCenterStore(state => state.resetSessionData);
   const wsConnected = useControlCenterStore(state => state.wsConnected);
@@ -601,6 +604,17 @@ export const SettingsScreen: React.FC = () => {
                 </TouchableOpacity>
               ))}
             </GlassPanel>
+
+            <GlowButton
+              title={t('clearCredentialsLabel')}
+              onPress={async () => {
+                await clearSavedCredentials();
+                show(t('clearCredentialsConfirm'));
+              }}
+              variant="outline"
+              style={styles.logoutBtn}
+              testID="settings-clear-credentials"
+            />
 
             <GlowButton
               title={t('actions.signOut')}
