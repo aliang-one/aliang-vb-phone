@@ -24,7 +24,10 @@
     "actionApprove": "APPROVE",
     "actionDeny": "DENY",
     "actionMore": "MORE",
-    "openSession": "OPEN SESSION"
+    "openSession": "OPEN SESSION",
+    "customReply": "Reply yourself…",
+    "customReplyPlaceholder": "Type your reply",
+    "customReplySend": "Send"
   },
   "notification": {
     "title": "Notifications",

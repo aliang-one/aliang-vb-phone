@@ -24,7 +24,10 @@
     "actionApprove": "APPROVE",
     "actionDeny": "DENY",
     "actionMore": "更多",
-    "openSession": "OPEN SESSION"
+    "openSession": "OPEN SESSION",
+    "customReply": "自己回复…",
+    "customReplyPlaceholder": "输入你的回复",
+    "customReplySend": "发送"
   },
   "notification": {
     "title": "Notifications",

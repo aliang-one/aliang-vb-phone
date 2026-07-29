@@ -335,6 +335,9 @@
       "pendingOne": "1 approval pending",
       "pendingMany": "{{count}} approvals pending",
       "jumpLabel": "Jump to pending approval",
+      "customReply": "Reply yourself…",
+      "customReplyPlaceholder": "Type your reply",
+      "customReplySend": "Send",
       "quickPolicy": {
         "title": "Quick approval mode",
         "subtitle": "Switch this project's approval policy",

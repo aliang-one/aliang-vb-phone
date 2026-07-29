@@ -335,6 +335,9 @@
       "pendingOne": "1 个待审批",
       "pendingMany": "{{count}} 个待审批",
       "jumpLabel": "跳转到待审批",
+      "customReply": "自己回复…",
+      "customReplyPlaceholder": "输入你的回复",
+      "customReplySend": "发送",
       "quickPolicy": {
         "title": "快速审批模式",
         "subtitle": "切换该项目的审批策略",
