@@ -1,6 +1,5 @@
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
-import { TextInput } from 'react-native';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { useSessionStore } from '../stores/useSettingsStore';
@@ -9,9 +8,6 @@ jest.mock('@react-navigation/native', () => {
   const ReactActual = require('react');
   return {
     useNavigation: () => ({ goBack: jest.fn(), navigate: jest.fn() }),
-    // Real useFocusEffect runs the callback on focus when its deps change; with
-    // useCallback([]) that is ONCE on mount. A naive `() => { cb() }` mock would
-    // re-run cb on every render → infinite re-render loop. Run once via useEffect.
     useFocusEffect: (cb: () => void | (() => void)) => {
       ReactActual.useEffect(() => cb(), []);
     },
@@ -31,13 +27,21 @@ jest.mock('../src/services/credentialStore', () => ({
 }));
 
 import { LoginScreen } from '../src/screens/auth/LoginScreen';
-import { readCredentialFlag, loadCredentials, writeCredentialFlag } from '../src/services/credentialStore';
+import {
+  readCredentialFlag,
+  loadCredentials,
+  writeCredentialFlag,
+} from '../src/services/credentialStore';
 
 const flush = () =>
   act(async () => {
-    // Drain the async IIFE's chained awaits + the re-renders they schedule.
     await new Promise<void>(r => setTimeout(() => r(), 0));
     await new Promise<void>(r => setImmediate(() => r()));
+  });
+// handleBiometricLogin waits 120ms for the keyboard to dismiss before prompting.
+const flushLong = () =>
+  act(async () => {
+    await new Promise<void>(r => setTimeout(() => r(), 160));
   });
 
 const mountScreen = () => {
@@ -54,7 +58,15 @@ const mountScreen = () => {
   return r;
 };
 
-describe('LoginScreen biometric flow', () => {
+const tapBiometricEntry = (r: ReactTestRenderer.ReactTestRenderer) => {
+  const node = r.root.findAllByProps({ testID: 'biometric-entry' })[0];
+  expect(node).toBeDefined();
+  act(() => {
+    (node.props as { onPress: () => void }).onPress();
+  });
+};
+
+describe('LoginScreen biometric entry (explicit button, no auto-prompt)', () => {
   let realLogin: unknown;
   beforeEach(() => {
     jest.clearAllMocks();
@@ -65,62 +77,63 @@ describe('LoginScreen biometric flow', () => {
     useSessionStore.setState({ login: realLogin as never });
   });
 
-  it('auto-logs in when flag=biometric and loadCredentials resolves ok', async () => {
+  it('flag=biometric → shows entry button, does NOT auto-prompt or auto-login', async () => {
+    (readCredentialFlag as jest.Mock).mockResolvedValue({ hasCreds: true, usesBiometry: true });
+    const r = mountScreen();
+    await flush();
+    expect(r.root.findAllByProps({ testID: 'biometric-entry' }).length).toBeGreaterThan(0);
+    expect(loadCredentials).not.toHaveBeenCalled(); // no auto-prompt
+    expect(useSessionStore.getState().login).not.toHaveBeenCalled();
+  });
+
+  it('tap entry → biometric ok → auto-login with saved creds', async () => {
     (readCredentialFlag as jest.Mock).mockResolvedValue({ hasCreds: true, usesBiometry: true });
     (loadCredentials as jest.Mock).mockResolvedValue({ status: 'ok', email: 'a@b.c', password: 'pw' });
-    mountScreen();
+    const r = mountScreen();
     await flush();
+    tapBiometricEntry(r);
+    await flushLong();
     expect(loadCredentials).toHaveBeenCalled();
     expect(useSessionStore.getState().login).toHaveBeenCalledWith('a@b.c', 'pw');
   });
 
-  it('cancel → retry button shown + flag KEPT (not self-healed); login NOT called', async () => {
+  it('tap entry → cancelled → NO login; entry stays so user can retry', async () => {
     (readCredentialFlag as jest.Mock).mockResolvedValue({ hasCreds: true, usesBiometry: true });
     (loadCredentials as jest.Mock).mockResolvedValue({ status: 'cancelled' });
     const r = mountScreen();
     await flush();
-    // Cancel keeps the flag so the feature survives a dismiss; retry offered.
-    expect(writeCredentialFlag).not.toHaveBeenCalled();
+    tapBiometricEntry(r);
+    await flushLong();
     expect(useSessionStore.getState().login).not.toHaveBeenCalled();
-    expect(r.root.findAllByProps({ testID: 'biometric-retry' }).length).toBeGreaterThan(0);
+    expect(writeCredentialFlag).not.toHaveBeenCalled(); // flag kept
+    expect(r.root.findAllByProps({ testID: 'biometric-entry' }).length).toBeGreaterThan(0);
   });
 
-  it('unavailable (reject) → flag cleared, NO retry button, login NOT called', async () => {
+  it('tap entry → unavailable → flag cleared + entry hidden', async () => {
     (readCredentialFlag as jest.Mock).mockResolvedValue({ hasCreds: true, usesBiometry: true });
     (loadCredentials as jest.Mock).mockResolvedValue({ status: 'unavailable' });
     const r = mountScreen();
     await flush();
-    expect(writeCredentialFlag).toHaveBeenCalledWith({ hasCreds: false, usesBiometry: false });
+    tapBiometricEntry(r);
+    await flushLong();
     expect(useSessionStore.getState().login).not.toHaveBeenCalled();
-    expect(r.root.findAllByProps({ testID: 'biometric-retry' }).length).toBe(0);
+    expect(writeCredentialFlag).toHaveBeenCalledWith({ hasCreds: false, usesBiometry: false });
   });
 
-  it('flag=plain → prefills, does NOT auto-submit', async () => {
+  it('flag=plain (no biometry) → prefills form, does NOT auto-submit, no entry button', async () => {
     (readCredentialFlag as jest.Mock).mockResolvedValue({ hasCreds: true, usesBiometry: false });
     (loadCredentials as jest.Mock).mockResolvedValue({ status: 'ok', email: 'a@b.c', password: 'pw' });
-    mountScreen();
-    await flush();
-    expect(useSessionStore.getState().login).not.toHaveBeenCalled();
-  });
-
-  it('no saved creds → no load, empty form', async () => {
-    (readCredentialFlag as jest.Mock).mockResolvedValue({ hasCreds: false, usesBiometry: false });
-    mountScreen();
-    await flush();
-    expect(loadCredentials).not.toHaveBeenCalled();
-  });
-
-  it('user typing before the prompt → biometric NOT shown, login NOT called', async () => {
-    (readCredentialFlag as jest.Mock).mockResolvedValue({ hasCreds: true, usesBiometry: true });
-    (loadCredentials as jest.Mock).mockResolvedValue({ status: 'ok', email: 'a@b.c', password: 'pw' });
     const r = mountScreen();
-    // User starts typing during the deferred-prompt window → chose manual login.
-    act(() => {
-      r.root.findAllByType(TextInput)[0].props.onChangeText('x');
-    });
     await flush();
-    // Biometric must NOT be shown at all (not just skipped after the fact).
-    expect(loadCredentials).not.toHaveBeenCalled();
     expect(useSessionStore.getState().login).not.toHaveBeenCalled();
+    expect(r.root.findAllByProps({ testID: 'biometric-entry' }).length).toBe(0);
+  });
+
+  it('no saved creds → no entry button, no load', async () => {
+    (readCredentialFlag as jest.Mock).mockResolvedValue({ hasCreds: false, usesBiometry: false });
+    const r = mountScreen();
+    await flush();
+    expect(loadCredentials).not.toHaveBeenCalled();
+    expect(r.root.findAllByProps({ testID: 'biometric-entry' }).length).toBe(0);
   });
 });

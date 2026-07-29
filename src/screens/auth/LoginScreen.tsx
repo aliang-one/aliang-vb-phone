@@ -1,7 +1,6 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  InteractionManager,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -39,15 +38,11 @@ export const LoginScreen: React.FC = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [bioRetry, setBioRetry] = useState(false);
-  const [bioLoading, setBioLoading] = useState(false);
-  // Aborts a pending auto-submit if the user starts typing before the biometric
-  // prompt resolves.
-  const cancelledRef = useRef(false);
-  // Guards against a second focus firing while a prompt is still in flight
-  // (React 19 dev / navigation transitions can re-run the effect). Two concurrent
-  // BiometricPrompts cancel each other → Android ERROR_CANCELED.
-  const promptingRef = useRef(false);
+  // Whether to show the explicit biometric login entry button (saved creds +
+  // biometry available). The user taps it to trigger the prompt — no auto-prompt.
+  const [bioEntry, setBioEntry] = useState(false);
+  // Spinner state on the entry button while the prompt + login are in flight.
+  const [bioBusy, setBioBusy] = useState(false);
 
   const handleSubmitWith = async (emailArg: string, passwordArg: string) => {
     if (!emailArg.trim() || !passwordArg) return;
@@ -66,82 +61,62 @@ export const LoginScreen: React.FC = () => {
     }
   };
 
-  const handleSubmit = () => {
-    // Manual submit → the user chose to type their credentials; abort any
-    // pending biometric auto-prompt so it can't fire AFTER login (backwards).
-    cancelledRef.current = true;
-    return handleSubmitWith(email, password);
+  const handleSubmit = () => handleSubmitWith(email, password);
+
+  // Explicit biometric login (user tapped the entry button). Dismiss the keyboard
+  // first — the IME and BiometricPrompt fight for the window and the prompt gets
+  // canceled (Android ERROR_CANCELED) when the keyboard is up.
+  const handleBiometricLogin = async () => {
+    Keyboard.dismiss();
+    await new Promise<void>(r => setTimeout(() => r(), 120));
+    setBioBusy(true);
+    const result: LoadResult = await loadCredentials({
+      title: t('biometricPromptTitle'),
+      cancel: t('biometricPromptCancel'),
+    });
+    setBioBusy(false);
+    if (result.status !== 'ok') {
+      // cancelled: leave the entry button so the user can tap again or type.
+      // unavailable: biometry no longer usable (enrollment removed / passcode
+      // off) — hide the entry and clear the flag so it doesn't come back.
+      if (result.status === 'unavailable') {
+        await writeCredentialFlag({ hasCreds: false, usesBiometry: false });
+        setBioEntry(false);
+      }
+      return;
+    }
+    setEmail(result.email);
+    setPassword(result.password);
+    await handleSubmitWith(result.email, result.password);
   };
 
-  const onEmailChange = (value: string) => {
-    cancelledRef.current = true;
-    setEmail(value);
-  };
-  const onPasswordChange = (value: string) => {
-    cancelledRef.current = true;
-    setPassword(value);
-  };
-
-  // On focus: if saved credentials exist, try biometric one-tap login (or
-  // prefill on biometry-less devices). Self-heals the flag if the keychain
-  // entry is gone, and offers a retry button only when retry can succeed.
+  // On focus: just READ the flag to decide what to offer. No auto-prompt (the
+  // auto-prompt raced with manual typing and the keyboard, firing after login or
+  // getting canceled). The user explicitly taps the entry button instead.
   useFocusEffect(
     React.useCallback(() => {
       let mounted = true;
-      cancelledRef.current = false;
-      if (promptingRef.current) return;
-      promptingRef.current = true;
-      // Collapse any open keyboard FIRST. The IME and BiometricPrompt fight for
-      // the window, and when the keyboard is up the prompt gets canceled with
-      // Android ERROR_CANCELED ("AuthSession is not current") — the flaky
-      // "nothing happens" symptom. runAfterInteractions then waits for the
-      // dismiss animation + screen transition to settle before prompting.
-      Keyboard.dismiss();
-      const handle = InteractionManager.runAfterInteractions(async () => {
+      (async () => {
         const flag = await readCredentialFlag();
-        if (!mounted || !flag.hasCreds) {
-          promptingRef.current = false;
-          return;
-        }
-        // If the user already started typing OR submitted during the deferral,
-        // they've chosen manual login — do NOT show biometric. Without this the
-        // deferred prompt could fire AFTER a manual login (backwards UX).
-        if (cancelledRef.current) {
-          promptingRef.current = false;
-          return;
-        }
-        setBioLoading(true);
-        const result: LoadResult = await loadCredentials({
-          title: t('biometricPromptTitle'),
-          cancel: t('biometricPromptCancel'),
-        });
-        setBioLoading(false);
-        if (!mounted || cancelledRef.current) {
-          promptingRef.current = false;
-          return;
-        }
-        if (result.status === 'ok') {
-          setEmail(result.email);
-          setPassword(result.password);
-          if (flag.usesBiometry) {
-            await handleSubmitWith(result.email, result.password);
+        if (!mounted) return;
+        setBioEntry(flag.hasCreds && flag.usesBiometry);
+        if (flag.hasCreds && !flag.usesBiometry) {
+          // Biometry-less device: prefill the form (plain read, no prompt).
+          const result = await loadCredentials({
+            title: t('biometricPromptTitle'),
+            cancel: t('biometricPromptCancel'),
+          });
+          if (!mounted) return;
+          if (result.status === 'ok') {
+            setEmail(result.email);
+            setPassword(result.password);
+          } else if (result.status === 'unavailable') {
+            await writeCredentialFlag({ hasCreds: false, usesBiometry: false });
           }
-        } else if (result.status === 'unavailable') {
-          // Biometry no longer usable (enrollment removed / passcode off) —
-          // stop prompting.
-          await writeCredentialFlag({ hasCreds: false, usesBiometry: false });
-        } else {
-          // cancelled (user or system). KEEP the flag so the feature survives a
-          // dismiss; offer retry. A stale flag (entry actually gone) self-
-          // corrects on the next successful login, which re-saves the credential.
-          setBioRetry(flag.usesBiometry);
         }
-        promptingRef.current = false;
-      });
+      })();
       return () => {
         mounted = false;
-        handle.cancel();
-        promptingRef.current = false;
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),
@@ -196,43 +171,19 @@ export const LoginScreen: React.FC = () => {
           </View>
 
           <GlassPanel style={styles.panel}>
-            {bioLoading ? (
-              <View style={styles.bioLoadingRow}>
-                <ActivityIndicator color={theme.colors.primary} size="small" />
-                <Text
-                  style={[
-                    theme.typography.labelSm,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}>
-                  {t('biometricLoading')}
-                </Text>
-              </View>
-            ) : null}
-            {bioRetry ? (
+            {bioEntry ? (
               <GlowButton
                 title={t('biometricRetry')}
-                testID="biometric-retry"
-                onPress={async () => {
-                  Keyboard.dismiss();
-                  await new Promise<void>(r => setTimeout(() => r(), 120));
-                  const result = await loadCredentials({
-                    title: t('biometricPromptTitle'),
-                    cancel: t('biometricPromptCancel'),
-                  });
-                  if (result.status !== 'ok') return;
-                  cancelledRef.current = false;
-                  setEmail(result.email);
-                  setPassword(result.password);
-                  setBioRetry(false);
-                  await handleSubmitWith(result.email, result.password);
-                }}
+                testID="biometric-entry"
+                onPress={handleBiometricLogin}
+                loading={bioBusy}
                 style={styles.submitButton}
               />
             ) : null}
             <Field
               label={t('email')}
               value={email}
-              onChangeText={onEmailChange}
+              onChangeText={setEmail}
               autoCapitalize="none"
               keyboardType="email-address"
               theme={theme}
@@ -241,7 +192,7 @@ export const LoginScreen: React.FC = () => {
             <Field
               label={t('password')}
               value={password}
-              onChangeText={onPasswordChange}
+              onChangeText={setPassword}
               secureTextEntry
               theme={theme}
               isDark={isDark}
@@ -368,11 +319,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   syncRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  bioLoadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
