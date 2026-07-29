@@ -27,6 +27,7 @@ import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { newestFirst } from '../../utils/timeSort';
 import { useTranslation } from 'react-i18next';
 import { ApprovalQuickPolicySheet } from '../../components/vibecoding/ApprovalQuickPolicySheet';
+import { ApprovalCustomReply } from '../../components/vibecoding/ApprovalCustomReply';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -503,6 +504,16 @@ const ApprovalCard: React.FC<ApprovalCardProps> = React.memo(
                 </Text>
               </TouchableOpacity>
             ) : null}
+            {item.kind === 'client_response' && (
+              <ApprovalCustomReply
+                approvalId={item.id}
+                triggerLabel={t('approval.customReply')}
+                placeholder={t('approval.customReplyPlaceholder')}
+                sendLabel={t('approval.customReplySend')}
+                disabled={actionsDisabled}
+                onSend={msg => onResolve(item.id, 'approved', { message: msg })}
+              />
+            )}
           </View>
         ) : pending ? (
           <View style={styles.actionRow}>
