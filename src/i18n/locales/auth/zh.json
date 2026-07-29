@@ -14,5 +14,9 @@
   "biometricRetry": "使用 Face ID / 指纹登录",
   "biometricLoading": "正在读取保存的登录信息…",
   "usePasswordLogin": "使用密码登录",
-  "plainModeSavedNotice": "此设备未启用生物识别，已保存的登录信息将以无门禁方式存储。"
+  "plainModeSavedNotice": "此设备未启用生物识别，已保存的登录信息将以无门禁方式存储。",
+  "biometricEnableTitle": "开启指纹快速登录？",
+  "biometricEnableMessage": "保存登录信息并用指纹保护，下次可用指纹一键登录。",
+  "biometricEnableEnable": "开启",
+  "biometricEnableLater": "稍后"
 }

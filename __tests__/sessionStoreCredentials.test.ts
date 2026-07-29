@@ -22,14 +22,17 @@ jest.mock('../src/services/credentialStore', () => ({
   readCredentialFlag: jest.fn(),
   writeCredentialFlag: jest.fn(),
   loadCredentials: jest.fn(),
+  probeBiometry: jest.fn().mockResolvedValue(false),
   pickStorageMode: (b: string | null) => (b ? 'biometric' : 'plain'),
 }));
 
 import { login as apiLogin } from '../src/api/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSessionStore } from '../stores/useSettingsStore';
+import { Alert, type AlertButton } from 'react-native';
 import {
   saveCredentials,
+  probeBiometry,
   clearCredentials,
   readCredentialFlag,
   writeCredentialFlag,
@@ -163,5 +166,61 @@ describe('plain-mode informed-consent toast', () => {
     await flush();
     expect(showSpy).not.toHaveBeenCalled();
     showSpy.mockRestore();
+  });
+});
+
+describe('biometric-enable confirmation on first save', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    __resetSessionAuthHubForTest();
+    setSessionInvalidationHandler(() => {});
+    (readCredentialFlag as jest.Mock).mockResolvedValue({
+      hasCreds: false,
+      usesBiometry: false,
+      savedAccount: null,
+    });
+    (apiLogin as jest.Mock).mockImplementation(async () => goodSession());
+    // Default for this group: device advertises biometry → the confirm prompt
+    // is the gate before any biometric-gated save.
+    (probeBiometry as jest.Mock).mockResolvedValue(true);
+  });
+
+  test('user ACCEPTS → biometric save (no forcePlain), usesBiometry true', async () => {
+    (saveCredentials as jest.Mock).mockResolvedValue('biometric');
+    // Buttons are [Later(cancel), Enable]; pressing Enable = accept.
+    jest.spyOn(Alert, 'alert').mockImplementation(
+      (_title, _message, buttons?: AlertButton[]) => buttons?.[1]?.onPress?.(),
+    );
+    await useSessionStore.getState().login('a@b.c', 'pw');
+    await flush();
+    expect(Alert.alert).toHaveBeenCalled();
+    expect(saveCredentials).toHaveBeenCalledWith('a@b.c', 'pw');
+    expect(writeCredentialFlag).toHaveBeenCalledWith(
+      expect.objectContaining({ hasCreds: true, usesBiometry: true, savedAccount: 'a@b.c' }),
+    );
+  });
+
+  test('user DECLINES → plain save (forcePlain:true), usesBiometry false', async () => {
+    (saveCredentials as jest.Mock).mockResolvedValue('plain');
+    // Pressing Later (buttons[0]) = decline.
+    jest.spyOn(Alert, 'alert').mockImplementation(
+      (_title, _message, buttons?: AlertButton[]) => buttons?.[0]?.onPress?.(),
+    );
+    await useSessionStore.getState().login('a@b.c', 'pw');
+    await flush();
+    expect(saveCredentials).toHaveBeenCalledWith('a@b.c', 'pw', { forcePlain: true });
+    expect(writeCredentialFlag).toHaveBeenCalledWith(
+      expect.objectContaining({ hasCreds: true, usesBiometry: false, savedAccount: 'a@b.c' }),
+    );
+  });
+
+  test('device WITHOUT biometry → no Alert, direct plain save', async () => {
+    (probeBiometry as jest.Mock).mockResolvedValue(false);
+    (saveCredentials as jest.Mock).mockResolvedValue('plain');
+    const alertSpy = jest.spyOn(Alert, 'alert');
+    await useSessionStore.getState().login('a@b.c', 'pw');
+    await flush();
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(saveCredentials).toHaveBeenCalledWith('a@b.c', 'pw');
   });
 });

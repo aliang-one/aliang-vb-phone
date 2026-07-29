@@ -17,6 +17,7 @@ import * as Keychain from 'react-native-keychain';
 import {
   pickStorageMode,
   saveCredentials,
+  probeBiometry,
   loadCredentials,
   clearCredentials,
   readCredentialFlag,
@@ -73,6 +74,30 @@ describe('saveCredentials', () => {
     (Keychain.setGenericPassword as jest.Mock).mockRejectedValue(new Error('disk'));
     const mode = await saveCredentials('a@b.c', 'pw');
     expect(mode).toBeNull();
+  });
+
+  test('forcePlain=true overrides biometry → plain (no accessControl, no prompt)', async () => {
+    (Keychain.getSupportedBiometryType as jest.Mock).mockResolvedValue('FaceID');
+    (Keychain.setGenericPassword as jest.Mock).mockResolvedValue(true);
+    const mode = await saveCredentials('a@b.c', 'pw', { forcePlain: true });
+    expect(mode).toBe('plain');
+    expect(
+      (Keychain.setGenericPassword as jest.Mock).mock.calls[0][2].accessControl,
+    ).toBeUndefined();
+  });
+});
+
+describe('probeBiometry', () => {
+  beforeEach(() => jest.resetAllMocks());
+
+  test('non-null biometry type → true', async () => {
+    (Keychain.getSupportedBiometryType as jest.Mock).mockResolvedValue('Fingerprint');
+    await expect(probeBiometry()).resolves.toBe(true);
+  });
+
+  test('null → false', async () => {
+    (Keychain.getSupportedBiometryType as jest.Mock).mockResolvedValue(null);
+    await expect(probeBiometry()).resolves.toBe(false);
   });
 });
 

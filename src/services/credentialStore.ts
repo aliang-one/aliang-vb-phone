@@ -37,10 +37,15 @@ export function pickStorageMode(biometryType: string | null): StorageMode {
 export async function saveCredentials(
   email: string,
   password: string,
+  options: { forcePlain?: boolean } = {},
 ): Promise<StorageMode | null> {
   try {
     const biometry = await Keychain.getSupportedBiometryType();
-    const mode = pickStorageMode(typeof biometry === 'string' ? biometry : null);
+    const hasBiometry = typeof biometry === 'string' && !!biometry;
+    // forcePlain skips the biometric accessControl so the WRITE does NOT trigger
+    // a fingerprint prompt — used when the user declined the "enable fingerprint"
+    // confirmation but still wants the password prefilled next time.
+    const mode = !options.forcePlain && hasBiometry ? 'biometric' : 'plain';
     const opts: SetOptions = { service: CREDENTIAL_SERVICE };
     if (mode === 'biometric') {
       opts.accessControl = Keychain.ACCESS_CONTROL.BIOMETRY_CURRENT_SET;
@@ -50,6 +55,21 @@ export async function saveCredentials(
     return mode;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Whether this device advertises any biometry type
+ * (`FaceID | TouchID | Fingerprint | Face | Iris`). Used to decide whether to
+ * ASK the user about enabling fingerprint login BEFORE a biometric-gated save
+ * (which would prompt on WRITE). null/undefined/exception → false.
+ */
+export async function probeBiometry(): Promise<boolean> {
+  try {
+    const biometry = await Keychain.getSupportedBiometryType();
+    return typeof biometry === 'string' && !!biometry;
+  } catch {
+    return false;
   }
 }
 

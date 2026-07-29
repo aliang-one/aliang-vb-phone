@@ -15,8 +15,10 @@ import {
 import { setApiAuthTokenProvider } from '../src/api/client';
 import { platformTransport } from '../src/services/platformTransport';
 import { isActiveTerminalSessionStatus } from '../src/utils/terminalInteraction';
+import { Alert } from 'react-native';
 import {
   saveCredentials,
+  probeBiometry,
   clearCredentials,
   readCredentialFlag,
   writeCredentialFlag,
@@ -32,6 +34,26 @@ import {
   setSessionRefresher,
 } from '../src/api/sessionAuth';
 import { useControlCenterStore } from '../src/store/controlCenterStore';
+
+// Informed-consent prompt before a biometric-gated credential save. Android's
+// setGenericPassword(accessControl) prompts fingerprint on WRITE, so we ask
+// FIRST: the user can decline (→ plain save, password still prefilled next time)
+// or accept (→ biometric save, which then triggers the system fingerprint prompt).
+// cancelable:false forces a choice so the Promise can't hang on an Android
+// back-press / outside-tap dismiss.
+function confirmBiometricEnable(): Promise<boolean> {
+  return new Promise(resolve => {
+    Alert.alert(
+      i18n.t('auth:biometricEnableTitle'),
+      i18n.t('auth:biometricEnableMessage'),
+      [
+        { text: i18n.t('auth:biometricEnableLater'), style: 'cancel', onPress: () => resolve(false) },
+        { text: i18n.t('auth:biometricEnableEnable'), onPress: () => resolve(true) },
+      ],
+      { cancelable: false },
+    );
+  });
+}
 
 interface SessionState {
   hasHydrated: boolean;
@@ -133,7 +155,19 @@ export const useSessionStore = create<SessionState>()(
             // Already saved. Still reconcile the flag in case it was hand-cleared
             // out from under us, but do NOT re-prompt.
           } else {
-            const mode = await saveCredentials(emailTrim, password);
+            // Gate the biometric-gated save behind explicit consent: on Android,
+            // setGenericPassword(accessControl) prompts fingerprint on WRITE — so
+            // we ask FIRST when the device advertises biometry. Decline → plain
+            // save (password still prefilled next time, no prompt); accept →
+            // biometric save (which triggers the system fingerprint prompt the
+            // user just consented to).
+            let forcePlain = false;
+            if (await probeBiometry()) {
+              forcePlain = !(await confirmBiometricEnable());
+            }
+            const mode = forcePlain
+              ? await saveCredentials(emailTrim, password, { forcePlain: true })
+              : await saveCredentials(emailTrim, password);
             await writeCredentialFlag({
               hasCreds: !!mode,
               usesBiometry: mode === 'biometric',
