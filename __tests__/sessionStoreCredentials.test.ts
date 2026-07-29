@@ -31,6 +31,7 @@ import { useSessionStore } from '../stores/useSettingsStore';
 import {
   saveCredentials,
   clearCredentials,
+  readCredentialFlag,
   writeCredentialFlag,
 } from '../src/services/credentialStore';
 import { useToastStore } from '../src/store/toastStore';
@@ -51,6 +52,12 @@ describe('useSessionStore credential save/clear', () => {
     jest.clearAllMocks();
     __resetSessionAuthHubForTest();
     setSessionInvalidationHandler(() => {});
+    // Default: no prior saved account → login will save.
+    (readCredentialFlag as jest.Mock).mockResolvedValue({
+      hasCreds: false,
+      usesBiometry: false,
+      savedAccount: null,
+    });
   });
 
   test('successful login saves credentials + flag (biometric)', async () => {
@@ -59,7 +66,11 @@ describe('useSessionStore credential save/clear', () => {
     await useSessionStore.getState().login('a@b.c', 'pw');
     await flush();
     expect(saveCredentials).toHaveBeenCalledWith('a@b.c', 'pw');
-    expect(writeCredentialFlag).toHaveBeenCalledWith({ hasCreds: true, usesBiometry: true });
+    expect(writeCredentialFlag).toHaveBeenCalledWith({
+      hasCreds: true,
+      usesBiometry: true,
+      savedAccount: 'a@b.c',
+    });
   });
 
   test('save failure (null mode) → hasCreds:false, login still succeeds', async () => {
@@ -67,7 +78,26 @@ describe('useSessionStore credential save/clear', () => {
     (saveCredentials as jest.Mock).mockResolvedValue(null);
     await useSessionStore.getState().login('a@b.c', 'pw');
     await flush();
-    expect(writeCredentialFlag).toHaveBeenCalledWith({ hasCreds: false, usesBiometry: false });
+    expect(writeCredentialFlag).toHaveBeenCalledWith({
+      hasCreds: false,
+      usesBiometry: false,
+      savedAccount: null,
+    });
+  });
+
+  test('SKIPS re-save (no biometric prompt) when this account is already stored', async () => {
+    // The fix for "fingerprint asked after every password login": on Android,
+    // setGenericPassword with accessControl prompts on WRITE, so we must not
+    // re-save when the cred for this account already exists.
+    (readCredentialFlag as jest.Mock).mockResolvedValue({
+      hasCreds: true,
+      usesBiometry: true,
+      savedAccount: 'a@b.c',
+    });
+    (apiLogin as jest.Mock).mockImplementation(async () => goodSession());
+    await useSessionStore.getState().login('a@b.c', 'pw');
+    await flush();
+    expect(saveCredentials).not.toHaveBeenCalled();
   });
 
   test('logout does NOT clear credentials', async () => {
@@ -87,7 +117,11 @@ describe('useSessionStore credential save/clear', () => {
     await useSessionStore.getState().clearSavedCredentials();
     await flush();
     expect(order).toEqual(['clear', 'flag']);
-    expect(writeCredentialFlag).toHaveBeenCalledWith({ hasCreds: false, usesBiometry: false });
+    expect(writeCredentialFlag).toHaveBeenCalledWith({
+      hasCreds: false,
+      usesBiometry: false,
+      savedAccount: null,
+    });
   });
 });
 
@@ -96,6 +130,11 @@ describe('plain-mode informed-consent toast', () => {
     jest.clearAllMocks();
     __resetSessionAuthHubForTest();
     setSessionInvalidationHandler(() => {});
+    (readCredentialFlag as jest.Mock).mockResolvedValue({
+      hasCreds: false,
+      usesBiometry: false,
+      savedAccount: null,
+    });
   });
 
   test('first plain save shows the notice once, with the i18n string', async () => {

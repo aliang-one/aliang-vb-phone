@@ -81,9 +81,20 @@ export async function loadCredentials(
 export interface CredentialFlag {
   hasCreds: boolean;
   usesBiometry: boolean;
+  /**
+   * Which account (email) the stored credential belongs to. Used to SKIP
+   * re-saving on subsequent logins with the same account — on Android,
+   * setGenericPassword with biometric accessControl prompts on WRITE, so
+   * re-saving every login would prompt fingerprint after every password login.
+   */
+  savedAccount: string | null;
 }
 
-const DEFAULT_FLAG: CredentialFlag = { hasCreds: false, usesBiometry: false };
+const DEFAULT_FLAG: CredentialFlag = {
+  hasCreds: false,
+  usesBiometry: false,
+  savedAccount: null,
+};
 
 /**
  * Non-sensitive flag in AsyncStorage so the login screen can decide whether to

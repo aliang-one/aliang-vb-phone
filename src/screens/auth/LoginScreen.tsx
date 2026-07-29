@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  InteractionManager,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -65,29 +66,35 @@ export const LoginScreen: React.FC = () => {
 
   // Explicit biometric login (user tapped the entry button). Dismiss the keyboard
   // first — the IME and BiometricPrompt fight for the window and the prompt gets
-  // canceled (Android ERROR_CANCELED) when the keyboard is up.
-  const handleBiometricLogin = async () => {
+  // canceled (Android ERROR_CANCELED) when the keyboard is up — then wait for
+  // interactions (the dismiss animation) to settle before prompting.
+  const handleBiometricLogin = () => {
     Keyboard.dismiss();
-    await new Promise<void>(r => setTimeout(() => r(), 120));
     setBioBusy(true);
-    const result: LoadResult = await loadCredentials({
-      title: t('biometricPromptTitle'),
-      cancel: t('biometricPromptCancel'),
-    });
-    setBioBusy(false);
-    if (result.status !== 'ok') {
-      // cancelled: leave the entry button so the user can tap again or type.
-      // unavailable: biometry no longer usable (enrollment removed / passcode
-      // off) — hide the entry and clear the flag so it doesn't come back.
-      if (result.status === 'unavailable') {
-        await writeCredentialFlag({ hasCreds: false, usesBiometry: false });
-        setBioEntry(false);
+    InteractionManager.runAfterInteractions(async () => {
+      const result: LoadResult = await loadCredentials({
+        title: t('biometricPromptTitle'),
+        cancel: t('biometricPromptCancel'),
+      });
+      setBioBusy(false);
+      if (result.status !== 'ok') {
+        // cancelled: leave the entry button so the user can tap again or type.
+        // unavailable: biometry no longer usable (enrollment removed / passcode
+        // off) — hide the entry and clear the flag so it doesn't come back.
+        if (result.status === 'unavailable') {
+          await writeCredentialFlag({
+            hasCreds: false,
+            usesBiometry: false,
+            savedAccount: null,
+          });
+          setBioEntry(false);
+        }
+        return;
       }
-      return;
-    }
-    setEmail(result.email);
-    setPassword(result.password);
-    await handleSubmitWith(result.email, result.password);
+      setEmail(result.email);
+      setPassword(result.password);
+      await handleSubmitWith(result.email, result.password);
+    });
   };
 
   // On focus: just READ the flag to decide what to offer. No auto-prompt (the
@@ -111,7 +118,7 @@ export const LoginScreen: React.FC = () => {
             setEmail(result.email);
             setPassword(result.password);
           } else if (result.status === 'unavailable') {
-            await writeCredentialFlag({ hasCreds: false, usesBiometry: false });
+            await writeCredentialFlag({ hasCreds: false, usesBiometry: false, savedAccount: null });
           }
         }
       })();

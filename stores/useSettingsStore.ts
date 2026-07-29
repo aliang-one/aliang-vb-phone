@@ -18,6 +18,7 @@ import { isActiveTerminalSessionStatus } from '../src/utils/terminalInteraction'
 import {
   saveCredentials,
   clearCredentials,
+  readCredentialFlag,
   writeCredentialFlag,
 } from '../src/services/credentialStore';
 import { useToastStore } from '../src/store/toastStore';
@@ -119,25 +120,37 @@ export const useSessionStore = create<SessionState>()(
         }
         // Silently remember credentials for biometric one-tap login. Best-effort:
         // a save failure must NEVER block login. The returned mode drives the
-        // non-sensitive flag so the login screen knows whether to auto-prompt.
+        // non-sensitive flag so the login screen knows whether to show the entry.
         try {
-          const mode = await saveCredentials(email.trim(), password);
-          await writeCredentialFlag({
-            hasCreds: !!mode,
-            usesBiometry: mode === 'biometric',
-          });
-          // Informed consent: on the FIRST plain-mode save (biometry unavailable),
-          // tell the user once that the saved login is stored without a biometric
-          // prompt. Subsequent plain saves stay silent.
-          if (mode === 'plain') {
-            try {
-              const shown = await AsyncStorage.getItem('@plain_save_notice_shown');
-              if (!shown) {
-                useToastStore.getState().show(i18n.t('auth:plainModeSavedNotice'));
-                await AsyncStorage.setItem('@plain_save_notice_shown', '1');
+          const emailTrim = email.trim();
+          const existingFlag = await readCredentialFlag();
+          // SKIP re-saving when the credential is already stored for THIS account.
+          // On Android, setGenericPassword with biometric accessControl prompts
+          // fingerprint on WRITE — re-saving every login would ask for fingerprint
+          // right after every password login (the "I just typed my password, why
+          // fingerprint?" bug). Only save (and prompt) the first time per account.
+          if (existingFlag.savedAccount === emailTrim) {
+            // Already saved. Still reconcile the flag in case it was hand-cleared
+            // out from under us, but do NOT re-prompt.
+          } else {
+            const mode = await saveCredentials(emailTrim, password);
+            await writeCredentialFlag({
+              hasCreds: !!mode,
+              usesBiometry: mode === 'biometric',
+              savedAccount: mode ? emailTrim : null,
+            });
+            // Informed consent: on the FIRST plain-mode save (biometry unavailable),
+            // tell the user once. Subsequent plain saves stay silent.
+            if (mode === 'plain') {
+              try {
+                const shown = await AsyncStorage.getItem('@plain_save_notice_shown');
+                if (!shown) {
+                  useToastStore.getState().show(i18n.t('auth:plainModeSavedNotice'));
+                  await AsyncStorage.setItem('@plain_save_notice_shown', '1');
+                }
+              } catch {
+                /* best-effort */
               }
-            } catch {
-              /* best-effort */
             }
           }
         } catch {
@@ -181,7 +194,7 @@ export const useSessionStore = create<SessionState>()(
         // Ordered: clear the keychain first, then the flag. NON-atomic — a crash
         // between the two is covered by the LoginScreen self-heal.
         await clearCredentials();
-        await writeCredentialFlag({ hasCreds: false, usesBiometry: false });
+        await writeCredentialFlag({ hasCreds: false, usesBiometry: false, savedAccount: null });
       },
       refreshSession: async () => {
         const current = get().refreshToken;

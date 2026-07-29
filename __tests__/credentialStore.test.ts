@@ -113,19 +113,19 @@ describe('flag + clear', () => {
 
   test('readCredentialFlag defaults when absent', async () => {
     (AsyncStorage.getItem as jest.Mock).mockResolvedValue(null);
-    await expect(readCredentialFlag()).resolves.toEqual({ hasCreds: false, usesBiometry: false });
+    await expect(readCredentialFlag()).resolves.toEqual({ hasCreds: false, usesBiometry: false, savedAccount: null });
   });
 
   test('readCredentialFlag returns default on garbage JSON (robustness)', async () => {
     (AsyncStorage.getItem as jest.Mock).mockResolvedValue('not-json{');
-    await expect(readCredentialFlag()).resolves.toEqual({ hasCreds: false, usesBiometry: false });
+    await expect(readCredentialFlag()).resolves.toEqual({ hasCreds: false, usesBiometry: false, savedAccount: null });
   });
 
   test('writeCredentialFlag persists JSON', async () => {
-    await writeCredentialFlag({ hasCreds: true, usesBiometry: true });
+    await writeCredentialFlag({ hasCreds: true, usesBiometry: true, savedAccount: "a@b.c" });
     expect(AsyncStorage.setItem).toHaveBeenCalledWith(
       '@saved_credential_flag',
-      JSON.stringify({ hasCreds: true, usesBiometry: true }),
+      JSON.stringify({ hasCreds: true, usesBiometry: true, savedAccount: "a@b.c" }),
     );
   });
 

@@ -38,11 +38,6 @@ const flush = () =>
     await new Promise<void>(r => setTimeout(() => r(), 0));
     await new Promise<void>(r => setImmediate(() => r()));
   });
-// handleBiometricLogin waits 120ms for the keyboard to dismiss before prompting.
-const flushLong = () =>
-  act(async () => {
-    await new Promise<void>(r => setTimeout(() => r(), 160));
-  });
 
 const mountScreen = () => {
   let r!: ReactTestRenderer.ReactTestRenderer;
@@ -92,7 +87,7 @@ describe('LoginScreen biometric entry (explicit button, no auto-prompt)', () => 
     const r = mountScreen();
     await flush();
     tapBiometricEntry(r);
-    await flushLong();
+    await flush();
     expect(loadCredentials).toHaveBeenCalled();
     expect(useSessionStore.getState().login).toHaveBeenCalledWith('a@b.c', 'pw');
   });
@@ -103,7 +98,7 @@ describe('LoginScreen biometric entry (explicit button, no auto-prompt)', () => 
     const r = mountScreen();
     await flush();
     tapBiometricEntry(r);
-    await flushLong();
+    await flush();
     expect(useSessionStore.getState().login).not.toHaveBeenCalled();
     expect(writeCredentialFlag).not.toHaveBeenCalled(); // flag kept
     expect(r.root.findAllByProps({ testID: 'biometric-entry' }).length).toBeGreaterThan(0);
@@ -115,9 +110,13 @@ describe('LoginScreen biometric entry (explicit button, no auto-prompt)', () => 
     const r = mountScreen();
     await flush();
     tapBiometricEntry(r);
-    await flushLong();
+    await flush();
     expect(useSessionStore.getState().login).not.toHaveBeenCalled();
-    expect(writeCredentialFlag).toHaveBeenCalledWith({ hasCreds: false, usesBiometry: false });
+    expect(writeCredentialFlag).toHaveBeenCalledWith({
+      hasCreds: false,
+      usesBiometry: false,
+      savedAccount: null,
+    });
   });
 
   it('flag=plain (no biometry) → prefills form, does NOT auto-submit, no entry button', async () => {
