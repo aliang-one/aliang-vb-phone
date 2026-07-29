@@ -110,21 +110,17 @@ describe('LoginScreen biometric flow', () => {
     expect(loadCredentials).not.toHaveBeenCalled();
   });
 
-  it('user typing aborts a pending auto-submit (cancelledRef)', async () => {
+  it('user typing before the prompt → biometric NOT shown, login NOT called', async () => {
     (readCredentialFlag as jest.Mock).mockResolvedValue({ hasCreds: true, usesBiometry: true });
-    let resolveCreds!: (v: unknown) => void;
-    (loadCredentials as jest.Mock).mockReturnValue(
-      new Promise(r => {
-        resolveCreds = r;
-      }),
-    );
+    (loadCredentials as jest.Mock).mockResolvedValue({ status: 'ok', email: 'a@b.c', password: 'pw' });
     const r = mountScreen();
-    // User types into the email field before the prompt resolves.
+    // User starts typing during the deferred-prompt window → chose manual login.
     act(() => {
       r.root.findAllByType(TextInput)[0].props.onChangeText('x');
     });
-    resolveCreds({ status: 'ok', email: 'a@b.c', password: 'pw' });
     await flush();
+    // Biometric must NOT be shown at all (not just skipped after the fact).
+    expect(loadCredentials).not.toHaveBeenCalled();
     expect(useSessionStore.getState().login).not.toHaveBeenCalled();
   });
 });

@@ -66,7 +66,12 @@ export const LoginScreen: React.FC = () => {
     }
   };
 
-  const handleSubmit = () => handleSubmitWith(email, password);
+  const handleSubmit = () => {
+    // Manual submit → the user chose to type their credentials; abort any
+    // pending biometric auto-prompt so it can't fire AFTER login (backwards).
+    cancelledRef.current = true;
+    return handleSubmitWith(email, password);
+  };
 
   const onEmailChange = (value: string) => {
     cancelledRef.current = true;
@@ -95,6 +100,13 @@ export const LoginScreen: React.FC = () => {
       const handle = InteractionManager.runAfterInteractions(async () => {
         const flag = await readCredentialFlag();
         if (!mounted || !flag.hasCreds) {
+          promptingRef.current = false;
+          return;
+        }
+        // If the user already started typing OR submitted during the deferral,
+        // they've chosen manual login — do NOT show biometric. Without this the
+        // deferred prompt could fire AFTER a manual login (backwards UX).
+        if (cancelledRef.current) {
           promptingRef.current = false;
           return;
         }
