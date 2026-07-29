@@ -13,5 +13,6 @@
   "biometricPromptCancel": "Cancel",
   "biometricRetry": "Use Face ID / fingerprint to sign in",
   "biometricLoading": "Checking saved login…",
+  "usePasswordLogin": "Sign in with password",
   "plainModeSavedNotice": "Biometrics not enabled on this device — saved login is stored without a biometric prompt."
 }

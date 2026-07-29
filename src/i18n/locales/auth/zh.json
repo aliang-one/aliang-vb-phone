@@ -13,5 +13,6 @@
   "biometricPromptCancel": "取消",
   "biometricRetry": "使用 Face ID / 指纹登录",
   "biometricLoading": "正在读取保存的登录信息…",
+  "usePasswordLogin": "使用密码登录",
   "plainModeSavedNotice": "此设备未启用生物识别，已保存的登录信息将以无门禁方式存储。"
 }

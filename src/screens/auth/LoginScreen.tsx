@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   InteractionManager,
@@ -40,11 +40,15 @@ export const LoginScreen: React.FC = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  // Whether to show the explicit biometric login entry button (saved creds +
-  // biometry available). The user taps it to trigger the prompt — no auto-prompt.
-  const [bioEntry, setBioEntry] = useState(false);
-  // Spinner state on the entry button while the prompt + login are in flight.
+  // Two mutually-exclusive views: biometric entry (fingerprint only, inputs
+  // HIDDEN) or password (inputs only, fingerprint HIDDEN). 'loading' until the
+  // first flag read resolves, to avoid a flash of the wrong view.
+  const [view, setView] = useState<'loading' | 'biometric' | 'password'>('loading');
+  // Spinner state on the fingerprint entry while the prompt + login are in flight.
   const [bioBusy, setBioBusy] = useState(false);
+  // Initialize the view ONCE on first focus; later focuses respect the user's
+  // manual toggle so we don't yank them back to biometric mid-password-entry.
+  const didInitRef = useRef(false);
 
   const handleSubmitWith = async (emailArg: string, passwordArg: string) => {
     if (!emailArg.trim() || !passwordArg) return;
@@ -88,7 +92,7 @@ export const LoginScreen: React.FC = () => {
             usesBiometry: false,
             savedAccount: null,
           });
-          setBioEntry(false);
+          setView('password');
         }
         return;
       }
@@ -98,28 +102,39 @@ export const LoginScreen: React.FC = () => {
     });
   };
 
-  // On focus: just READ the flag to decide what to offer. No auto-prompt (the
-  // auto-prompt raced with manual typing and the keyboard, firing after login or
-  // getting canceled). The user explicitly taps the entry button instead.
+  // On first focus: READ the flag ONCE to pick the initial view — biometric
+  // (fingerprint entry only) when there are saved creds + biometry, else
+  // password (inputs only). No auto-prompt; the user taps the entry. Later
+  // focuses respect the user's manual toggle (didInitRef).
   useFocusEffect(
     React.useCallback(() => {
       let mounted = true;
+      if (didInitRef.current) return;
+      didInitRef.current = true;
       (async () => {
         const flag = await readCredentialFlag();
         if (!mounted) return;
-        setBioEntry(flag.hasCreds && flag.usesBiometry);
-        if (flag.hasCreds && !flag.usesBiometry) {
-          // Biometry-less device: prefill the form (plain read, no prompt).
-          const result = await loadCredentials({
-            title: t('biometricPromptTitle'),
-            cancel: t('biometricPromptCancel'),
-          });
-          if (!mounted) return;
-          if (result.status === 'ok') {
-            setEmail(result.email);
-            setPassword(result.password);
-          } else if (result.status === 'unavailable') {
-            await writeCredentialFlag({ hasCreds: false, usesBiometry: false, savedAccount: null });
+        if (flag.hasCreds && flag.usesBiometry) {
+          setView('biometric');
+        } else {
+          setView('password');
+          if (flag.hasCreds && !flag.usesBiometry) {
+            // Biometry-less device: prefill the form (plain read, no prompt).
+            const result = await loadCredentials({
+              title: t('biometricPromptTitle'),
+              cancel: t('biometricPromptCancel'),
+            });
+            if (!mounted) return;
+            if (result.status === 'ok') {
+              setEmail(result.email);
+              setPassword(result.password);
+            } else if (result.status === 'unavailable') {
+              await writeCredentialFlag({
+                hasCreds: false,
+                usesBiometry: false,
+                savedAccount: null,
+              });
+            }
           }
         }
       })();
@@ -179,45 +194,12 @@ export const LoginScreen: React.FC = () => {
           </View>
 
           <GlassPanel style={styles.panel}>
-            <Field
-              label={t('email')}
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              theme={theme}
-              isDark={isDark}
-            />
-            <Field
-              label={t('password')}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              theme={theme}
-              isDark={isDark}
-            />
-            {error ? (
-              <Text style={[theme.typography.bodySm, styles.errorText, { color: theme.colors.error }]}>
-                {error}
-              </Text>
-            ) : null}
-            <GlowButton
-              title={t('signIn')}
-              onPress={handleSubmit}
-              loading={loading}
-              disabled={!email.trim() || !password || loading}
-              style={styles.submitButton}
-            />
-            {loading ? (
-              <View style={styles.syncRow}>
-                <ActivityIndicator color={theme.colors.primary} size="small" />
-                <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                  {t('syncing')}
-                </Text>
+            {view === 'loading' ? (
+              <View style={styles.bioEntryCol}>
+                <ActivityIndicator color={theme.colors.primary} size="large" />
               </View>
-            ) : null}
-            {bioEntry ? (
-              <View style={styles.bioEntryRow}>
+            ) : view === 'biometric' ? (
+              <View style={styles.bioEntryCol}>
                 <Pressable
                   testID="biometric-entry"
                   onPress={handleBiometricLogin}
@@ -228,14 +210,63 @@ export const LoginScreen: React.FC = () => {
                   {bioBusy ? (
                     <ActivityIndicator color={theme.colors.primary} size="large" />
                   ) : (
-                    <IconBadge name="fingerprint" tone="primary" size={56} iconSize={28} />
+                    <IconBadge name="fingerprint" tone="primary" size={64} iconSize={32} />
                   )}
                 </Pressable>
-                <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                <Text
+                  style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
                   {t('biometricRetry')}
                 </Text>
+                <Pressable
+                  onPress={() => setView('password')}
+                  accessibilityRole="link"
+                  style={styles.usePasswordLink}>
+                  <Text style={[theme.typography.labelSm, { color: theme.colors.primary }]}>
+                    {t('usePasswordLogin')}
+                  </Text>
+                </Pressable>
               </View>
-            ) : null}
+            ) : (
+              <>
+                <Field
+                  label={t('email')}
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  theme={theme}
+                  isDark={isDark}
+                />
+                <Field
+                  label={t('password')}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                  theme={theme}
+                  isDark={isDark}
+                />
+                {error ? (
+                  <Text style={[theme.typography.bodySm, styles.errorText, { color: theme.colors.error }]}>
+                    {error}
+                  </Text>
+                ) : null}
+                <GlowButton
+                  title={t('signIn')}
+                  onPress={handleSubmit}
+                  loading={loading}
+                  disabled={!email.trim() || !password || loading}
+                  style={styles.submitButton}
+                />
+                {loading ? (
+                  <View style={styles.syncRow}>
+                    <ActivityIndicator color={theme.colors.primary} size="small" />
+                    <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                      {t('syncing')}
+                    </Text>
+                  </View>
+                ) : null}
+              </>
+            )}
           </GlassPanel>
 	          <Text style={[theme.typography.codeSm, styles.endpointText, { color: theme.colors.onSurfaceVariant }]}>
 	            {ALIANG_ACCOUNT_BASE_URL}
@@ -342,14 +373,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  bioEntryRow: {
+  bioEntryCol: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    marginTop: 6,
+    gap: 10,
+    paddingVertical: 16,
   },
   bioEntryPressable: {
     padding: 8,
+  },
+  usePasswordLink: {
+    marginTop: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
   },
   errorText: {
     lineHeight: 18,
