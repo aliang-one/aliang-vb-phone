@@ -157,6 +157,8 @@ onSend(text)
 
 `VoiceTextInput` 内部 `useTranslation('vibecoding')` 的默认 placeholder 由宿主显式传入的 `placeholder` 覆盖,不产生依赖。
 
+补充:`VoiceTextInput` 的 caption / hint(空闲态提示、录音态状态文本)固定从 `vibecoding` namespace 取(`voiceInput.hint` 等现有 key),因此即便在审批中心(operations 语境)复用,显示的也是这些通用 hint 文案——语义无害、key 已存在、**无需新增**。本次只为输入框 placeholder 做宿主覆盖。若日后要求审批中心的 caption 也本地化,需扩展 `VoiceTextInput` 接受 hint 文案 prop,属非本次范围。
+
 ## 测试(TDD,新增 `ApprovalCustomReply.test.tsx`)
 
 - 折叠态:不渲染输入框 / 发送按钮,只渲染触发器。
@@ -173,7 +175,7 @@ onSend(text)
 - **长度**:`message` 服务端上限 4000(`schemas.ts:333`),组件 `maxLength={2000}` 前端先截,留余量。
 - **防重复**:发送即 resolve → 审批转 resolved,`pending` 守卫使触发器与选项区一并消失,无法对同一审批重复发送。
 - **会话屏 `canResolve` 守卫**:接入点位于 `optionChoices.length` 分支内,该分支已受 `resolvableApprovalIds` / `canResolve` 闸控,无需额外处理。
-- **审批中心列表态**:resolve 后卡片刷新为 resolved 态是现有行为,自定义回复走同一路径,无需特殊处理。
+- **审批中心守卫源不同(注意)**:该屏 `optionChoices = item.options ?? []` 只受 `pending` 闸控,**没有** `canResolve` / `resolvableApprovalIds`(与会话屏不同源)。自定义回复触发器接 `disabled={actionsDisabled}`(`deviceOffline` 或他卡 `resolving`),与该屏选项按钮同源;接入示例代码已如此写。resolve 后卡片刷新为 resolved 态是现有行为,无需特殊处理。
 - **i18n 遗漏风险**:四个文件必须同步加 key,否则落回 key 字面量;实施时逐个核对。
 
 ## 不变项(本次零改动)
