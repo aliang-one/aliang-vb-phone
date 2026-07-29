@@ -41,7 +41,8 @@ export type IconName =
   | 'trash'
   | 'chevron'
   | 'settings'
-  | 'close';
+  | 'close'
+  | 'fingerprint';
 
 type Tone =
   | 'primary'
@@ -324,6 +325,19 @@ const IconShape: React.FC<IconShapeProps> = ({ name, stroke }) => {
       );
     case 'chevron':
       return <Path d="M6 9l6 6 6-6" stroke={stroke} {...common} />;
+    case 'fingerprint':
+      // Lucide fingerprint — nested ridge arcs + a central whorl line.
+      return (
+        <>
+          <Path d="M2 12C2 6.5 6.5 2 12 2a10 10 0 0 1 8 4" stroke={stroke} {...common} />
+          <Path d="M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2" stroke={stroke} {...common} />
+          <Path d="M17.29 21.02c.12-.6.43-2.3.5-3.02" stroke={stroke} {...common} />
+          <Path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4" stroke={stroke} {...common} />
+          <Path d="M8.65 22c.21-.66.45-1.32.57-2" stroke={stroke} {...common} />
+          <Path d="M14 13.12c0 2.38 4.5 6.5 4.5 6.5" stroke={stroke} {...common} />
+          <Path d="M9 6.8a6 6 0 0 1 9 5.2c0 .96-.1 1.88-.26 2.77" stroke={stroke} {...common} />
+        </>
+      );
     case 'settings':
       // Clean 8-tooth gear: body ring + 8 radial teeth + center hole. Drawn
       // with Lines/Circles (not a complex filled cog path) so it stays crisp at

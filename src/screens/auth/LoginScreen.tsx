@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
+import { IconBadge } from '../../components/visual/IconBadge';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
@@ -178,15 +179,6 @@ export const LoginScreen: React.FC = () => {
           </View>
 
           <GlassPanel style={styles.panel}>
-            {bioEntry ? (
-              <GlowButton
-                title={t('biometricRetry')}
-                testID="biometric-entry"
-                onPress={handleBiometricLogin}
-                loading={bioBusy}
-                style={styles.submitButton}
-              />
-            ) : null}
             <Field
               label={t('email')}
               value={email}
@@ -221,6 +213,26 @@ export const LoginScreen: React.FC = () => {
                 <ActivityIndicator color={theme.colors.primary} size="small" />
                 <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
                   {t('syncing')}
+                </Text>
+              </View>
+            ) : null}
+            {bioEntry ? (
+              <View style={styles.bioEntryRow}>
+                <Pressable
+                  testID="biometric-entry"
+                  onPress={handleBiometricLogin}
+                  disabled={bioBusy}
+                  style={styles.bioEntryPressable}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('biometricRetry')}>
+                  {bioBusy ? (
+                    <ActivityIndicator color={theme.colors.primary} size="large" />
+                  ) : (
+                    <IconBadge name="fingerprint" tone="primary" size={56} iconSize={28} />
+                  )}
+                </Pressable>
+                <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                  {t('biometricRetry')}
                 </Text>
               </View>
             ) : null}
@@ -329,6 +341,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  bioEntryRow: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 6,
+  },
+  bioEntryPressable: {
+    padding: 8,
   },
   errorText: {
     lineHeight: 18,
