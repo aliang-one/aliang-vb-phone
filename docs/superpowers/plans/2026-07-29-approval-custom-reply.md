@@ -46,7 +46,7 @@ new: "jumpLabel": "跳转到待审批",
 
 - [ ] **Step 2: vibecoding/en.json — 同位置插入英文**
 
-先确认 `en.json` 中 `session.approval.jumpLabel` 的现有值,以其为锚(如 `"jumpLabel": "Jump to pending",`)在其后加:
+`en.json` 中 `session.approval.jumpLabel` 现值为 `"Jump to pending approval"`(`:337`),以其为锚(`"jumpLabel": "Jump to pending approval",`)在其后加:
 ```
   "customReply": "Reply yourself…",
   "customReplyPlaceholder": "Type your reply",
@@ -167,9 +167,14 @@ describe('ApprovalCustomReply', () => {
   it('空文本时发送禁用;输入后启用', () => {
     const r = wrap(<ApprovalCustomReply {...props(jest.fn())} />);
     act(() => find(r, 'approval-custom-reply-trigger-a1')!.props.onPress());
-    expect(sendBtn(r)!.props.disabled).toBe(true); // 透过包装断言见 Step 3 说明
+    // GlowButton 把 disabled 落到内部带 testID 的 TouchableOpacity(GlowButton.tsx:79/81),据此查。
+    const sendDisabled = () =>
+      r.root.findAll(
+        node => typeof node.props.testID === 'string' && node.props.testID === 'approval-custom-reply-send-a1',
+      )[0].props.disabled;
+    expect(sendDisabled()).toBe(true);
     act(() => r.root.findByType(TextInput).props.onChangeText('  hello '));
-    // 发送按钮内部 GlowButton 的 disabled 经 testID 包装查询(见 Step 3)
+    expect(sendDisabled()).toBe(false);
   });
 
   it('输入后点发送:调 onSend(trim) 并清空收起', () => {
@@ -204,7 +209,7 @@ describe('ApprovalCustomReply', () => {
 });
 ```
 
-> Step 3 说明(发送禁用断言的精确查法):`GlowButton` 把 `disabled` 透传给内部 `Pressable`/`Text`。实施时确认 `GlowButton` 是否把 `testID` 落在可查元素上(会话屏现有 `approval-more-${id}` 已用 testID,说明支持)。发送按钮断言改用:`r.root.findAll(node => node.props.testID === 'approval-custom-reply-send-a1')[0].props.disabled`。若 GlowButton 不透传 disabled 到带 testID 的节点,则在 `ApprovalCustomReply` 内用 `TouchableOpacity`(带 testID)+ 禁用样式自绘发送按钮替代 GlowButton(见 Step 4 备选)。**先按 GlowButton 透传实现,测试红/绿时会暴露真实结构,据此校准断言。**
+> 已核实:`GlowButton` 把 `testID`/`disabled` 落到内部 `TouchableOpacity`(`GlowButton.tsx:79/81`),故上面的 `findAll(... testID === ...)[0].props.disabled` 查询可行,无需自绘发送按钮。
 
 - [ ] **Step 2: 跑测试确认失败**
 
