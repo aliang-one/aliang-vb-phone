@@ -132,7 +132,7 @@ const displayTimestamp = (value?: string): string | undefined => {
 const toneForState = (state?: string): 'primary' | 'success' | 'warning' | 'error' | 'neutral' => {
   if (state === 'completed') return 'success';
   if (state === 'blocked' || state === 'planning_failed' || state === 'budget_limited') return 'error';
-  if (state === 'awaiting_approval') return 'warning';
+  if (state === 'awaiting_approval' || state === 'awaiting_user_acceptance') return 'warning';
   if (state === 'paused' || state === 'cancelled' || state === 'abandoned') return 'neutral';
   return 'primary';
 };

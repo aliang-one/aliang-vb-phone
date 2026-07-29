@@ -174,6 +174,7 @@ export type GoalState =
   | 'approval_pending'
   | 'pause_requested'
   | 'verifying'
+  | 'awaiting_user_acceptance'
   | 'paused'
   | 'blocked'
   | 'budget_limited'
@@ -252,7 +253,7 @@ export interface GoalSummary {
    * and exhaustiveness support; the `string & {}` tail keeps the field forward-
    * compatible so unrecognized future server values still round-trip cleanly.
    */
-  primaryActionKind?: 'approve_plan' | 'continue' | 'retry' | (string & {});
+  primaryActionKind?: 'approve_plan' | 'continue' | 'retry' | 'accept_completion' | (string & {});
   primaryActionLabel?: string;
   /** True when the run is making no forward progress and a nudge is meaningful. */
   stalled?: boolean;

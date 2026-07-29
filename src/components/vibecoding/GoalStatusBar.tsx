@@ -3,6 +3,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { IconBadge } from '../visual/IconBadge';
 import type { GoalSummary } from '../../data/platformModels';
+import { goalStateLabel, goalToneForState } from '../../utils/goalStatePresentation';
 
 type GoalStatusBarProps = {
   summary?: GoalSummary;
@@ -10,45 +11,10 @@ type GoalStatusBarProps = {
   onPause?: () => void;
   onResume?: () => void;
   onRecover?: () => void;
+  onAccept?: () => void;
   onDelete?: () => void;
   onMore?: () => void;
-  actionLoading?: 'pause' | 'resume' | 'recover' | 'delete';
-};
-
-const stateLabels: Record<string, string> = {
-  planning: '规划中',
-  planning_failed: '规划需处理',
-  awaiting_approval: '等待确认',
-  active: '执行中',
-  approval_pending: '等待审批',
-  pause_requested: '等待本轮结束',
-  verifying: '验证中',
-  paused: '已暂停',
-  blocked: '需要处理',
-  budget_limited: '预算受限',
-  cancel_requested: '正在停止',
-  abandoned: '已放弃',
-  cancelled: '已取消',
-  completed: '已完成',
-};
-
-const toneForState = (state?: string): 'primary' | 'success' | 'warning' | 'error' | 'neutral' => {
-  switch (state) {
-    case 'completed':
-      return 'success';
-    case 'blocked':
-    case 'planning_failed':
-    case 'budget_limited':
-      return 'error';
-    case 'awaiting_approval':
-      return 'warning';
-    case 'paused':
-    case 'cancelled':
-    case 'abandoned':
-      return 'neutral';
-    default:
-      return 'primary';
-  }
+  actionLoading?: 'pause' | 'resume' | 'recover' | 'accept' | 'delete';
 };
 
 const GoalAction: React.FC<{
@@ -88,6 +54,7 @@ export const GoalStatusBar: React.FC<GoalStatusBarProps> = ({
   onPause,
   onResume,
   onRecover,
+  onAccept,
   onDelete,
   onMore,
   actionLoading,
@@ -105,7 +72,7 @@ export const GoalStatusBar: React.FC<GoalStatusBarProps> = ({
   const progress = hasProgress
     ? Math.min(1, Math.max(0, completed! / total!))
     : undefined;
-  const label = state ? stateLabels[state] ?? state : '同步中';
+  const label = goalStateLabel(state);
   const hasAttention = Boolean(summary?.attention) || state === 'blocked';
   const pausePending = state === 'pause_requested';
   const paused = state === 'paused';
@@ -128,7 +95,7 @@ export const GoalStatusBar: React.FC<GoalStatusBarProps> = ({
           activeOpacity={0.72}
           onPress={onView}
           style={styles.summaryButton}>
-          <IconBadge name="goal" tone={toneForState(state)} size={30} iconSize={15} />
+          <IconBadge name="goal" tone={goalToneForState(state)} size={30} iconSize={15} />
           <View style={styles.titleRow}>
             <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>GOAL</Text>
             <Text style={[theme.typography.labelMd, { color: theme.colors.onSurface }]} numberOfLines={1}>
@@ -152,6 +119,14 @@ export const GoalStatusBar: React.FC<GoalStatusBarProps> = ({
               testID="goal-action-pause"
               onPress={onPause}
               disabled={pausePending || Boolean(actionLoading)}
+            />
+          ) : null}
+          {summary?.primaryActionKind === 'accept_completion' && state === 'awaiting_user_acceptance' ? (
+            <GoalAction
+              label={actionLoading === 'accept' ? '确认中' : '确认完成'}
+              testID="goal-action-accept"
+              onPress={onAccept}
+              disabled={Boolean(actionLoading)}
             />
           ) : null}
           {summary?.recoverable ? (
