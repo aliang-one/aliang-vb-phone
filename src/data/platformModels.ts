@@ -188,13 +188,27 @@ export interface GoalTaskSummary {
   status?: string;
   isCurrent?: boolean;
   failureAttempt?: number;
+  key?: string;
+  description?: string;
+  allowedCommands?: string[];
+  dependsOn?: string[];
+  requiredCheckIds?: string[];
 }
+
+export type GoalCheckType = 'command' | 'file_exists' | 'file_contains';
 
 export interface GoalCheckSummary {
   id: string;
   title: string;
   status?: string;
   detail?: string;
+  key?: string;
+  type?: GoalCheckType;
+  command?: string;
+  path?: string;
+  contains?: string;
+  required?: boolean;
+  timeoutMs?: number;
 }
 
 export interface GoalRevisionSummary {

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  LayoutAnimation,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,11 +16,12 @@ import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlowButton } from '../../components/shared/GlowButton';
+import { GlassPanel } from '../../components/shared/GlassPanel';
 import { IconBadge } from '../../components/visual/IconBadge';
 import type { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore, useSessionApprovalEvents, useVibeRun } from '../../store/controlCenterStore';
 import { createId } from '../../store/internals';
-import type { GoalSummary } from '../../data/platformModels';
+import type { GoalCheckType, GoalSummary } from '../../data/platformModels';
 import {
   approveGoalPlan,
   deleteGoal,
@@ -91,6 +93,42 @@ const checkStateLabels: Record<string, string> = {
   failed: '未通过',
   stale: '已失效',
   error: '检查错误',
+};
+
+const checkTypeLabels: Record<GoalCheckType, string> = {
+  command: '命令验收',
+  file_exists: '文件存在',
+  file_contains: '文件包含',
+};
+
+const toneForTaskState = (state?: string): 'success' | 'primary' | 'error' | 'onSurfaceVariant' => {
+  if (state === 'completed') return 'success';
+  if (state === 'in_progress') return 'primary';
+  if (state === 'blocked' || state === 'superseded') return 'error';
+  return 'onSurfaceVariant';
+};
+
+const toneForCheckState = (state?: string): 'success' | 'error' | 'primary' | 'onSurfaceVariant' => {
+  if (state === 'passed') return 'success';
+  if (state === 'failed' || state === 'error') return 'error';
+  if (state === 'running') return 'primary';
+  return 'onSurfaceVariant';
+};
+
+const resolveToneColor = (
+  theme: ReturnType<typeof useTheme>['theme'],
+  tone: ReturnType<typeof toneForTaskState>,
+): string => {
+  switch (tone) {
+    case 'success':
+      return theme.colors.success;
+    case 'error':
+      return theme.colors.error;
+    case 'primary':
+      return theme.colors.primary;
+    default:
+      return theme.colors.onSurfaceVariant;
+  }
 };
 
 const displayTimestamp = (value?: string): string | undefined => {
@@ -222,6 +260,8 @@ export const GoalDetailScreen: React.FC = () => {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionFeedback, setActionFeedback] = useState('');
   const [events, setEvents] = useState<GoalEventSnapshot[]>([]);
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [expandedCheckId, setExpandedCheckId] = useState<string | null>(null);
   const canApprove = summary?.primaryActionKind === 'approve_plan' &&
     summary.state === 'awaiting_approval' &&
     Boolean(summary.revision?.id) &&
@@ -462,28 +502,147 @@ export const GoalDetailScreen: React.FC = () => {
                 </View>
               ) : null}
               {summary.tasks?.length ? (
-                summary.tasks.map((task, index) => (
-                  <View key={task.id} style={styles.ledgerRow}>
-                    <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>{index + 1}</Text>
-                    <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]} numberOfLines={2}>{task.title}</Text>
-                    <Text style={[theme.typography.labelSm, { color: task.isCurrent ? theme.colors.primary : theme.colors.onSurfaceVariant }]}>
-                      {taskStateLabels[task.status ?? ''] ?? (task.isCurrent ? '当前' : '待处理')}{task.failureAttempt ? ` · ${task.failureAttempt} 次失败` : ''}
-                    </Text>
-                  </View>
-                ))
+                summary.tasks.map((task, index) => {
+                  const expanded = expandedTaskId === task.id;
+                  const stateTone = toneForTaskState(task.status);
+                  const stateColor = resolveToneColor(theme, stateTone);
+                  return (
+                    <View key={task.id} style={styles.expandableRow}>
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={`${task.title} ${expanded ? '收起详情' : '展开详情'}`}
+                        style={styles.ledgerRow}
+                        onPress={() => {
+                          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                          setExpandedTaskId(prev => prev === task.id ? null : task.id);
+                        }}
+                      >
+                        <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>{index + 1}</Text>
+                        <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface, flexShrink: 1 }]} numberOfLines={2}>{task.title}</Text>
+                        <Text style={[theme.typography.labelSm, { color: task.isCurrent ? theme.colors.primary : stateColor }]}>
+                          {taskStateLabels[task.status ?? ''] ?? (task.isCurrent ? '当前' : '待处理')}{task.failureAttempt ? ` · ${task.failureAttempt} 次失败` : ''}
+                        </Text>
+                        <Text style={[theme.typography.titleMd, { color: theme.colors.onSurfaceVariant, marginLeft: 4 }]}>
+                          {expanded ? '▲' : '▼'}
+                        </Text>
+                      </TouchableOpacity>
+                      {expanded ? (
+                        <GlassPanel style={styles.detailPanel}>
+                          {task.description ? (
+                            <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>{task.description}</Text>
+                          ) : null}
+                          {task.allowedCommands?.length ? (
+                            <View style={styles.detailBlock}>
+                              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>允许命令</Text>
+                              <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>{task.allowedCommands.join(' · ')}</Text>
+                            </View>
+                          ) : null}
+                          {task.dependsOn?.length ? (
+                            <View style={styles.detailBlock}>
+                              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>依赖任务</Text>
+                              {task.dependsOn.map((depKey, depIdx) => {
+                                const depTask = summary.tasks?.find(t => t.key === depKey);
+                                return (
+                                  <Text key={`${depIdx}:${depKey}`} style={[theme.typography.bodySm, { color: theme.colors.onSurface }]}>
+                                    {depTask?.title ?? depKey}{depTask?.status ? ` · ${taskStateLabels[depTask.status] ?? depTask.status}` : ''}
+                                  </Text>
+                                );
+                              })}
+                            </View>
+                          ) : null}
+                          {task.requiredCheckIds?.length ? (
+                            <View style={styles.detailBlock}>
+                              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>关联检查</Text>
+                              {task.requiredCheckIds.map((checkId, checkIdx) => {
+                                const relCheck = summary.checks?.find(c => c.id === checkId);
+                                return (
+                                  <Text key={`${checkIdx}:${checkId}`} style={[theme.typography.bodySm, { color: theme.colors.onSurface }]}>
+                                    {relCheck?.title ?? checkId}{relCheck?.status ? ` · ${checkStateLabels[relCheck.status] ?? relCheck.status}` : ''}
+                                  </Text>
+                                );
+                              })}
+                            </View>
+                          ) : null}
+                          {!task.description && !task.allowedCommands?.length && !task.dependsOn?.length && !task.requiredCheckIds?.length ? (
+                            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>暂无额外详情</Text>
+                          ) : null}
+                        </GlassPanel>
+                      ) : null}
+                    </View>
+                  );
+                })
               ) : <EmptySection text="任务列表尚未同步" />}
             </Section>
             <Section title="检查">
               {summary.checks?.length ? (
-                summary.checks.map(check => (
-                  <View key={check.id} style={styles.ledgerRow}>
-                    <IconBadge name={check.status === 'passed' ? 'check' : 'warning'} tone={check.status === 'passed' ? 'success' : 'warning'} size={28} iconSize={14} />
-                    <View style={styles.rowCopy}>
-                      <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>{check.title}</Text>
-                      <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>{checkStateLabels[check.status ?? ''] ?? check.status ?? '等待检查'}{check.detail ? ` · ${check.detail}` : ''}</Text>
+                summary.checks.map(check => {
+                  const expanded = expandedCheckId === check.id;
+                  const stateTone = toneForCheckState(check.status);
+                  const stateColor = resolveToneColor(theme, stateTone);
+                  const checkTypeLabel = check.type ? checkTypeLabels[check.type] : undefined;
+                  return (
+                    <View key={check.id} style={styles.expandableRow}>
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={`${check.title} ${expanded ? '收起详情' : '展开详情'}`}
+                        style={styles.ledgerRow}
+                        onPress={() => {
+                          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                          setExpandedCheckId(prev => prev === check.id ? null : check.id);
+                        }}
+                      >
+                        <IconBadge name={check.status === 'passed' ? 'check' : 'warning'} tone={check.status === 'passed' ? 'success' : 'warning'} size={28} iconSize={14} />
+                        <View style={styles.rowCopy}>
+                          <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>{check.title}</Text>
+                          <Text style={[theme.typography.bodySm, { color: stateColor }]}>
+                            {checkStateLabels[check.status ?? ''] ?? check.status ?? '等待检查'}{check.detail ? ` · ${check.detail}` : ''}
+                          </Text>
+                        </View>
+                        <Text style={[theme.typography.titleMd, { color: theme.colors.onSurfaceVariant, marginLeft: 4 }]}>
+                          {expanded ? '▲' : '▼'}
+                        </Text>
+                      </TouchableOpacity>
+                      {expanded ? (
+                        <GlassPanel style={styles.detailPanel}>
+                          {checkTypeLabel ? (
+                            <View style={styles.detailBlock}>
+                              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>类型</Text>
+                              <Text style={[theme.typography.bodySm, { color: theme.colors.onSurface }]}>{checkTypeLabel}</Text>
+                            </View>
+                          ) : null}
+                          {check.command ? (
+                            <View style={styles.detailBlock}>
+                              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>命令</Text>
+                              <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>{check.command}</Text>
+                            </View>
+                          ) : null}
+                          {check.path && (check.type === 'file_exists' || check.type === 'file_contains') ? (
+                            <View style={styles.detailBlock}>
+                              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>路径</Text>
+                              <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>{check.path}</Text>
+                            </View>
+                          ) : null}
+                          {check.contains && check.type === 'file_contains' ? (
+                            <View style={styles.detailBlock}>
+                              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>包含内容</Text>
+                              <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>{check.contains}</Text>
+                            </View>
+                          ) : null}
+                          <View style={styles.detailBlock}>
+                            <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>是否必需</Text>
+                            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurface }]}>{check.required === false ? '可选' : '必需'}</Text>
+                          </View>
+                          {typeof check.timeoutMs === 'number' ? (
+                            <View style={styles.detailBlock}>
+                              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>超时</Text>
+                              <Text style={[theme.typography.bodySm, { color: theme.colors.onSurface }]}>{(check.timeoutMs / 1000).toFixed(1)} 秒</Text>
+                            </View>
+                          ) : null}
+                        </GlassPanel>
+                      ) : null}
                     </View>
-                  </View>
-                ))
+                  );
+                })
               ) : <EmptySection text="检查结果尚未同步" />}
             </Section>
             <Section title="恢复与历史">
@@ -550,6 +709,9 @@ const styles = StyleSheet.create({
   sectionBody: { gap: 9 },
   revisionMeta: { gap: 4, paddingBottom: 4 },
   ledgerRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  expandableRow: { gap: 8 },
+  detailPanel: { padding: 12, gap: 8 },
+  detailBlock: { gap: 2 },
   historyRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10 },
   historyDot: { width: 8, height: 8, borderRadius: 4 },
   rowCopy: { flex: 1, minWidth: 0, gap: 2 },

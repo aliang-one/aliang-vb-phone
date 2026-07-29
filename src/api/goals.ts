@@ -57,12 +57,24 @@ export interface ServerGoalSnapshot {
     status?: string;
     is_current?: boolean;
     failure_attempt?: number;
+    key?: string;
+    description?: string;
+    allowed_commands?: string[];
+    depends_on?: string[];
+    required_check_ids?: string[];
   }>;
   checks?: Array<{
     id: string;
     title: string;
     status?: string;
     detail?: string;
+    key?: string;
+    type?: 'command' | 'file_exists' | 'file_contains';
+    command?: string;
+    path?: string;
+    contains?: string;
+    required?: boolean;
+    timeout_ms?: number;
   }>;
 }
 
@@ -73,6 +85,11 @@ const mapTasks = (tasks?: ServerGoalSnapshot['tasks']): GoalTaskSummary[] | unde
     status: task.status,
     isCurrent: task.is_current,
     failureAttempt: task.failure_attempt,
+    key: task.key,
+    description: task.description,
+    allowedCommands: task.allowed_commands,
+    dependsOn: task.depends_on,
+    requiredCheckIds: task.required_check_ids,
   }));
 
 const mapChecks = (checks?: ServerGoalSnapshot['checks']): GoalCheckSummary[] | undefined =>
@@ -81,6 +98,13 @@ const mapChecks = (checks?: ServerGoalSnapshot['checks']): GoalCheckSummary[] | 
     title: check.title,
     status: check.status,
     detail: check.detail,
+    key: check.key,
+    type: check.type,
+    command: check.command,
+    path: check.path,
+    contains: check.contains,
+    required: check.required,
+    timeoutMs: check.timeout_ms,
   }));
 
 const mapRevision = (
