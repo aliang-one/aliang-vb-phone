@@ -23,7 +23,9 @@ import { useControlCenterStore, useSessionApprovalEvents, useVibeRun } from '../
 import { createId } from '../../store/internals';
 import type { GoalCheckType, GoalSummary } from '../../data/platformModels';
 import {
+  acceptGoal,
   approveGoalPlan,
+  declineGoal,
   deleteGoal,
   fetchGoalEvents,
   fetchGoalSnapshot,
@@ -31,27 +33,14 @@ import {
   newerGoalSummary,
   recoverGoal,
 } from '../../api/goals';
+import { goalStateLabel } from '../../utils/goalStatePresentation';
 import type { GoalEventSnapshot } from '../../api/goals';
 
 type GoalDetailRoute = RouteProp<RootStackParamList, 'GoalDetail'>;
 type GoalDetailNavigation = NativeStackNavigationProp<RootStackParamList>;
 
-const stateLabels: Record<string, string> = {
-  planning: '规划中',
-  planning_failed: '规划需处理',
-  awaiting_approval: '等待确认',
-  active: '执行中',
-  approval_pending: '等待审批',
-  pause_requested: '等待本轮结束',
-  verifying: '验证中',
-  paused: '已暂停',
-  blocked: '需要处理',
-  budget_limited: '预算受限',
-  cancel_requested: '正在停止',
-  abandoned: '已放弃',
-  cancelled: '已取消',
-  completed: '已完成',
-};
+// Goal-state labels live in utils/goalStatePresentation.ts (shared with
+// GoalStatusBar) — Phase 1 可信签署闸 added awaiting_user_acceptance there.
 
 const eventLabels: Record<string, string> = {
   'goal.created': 'Goal 已创建',
@@ -68,6 +57,9 @@ const eventLabels: Record<string, string> = {
   'goal.verification.blocked': '验证无法继续',
   'goal.budget_limited': '执行预算已到上限',
   'goal.blocked': 'Goal 被阻塞',
+  'goal.acceptance.requested': '所有检查已通过，等待你确认完成',
+  'goal.acceptance.signed': '你已确认完成',
+  'goal.acceptance.rejected': '你要求继续调整，Goal 回到阻塞',
   'goal.completed': 'Goal 已完成',
   'goal.abandoned': 'Goal 已放弃',
   'goal.pause.requested': '已请求暂停，等待本轮结束',
@@ -166,7 +158,7 @@ export const GoalSummaryHeader: React.FC<{ summary?: GoalSummary }> = ({ summary
   const total = summary?.totalTasks;
   const hasProgress = typeof completed === 'number' && typeof total === 'number' && total > 0;
   const progress = hasProgress ? Math.min(1, Math.max(0, completed! / total!)) : 0;
-  const label = summary ? stateLabels[summary.state] ?? summary.state : '同步中';
+  const label = goalStateLabel(summary?.state);
 
   return (
     <View style={[styles.summary, { backgroundColor: theme.colors.background, borderBottomColor: theme.colors.outlineVariant }]}>
@@ -271,20 +263,35 @@ export const GoalDetailScreen: React.FC = () => {
     typeof summary?.stateVersion === 'number' &&
     (summary?.primaryActionKind === 'continue' || summary?.primaryActionKind === 'retry'),
   );
+  // Phase 1 可信签署闸: every task check passed — the user can sign off (accept)
+  // or send it back (decline → blocked → /recover replans).
+  const canAccept = summary?.primaryActionKind === 'accept_completion' &&
+    summary.state === 'awaiting_user_acceptance' &&
+    typeof summary.stateVersion === 'number';
   const actionLabel = canApprove
     ? (summary?.primaryActionLabel ?? '确认计划')
-    : canRecover
-      ? (summary?.primaryActionLabel ?? '继续')
-      : '刷新状态';
+    : canAccept
+      ? (summary?.primaryActionLabel ?? '确认完成')
+      : canRecover
+        ? (summary?.primaryActionLabel ?? '继续')
+        : '刷新状态';
   const canDelete = Boolean(
     summary &&
     typeof summary.stateVersion === 'number',
   );
 
+  // Sync local `summary` from the session's goalSummary. Depend ONLY on the
+  // primitive version+state — `session.goalSummary` is rebuilt as a NEW object
+  // reference on every realtime push (even when content is unchanged during
+  // streaming), so depending on the object would re-fire this effect every
+  // render and churn summary → Maximum update depth exceeded.
+  const goalSummaryStateVersion = session?.goalSummary?.stateVersion;
+  const goalSummaryState = session?.goalSummary?.state;
   useEffect(() => {
     if (!session?.goalSummary) return;
     setSummary(current => newerGoalSummary(current, session.goalSummary!));
-  }, [session?.goalSummary]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goalSummaryStateVersion, goalSummaryState]);
 
   const refreshGoal = useCallback(
     async (signal?: AbortSignal) => {
@@ -363,6 +370,63 @@ export const GoalDetailScreen: React.FC = () => {
     }
   }, [refreshGoal, summary]);
 
+  // Phase 1 可信签署闸: sign off (accept → completed) — the ONLY way a goal
+  // completes now. Idempotent via a fresh idempotency key per tap.
+  const performAccept = useCallback(async () => {
+    if (!summary || summary.stateVersion === undefined) return;
+    setActionLoading(true);
+    setActionFeedback('');
+    try {
+      const snapshot = await acceptGoal(summary.goalId, {
+        expectedStateVersion: summary.stateVersion,
+        idempotencyKey: createId('goal-accept'),
+      });
+      setSummary(current => newerGoalSummary(current, goalSnapshotToSummary(snapshot)));
+      setActionFeedback('已确认完成');
+      if (route.params.sourceSessionId) {
+        await loadAgentSessionDetail(route.params.sourceSessionId, { refresh: true });
+      }
+    } catch (error) {
+      setActionFeedback(error instanceof Error ? error.message : '确认失败，请重试');
+      await refreshGoal();
+    } finally {
+      setActionLoading(false);
+    }
+  }, [loadAgentSessionDetail, refreshGoal, route.params.sourceSessionId, summary]);
+
+  // Decline: reject false completion → goal blocked (user_rejected_completion)
+  // → the existing recover/replan flow takes it back to work. Confirmed via Alert
+  // because it reverses a completed-looking goal.
+  const performDecline = useCallback(async () => {
+    if (!summary || summary.stateVersion === undefined) return;
+    setActionLoading(true);
+    setActionFeedback('');
+    try {
+      const snapshot = await declineGoal(summary.goalId, {
+        expectedStateVersion: summary.stateVersion,
+        idempotencyKey: createId('goal-decline'),
+      });
+      setSummary(current => newerGoalSummary(current, goalSnapshotToSummary(snapshot)));
+      setActionFeedback('已要求继续调整，Goal 回到阻塞，可恢复重规划');
+    } catch (error) {
+      setActionFeedback(error instanceof Error ? error.message : '操作失败，请重试');
+      await refreshGoal();
+    } finally {
+      setActionLoading(false);
+    }
+  }, [refreshGoal, summary]);
+
+  const confirmDecline = useCallback(() => {
+    Alert.alert(
+      '要求继续调整？',
+      'Goal 将回到阻塞状态（不完成），之后可恢复并重新规划。检查结果仍保留。',
+      [
+        { text: '取消', style: 'cancel' },
+        { text: '继续调整', style: 'destructive', onPress: performDecline },
+      ],
+    );
+  }, [performDecline]);
+
   const runPrimaryAction = useCallback(async () => {
     if (!summary) {
       await refreshGoal();
@@ -370,6 +434,10 @@ export const GoalDetailScreen: React.FC = () => {
     }
     if (summary.primaryActionKind === 'continue' || summary.primaryActionKind === 'retry') {
       await performRecover();
+      return;
+    }
+    if (summary.primaryActionKind === 'accept_completion') {
+      await performAccept();
       return;
     }
     if (summary.primaryActionKind !== 'approve_plan') {
@@ -402,7 +470,7 @@ export const GoalDetailScreen: React.FC = () => {
     } finally {
       setActionLoading(false);
     }
-  }, [canApprove, loadAgentSessionDetail, performRecover, refreshGoal, route.params.sourceSessionId, summary]);
+  }, [canAccept, canApprove, loadAgentSessionDetail, performAccept, performRecover, refreshGoal, route.params.sourceSessionId, summary]);
 
   const performDelete = useCallback(async () => {
     if (!summary || summary.stateVersion === undefined) return;
@@ -437,7 +505,7 @@ export const GoalDetailScreen: React.FC = () => {
     <SafeAreaWrapper>
       <TopAppBar
         title="Goal"
-        subtitle={summary ? stateLabels[summary.state] ?? summary.state : '同步中'}
+        subtitle={goalStateLabel(summary?.state)}
         onBack={() => navigation.goBack()}
       />
       <ScrollView
@@ -676,10 +744,21 @@ export const GoalDetailScreen: React.FC = () => {
           title={actionLabel}
           onPress={runPrimaryAction}
           loading={actionLoading}
-          disabled={loading || actionLoading || (summary?.primaryActionKind === 'approve_plan' && !canApprove)}
+          disabled={loading || actionLoading || (summary?.primaryActionKind === 'approve_plan' && !canApprove) || (summary?.primaryActionKind === 'accept_completion' && !canAccept)}
           style={styles.actionButton}
           testID="goal-primary-action"
         />
+        {canAccept ? (
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="要求继续调整，拒绝完成"
+            onPress={confirmDecline}
+            disabled={actionLoading}
+            style={styles.abandonButton}
+            testID="goal-decline-action">
+            <Text style={[theme.typography.labelMd, { color: theme.colors.warning }]}>还需调整</Text>
+          </TouchableOpacity>
+        ) : null}
         {canDelete ? (
           <TouchableOpacity
             accessibilityRole="button"

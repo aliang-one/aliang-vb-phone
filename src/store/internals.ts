@@ -822,7 +822,11 @@ export function mergeVibeRunSnapshot(
       existingGoalVersion !== undefined &&
       incomingGoalVersion < existingGoalVersion
       ? existing.goalSummary
-      : incoming.goalSummary;
+      : incomingGoalVersion === existingGoalVersion &&
+        existing.goalSummary &&
+        existing.goalSummary.state === incoming.goalSummary.state
+        ? existing.goalSummary
+        : incoming.goalSummary;
   return {
     ...existing,
     ...incoming,

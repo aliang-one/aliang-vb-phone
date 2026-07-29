@@ -155,3 +155,23 @@ describe('Goal detail snapshot versioning', () => {
     }));
   });
 });
+
+describe('newerGoalSummary reference stability (no churn on identical content)', () => {
+  it('returns the SAME reference when an equal-version summary is content-identical', () => {
+    const current = {
+      goalId: 'goal-1',
+      state: 'active' as const,
+      stateVersion: 5,
+      primaryActionKind: 'continue' as const,
+      planningErrorCode: undefined,
+      planningErrorDetail: undefined,
+      updatedAt: 't1',
+    };
+    // Realtime pushes a fresh goalSummary object during thinking with the SAME
+    // version + state. newerGoalSummary MUST reuse `current` so the consumer's
+    // useState bails — otherwise every thinking tick produces a new ref and the
+    // syncing effect re-fires → Maximum update depth exceeded.
+    const incoming = { ...current };
+    expect(newerGoalSummary(current, incoming)).toBe(current);
+  });
+});

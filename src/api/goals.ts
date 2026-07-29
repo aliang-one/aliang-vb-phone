@@ -169,6 +169,24 @@ export const newerGoalSummary = (
   ) {
     return current;
   }
+  // Content-identical (same version + same semantic fields) → reuse `current`
+  // so the consumer's useState/Object.is bails. Without this, a realtime push
+  // during streaming that carries the SAME goalSummary content still produces a
+  // fresh spread object every tick → the syncing effect re-fires every render
+  // → Maximum update depth exceeded. The sparse-merge below still handles
+  // genuinely differing content (e.g. an incoming summary missing diagnostics).
+  if (
+    current &&
+    current.stateVersion === incoming.stateVersion &&
+    current.state === incoming.state &&
+    current.primaryActionKind === incoming.primaryActionKind &&
+    current.revision?.id === incoming.revision?.id &&
+    current.planningErrorCode === incoming.planningErrorCode &&
+    current.planningErrorDetail === incoming.planningErrorDetail &&
+    current.updatedAt === incoming.updatedAt
+  ) {
+    return current;
+  }
   if (current?.stateVersion !== undefined && incoming.stateVersion === current.stateVersion) {
     return {
       ...current,
@@ -347,6 +365,36 @@ export const recoverGoal = (
 ): Promise<ServerGoalSnapshot> =>
   apiPost<ServerGoalSnapshot>(
     `/api/goals/${encodeURIComponent(goalId)}/recover`,
+    {
+      expected_state_version: input.expectedStateVersion,
+      idempotency_key: input.idempotencyKey,
+    },
+  );
+
+/**
+ * Phase 1 可信签署闸: a goal that passed every task check pauses at
+ * awaiting_user_acceptance. accept → the server writes the immutable sign-off
+ * decision and completes the goal; decline → blocked (user_rejected_completion),
+ * after which /recover replans. Both are idempotent on idempotencyKey.
+ */
+export const acceptGoal = (
+  goalId: string,
+  input: { expectedStateVersion: number; idempotencyKey: string },
+): Promise<ServerGoalSnapshot> =>
+  apiPost<ServerGoalSnapshot>(
+    `/api/goals/${encodeURIComponent(goalId)}/accept`,
+    {
+      expected_state_version: input.expectedStateVersion,
+      idempotency_key: input.idempotencyKey,
+    },
+  );
+
+export const declineGoal = (
+  goalId: string,
+  input: { expectedStateVersion: number; idempotencyKey: string },
+): Promise<ServerGoalSnapshot> =>
+  apiPost<ServerGoalSnapshot>(
+    `/api/goals/${encodeURIComponent(goalId)}/decline`,
     {
       expected_state_version: input.expectedStateVersion,
       idempotency_key: input.idempotencyKey,
