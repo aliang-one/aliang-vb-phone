@@ -32,12 +32,14 @@ import { StatusChip } from '../../components/shared/StatusChip';
 import { ToolsMenu } from '../../components/vibecoding/ToolsMenu';
 import { MessageComposer } from '../../components/vibecoding/MessageComposer';
 import { GoalDraftBar, GoalStatusBar } from '../../components/vibecoding/GoalStatusBar';
+import { GOAL_USER_ACTION_STATES } from '../../utils/goalStatePresentation';
 import { GoalDeletedFold } from '../../components/vibecoding/GoalDeletedFold';
 import { mergeCommands } from '../../utils/agentCommands';
 import { TranscriptMessageList } from '../../components/vibecoding/TranscriptMessageList';
 import { ConversationScrubber } from '../../components/vibecoding/ConversationScrubber';
 import { ResolvedApprovalsGroup } from '../../components/vibecoding/ResolvedApprovalsGroup';
 import { ApprovalQuickPolicySheet } from '../../components/vibecoding/ApprovalQuickPolicySheet';
+import { ApprovalCustomReply } from '../../components/vibecoding/ApprovalCustomReply';
 import { RootStackParamList } from '../../app/navigation/types';
 import {
   useControlCenterStore,
@@ -1794,26 +1796,47 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // without phase fall back to deriveSessionPhase.
   const sessionPhase = useMemo<SessionPhase>(
     () => {
+      let phase: SessionPhase;
       if (session?.runStateVersion !== undefined && session.phase) {
-        return runDisplayPhase(
+        phase = runDisplayPhase(
           session.status,
           session.phase,
           session.runStateVersion,
           session.runState,
         );
+      } else if (session?.status === 'failed') {
+        phase = 'failed';
+      } else if (isSessionLive) {
+        phase = 'running';
+      } else if (session?.phase) {
+        phase = session.phase;
+      } else {
+        phase = deriveSessionPhase(
+          session?.status ?? 'idle',
+          pendingApprovals.length > 0,
+          false,
+        );
       }
-      if (session?.status === 'failed') return 'failed';
-      if (isSessionLive) return 'running';
-      if (session?.phase) return session.phase;
-      return deriveSessionPhase(
-        session?.status ?? 'idle',
-        pendingApprovals.length > 0,
-        false,
-      );
+      // Phase 1 可信签署闸 (codex #16): for goal sessions the GoalStatusBar is
+      // the authoritative state indicator. A goal awaiting sign-off (or approval
+      // / blocked) must NOT make the chat header read "已完成" — the turn settled
+      // but the goal has not. Clamp completed → waiting_approval so the header
+      // reads "needs action", never "done", while the goal awaits the user.
+      if (
+        phase === 'completed' &&
+        session?.purpose === 'goal' &&
+        !!session.goalSummary?.state &&
+        GOAL_USER_ACTION_STATES.has(session.goalSummary.state)
+      ) {
+        phase = 'waiting_approval';
+      }
+      return phase;
     },
     [
       isSessionLive,
       pendingApprovals.length,
+      session?.purpose,
+      session?.goalSummary?.state,
       session?.status,
       session?.phase,
       session?.runStateVersion,
@@ -2221,6 +2244,20 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 </Text>
               </TouchableOpacity>
             </View>
+            {approval.kind === 'client_response' && (
+              <ApprovalCustomReply
+                approvalId={approval.id}
+                triggerLabel={t('session.approval.customReply')}
+                placeholder={t('session.approval.customReplyPlaceholder')}
+                sendLabel={t('session.approval.customReplySend')}
+                disabled={deviceOffline || Boolean(resolvingApproval)}
+                sessionId={session?.id}
+                projectPath={session?.directory}
+                onSend={msg =>
+                  handleResolveApproval(approval.id, 'approved', { message: msg })
+                }
+              />
+            )}
           </View>
         ) : pending ? (
           <View style={styles.approvalActions}>
@@ -3520,6 +3557,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
               onPause={() => void runGoalControl('pause')}
               onResume={() => void runGoalControl('resume')}
               onRecover={() => void runGoalControl('recover')}
+              onAccept={() =>
+                // Sign-off is trust-critical: route to the detail screen (full
+                // evidence + decline path) rather than one-tap from the bar.
+                navigation.navigate('GoalDetail', {
+                  goalId: session.goalSummary?.goalId ?? session.id,
+                  sourceSessionId: session.id,
+                })
+              }
               onDelete={confirmDeleteGoal}
               onMore={() => setToolsMenuVisible(true)}
             />
