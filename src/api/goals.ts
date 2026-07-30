@@ -438,3 +438,44 @@ export const declineGoal = (
       idempotency_key: input.idempotencyKey,
     },
   );
+
+/**
+ * Phase 2 fork: open a temporary re-planning child session. The main goal pauses;
+ * the child session inherits the goal's read-only context. Abandon to discard
+ * + resume, or merge to squash the exploration into a new plan (goes through
+ * approval). The child session is purpose='chat' — the agent needs no changes.
+ */
+export const forkGoal = (
+  goalId: string,
+  input: { reason: string; expectedStateVersion: number; idempotencyKey: string },
+): Promise<{ fork_id: string; child_session_id: string }> =>
+  apiPost<{ fork_id: string; child_session_id: string }>(
+    `/api/goals/${encodeURIComponent(goalId)}/fork`,
+    {
+      reason: input.reason,
+      expected_state_version: input.expectedStateVersion,
+      idempotency_key: input.idempotencyKey,
+    },
+  );
+
+export const abandonFork = (
+  goalId: string,
+  forkId: string,
+): Promise<{ status: string; fork_id: string }> =>
+  apiPost<{ status: string; fork_id: string }>(
+    `/api/goals/${encodeURIComponent(goalId)}/fork/${encodeURIComponent(forkId)}/abandon`,
+    {},
+  );
+
+export const mergeFork = (
+  goalId: string,
+  forkId: string,
+  input: { expectedStateVersion: number; idempotencyKey: string },
+): Promise<{ status: string; fork_id: string; goal_state: string }> =>
+  apiPost<{ status: string; fork_id: string; goal_state: string }>(
+    `/api/goals/${encodeURIComponent(goalId)}/fork/${encodeURIComponent(forkId)}/merge`,
+    {
+      expected_state_version: input.expectedStateVersion,
+      idempotency_key: input.idempotencyKey,
+    },
+  );

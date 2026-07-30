@@ -30,6 +30,7 @@ import {
   deleteGoal,
   fetchGoalEvents,
   fetchGoalSnapshot,
+  forkGoal,
   goalSnapshotToSummary,
   newerGoalSummary,
   recoverGoal,
@@ -280,6 +281,12 @@ export const GoalDetailScreen: React.FC = () => {
       : canRecover
         ? (summary?.primaryActionLabel ?? '继续')
         : '刷新状态';
+  // Phase 2 fork: visible when the goal is in a forkable state.
+  const canFork = Boolean(
+    summary &&
+    ['active', 'awaiting_approval', 'paused', 'blocked'].includes(summary.state) &&
+    typeof summary.stateVersion === 'number',
+  );
   const canDelete = Boolean(
     summary &&
     typeof summary.stateVersion === 'number',
@@ -444,6 +451,26 @@ export const GoalDetailScreen: React.FC = () => {
       ],
     );
   }, [performDecline]);
+
+  // Phase 2 fork: open a re-planning child session.
+  const performFork = useCallback(async () => {
+    if (!summary || summary.stateVersion === undefined) return;
+    setActionLoading(true);
+    setActionFeedback('');
+    try {
+      const result = await forkGoal(summary.goalId, {
+        reason: '用户发起重规划探索',
+        expectedStateVersion: summary.stateVersion,
+        idempotencyKey: createId('goal-fork'),
+      });
+      setActionFeedback(`已开启重规划探索（草稿会话: ${result.child_session_id.slice(0, 8)}…）`);
+      await refreshGoal();
+    } catch (error) {
+      setActionFeedback(error instanceof Error ? error.message : '分叉失败，请重试');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [refreshGoal, summary]);
 
   const runPrimaryAction = useCallback(async () => {
     if (!summary) {
@@ -848,6 +875,17 @@ export const GoalDetailScreen: React.FC = () => {
           style={styles.actionButton}
           testID="goal-primary-action"
         />
+        {canFork && !canAccept && !canApprove ? (
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="分叉重规划"
+            onPress={performFork}
+            disabled={actionLoading}
+            style={styles.abandonButton}
+            testID="goal-fork-action">
+            <Text style={[theme.typography.labelMd, { color: theme.colors.warning }]}>分叉重规划</Text>
+          </TouchableOpacity>
+        ) : null}
         {canAccept ? (
           <TouchableOpacity
             accessibilityRole="button"
