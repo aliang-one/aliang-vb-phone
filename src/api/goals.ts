@@ -1,6 +1,7 @@
 import { apiGet, apiPost } from './client';
 import type {
   GoalCheckSummary,
+  GoalAcceptanceCriterionSummary,
   GoalRevisionSummary,
   GoalState,
   GoalSummary,
@@ -75,6 +76,17 @@ export interface ServerGoalSnapshot {
     contains?: string;
     required?: boolean;
     timeout_ms?: number;
+    criterion_key?: string;
+  }>;
+  criteria?: Array<{
+    key: string;
+    statement: string;
+    kind: 'functional' | 'regression' | 'integration' | 'device' | 'delivery';
+    verification: 'auto' | 'manual' | 'unverifiable';
+    required: boolean;
+    user_authored?: boolean;
+    mapped_check_keys?: string[];
+    status: 'passed' | 'failed' | 'pending' | 'manual' | 'unverifiable';
   }>;
 }
 
@@ -105,6 +117,21 @@ const mapChecks = (checks?: ServerGoalSnapshot['checks']): GoalCheckSummary[] | 
     contains: check.contains,
     required: check.required,
     timeoutMs: check.timeout_ms,
+    criterionKey: check.criterion_key,
+  }));
+
+const mapCriteria = (
+  criteria?: ServerGoalSnapshot['criteria'],
+): GoalAcceptanceCriterionSummary[] | undefined =>
+  criteria?.map(criterion => ({
+    key: criterion.key,
+    statement: criterion.statement,
+    kind: criterion.kind,
+    verification: criterion.verification,
+    required: criterion.required,
+    userAuthored: criterion.user_authored,
+    mappedCheckKeys: criterion.mapped_check_keys ?? [],
+    status: criterion.status,
   }));
 
 const mapRevision = (
@@ -156,6 +183,7 @@ export const goalSnapshotToSummary = (snapshot: ServerGoalSnapshot): GoalSummary
   revision: mapRevision(snapshot.revision),
   tasks: mapTasks(snapshot.tasks),
   checks: mapChecks(snapshot.checks),
+  criteria: mapCriteria(snapshot.criteria),
 });
 
 export const newerGoalSummary = (
@@ -305,6 +333,15 @@ export const approveGoalPlan = (
     revisionId: string;
     expectedStateVersion: number;
     idempotencyKey: string;
+    // Phase 2 criterion editing (codex #1): the user's edited acceptance criteria.
+    criteria?: Array<{
+      key: string;
+      statement: string;
+      kind: 'functional' | 'regression' | 'integration' | 'device' | 'delivery';
+      verification: 'auto' | 'manual' | 'unverifiable';
+      required: boolean;
+      mapped_check_keys: string[];
+    }>;
   },
 ): Promise<ServerGoalSnapshot> =>
   apiPost<ServerGoalSnapshot>(
@@ -313,6 +350,7 @@ export const approveGoalPlan = (
       revision_id: input.revisionId,
       expected_state_version: input.expectedStateVersion,
       idempotency_key: input.idempotencyKey,
+      criteria: input.criteria,
     },
   );
 

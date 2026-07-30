@@ -210,6 +210,23 @@ export interface GoalCheckSummary {
   contains?: string;
   required?: boolean;
   timeoutMs?: number;
+  criterionKey?: string;
+}
+
+// Phase 2 criterion subsystem: goal-level acceptance criteria with derived
+// status (the evidence matrix). The user edits these at plan approval (codex #1).
+export type GoalCriterionVerification = 'auto' | 'manual' | 'unverifiable';
+export type GoalCriterionStatus = 'passed' | 'failed' | 'pending' | 'manual' | 'unverifiable';
+
+export interface GoalAcceptanceCriterionSummary {
+  key: string;
+  statement: string;
+  kind: 'functional' | 'regression' | 'integration' | 'device' | 'delivery';
+  verification: GoalCriterionVerification;
+  required: boolean;
+  userAuthored?: boolean;
+  mappedCheckKeys: string[];
+  status: GoalCriterionStatus;
 }
 
 export interface GoalRevisionSummary {
@@ -268,6 +285,7 @@ export interface GoalSummary {
   revision?: GoalRevisionSummary;
   tasks?: GoalTaskSummary[];
   checks?: GoalCheckSummary[];
+  criteria?: GoalAcceptanceCriterionSummary[];
 }
 
 export interface VibeCodingRun {

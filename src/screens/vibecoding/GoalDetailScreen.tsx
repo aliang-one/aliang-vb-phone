@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -21,7 +22,7 @@ import { IconBadge } from '../../components/visual/IconBadge';
 import type { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore, useSessionApprovalEvents, useVibeRun } from '../../store/controlCenterStore';
 import { createId } from '../../store/internals';
-import type { GoalCheckType, GoalSummary } from '../../data/platformModels';
+import type { GoalCheckType, GoalSummary, GoalAcceptanceCriterionSummary } from '../../data/platformModels';
 import {
   acceptGoal,
   approveGoalPlan,
@@ -254,6 +255,10 @@ export const GoalDetailScreen: React.FC = () => {
   const [events, setEvents] = useState<GoalEventSnapshot[]>([]);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [expandedCheckId, setExpandedCheckId] = useState<string | null>(null);
+  // Phase 2 criterion editing (codex #1): editable copy of the goal's acceptance
+  // criteria. Synced from the server when the criterion key-set changes (first
+  // load / replan); user edits preserved across refreshes of the same plan.
+  const [criteriaDraft, setCriteriaDraft] = useState<GoalAcceptanceCriterionSummary[]>(summary?.criteria ?? []);
   const canApprove = summary?.primaryActionKind === 'approve_plan' &&
     summary.state === 'awaiting_approval' &&
     Boolean(summary.revision?.id) &&
@@ -292,6 +297,19 @@ export const GoalDetailScreen: React.FC = () => {
     setSummary(current => newerGoalSummary(current, session.goalSummary!));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [goalSummaryStateVersion, goalSummaryState]);
+
+  // Sync criteriaDraft when the server's criterion key-set changes (first load /
+  // replan). Edits are preserved across refreshes of the SAME plan (same keys).
+  const criteriaKeys = summary?.criteria?.map(c => c.key).sort().join(',');
+  useEffect(() => {
+    const incoming = summary?.criteria;
+    if (!incoming || incoming.length === 0) return;
+    const draftKeys = criteriaDraft.map(c => c.key).sort().join(',');
+    if (criteriaKeys !== draftKeys) {
+      setCriteriaDraft(incoming);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [criteriaKeys]);
 
   const refreshGoal = useCallback(
     async (signal?: AbortSignal) => {
@@ -458,6 +476,17 @@ export const GoalDetailScreen: React.FC = () => {
         revisionId: summary.revision.id,
         expectedStateVersion: summary.stateVersion,
         idempotencyKey: createId('goal-plan-approval'),
+        // Phase 2 criterion editing (codex #1): the user's edited criteria.
+        criteria: criteriaDraft.length > 0
+          ? criteriaDraft.map(c => ({
+              key: c.key,
+              statement: c.statement,
+              kind: c.kind,
+              verification: c.verification,
+              required: c.required,
+              mapped_check_keys: c.mappedCheckKeys,
+            }))
+          : undefined,
       });
       setSummary(current => newerGoalSummary(current, goalSnapshotToSummary(snapshot)));
       setActionFeedback('计划已确认，Goal 已进入执行队列');
@@ -713,6 +742,77 @@ export const GoalDetailScreen: React.FC = () => {
                 })
               ) : <EmptySection text="检查结果尚未同步" />}
             </Section>
+            {criteriaDraft.length > 0 ? (
+              <Section title="验收标准（签署依据）">
+                {criteriaDraft.map((criterion, index) => {
+                  const statusColor = criterion.status === 'passed' ? theme.colors.success
+                    : criterion.status === 'failed' ? theme.colors.error
+                    : criterion.status === 'manual' ? theme.colors.warning
+                    : theme.colors.onSurfaceVariant;
+                  const updateCriterion = (patch: Partial<GoalAcceptanceCriterionSummary>) => {
+                    setCriteriaDraft(draft => draft.map((c, i) => i === index ? { ...c, ...patch } : c));
+                  };
+                  const toggleCheck = (checkKey: string) => {
+                    const current = criterion.mappedCheckKeys;
+                    updateCriterion({
+                      mappedCheckKeys: current.includes(checkKey)
+                        ? current.filter(k => k !== checkKey)
+                        : [...current, checkKey],
+                    });
+                  };
+                  return (
+                    <View key={criterion.key} style={styles.criterionCard}>
+                      {canApprove ? (
+                        <TextInput
+                          style={[theme.typography.bodyMd, styles.criterionStatement, { color: theme.colors.onSurface, borderColor: theme.colors.outlineVariant }]}
+                          value={criterion.statement}
+                          onChangeText={text => updateCriterion({ statement: text })}
+                          multiline
+                          testID={`criterion-statement-${criterion.key}`}
+                        />
+                      ) : (
+                        <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                          {criterion.statement}
+                        </Text>
+                      )}
+                      <View style={styles.criterionMeta}>
+                        <Text style={[theme.typography.labelSm, { color: statusColor }]}>
+                          {criterion.verification === 'manual' ? '人工签收' : criterion.status}
+                        </Text>
+                        <Text style={[theme.typography.labelSm, { color: criterion.required ? theme.colors.error : theme.colors.onSurfaceVariant }]}>
+                          {criterion.required ? '必需' : '可选'}
+                        </Text>
+                        {criterion.userAuthored ? (
+                          <Text style={[theme.typography.labelSm, { color: theme.colors.primary }]}>已编辑</Text>
+                        ) : null}
+                      </View>
+                      {criterion.verification === 'auto' && summary?.checks ? (
+                        <View style={styles.checkChipRow}>
+                          <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>映射检查:</Text>
+                          {summary.checks.map(check => {
+                            const mapped = criterion.mappedCheckKeys.includes(check.key ?? '');
+                            return (
+                              <TouchableOpacity
+                                key={check.id}
+                                disabled={!canApprove}
+                                onPress={() => check.key && toggleCheck(check.key)}
+                                style={[styles.checkChip, {
+                                  backgroundColor: mapped ? theme.colors.primary : 'transparent',
+                                  borderColor: mapped ? theme.colors.primary : theme.colors.outlineVariant,
+                                }]}>
+                                <Text style={[theme.typography.labelSm, {
+                                  color: mapped ? '#fff' : theme.colors.onSurfaceVariant,
+                                }]}>{check.key ?? check.title}</Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </Section>
+            ) : null}
             <Section title="恢复与历史">
               {events.length ? events.map(event => (
                 <View key={event.event_id} style={styles.historyRow}>
@@ -800,4 +900,9 @@ const styles = StyleSheet.create({
   actionBar: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: 16, gap: 8, borderTopWidth: StyleSheet.hairlineWidth },
   actionButton: { minHeight: 48 },
   abandonButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  criterionCard: { paddingVertical: 8, gap: 4 },
+  criterionStatement: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, minHeight: 36 },
+  criterionMeta: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  checkChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, alignItems: 'center' },
+  checkChip: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, borderWidth: 1 },
 });
