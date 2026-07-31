@@ -299,7 +299,7 @@ this.ensureColumn('ai_sessions', 'can_run', 'INTEGER');
 
 - `AI_SESSION_UPSERT_SQL`(`:167`):这是一个 `INSERT … VALUES(…?…?) ON CONFLICT(id) DO UPDATE SET …` 单语句。要改:
   1. INSERT 列表加 `approval_scheme, can_read, can_modify, can_run`;
-  2. VALUES 占位 `?` 数量 **+4**(当前 39 → 43,数准!);
+  2. VALUES 占位 `?` 数量 **+4**(当前 38 → 42,数准!);
   3. `ON CONFLICT(id) DO UPDATE SET` 子句加 `approval_scheme=excluded.approval_scheme, can_read=excluded.can_read, can_modify=excluded.can_modify, can_run=excluded.can_run`。
 - `aiSessionUpsertParams(session)`(`:178`):返回数组按列序追加 4 项:
   ```ts
@@ -340,12 +340,15 @@ git -C AliangPhoneServer commit -m "feat(approval): ai_sessions 加 approval_sch
 **Files:**
 - Modify: `AliangPhoneServer/server/src/postgresDatabase.ts`
 
-- [ ] **Step 1: 镜像 sqlite 四处(含 INSERT 4-way 同步)**
+- [ ] **Step 1: 只改 DDL + 行映射(PG 复用 sqlite 的 SQL/helper)**
 
-照 `postgresDatabase.ts` 现有模式(`:571` 附近 projects approval_scheme 的 ADD COLUMN、INSERT、行映射),对 `ai_sessions` 做:
-- `CREATE TABLE IF NOT EXISTS ai_sessions` 加 4 列 + `ALTER TABLE ai_sessions ADD COLUMN IF NOT EXISTS approval_scheme TEXT` / `can_read INTEGER` / `can_modify INTEGER` / `can_run INTEGER`(4 条)。
-- **PG 也有对应的 upsert SQL + params helper(同 sqlite 的 4-way 耦合)**:列名表、`$N` 占位编号(注意 PG 是 `$1..$N` 递增,加 4 列后续编号要重排)、ON CONFLICT SET、params 数组,四处同步。占位编号重排易错,**务必**用 Task 5/7 的写读回测覆盖。
-- 行映射加字段(同 sqlite:`?? null`,`0/1` → boolean)。
+关键:PG 驱动 **import 并复用** `database.ts` 的 `AI_SESSION_UPSERT_SQL` + `aiSessionUpsertParams`(`postgresDatabase.ts:52-53`),经 `toPgSql(...)`(`:1697`)把 `?`→`$N`。所以 Task 3 改完那一份 SQL/helper,PG 自动跟上,**无独立 PG INSERT 要改**(找不到 `INSERT INTO ai_sessions` 是正常的)。
+
+本任务只做 PG 独有的两处:
+- DDL:`CREATE TABLE IF NOT EXISTS ai_sessions` 加 4 列 + `ALTER TABLE ai_sessions ADD COLUMN IF NOT EXISTS approval_scheme TEXT` / `can_read INTEGER` / `can_modify INTEGER` / `can_run INTEGER`(4 条)。
+- 行映射:加 4 字段(`?? null`,`0/1` → boolean),同 sqlite。
+
+> 若 `toPgSql` 是按 `?` 出现顺序生成 `$N`,列加在末尾就不影响前面编号——把 4 列加在 INSERT 列表**末尾**最稳。
 
 - [ ] **Step 2: typecheck**
 
