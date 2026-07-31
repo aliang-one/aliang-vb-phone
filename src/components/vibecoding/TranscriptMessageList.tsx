@@ -4,12 +4,15 @@ import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { IconBadge } from '../visual/IconBadge';
+import { GlassPanel } from '../shared/GlassPanel';
+import { StatusChip } from '../shared/StatusChip';
 import { ActivityBlock } from './ActivityBlock';
 import type { StructuredActivityEvent } from '../../data/platformModels';
 import type {
   TranscriptCalloutSegment,
   DisplayTranscriptMessage,
   TranscriptFoldedSegment,
+  TranscriptGoalReportSegment,
   TranscriptMarkdownBlock,
   TranscriptMarkdownInline,
   TranscriptSegment,
@@ -143,6 +146,12 @@ const systemMessageSummary = (
       labels.push(segment.label);
     } else if (segment.kind === 'callout') {
       labels.push(segment.title);
+    } else if (segment.kind === 'goalReport') {
+      labels.push(
+        `${t('transcript.reportTitle')} · ${t(
+          `transcript.reportOutcome.${segment.outcome}`,
+        )}`,
+      );
     } else {
       for (const block of segment.blocks) {
         const summary = markdownBlockSummary(block, t);
@@ -693,6 +702,83 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
     );
   };
 
+  // Structured Goal report card. The agent emits `ALIANG_GOAL_REPORT:{json}` as
+  // a machine channel at a turn's end; parseMessageContentSegments strips it
+  // from the narrative and surfaces it here as a card instead of raw JSON text.
+  // success/info tones are blue in StatusChip (not green) per the house rule.
+  const goalReportStatusType = (
+    outcome: TranscriptGoalReportSegment['outcome'],
+  ): 'success' | 'warning' | 'error' =>
+    outcome === 'failed' ? 'error' : outcome === 'task_completed' ? 'success' : 'warning';
+
+  const renderGoalReport = (segment: TranscriptGoalReportSegment) => {
+    const title =
+      segment.reportKind === 'plan'
+        ? t('transcript.reportPlanTitle')
+        : t('transcript.reportTitle');
+    const statusLabel = t(`transcript.reportOutcome.${segment.outcome}`, {
+      defaultValue: segment.outcome,
+    });
+    return (
+      <GlassPanel key={segment.id} style={styles.goalReportCard}>
+        <View style={styles.goalReportHeader}>
+          <Text
+            style={[
+              theme.typography.labelMd,
+              { color: theme.colors.onSurface },
+              styles.goalReportTitle,
+            ]}
+            numberOfLines={1}>
+            🎯 {title}
+          </Text>
+          <StatusChip
+            label={statusLabel}
+            type={goalReportStatusType(segment.outcome)}
+          />
+        </View>
+        {segment.summary ? (
+          <Text
+            selectable
+            style={[
+              theme.typography.bodySm,
+              { color: theme.colors.onSurface },
+            ]}>
+            {segment.summary}
+          </Text>
+        ) : null}
+        {segment.completionProposed ? (
+          <Text
+            style={[
+              theme.typography.labelSm,
+              { color: theme.colors.onSurfaceVariant },
+              styles.goalReportSub,
+            ]}>
+            {t('transcript.reportCompletionClaimed')}
+          </Text>
+        ) : null}
+        {segment.blockerCode ? (
+          <View
+            style={[
+              styles.goalReportBlocker,
+              {
+                borderColor: isDark
+                  ? 'rgba(255,255,255,0.08)'
+                  : theme.colors.outlineVariant,
+              },
+            ]}>
+            <Text
+              style={[
+                theme.typography.codeSm,
+                { color: theme.colors.onSurfaceVariant },
+              ]}>
+              ⬢ {segment.blockerCode}
+            </Text>
+          </View>
+        ) : null}
+      </GlassPanel>
+    );
+  };
+
   const renderSegment = (segment: TranscriptSegment) => {
     if (segment.kind === 'text') {
       return (
@@ -704,6 +790,10 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
 
     if (segment.kind === 'callout') {
       return renderCallout(segment);
+    }
+
+    if (segment.kind === 'goalReport') {
+      return renderGoalReport(segment);
     }
 
     const open = Boolean(expanded[segment.id]);
@@ -1447,5 +1537,31 @@ const styles = StyleSheet.create({
   },
   calloutContent: {
     gap: 6,
+  },
+  goalReportCard: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 6,
+    marginTop: 4,
+  },
+  goalReportHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  goalReportTitle: {
+    flexShrink: 1,
+  },
+  goalReportSub: {
+    marginTop: 2,
+  },
+  goalReportBlocker: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginTop: 2,
   },
 });

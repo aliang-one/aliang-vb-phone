@@ -1,3 +1,5 @@
+import { extractGoalReport, type GoalReportKind } from './goalReportMarker';
+
 export type TranscriptTone = 'info' | 'warning' | 'neutral';
 
 export interface TranscriptTextSegment {
@@ -24,10 +26,28 @@ export interface TranscriptCalloutSegment {
   blocks: TranscriptMarkdownBlock[];
 }
 
+/**
+ * Structured Goal report card extracted from the `ALIANG_GOAL_REPORT:` /
+ * `ALIANG_GOAL_PLAN:` marker the agent prints at a turn's end. The raw marker
+ * JSON is stripped from the narrative text (see {@link extractGoalReport}) and
+ * surfaced as this card instead of leaking as plain text. The marker is a
+ * machine channel; this segment is the human-facing rendering of it.
+ */
+export interface TranscriptGoalReportSegment {
+  id: string;
+  kind: 'goalReport';
+  reportKind: GoalReportKind;
+  outcome: 'task_completed' | 'blocked' | 'failed' | 'no_progress';
+  summary: string;
+  blockerCode?: string;
+  completionProposed?: boolean;
+}
+
 export type TranscriptSegment =
   | TranscriptTextSegment
   | TranscriptFoldedSegment
-  | TranscriptCalloutSegment;
+  | TranscriptCalloutSegment
+  | TranscriptGoalReportSegment;
 
 export type TranscriptMarkdownInline =
   | { kind: 'text'; content: string }
@@ -1005,7 +1025,14 @@ export const parseMessageContentSegments = (
   messageId: string,
   content: string,
 ): TranscriptSegment[] => {
-  const tokens = tokenizeAgentMarkup(content);
+  // Peel off the structured Goal marker (ALIANG_GOAL_REPORT/PLAN) before
+  // tokenizing: the marker JSON must never render as plain text. `narrative`
+  // is what the user should read; `report` (when complete) becomes a card
+  // segment appended after the narrative. During streaming the marker may be
+  // half-arrived — extractGoalReport suppresses the partial tail and returns
+  // report=null so no raw JSON flashes and no card is shown prematurely.
+  const { narrative, report, reportKind } = extractGoalReport(content);
+  const tokens = tokenizeAgentMarkup(narrative);
   const segments: TranscriptSegment[] = [];
   let inlineParts: MarkdownSourcePart[] = [];
   let segmentIndex = 0;
@@ -1060,6 +1087,18 @@ export const parseMessageContentSegments = (
   }
 
   flushInlineParts();
+
+  if (report && reportKind) {
+    segments.push({
+      id: `${messageId}:goalReport`,
+      kind: 'goalReport',
+      reportKind,
+      outcome: report.outcome,
+      summary: report.summary,
+      blockerCode: report.blockerCode,
+      completionProposed: report.completionProposed,
+    });
+  }
 
   return segments;
 };

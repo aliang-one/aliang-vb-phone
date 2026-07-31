@@ -111,7 +111,16 @@
     "expandSystem": "展开系统输出",
     "assistantActivity": "assistant activity",
     "systemFallback": "工具输出",
-    "tableSummary": "{{count}} 行表格"
+    "tableSummary": "{{count}} 行表格",
+    "reportTitle": "回合报告",
+    "reportPlanTitle": "规划草案",
+    "reportOutcome": {
+      "task_completed": "任务完成",
+      "blocked": "受阻",
+      "failed": "失败",
+      "no_progress": "无进展"
+    },
+    "reportCompletionClaimed": "已声明完成 · 待机器校验"
   },
   "activity": {
     "collapse": "收起工具活动",

@@ -4,6 +4,7 @@ import { Text, TouchableOpacity } from 'react-native';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { TranscriptMessageList } from '../src/components/vibecoding/TranscriptMessageList';
+import { parseMessageContentSegments } from '../src/utils/messageRendering';
 import type { DisplayTranscriptMessage } from '../src/utils/agentTranscript';
 
 let currentRenderer: ReactTestRenderer.ReactTestRenderer | undefined;
@@ -120,5 +121,60 @@ describe('TranscriptMessageList — 失败回合重试入口 (case B)', () => {
     const texts = allTexts(root);
     expect(texts.some(t => t === '发送失败')).toBe(true);
     expect(texts.some(t => t === '未收到回复')).toBe(false);
+  });
+});
+
+const assistantFromContent = (
+  id: string,
+  content: string,
+): DisplayTranscriptMessage => ({
+  id,
+  role: 'assistant',
+  timestamp: '10:02',
+  mergedCount: 1,
+  segments: parseMessageContentSegments(id, content),
+  sourceMessageIds: [id],
+});
+
+describe('TranscriptMessageList — Goal 报告卡片化', () => {
+  it('把 ALIANG_GOAL_REPORT 剥离成卡片,正文不泄漏裸 marker/JSON', () => {
+    const content =
+      '已为 K8s 审计补齐表单组件。\nALIANG_GOAL_REPORT:{"schema_version":1,"outcome":"task_completed","summary":"补齐 login/audit 表单","completion_proposed":true}';
+    const root = wrap(
+      <TranscriptMessageList message={assistantFromContent('a1', content)} />,
+    );
+    const texts = allTexts(root).map(t => String(t));
+    // 卡片:标题 + 状态徽章(蓝,任务完成) + summary + 声明完成副行
+    expect(texts.some(t => t.includes('回合报告'))).toBe(true);
+    expect(texts.some(t => t.includes('任务完成'))).toBe(true);
+    expect(texts.some(t => t.includes('补齐 login/audit 表单'))).toBe(true);
+    expect(texts.some(t => t.includes('已声明完成'))).toBe(true);
+    // 裸 marker / JSON 不得出现在任何文本节点
+    expect(texts.some(t => t.includes('ALIANG_GOAL_REPORT'))).toBe(false);
+    expect(texts.some(t => t.includes('"schema_version"'))).toBe(false);
+    expect(texts.some(t => t.includes('completion_proposed'))).toBe(false);
+  });
+
+  it('受阻报告渲染 blocker_code chip,且不泄漏 marker', () => {
+    const content =
+      '需要更多信息。\nALIANG_GOAL_REPORT:{"outcome":"blocked","summary":"需要 login schema","blocker_code":"goal_replan_required"}';
+    const root = wrap(
+      <TranscriptMessageList message={assistantFromContent('a2', content)} />,
+    );
+    const texts = allTexts(root).map(t => String(t));
+    expect(texts.some(t => t.includes('受阻'))).toBe(true);
+    expect(texts.some(t => t.includes('goal_replan_required'))).toBe(true);
+    expect(texts.some(t => t.includes('ALIANG_GOAL_REPORT'))).toBe(false);
+  });
+
+  it('无 marker 的普通助手消息不受影响', () => {
+    const root = wrap(
+      <TranscriptMessageList
+        message={assistantFromContent('a3', '普通的助手回复,没有报告。')}
+      />,
+    );
+    const texts = allTexts(root).map(t => String(t));
+    expect(texts.some(t => t.includes('普通的助手回复'))).toBe(true);
+    expect(texts.some(t => t.includes('回合报告'))).toBe(false);
   });
 });

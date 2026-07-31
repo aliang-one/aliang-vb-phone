@@ -221,7 +221,10 @@ describe('agentTranscript', () => {
     expect(segments[1]).toMatchObject({
       content: expect.stringContaining('- Fix bug: Patch the missing action'),
     });
-    expect(segments[1].content).not.toContain('"options"');
+    expect(segments[1].kind).toBe('callout');
+    expect(
+      segments[1].kind === 'callout' ? segments[1].content : '',
+    ).not.toContain('"options"');
   });
 
   it('parses common markdown without treating code tags as agent markup', () => {

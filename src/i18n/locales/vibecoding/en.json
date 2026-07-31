@@ -111,7 +111,16 @@
     "expandSystem": "Expand system output",
     "assistantActivity": "assistant activity",
     "systemFallback": "Tool output",
-    "tableSummary": "{{count}}-row table"
+    "tableSummary": "{{count}}-row table",
+    "reportTitle": "Turn report",
+    "reportPlanTitle": "Plan draft",
+    "reportOutcome": {
+      "task_completed": "Task done",
+      "blocked": "Blocked",
+      "failed": "Failed",
+      "no_progress": "No progress"
+    },
+    "reportCompletionClaimed": "Claims done · pending checks"
   },
   "activity": {
     "collapse": "Collapse tool activity",

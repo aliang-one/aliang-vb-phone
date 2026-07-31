@@ -3,6 +3,7 @@ import {
   parseMessageContentSegments,
   type TranscriptCalloutSegment,
   type TranscriptFoldedSegment,
+  type TranscriptGoalReportSegment,
   type TranscriptMarkdownBlock,
   type TranscriptMarkdownInline,
   type TranscriptSegment,
@@ -13,6 +14,7 @@ export type TranscriptDisplayRole = 'user' | 'assistant' | 'system';
 export type {
   TranscriptCalloutSegment,
   TranscriptFoldedSegment,
+  TranscriptGoalReportSegment,
   TranscriptMarkdownBlock,
   TranscriptMarkdownInline,
   TranscriptSegment,
