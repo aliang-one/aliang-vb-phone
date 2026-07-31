@@ -176,3 +176,13 @@ agent 本地：写工具命中 auto_deny → 直接拦；其它操作 require_ap
 - 不给 agent 加 session_id 参（不做 agent 改造；接受单活跃会话/路径近似）。
 - 不改 Go agent（零改，policy 走现有推送/拉取路径）。
 - 不在创建页暴露 `balanced`/`custom`（留给项目设置页细调）。
+
+## 9. 评审建议（spec-reviewer 已采纳）
+
+- **类型分离**：新增会话级类型 `SessionApprovalScheme = 'allow_all' | 'ask_all' | 'read_only'`，
+  与现有 project/device 的 `'balanced' | 'allow_all' | 'custom'`（`types.ts:330,628`）**分开**。
+  会话列 `approval_scheme` 用会话级类型；`resolveProjectApprovalPolicy` 仍读 project 级。
+  避免扩 `ApprovalPolicy.scheme` 联合时把两者混了导致类型错配。
+- **规则排序（deny-first）**：构造策略时，能力开关 off 产生的 `auto_deny` 规则必须
+  排在 `ask_all` 生成的 `require_approval`/匹配规则**之前**（`policy.ts:43-46` 的既定约定，
+  `ApprovalRule` 是有序数组）。否则 allow/require 规则可能先命中，挡不住 deny。
