@@ -31,6 +31,8 @@ import {
   fetchGoalEvents,
   fetchGoalSnapshot,
   forkGoal,
+  abandonFork,
+  mergeFork,
   goalSnapshotToSummary,
   newerGoalSummary,
   recoverGoal,
@@ -452,21 +454,65 @@ export const GoalDetailScreen: React.FC = () => {
     );
   }, [performDecline]);
 
-  // Phase 2 fork: open a re-planning child session.
-  const performFork = useCallback(async () => {
+  // Phase 2/6 fork: open a re-planning child session. The optional pivot task
+  // id seeds the branch point (e.g. from a branchSuggestion); the authoritative
+  // pivot is the ReplanDelta.replaceFromTaskKey the fork session emits at merge.
+  const performFork = useCallback(async (pivotTaskId?: string) => {
     if (!summary || summary.stateVersion === undefined) return;
     setActionLoading(true);
     setActionFeedback('');
     try {
-      const result = await forkGoal(summary.goalId, {
+      await forkGoal(summary.goalId, {
         reason: '用户发起重规划探索',
         expectedStateVersion: summary.stateVersion,
         idempotencyKey: createId('goal-fork'),
+        ...(pivotTaskId ? { taskId: pivotTaskId } : {}),
       });
-      setActionFeedback(`已开启重规划探索（草稿会话: ${result.child_session_id.slice(0, 8)}…）`);
+      setActionFeedback('已开启重规划草稿，点击「进入草稿」继续');
       await refreshGoal();
     } catch (error) {
       setActionFeedback(error instanceof Error ? error.message : '分叉失败，请重试');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [refreshGoal, summary]);
+
+  // Phase 6: fork lifecycle — enter the child session, merge (parse the delta
+  // the child session produced + kick off a branched re-plan), or abandon
+  // (discard + resume). v1 stranded the user after opening a fork (audit #3).
+  const enterForkSession = useCallback(() => {
+    if (!summary?.openFork) return;
+    navigation.navigate('VibeCodingSession', { sessionId: summary.openFork.childSessionId });
+  }, [navigation, summary]);
+
+  const performMergeFork = useCallback(async () => {
+    if (!summary?.openFork || summary.stateVersion === undefined) return;
+    setActionLoading(true);
+    setActionFeedback('');
+    try {
+      await mergeFork(summary.goalId, summary.openFork.forkId, {
+        expectedStateVersion: summary.stateVersion,
+        idempotencyKey: createId('goal-fork-merge'),
+      });
+      setActionFeedback('已提交合并，正在生成新计划…');
+      await refreshGoal();
+    } catch (error) {
+      setActionFeedback(error instanceof Error ? error.message : '合并失败，请在草稿会话里说「提交」后再合并');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [refreshGoal, summary]);
+
+  const performAbandonFork = useCallback(async () => {
+    if (!summary?.openFork) return;
+    setActionLoading(true);
+    setActionFeedback('');
+    try {
+      await abandonFork(summary.goalId, summary.openFork.forkId);
+      setActionFeedback('已放弃重规划草稿，主 Goal 已恢复');
+      await refreshGoal();
+    } catch (error) {
+      setActionFeedback(error instanceof Error ? error.message : '放弃失败，请重试');
     } finally {
       setActionLoading(false);
     }
@@ -875,15 +921,59 @@ export const GoalDetailScreen: React.FC = () => {
           style={styles.actionButton}
           testID="goal-primary-action"
         />
-        {canFork && !canAccept && !canApprove ? (
+        {summary?.openFork ? (
+          // Phase 6: a fork is open — manage it (enter / merge / abandon).
+          // Replaces the bare "分叉重规划" button so the user is never stranded
+          // after opening a fork (audit #3). The pivot picker is deferred: the
+          // authoritative pivot comes from the fork's ReplanDelta at merge.
+          <View style={styles.forkActions}>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="进入重规划草稿"
+              onPress={enterForkSession}
+              disabled={actionLoading}
+              style={[styles.abandonButton, styles.forkPrimaryAction]}
+              testID="goal-fork-enter">
+              <Text style={[theme.typography.labelMd, { color: theme.colors.primary }]}>进入草稿</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="合并重规划"
+              onPress={performMergeFork}
+              disabled={actionLoading}
+              style={styles.abandonButton}
+              testID="goal-fork-merge">
+              <Text style={[theme.typography.labelMd, { color: theme.colors.primary }]}>合并</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="放弃重规划"
+              onPress={performAbandonFork}
+              disabled={actionLoading}
+              style={styles.abandonButton}
+              testID="goal-fork-abandon">
+              <Text style={[theme.typography.labelMd, { color: theme.colors.warning }]}>放弃</Text>
+            </TouchableOpacity>
+          </View>
+        ) : canFork && !canAccept && !canApprove ? (
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityLabel="分叉重规划"
-            onPress={performFork}
+            onPress={() => {
+              // If the post-verify evaluator suggested a pivot, seed the fork
+              // with it (Phase 5 branchSuggestion → Phase 6 one-tap fork).
+              const pivotKey = summary?.branchSuggestion?.pivotTaskKey;
+              const pivotTask = pivotKey
+                ? summary?.tasks?.find(task => task.key === pivotKey)
+                : undefined;
+              performFork(pivotTask?.id);
+            }}
             disabled={actionLoading}
             style={styles.abandonButton}
             testID="goal-fork-action">
-            <Text style={[theme.typography.labelMd, { color: theme.colors.warning }]}>分叉重规划</Text>
+            <Text style={[theme.typography.labelMd, { color: theme.colors.warning }]}>
+              {summary?.branchSuggestion ? '建议分叉重规划' : '分叉重规划'}
+            </Text>
           </TouchableOpacity>
         ) : null}
         {canAccept ? (
@@ -938,6 +1028,8 @@ const styles = StyleSheet.create({
   actionBar: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: 16, gap: 8, borderTopWidth: StyleSheet.hairlineWidth },
   actionButton: { minHeight: 48 },
   abandonButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  forkActions: { flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'space-between' },
+  forkPrimaryAction: { flex: 1 },
   criterionCard: { paddingVertical: 8, gap: 4 },
   criterionStatement: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, minHeight: 36 },
   criterionMeta: { flexDirection: 'row', gap: 8, alignItems: 'center' },

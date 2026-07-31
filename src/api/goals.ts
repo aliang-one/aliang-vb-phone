@@ -27,6 +27,13 @@ export interface ServerGoalSnapshot {
   planning_updated_at?: string;
   primary_action_kind?: string;
   primary_action_label?: string;
+  branch_suggestion?: { reason: string; pivot_task_key?: string; magnitude?: 'minor' | 'major' };
+  open_fork?: {
+    fork_id: string;
+    child_session_id: string;
+    pivot_task_key?: string;
+    fork_reason?: string;
+  };
   stalled?: boolean;
   recoverable?: boolean;
   provider?: string;
@@ -172,6 +179,21 @@ export const goalSnapshotToSummary = (snapshot: ServerGoalSnapshot): GoalSummary
   planningUpdatedAt: snapshot.planning_updated_at,
   primaryActionKind: snapshot.primary_action_kind,
   primaryActionLabel: snapshot.primary_action_label,
+  branchSuggestion: snapshot.branch_suggestion
+    ? {
+        reason: snapshot.branch_suggestion.reason,
+        pivotTaskKey: snapshot.branch_suggestion.pivot_task_key,
+        magnitude: snapshot.branch_suggestion.magnitude,
+      }
+    : undefined,
+  openFork: snapshot.open_fork
+    ? {
+        forkId: snapshot.open_fork.fork_id,
+        childSessionId: snapshot.open_fork.child_session_id,
+        pivotTaskKey: snapshot.open_fork.pivot_task_key,
+        forkReason: snapshot.open_fork.fork_reason,
+      }
+    : undefined,
   stalled: snapshot.stalled,
   recoverable: snapshot.recoverable,
   provider: snapshot.provider,
@@ -447,7 +469,7 @@ export const declineGoal = (
  */
 export const forkGoal = (
   goalId: string,
-  input: { reason: string; expectedStateVersion: number; idempotencyKey: string },
+  input: { reason: string; expectedStateVersion: number; idempotencyKey: string; taskId?: string },
 ): Promise<{ fork_id: string; child_session_id: string }> =>
   apiPost<{ fork_id: string; child_session_id: string }>(
     `/api/goals/${encodeURIComponent(goalId)}/fork`,
@@ -455,6 +477,7 @@ export const forkGoal = (
       reason: input.reason,
       expected_state_version: input.expectedStateVersion,
       idempotency_key: input.idempotencyKey,
+      ...(input.taskId ? { task_id: input.taskId } : {}),
     },
   );
 
