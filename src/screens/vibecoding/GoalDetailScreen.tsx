@@ -258,6 +258,7 @@ export const GoalDetailScreen: React.FC = () => {
   const [events, setEvents] = useState<GoalEventSnapshot[]>([]);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [expandedCheckId, setExpandedCheckId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'plan' | 'execution'>('plan');
   // Phase 2 criterion editing (codex #1): editable copy of the goal's acceptance
   // criteria. Synced from the server when the criterion key-set changes (first
   // load / replan); user edits preserved across refreshes of the same plan.
@@ -283,10 +284,11 @@ export const GoalDetailScreen: React.FC = () => {
       : canRecover
         ? (summary?.primaryActionLabel ?? '继续')
         : '刷新状态';
-  // Phase 2 fork: visible when the goal is in a forkable state.
+  // Fork: ONLY visible when the AI proactively suggests it (branchSuggestion),
+  // not whenever the goal is in a forkable state.
   const canFork = Boolean(
     summary &&
-    ['active', 'awaiting_approval', 'paused', 'blocked'].includes(summary.state) &&
+    summary.branchSuggestion &&
     typeof summary.stateVersion === 'number',
   );
   const canDelete = Boolean(
@@ -655,6 +657,19 @@ export const GoalDetailScreen: React.FC = () => {
           </View>
         ) : (
           <>
+            {/* Tab switcher */}
+            <View style={styles.tabBar}>
+              <TouchableOpacity onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setActiveTab('plan'); }} style={styles.tabItem}>
+                <Text style={[theme.typography.labelMd, { color: activeTab === 'plan' ? theme.colors.primary : theme.colors.onSurfaceVariant }]}>计划</Text>
+                {activeTab === 'plan' ? <View style={[styles.tabIndicator, { backgroundColor: theme.colors.primary }]} /> : null}
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setActiveTab('execution'); }} style={styles.tabItem}>
+                <Text style={[theme.typography.labelMd, { color: activeTab === 'execution' ? theme.colors.primary : theme.colors.onSurfaceVariant }]}>执行</Text>
+                {activeTab === 'execution' ? <View style={[styles.tabIndicator, { backgroundColor: theme.colors.primary }]} /> : null}
+              </TouchableOpacity>
+            </View>
+
+            {activeTab === 'execution' ? (
             <Section title="当前运行">
               <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
                 {summary.currentRunHealth ?? '运行健康度尚未同步'}
@@ -663,6 +678,8 @@ export const GoalDetailScreen: React.FC = () => {
                 {summary.updatedAt ? `最近更新：${displayTimestamp(summary.updatedAt)}` : '等待下一次权威快照'}
               </Text>
             </Section>
+            ) : null}
+            {activeTab === 'plan' ? (
             <Section title="计划">
               {summary.revision ? (
                 <View style={styles.revisionMeta}>
@@ -746,22 +763,6 @@ export const GoalDetailScreen: React.FC = () => {
                           {!task.description && !task.allowedCommands?.length && !task.dependsOn?.length && !task.requiredCheckIds?.length ? (
                             <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>暂无额外详情</Text>
                           ) : null}
-                          {canFork && !summary?.openFork ? (
-                            // P1-5: per-task pivot picker. Expanding a task +
-                            // tapping here opens a fork branched from THIS task
-                            // (its completed ancestors are preserved, it + its
-                            // successors are regenerated). v1 had no picker —
-                            // only the AI's branchSuggestion supplied a pivot.
-                            <TouchableOpacity
-                              accessibilityRole="button"
-                              accessibilityLabel={`从「${task.title}」分叉重规划`}
-                              onPress={() => performFork(task.id)}
-                              disabled={actionLoading}
-                              style={styles.forkFromHereButton}
-                              testID={`goal-fork-from-${task.key}`}>
-                              <Text style={[theme.typography.labelSm, { color: theme.colors.primary }]}>从此处分叉重规划</Text>
-                            </TouchableOpacity>
-                          ) : null}
                         </GlassPanel>
                       ) : null}
                     </View>
@@ -769,6 +770,8 @@ export const GoalDetailScreen: React.FC = () => {
                 })
               ) : <EmptySection text="任务列表尚未同步" />}
             </Section>
+            ) : null}
+            {activeTab === 'execution' ? (
             <Section title="检查">
               {summary.checks?.length ? (
                 summary.checks.map(check => {
@@ -841,7 +844,8 @@ export const GoalDetailScreen: React.FC = () => {
                 })
               ) : <EmptySection text="检查结果尚未同步" />}
             </Section>
-            {criteriaDraft.length > 0 ? (
+            ) : null}
+            {activeTab === 'plan' && criteriaDraft.length > 0 ? (
               <Section title="验收标准（签署依据）">
                 {criteriaDraft.map((criterion, index) => {
                   const statusColor = criterion.status === 'passed' ? theme.colors.success
@@ -912,6 +916,7 @@ export const GoalDetailScreen: React.FC = () => {
                 })}
               </Section>
             ) : null}
+            {activeTab === 'execution' ? (
             <Section title="恢复与历史">
               {events.length ? events.map(event => (
                 <View key={event.event_id} style={styles.historyRow}>
@@ -927,6 +932,7 @@ export const GoalDetailScreen: React.FC = () => {
                 </View>
               )) : <EmptySection text="没有额外的恢复记录" />}
             </Section>
+            ) : null}
           </>
         )}
       </ScrollView>
@@ -982,25 +988,26 @@ export const GoalDetailScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
         ) : canFork && !canAccept && !canApprove ? (
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="分叉重规划"
-            onPress={() => {
-              // If the post-verify evaluator suggested a pivot, seed the fork
-              // with it (Phase 5 branchSuggestion → Phase 6 one-tap fork).
-              const pivotKey = summary?.branchSuggestion?.pivotTaskKey;
-              const pivotTask = pivotKey
-                ? summary?.tasks?.find(task => task.key === pivotKey)
-                : undefined;
-              performFork(pivotTask?.id);
-            }}
-            disabled={actionLoading}
-            style={styles.abandonButton}
-            testID="goal-fork-action">
-            <Text style={[theme.typography.labelMd, { color: theme.colors.warning }]}>
-              {summary?.branchSuggestion ? '建议分叉重规划' : '分叉重规划'}
+          <GlassPanel style={styles.forkSuggestionCard}>
+            <Text style={[theme.typography.labelSm, { color: theme.colors.primary }]}>
+              {summary?.branchSuggestion?.kind === 'user_input' ? '需要你的决定' : 'AI 建议重新规划'}
             </Text>
-          </TouchableOpacity>
+            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurface }]}>
+              {summary?.branchSuggestion?.reason ?? '计划可能已偏离目标'}
+            </Text>
+            <GlowButton
+              title={summary?.branchSuggestion?.kind === 'user_input' ? '去回复' : '分叉重规划'}
+              onPress={() => {
+                const pivotKey = summary?.branchSuggestion?.pivotTaskKey;
+                const pivotTask = pivotKey ? summary?.tasks?.find(task => task.key === pivotKey) : undefined;
+                performFork(pivotTask?.id);
+              }}
+              loading={actionLoading}
+              disabled={actionLoading}
+              style={styles.actionButton}
+              testID="goal-fork-action"
+            />
+          </GlassPanel>
         ) : null}
         {canAccept ? (
           <TouchableOpacity
@@ -1056,7 +1063,10 @@ const styles = StyleSheet.create({
   abandonButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   forkActions: { flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'space-between' },
   forkPrimaryAction: { flex: 1 },
-  forkFromHereButton: { marginTop: 6, alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(128,128,128,0.3)' },
+  tabBar: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(128,128,128,0.2)', marginBottom: 4 },
+  tabItem: { flex: 1, paddingVertical: 10, alignItems: 'center' },
+  tabIndicator: { position: 'absolute', bottom: -1, left: '25%', right: '25%', height: 2, borderRadius: 1 },
+  forkSuggestionCard: { paddingVertical: 10, paddingHorizontal: 12, gap: 6 },
   criterionCard: { paddingVertical: 8, gap: 4 },
   criterionStatement: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, minHeight: 36 },
   criterionMeta: { flexDirection: 'row', gap: 8, alignItems: 'center' },

@@ -27,7 +27,7 @@ export interface ServerGoalSnapshot {
   planning_updated_at?: string;
   primary_action_kind?: string;
   primary_action_label?: string;
-  branch_suggestion?: { reason: string; pivot_task_key?: string; magnitude?: 'minor' | 'major' };
+  branch_suggestion?: { reason: string; pivot_task_key?: string; magnitude?: 'minor' | 'major'; kind?: 'branch' | 'user_input' };
   open_fork?: {
     fork_id: string;
     child_session_id: string;
@@ -184,6 +184,7 @@ export const goalSnapshotToSummary = (snapshot: ServerGoalSnapshot): GoalSummary
         reason: snapshot.branch_suggestion.reason,
         pivotTaskKey: snapshot.branch_suggestion.pivot_task_key,
         magnitude: snapshot.branch_suggestion.magnitude,
+        kind: snapshot.branch_suggestion.kind,
       }
     : undefined,
   openFork: snapshot.open_fork

@@ -280,7 +280,7 @@ export interface GoalSummary {
    * Redesign Phase 5: non-blocking drift hint from the post-verify evaluator.
    * The phone surfaces a "建议分叉重规划" entry; the DAG keeps flowing.
    */
-  branchSuggestion?: { reason: string; pivotTaskKey?: string; magnitude?: 'minor' | 'major' };
+  branchSuggestion?: { reason: string; pivotTaskKey?: string; magnitude?: 'minor' | 'major'; kind?: 'branch' | 'user_input' };
   /**
    * Redesign Phase 6: an active (open) fork — when present the user can navigate
    * into the child session to explore the re-plan, then merge or abandon. v1
