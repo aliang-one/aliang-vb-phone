@@ -497,11 +497,20 @@ export const GoalDetailScreen: React.FC = () => {
       setActionFeedback('已提交合并，正在生成新计划…');
       await refreshGoal();
     } catch (error) {
-      setActionFeedback(error instanceof Error ? error.message : '合并失败，请在草稿会话里说「提交」后再合并');
+      const message = error instanceof Error ? error.message : String(error);
+      // P1 merge loop: a fork that hasn't produced a ReplanDelta yet is not a
+      // dead-end error — guide the user INTO the fork session to ask the AI to
+      // submit, then merge. v1 just surfaced fork_delta_missing.
+      if (/delta/i.test(message)) {
+        setActionFeedback('草稿尚未提交方案，正在进入草稿会话…');
+        enterForkSession();
+      } else {
+        setActionFeedback(message || '合并失败，请重试');
+      }
     } finally {
       setActionLoading(false);
     }
-  }, [refreshGoal, summary]);
+  }, [refreshGoal, summary, enterForkSession]);
 
   const performAbandonFork = useCallback(async () => {
     if (!summary?.openFork) return;
