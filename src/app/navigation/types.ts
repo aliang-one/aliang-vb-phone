@@ -36,6 +36,10 @@ export type RootStackParamList = {
       provider: EffortProvider;
       model?: string;
       effort?: string;
+      approvalScheme?: 'allow_all' | 'ask_all' | 'read_only';
+      canRead?: boolean;
+      canModify?: boolean;
+      canRun?: boolean;
       pendingRequestId?: string;
       pendingRequestFingerprint?: string;
     };

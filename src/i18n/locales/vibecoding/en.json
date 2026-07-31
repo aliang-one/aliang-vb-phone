@@ -73,7 +73,31 @@
     "modelHint": "Specifying a model name overrides it for this session; leave empty to inherit the user default from Me.",
     "effortHintCodex": "Codex reasoning effort: codex uses xhigh; leave empty to inherit the user default.",
     "effortHintOpencode": "OpenCode models use provider/model; leave empty to inherit the user default.",
-    "effortHintClaude": "Claude reasoning effort: claude uses max; leave empty to inherit the user default."
+    "effortHintClaude": "Claude reasoning effort: claude uses max; leave empty to inherit the user default.",
+    "permissions": {
+      "title": "Permissions",
+      "approvalLabel": "Approval",
+      "approval": {
+        "inherit": "Inherit",
+        "allowAll": "Allow all",
+        "askAll": "Ask each",
+        "readOnly": "Read-only",
+        "inheritHint": "Use project default",
+        "allowAllHint": "Auto-approve everything",
+        "askAllHint": "Confirm every action",
+        "readOnlyHint": "Read/think only; no writes or commands"
+      },
+      "capabilityLabel": "Capabilities",
+      "capability": {
+        "read": "Read project files",
+        "modify": "Modify files",
+        "run": "Run local commands"
+      },
+      "portMapping": {
+        "title": "Expose preview ports as short links",
+        "comingSoon": "Coming soon"
+      }
+    }
   },
   "sessionSettings": {
     "title": "Session settings",

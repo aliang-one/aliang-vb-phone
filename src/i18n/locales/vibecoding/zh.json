@@ -73,7 +73,31 @@
     "modelHint": "指定模型名后会作为本 session 覆盖;留空继承 Me 中的用户默认。",
     "effortHintCodex": "Codex 推理强度：codex 用 xhigh；留空继承用户默认。",
     "effortHintOpencode": "OpenCode 模型使用 provider/model；留空继承用户默认。",
-    "effortHintClaude": "Claude 推理强度：claude 用 max；留空继承用户默认。"
+    "effortHintClaude": "Claude 推理强度：claude 用 max；留空继承用户默认。",
+    "permissions": {
+      "title": "权限",
+      "approvalLabel": "审批策略",
+      "approval": {
+        "inherit": "继承",
+        "allowAll": "全部放行",
+        "askAll": "逐项确认",
+        "readOnly": "只读",
+        "inheritHint": "沿用项目默认策略",
+        "allowAllHint": "一切操作自动放行",
+        "askAllHint": "每个操作都要确认",
+        "readOnlyHint": "只允许读和思考,禁止改与执行"
+      },
+      "capabilityLabel": "能力",
+      "capability": {
+        "read": "读取项目文件",
+        "modify": "修改文件",
+        "run": "运行本地命令"
+      },
+      "portMapping": {
+        "title": "将预览端口暴露为短链",
+        "comingSoon": "即将支持"
+      }
+    }
   },
   "sessionSettings": {
     "title": "会话设置",
