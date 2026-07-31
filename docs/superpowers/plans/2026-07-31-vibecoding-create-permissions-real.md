@@ -111,6 +111,21 @@ describe('applySessionOverride', () => {
     const bashRule = p.rules.find(r => r.match.tool?.includes('Bash') && r.decision==='auto_deny');
     expect(bashRule).toBeTruthy();
   });
+
+  it('allow_all 覆盖: merged.scheme="allow_all"(服务器 allowAll 短路依赖此)', () => {
+    const p = applySessionOverride(base, { approvalScheme: 'allow_all' });
+    expect(p.scheme).toBe('allow_all');
+  });
+
+  it('read_only 覆盖: 读仍 auto_approve(锁定意图)', () => {
+    const p = applySessionOverride(base, { approvalScheme: 'read_only' });
+    expect(p.rules.find(r => r.match.tool?.includes('Read'))?.decision).toBe('auto_approve');
+  });
+
+  it('ask_all/read_only 覆盖: scheme 保持 base(非 allow_all)', () => {
+    expect(applySessionOverride(base, { approvalScheme:'ask_all' }).scheme).toBe(base.scheme);
+    expect(applySessionOverride(base, { approvalScheme:'read_only' }).scheme).toBe(base.scheme);
+  });
 });
 ```
 
@@ -138,6 +153,9 @@ export interface SessionPermissionOverride {
 }
 
 // 工具集与 policy.ts 的 balanced 规则一致(文件改写 / 执行 / 只读)。
+// 作用域决策:Read toggle 只管「读文件」工具(Read/Grep/Glob/LS),
+// 不含 TodoWrite/TaskUpdate/TaskCreate/WebSearch(非文件读;balanced 也只是顺手放行)。
+// 故 canRead=false 只拦文件读,不影响任务跟踪/搜索。已明确,避免「漏拦」误判。
 const WRITE_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'];
 const EXEC_TOOLS = ['Bash'];
 const READ_TOOLS = ['Read', 'Grep', 'Glob', 'LS'];
@@ -179,6 +197,10 @@ export function applySessionOverride(
 
   const merged: ApprovalPolicy = {
     ...base,
+    // 服务器 approval 短路(handler.ts ~:966 `resolvedPolicy?.scheme === 'allow_all'`)
+    // 依赖 scheme:session allow_all 覆盖必须把 scheme 也置 allow_all,否则服务器仍弹审批。
+    // ask_all/read_only 无对应 scheme 串,保持 base.scheme(短路不命中=弹审批,正确)。
+    scheme: scheme === 'allow_all' ? 'allow_all' : base.scheme,
     default_decision: defaultDecision,
     rules: [...denyRules, ...rules],
   };
@@ -271,9 +293,23 @@ this.ensureColumn('ai_sessions', 'can_modify', 'INTEGER');
 this.ensureColumn('ai_sessions', 'can_run', 'INTEGER');
 ```
 
-- [ ] **Step 3: INSERT 语句加列**
+- [ ] **Step 3: INSERT 4 处同步改(sqlite)**
 
-`database.ts:168` 的 `INSERT INTO ai_sessions (...)` 列表 + VALUES 加 4 列。找到对应 `upsert`/`create` 方法,把 `session.approvalScheme`/`canRead`/`canModify`/`canRun` 写入(用 `?? null`)。
+`database.ts` 的 `ai_sessions` 写入是**集中式常量 + 参数 helper**(不是裸 INSERT),必须 **4 处同步**:
+
+- `AI_SESSION_UPSERT_SQL`(`:167`):这是一个 `INSERT … VALUES(…?…?) ON CONFLICT(id) DO UPDATE SET …` 单语句。要改:
+  1. INSERT 列表加 `approval_scheme, can_read, can_modify, can_run`;
+  2. VALUES 占位 `?` 数量 **+4**(当前 39 → 43,数准!);
+  3. `ON CONFLICT(id) DO UPDATE SET` 子句加 `approval_scheme=excluded.approval_scheme, can_read=excluded.can_read, can_modify=excluded.can_modify, can_run=excluded.can_run`。
+- `aiSessionUpsertParams(session)`(`:178`):返回数组按列序追加 4 项:
+  ```ts
+  session.approvalScheme ?? null,
+  session.canRead ?? null,
+  session.canModify ?? null,
+  session.canRun ?? null,
+  ```
+
+> ⚠️ 漏改 ON CONFLICT 子句或 `?` 数量算错 → 运行时静默写失败或 SQL arity 错。改完用 Task 5/7 的写读回测验证落库。
 
 - [ ] **Step 4: 行映射加字段**
 
@@ -304,12 +340,12 @@ git -C AliangPhoneServer commit -m "feat(approval): ai_sessions 加 approval_sch
 **Files:**
 - Modify: `AliangPhoneServer/server/src/postgresDatabase.ts`
 
-- [ ] **Step 1: 镜像 sqlite 三处**
+- [ ] **Step 1: 镜像 sqlite 四处(含 INSERT 4-way 同步)**
 
 照 `postgresDatabase.ts` 现有模式(`:571` 附近 projects approval_scheme 的 ADD COLUMN、INSERT、行映射),对 `ai_sessions` 做:
-- `CREATE TABLE IF NOT EXISTS ai_sessions` 加 4 列 + `ALTER TABLE ai_sessions ADD COLUMN IF NOT EXISTS …`(4 条)。
-- INSERT 语句加列。
-- 行映射加字段(同 sqlite)。
+- `CREATE TABLE IF NOT EXISTS ai_sessions` 加 4 列 + `ALTER TABLE ai_sessions ADD COLUMN IF NOT EXISTS approval_scheme TEXT` / `can_read INTEGER` / `can_modify INTEGER` / `can_run INTEGER`(4 条)。
+- **PG 也有对应的 upsert SQL + params helper(同 sqlite 的 4-way 耦合)**:列名表、`$N` 占位编号(注意 PG 是 `$1..$N` 递增,加 4 列后续编号要重排)、ON CONFLICT SET、params 数组,四处同步。占位编号重排易错,**务必**用 Task 5/7 的写读回测覆盖。
+- 行映射加字段(同 sqlite:`?? null`,`0/1` → boolean)。
 
 - [ ] **Step 2: typecheck**
 
@@ -367,8 +403,11 @@ Expected: FAIL(方法不存在)。
     return row ? rowToAiSession(row) : undefined;
   }
 
-  resolveSessionApprovalPolicy(deviceId: string, path: string): ApprovalPolicy {
-    const base = this.resolveProjectApprovalPolicyByPath(deviceId, path);
+  // ⚠️ 必须声明 async:sqlite 驱动下 base 是同步值,PG 驱动下
+  // resolveProjectApprovalPolicyByPath 是 async(:1244 返回 Promise)。
+  // 用 await 统一两种驱动;调用方(Task 6)一律 await。
+  async resolveSessionApprovalPolicy(deviceId: string, path: string): Promise<ApprovalPolicy> {
+    const base = await this.resolveProjectApprovalPolicyByPath(deviceId, path);
     const session = this.findActiveSessionByPath(deviceId, path);
     if (!session) return base;
     const hasOverride = session.approvalScheme ||
@@ -382,7 +421,8 @@ Expected: FAIL(方法不存在)。
     });
   }
 ```
-(对齐 `normalizeRemotePath` / `rowToAiSession` 的实际可访问性;若 `rowToAiSession` 是模块私有,在同一文件内直接调用即可。)
+> **PG 镜像**:`postgresDatabase.ts` 里同名方法也 `async`,`findActiveSessionByPath` 用 PG 的查询风格(`this.one/this.all` + `rowToPreviewLink` 那类 row mapper)。两驱动签名一致(`Promise<ApprovalPolicy>`),Task 6 调用方 `await` 通吃。
+> 对齐 `normalizeRemotePath` / `rowToAiSession` 的实际可访问性;若 `rowToAiSession` 是模块私有,在同一文件内直接调用即可。
 
 - [ ] **Step 4: 跑测试确认通过**
 
@@ -404,31 +444,38 @@ git -C AliangPhoneServer commit -m "feat(approval): resolveSessionApprovalPolicy
 - Modify: `AliangPhoneServer/server/src/modules/agent/routes.ts`
 - Modify: `AliangPhoneServer/server/src/modules/agent/handler.ts`
 
-- [ ] **Step 1: 策略拉取端点改调 session resolver**
+- [ ] **Step 1: 策略拉取端点改调 session resolver(两处都 `await`)**
 
-`agent/routes.ts:49-51` 与 `:73-75`,把
+`agent/routes.ts:49-51`(`handleAgentApprovalPolicy`)与 `:73-75`(`handleAgentApprovalPolicyHash`),把
 ```ts
 const policy = projectPath ? await db.resolveProjectApprovalPolicyByPath(device.id, projectPath) : balancedPolicy();
 ```
-改为
+改为(注意保留 `await`——新方法是 `Promise<ApprovalPolicy>`):
 ```ts
-const policy = projectPath ? db.resolveSessionApprovalPolicy(device.id, projectPath) : balancedPolicy();
+const policy = projectPath ? await db.resolveSessionApprovalPolicy(device.id, projectPath) : balancedPolicy();
 ```
-(确认 `resolveSessionApprovalPolicy` 是同步;PG 驱动下若为 async,加 `await`。两个端点都改。)
+两个端点都改。原代码已有 `await`,保留即可。
 
-- [ ] **Step 2: approval 解析按 session_id**
+- [ ] **Step 2: approval 解析按 session_id(复用现有 allowAll 短路,无需新分支)**
 
-`handler.ts:965` 附近(`resolveProjectApprovalPolicy(approvalProject)` 处),改为:若有 `approval.sessionId`,先取该 session 的覆盖叠到 project 策略上(用 `applySessionOverride`);否则维持现状。这是 `ask_all` 兜底(服务器侧 per-session 决策)。
+`handler.ts:965` 附近的现有逻辑(`:966-988`)是 **allow_all 防御纵深短路**:`matchedPrefix || allowAll` 时自动放行,否则落到「建 approval 给用户」。
 
+会话覆盖与这条路径的关系(理清后只需让 `resolvedPolicy` 带 session 覆盖):
+- **session allow_all** → `applySessionOverride` 把 `scheme` 置 `'allow_all'`(Task 1 已加)→ 现有 `allowAll = resolvedPolicy?.scheme === 'allow_all'` 命中 → 自动放行。✅ 无需新分支。
+- **session ask_all** → 一切工具本就 `require_approval`,agent 全 escalate 到服务器;服务器 `allowAll` 不命中 → 落到「建 approval 给用户」= 逐项确认。✅ 正是期望。
+- **session read_only / Modify=off / Run=off** → 写/执行工具在 agent 侧被 `auto_deny` 规则拦,**不会 escalate 到服务器**;故此路径几乎收不到这类。真收到(漏网)→ 不命中 allowAll → 弹给用户(保守正确)。
+
+改法:把 `:965` 处 `resolveProjectApprovalPolicy(approvalProject)` 换成 session 感知解析——优先用 agent 端点同款逻辑,按 `approval.sessionId` 取覆盖叠加:
 ```ts
-// 伪代码
-const baseProjectPolicy = db.resolveProjectApprovalPolicy(approvalProject);
-const session = approval.sessionId ? db.getAiSession(approval.sessionId) : undefined;
-const policy = session && hasOverride(session)
-  ? applySessionOverride(baseProjectPolicy, toOverride(session))
-  : baseProjectPolicy;
-// 用 policy 决定 approval 自动结果
+// approval.sessionId 存在则取该 session 覆盖;否则退 project 策略
+const basePolicy = db.resolveProjectApprovalPolicy(approvalProject);
+const session = approval.sessionId ? await db.getAiSession(approval.sessionId) : undefined;
+const resolvedPolicy = session && hasOverride(session)
+  ? applySessionOverride(basePolicy, toOverride(session))
+  : basePolicy;
+// 后续 :966-988 的 allowAll 短路自然生效(依赖 scheme,Task 1 已保证)
 ```
+> `getAiSession` 在 PG 驱动是 `async`(`postgresDatabase.ts:1629`),sqlite 同步(`:1823`)→ 调用点 `await` 通吃。`hasOverride`/`toOverride` 可复用 Task 5 同款判断,或抽到 `sessionPolicy.ts`。
 
 - [ ] **Step 3: typecheck + 现有 agent/approval 测试不破**
 
@@ -447,28 +494,33 @@ git -C AliangPhoneServer commit -m "feat(approval): agent 策略端点 + approva
 ## Task 7: 服务端 — 建会话透传新字段
 
 **Files:**
-- Modify: `AliangPhoneServer/server/src/modules/ai/agentPublish.ts`(或实际写 ai_sessions 行的 handler)
-- Modify: 建会话的 route handler(`POST /api/ai/sessions` 之类)
+- Modify: `AliangPhoneServer/server/src/modules/routes/ai.ts:348`(session 对象字面量构造处)
+- 参考:`server/src/schemas.ts:45` 的 `aiCreateSchema`(Task 2 已加字段)、`database.ts:178` 的 `aiSessionUpsertParams`(Task 3 已加 4 项)
 
-- [ ] **Step 1: 定位写入点**
+> ⚠️ 不要去 `dispatchUserAiMessage`/`mobile/handler.ts` 找——它接收**已构造好**的 `session` 对象,不建 session。session 字面量在 `routes/ai.ts` 的 POST 处理里构造(`:348` 一带,含 `kind:'ai'`/`mode:input.mode`/`effort:input.effort`),由 `aiCreateSchema`(`schemas.ts:45`,在 `routes/ai.ts:194` 消费)驱动,最终经 `aiSessionUpsertParams` 写库。
 
-Run: `cd AliangPhoneServer && grep -n "ai_sessions" server/src/database.ts | head -5` 确认 `:168` INSERT 所在方法名;再 `grep -rn "<那个方法名>" server/src` 找调用方(建会话 route / `dispatchUserAiMessage`)。
+- [ ] **Step 1: session 字面量加字段**
 
-- [ ] **Step 2: 透传字段**
+`routes/ai.ts:348` 的 session 对象构造处,加:
+```ts
+  approvalScheme: input.approvalScheme ?? null,
+  canRead: input.canRead ?? null,
+  canModify: input.canModify ?? null,
+  canRun: input.canRun ?? null,
+```
+(`input` 来自 Task 2 加好字段的 `aiCreateSchema`。)
 
-让建会话请求体(Task 2 schema 已接受)的 4 个字段流到 INSERT 调用:`session.approvalScheme`/`canRead`/`canModify`/`canRun`。若 `dispatchUserAiMessage`(`mobile/handler.ts:285`)是入口,在它构造 session 对象处带上从请求读到的值。
+- [ ] **Step 2: 写读回测**
 
-- [ ] **Step 3: 路由/契约测试**
-
-补/扩一个测试:POST 建会话带 `approvalScheme:'ask_all'`,回读 session 含该字段;agent 拉策略(该 path)得到 `default_decision=require_approval`。
+补/扩一个测试:POST 建会话带 `approvalScheme:'ask_all'` + `canModify:false`,回读 session 含这两个值;再调 `resolveSessionApprovalPolicy(deviceId, path)` 得到 `default_decision=require_approval` 且写工具 `auto_deny`。
 
 Run: `cd AliangPhoneServer && npx vitest run server/test -t "session"`(或相关命名)
-Expected: PASS。
+Expected: PASS(同时验证 Task 3 的 4-way INSERT 真落库)。
 
-- [ ] **Step 4: 提交**
+- [ ] **Step 3: 提交**
 
 ```bash
-git -C AliangPhoneServer add <改动文件>
+git -C AliangPhoneServer add server/src/modules/routes/ai.ts <相关测试>
 git -C AliangPhoneServer commit -m "feat(approval): 建会话透传 approvalScheme/canRead/canModify/canRun"
 ```
 
@@ -548,6 +600,7 @@ git -C AliangVibeCodingPhone commit -m "feat(vibecoding): 权限区 i18n key(app
 it('默认 approval=继承,能力全开', () => {});
 it('选 只读 → Modify/Run 关且置灰,Read 开', () => {});
 it('只读 下能力开关 disabled', () => {});
+it('只读 下点能力开关无效(不自动升档,保持只读)', () => {});
 it('切回 放行 → 能力开关解锁', () => {});
 it('点 Create → navigation.replace 收到 draftConfig.approvalScheme/canModify', () => {});
 it('端口映射行置灰(不可点 / 显示 即将支持)', () => {});
@@ -575,13 +628,12 @@ const isReadOnly = approval === 'read_only';
 const chooseApproval = (next: ApprovalChoice) => {
   setApproval(next);
   if (next === 'read_only') { setCanRead(true); setCanModify(false); setCanRun(false); }
+  // 切走只读时,能力开关解锁、保持当前值(不强制重置)。
 };
-// 能力开关在只读下 disabled;手动开 Modify/Run 时若 approval=read_only,自动升档到 'inherit'
-const toggleModify = () => {
-  if (isReadOnly) return;
-  setCanModify(v => !v);
-};
-// (Run/Read 同理)
+// 能力开关在只读下 disabled(直接禁用,不做"自动升档"——保持简单、可预测)。
+const toggleModify = () => { if (!isReadOnly) setCanModify(v => !v); };
+const toggleRun = () => { if (!isReadOnly) setCanRun(v => !v); };
+const toggleRead = () => { if (!isReadOnly) setCanRead(v => !v); };
 ```
 
 渲染区(`:636` 起,段标题改成 `7. PERMISSIONS`):
