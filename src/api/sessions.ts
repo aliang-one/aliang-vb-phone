@@ -382,6 +382,20 @@ export const createAiSession = (input: {
   tool?: 'codex' | 'claude' | 'claudecode' | 'opencode';
   risk?: 'low' | 'medium' | 'high';
   effort?: string;
+  /**
+   * Per-session approval-policy override (create-flow "session permissions").
+   * camelCase on the wire to match the server's aiCreateSchema field naming.
+   * Omit/undefined = inherit the resolved project/device policy (the server
+   * only accepts allow_all | ask_all | read_only — never send 'inherit').
+   */
+  approvalScheme?: 'allow_all' | 'ask_all' | 'read_only';
+  /**
+   * Per-session capability toggles. Omit = no override (the resolved policy's
+   * capability bits are kept). Forwarded verbatim as booleans, camelCase.
+   */
+  canRead?: boolean;
+  canModify?: boolean;
+  canRun?: boolean;
 }): Promise<ServerAiSession> =>
   apiPost<ServerAiSession>('/api/ai/sessions', input, {
     timeoutMs: AI_TURN_REQUEST_TIMEOUT_MS,

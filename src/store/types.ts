@@ -212,6 +212,20 @@ interface StartAgentInput {
    * string means "no override"; omit entirely is equivalent.
    */
   effort?: string;
+  /**
+   * Per-session approval-policy override (create-flow "session permissions").
+   * Forwarded to the server's aiCreateSchema; omit/undefined = inherit the
+   * resolved project/device policy (do NOT send 'inherit' to the server — only
+   * allow_all | ask_all | read_only are valid on the wire).
+   */
+  approvalScheme?: 'allow_all' | 'ask_all' | 'read_only';
+  /**
+   * Per-session capability toggles. Omit = no override (the server keeps the
+   * resolved policy's capability bits). Sent verbatim as booleans.
+   */
+  canRead?: boolean;
+  canModify?: boolean;
+  canRun?: boolean;
 }
 
 interface BindDeviceResult {

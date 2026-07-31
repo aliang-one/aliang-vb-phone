@@ -1396,6 +1396,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
           objective: normalizedContent,
           model: draftConfig.model,
           effort: draftConfig.effort,
+          // Forward per-session permission override (create-flow "session
+          // permissions"). approvalScheme is undefined when 'inherit' — the
+          // store/API omit it on the wire so the server keeps the resolved
+          // project/device policy. canRead/canModify/canRun pass straight through.
+          approvalScheme: draftConfig.approvalScheme,
+          canRead: draftConfig.canRead,
+          canModify: draftConfig.canModify,
+          canRun: draftConfig.canRun,
         });
         // Flip from draft to the real session IN PLACE — no remount. setParams
         // mutates the current route's params so the back-stack / a persisted

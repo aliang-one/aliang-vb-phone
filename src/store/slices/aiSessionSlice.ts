@@ -152,6 +152,13 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
           tool: provider,
           risk: input.provider === 'claude_code' ? 'medium' : 'low',
           effort: sentEffort,
+          // Per-session permission override (create-flow "session permissions").
+          // approvalScheme is forwarded only when set (omit => inherit resolved
+          // project/device policy); the capability toggles pass through verbatim.
+          approvalScheme: input.approvalScheme,
+          canRead: input.canRead,
+          canModify: input.canModify,
+          canRun: input.canRun,
         });
 
         const sessionId = session.session_id;

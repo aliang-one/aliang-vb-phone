@@ -136,6 +136,53 @@ describe('createAiSession idempotency', () => {
       { timeoutMs: 120000 },
     );
   });
+
+  it('forwards the per-session permission override on the create body (camelCase wire)', async () => {
+    // Task 11: draftConfig's approvalScheme + capability toggles flow through
+    // createAiSession verbatim. Wire casing is camelCase to match the server's
+    // aiCreateSchema field naming (approvalScheme/canRead/canModify/canRun).
+    await createAiSession({
+      device_id: 'device-1',
+      client_request_id: 'ai-create-perms',
+      message: 'first message',
+      provider: 'claudecode',
+      approvalScheme: 'ask_all',
+      canRead: true,
+      canModify: false,
+      canRun: true,
+    });
+    expect(mockedApiPost).toHaveBeenCalledWith(
+      '/api/ai/sessions',
+      expect.objectContaining({
+        approvalScheme: 'ask_all',
+        canRead: true,
+        canModify: false,
+        canRun: true,
+      }),
+      { timeoutMs: 120000 },
+    );
+  });
+
+  it('omits approvalScheme when undefined (inherit resolved policy)', async () => {
+    // 'inherit' on the create screen is stored as undefined in draftConfig and
+    // must NOT be sent to the server — the server only accepts allow_all |
+    // ask_all | read_only (or absent). The capability toggles still pass through.
+    await createAiSession({
+      device_id: 'device-1',
+      client_request_id: 'ai-create-inherit',
+      message: 'first message',
+      provider: 'claudecode',
+      canRead: false,
+      canModify: false,
+      canRun: false,
+    });
+    const body = mockedApiPost.mock.calls[0][1] as Record<string, unknown>;
+    expect(body).not.toHaveProperty('approvalScheme');
+    expect(body).not.toHaveProperty('approval_scheme');
+    expect(body.canRead).toBe(false);
+    expect(body.canModify).toBe(false);
+    expect(body.canRun).toBe(false);
+  });
 });
 
 describe('mergeVibeRunSnapshot status authority', () => {
