@@ -253,4 +253,26 @@ describe('CreateVibeCodingScreen permissions section', () => {
     // The old English toggle label must be gone.
     expect(allText).not.toContain('Run local commands with approval');
   });
+
+  it('approval chip labels render translated text (i18n key wiring, not literal key paths)', async () => {
+    // Regression guard: chip values are snake_case (allow_all/ask_all/read_only)
+    // but the i18n keys are camelCase (allowAll/askAll/readOnly). A mismatch
+    // renders the literal key path (e.g. createScreen.permissions.approval.allow_all)
+    // instead of the translation. Assert the rendered zh labels appear and that
+    // no raw key path leaks through.
+    root = await wrap(<CreateVibeCodingScreen />);
+    const allText = root.root
+      .findAllByType(Text)
+      .map(t => String(t.props.children))
+      .join('|');
+    expect(allText).toContain('继承');
+    expect(allText).toContain('全部放行');
+    expect(allText).toContain('逐项确认');
+    expect(allText).toContain('只读');
+    // Default approval=inherit → its hint must render, not the raw key path.
+    expect(allText).toContain('沿用项目默认策略');
+    // No snake_case key path should leak into the rendered tree.
+    expect(allText).not.toContain('createScreen.permissions.approval.allow_all');
+    expect(allText).not.toContain('createScreen.permissions.approval.allow_allHint');
+  });
 });

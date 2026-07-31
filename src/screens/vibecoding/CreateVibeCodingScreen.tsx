@@ -41,6 +41,16 @@ type CreateRoute = RouteProp<RootStackParamList, 'CreateVibeCoding'>;
 // default); the other three are explicit overrides forwarded to the server.
 type ApprovalChoice = 'inherit' | 'allow_all' | 'ask_all' | 'read_only';
 const APPROVAL_OPTIONS: ApprovalChoice[] = ['inherit', 'allow_all', 'ask_all', 'read_only'];
+// Values are snake_case (forwarded to the server as approvalScheme), but the
+// matching i18n keys under createScreen.permissions.approval are camelCase
+// (allowAll/askAll/readOnly). Map value→labelKey so the chip + hint lookups
+// resolve instead of rendering the literal key path.
+const APPROVAL_LABEL_KEY: Record<ApprovalChoice, string> = {
+  inherit: 'inherit',
+  allow_all: 'allowAll',
+  ask_all: 'askAll',
+  read_only: 'readOnly',
+};
 
 const uniqueStrings = (items: Array<string | undefined>) =>
   Array.from(new Set(items.filter(Boolean))) as string[];
@@ -695,7 +705,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
                         : theme.colors.onSurfaceVariant,
                     },
                   ]}>
-                  {t(`createScreen.permissions.approval.${choice}`)}
+                  {t(`createScreen.permissions.approval.${APPROVAL_LABEL_KEY[choice]}`)}
                 </Text>
               </TouchableOpacity>
             );
@@ -707,7 +717,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.modelHint,
           ]}>
-          {t(`createScreen.permissions.approval.${approval}Hint`)}
+          {t(`createScreen.permissions.approval.${APPROVAL_LABEL_KEY[approval]}Hint`)}
         </Text>
 
         <Text
