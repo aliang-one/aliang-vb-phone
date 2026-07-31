@@ -736,6 +736,22 @@ export const GoalDetailScreen: React.FC = () => {
                           {!task.description && !task.allowedCommands?.length && !task.dependsOn?.length && !task.requiredCheckIds?.length ? (
                             <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>暂无额外详情</Text>
                           ) : null}
+                          {canFork && !summary?.openFork ? (
+                            // P1-5: per-task pivot picker. Expanding a task +
+                            // tapping here opens a fork branched from THIS task
+                            // (its completed ancestors are preserved, it + its
+                            // successors are regenerated). v1 had no picker —
+                            // only the AI's branchSuggestion supplied a pivot.
+                            <TouchableOpacity
+                              accessibilityRole="button"
+                              accessibilityLabel={`从「${task.title}」分叉重规划`}
+                              onPress={() => performFork(task.id)}
+                              disabled={actionLoading}
+                              style={styles.forkFromHereButton}
+                              testID={`goal-fork-from-${task.key}`}>
+                              <Text style={[theme.typography.labelSm, { color: theme.colors.primary }]}>从此处分叉重规划</Text>
+                            </TouchableOpacity>
+                          ) : null}
                         </GlassPanel>
                       ) : null}
                     </View>
@@ -1030,6 +1046,7 @@ const styles = StyleSheet.create({
   abandonButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   forkActions: { flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'space-between' },
   forkPrimaryAction: { flex: 1 },
+  forkFromHereButton: { marginTop: 6, alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(128,128,128,0.3)' },
   criterionCard: { paddingVertical: 8, gap: 4 },
   criterionStatement: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, minHeight: 36 },
   criterionMeta: { flexDirection: 'row', gap: 8, alignItems: 'center' },
