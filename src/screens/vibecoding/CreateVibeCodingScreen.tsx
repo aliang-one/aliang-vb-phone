@@ -37,12 +37,10 @@ import {
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type CreateRoute = RouteProp<RootStackParamList, 'CreateVibeCoding'>;
 
-const permissions = [
-  'Read project files',
-  'Modify files in selected directory',
-  'Run local commands with approval',
-  'Expose preview ports as short links',
-];
+// Per-session approval policy. `inherit` = omit approvalScheme (use project
+// default); the other three are explicit overrides forwarded to the server.
+type ApprovalChoice = 'inherit' | 'allow_all' | 'ask_all' | 'read_only';
+const APPROVAL_OPTIONS: ApprovalChoice[] = ['inherit', 'allow_all', 'ask_all', 'read_only'];
 
 const uniqueStrings = (items: Array<string | undefined>) =>
   Array.from(new Set(items.filter(Boolean))) as string[];
@@ -119,7 +117,14 @@ export const CreateVibeCodingScreen: React.FC = () => {
   const [directory, setDirectory] = useState(
     project?.path ?? device?.authorizedDirectories[0] ?? '~',
   );
-  const [selectedPermissions, setSelectedPermissions] = useState(permissions);
+  // Per-session permission overrides. Defaults: inherit project approval +
+  // all three capabilities enabled. Read-only snaps Modify/Run OFF and locks
+  // the toggles; switching away unlocks them without auto-changing values.
+  const [approval, setApproval] = useState<ApprovalChoice>('inherit');
+  const [canRead, setCanRead] = useState(true);
+  const [canModify, setCanModify] = useState(true);
+  const [canRun, setCanRun] = useState(true);
+  const isReadOnly = approval === 'read_only';
 
   const availableProjects = useMemo(
     () =>
@@ -147,12 +152,24 @@ export const CreateVibeCodingScreen: React.FC = () => {
     resetKey: `${device?.id ?? 'none'}:${project?.id ?? 'none'}`,
   });
 
-  const togglePermission = (permission: string) => {
-    setSelectedPermissions(current =>
-      current.includes(permission)
-        ? current.filter(item => item !== permission)
-        : [...current, permission],
-    );
+  const chooseApproval = (next: ApprovalChoice) => {
+    setApproval(next);
+    if (next === 'read_only') {
+      setCanRead(true);
+      setCanModify(false);
+      setCanRun(false);
+    }
+    // 切走只读:能力开关解锁、保持当前值(不做自动升档)
+  };
+  // 能力开关在只读下直接 disabled,不做"自动升档"
+  const toggleRead = () => {
+    if (!isReadOnly) setCanRead(v => !v);
+  };
+  const toggleModify = () => {
+    if (!isReadOnly) setCanModify(v => !v);
+  };
+  const toggleRun = () => {
+    if (!isReadOnly) setCanRun(v => !v);
   };
 
   const handleCreate = () => {
@@ -177,6 +194,10 @@ export const CreateVibeCodingScreen: React.FC = () => {
         provider,
         model: model.trim() || undefined,
         effort: effort.trim() || undefined,
+        approvalScheme: approval === 'inherit' ? undefined : approval,
+        canRead,
+        canModify,
+        canRun,
       },
     });
   };
@@ -633,28 +654,111 @@ export const CreateVibeCodingScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
           ]}>
-          8. PERMISSIONS
+          7. PERMISSIONS
         </Text>
-        <GlassPanel style={styles.optionPanel}>
-          {permissions.map((permission, index) => {
-            const active = selectedPermissions.includes(permission);
+        <Text
+          style={[
+            theme.typography.labelSm,
+            { color: theme.colors.onSurfaceVariant, marginBottom: 6 },
+          ]}>
+          {t('createScreen.permissions.approvalLabel')}
+        </Text>
+        <View style={styles.chipRow}>
+          {APPROVAL_OPTIONS.map(choice => {
+            const active = approval === choice;
             return (
               <TouchableOpacity
-                key={permission}
-                onPress={() => togglePermission(permission)}>
-                <View style={styles.optionRow}>
-                  <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                    {permission}
-                  </Text>
-                  <StatusChip
-                    label={active ? 'ON' : 'OFF'}
-                    type={active ? 'success' : 'neutral'}
-                  />
-                </View>
-                {index < permissions.length - 1 && <View style={styles.divider} />}
+                key={choice}
+                testID={`approval-chip-${choice}`}
+                activeOpacity={0.75}
+                onPress={() => chooseApproval(choice)}
+                style={[
+                  styles.chip,
+                  {
+                    borderRadius: theme.borderRadius.full,
+                    borderColor: active
+                      ? theme.colors.primary
+                      : theme.colors.outlineVariant,
+                    backgroundColor: active
+                      ? isDark
+                        ? 'rgba(86, 156, 214, 0.12)'
+                        : 'rgba(0, 81, 174, 0.08)'
+                      : 'transparent',
+                  },
+                ]}>
+                <Text
+                  style={[
+                    theme.typography.labelSm,
+                    {
+                      color: active
+                        ? theme.colors.primary
+                        : theme.colors.onSurfaceVariant,
+                    },
+                  ]}>
+                  {t(`createScreen.permissions.approval.${choice}`)}
+                </Text>
               </TouchableOpacity>
             );
           })}
+        </View>
+        <Text
+          style={[
+            theme.typography.bodySm,
+            { color: theme.colors.onSurfaceVariant },
+            styles.modelHint,
+          ]}>
+          {t(`createScreen.permissions.approval.${approval}Hint`)}
+        </Text>
+
+        <Text
+          style={[
+            theme.typography.labelSm,
+            { color: theme.colors.onSurfaceVariant, marginTop: 6, marginBottom: 6 },
+          ]}>
+          {t('createScreen.permissions.capabilityLabel')}
+        </Text>
+        <GlassPanel style={styles.optionPanel}>
+          {([
+            { key: 'read', label: t('createScreen.permissions.capability.read'), value: canRead, onToggle: toggleRead },
+            { key: 'modify', label: t('createScreen.permissions.capability.modify'), value: canModify, onToggle: toggleModify },
+            { key: 'run', label: t('createScreen.permissions.capability.run'), value: canRun, onToggle: toggleRun },
+          ] as const).map((row, index) => {
+            return (
+              <TouchableOpacity
+                key={row.key}
+                testID={`cap-${row.key}`}
+                disabled={isReadOnly}
+                onPress={row.onToggle}>
+                <View
+                  style={[
+                    styles.optionRow,
+                    isReadOnly ? { opacity: 0.4 } : null,
+                  ]}>
+                  <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                    {row.label}
+                  </Text>
+                  <StatusChip
+                    label={row.value ? 'ON' : 'OFF'}
+                    type={row.value ? 'success' : 'neutral'}
+                  />
+                </View>
+                {index < 2 && <View style={styles.divider} />}
+              </TouchableOpacity>
+            );
+          })}
+        </GlassPanel>
+
+        {/* Port mapping: placeholder, not yet wired. Greyed + non-interactive. */}
+        <GlassPanel style={[styles.optionPanel, { marginTop: 10, opacity: 0.4 }]}>
+          <View style={styles.optionRow} testID="port-mapping-row">
+            <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+              {t('createScreen.permissions.portMapping.title')}
+            </Text>
+            <StatusChip
+              label={t('createScreen.permissions.portMapping.comingSoon')}
+              type="neutral"
+            />
+          </View>
         </GlassPanel>
 
         <GlassPanel style={styles.reviewCard}>
@@ -669,7 +773,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
         <GlowButton
           title="START VIBECODING"
           onPress={handleCreate}
-          disabled={!device || noProviderAvailable || selectedPermissions.length === 0 || creating}
+          disabled={!device || noProviderAvailable || creating}
           loading={creating}
           style={styles.createButton}
         />
