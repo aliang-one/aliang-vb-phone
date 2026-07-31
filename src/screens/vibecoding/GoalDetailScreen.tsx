@@ -499,9 +499,10 @@ export const GoalDetailScreen: React.FC = () => {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       // P1 merge loop: a fork that hasn't produced a ReplanDelta yet is not a
-      // dead-end error — guide the user INTO the fork session to ask the AI to
-      // submit, then merge. v1 just surfaced fork_delta_missing.
-      if (/delta/i.test(message)) {
+      // dead-end — guide the user INTO the fork session to ask the AI to submit,
+      // then merge. Match ONLY fork_delta_missing so real validation errors
+      // (fork_delta_pivot_invalid / fork_delta_pivot_mismatch) surface as such.
+      if (/fork_delta_missing/i.test(message)) {
         setActionFeedback('草稿尚未提交方案，正在进入草稿会话…');
         enterForkSession();
       } else {
