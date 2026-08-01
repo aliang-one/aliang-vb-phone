@@ -831,15 +831,25 @@ export const GoalDetailScreen: React.FC = () => {
                               })}
                             </View>
                           ) : null}
+                          {/* Task-level machine checks — embedded in the task detail */}
                           {task.requiredCheckIds?.length ? (
                             <View style={styles.detailBlock}>
-                              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>关联检查</Text>
+                              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>机器校验</Text>
                               {task.requiredCheckIds.map((checkId, checkIdx) => {
                                 const relCheck = summary.checks?.find(c => c.id === checkId);
+                                const checkTone = relCheck?.status === 'passed' ? theme.colors.primary : relCheck?.status === 'failed' || relCheck?.status === 'error' ? theme.colors.error : theme.colors.onSurfaceVariant;
                                 return (
-                                  <Text key={`${checkIdx}:${checkId}`} style={[theme.typography.bodySm, { color: theme.colors.onSurface }]}>
-                                    {relCheck?.title ?? checkId}{relCheck?.status ? ` · ${checkStateLabels[relCheck.status] ?? relCheck.status}` : ''}
-                                  </Text>
+                                  <View key={`${checkIdx}:${checkId}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 2 }}>
+                                    <Text style={[theme.typography.codeSm, { color: checkTone }]}>
+                                      {relCheck?.status === 'passed' ? '✓' : relCheck?.status === 'failed' ? '✕' : '○'}
+                                    </Text>
+                                    <Text style={[theme.typography.bodySm, { color: theme.colors.onSurface, flexShrink: 1 }]} numberOfLines={1}>
+                                      {relCheck?.title ?? checkId}
+                                    </Text>
+                                    <Text style={[theme.typography.labelSm, { color: checkTone }]}>
+                                      {relCheck?.status ? (checkStateLabels[relCheck.status] ?? relCheck.status) : '待校验'}
+                                    </Text>
+                                  </View>
                                 );
                               })}
                             </View>
@@ -855,82 +865,8 @@ export const GoalDetailScreen: React.FC = () => {
               ) : <EmptySection text="任务列表尚未同步" />}
             </Section>
             ) : null}
-            {activeTab === 'execution' ? (
-            <Section title="检查">
-              {summary.checks?.length ? (
-                summary.checks.map(check => {
-                  const expanded = expandedCheckId === check.id;
-                  const stateTone = toneForCheckState(check.status);
-                  const stateColor = resolveToneColor(theme, stateTone);
-                  const checkTypeLabel = check.type ? checkTypeLabels[check.type] : undefined;
-                  return (
-                    <View key={check.id} style={styles.expandableRow}>
-                      <TouchableOpacity
-                        accessibilityRole="button"
-                        accessibilityLabel={`${check.title} ${expanded ? '收起详情' : '展开详情'}`}
-                        style={styles.ledgerRow}
-                        onPress={() => {
-                          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                          setExpandedCheckId(prev => prev === check.id ? null : check.id);
-                        }}
-                      >
-                        <IconBadge name={check.status === 'passed' ? 'check' : 'warning'} tone={check.status === 'passed' ? 'success' : 'warning'} size={28} iconSize={14} />
-                        <View style={styles.rowCopy}>
-                          <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>{check.title}</Text>
-                          <Text style={[theme.typography.bodySm, { color: stateColor }]}>
-                            {checkStateLabels[check.status ?? ''] ?? check.status ?? '等待检查'}{check.detail ? ` · ${check.detail}` : ''}
-                          </Text>
-                        </View>
-                        <Text style={[theme.typography.titleMd, { color: theme.colors.onSurfaceVariant, marginLeft: 4 }]}>
-                          {expanded ? '▲' : '▼'}
-                        </Text>
-                      </TouchableOpacity>
-                      {expanded ? (
-                        <GlassPanel style={styles.detailPanel}>
-                          {checkTypeLabel ? (
-                            <View style={styles.detailBlock}>
-                              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>类型</Text>
-                              <Text style={[theme.typography.bodySm, { color: theme.colors.onSurface }]}>{checkTypeLabel}</Text>
-                            </View>
-                          ) : null}
-                          {check.command ? (
-                            <View style={styles.detailBlock}>
-                              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>命令</Text>
-                              <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>{check.command}</Text>
-                            </View>
-                          ) : null}
-                          {check.path && (check.type === 'file_exists' || check.type === 'file_contains') ? (
-                            <View style={styles.detailBlock}>
-                              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>路径</Text>
-                              <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>{check.path}</Text>
-                            </View>
-                          ) : null}
-                          {check.contains && check.type === 'file_contains' ? (
-                            <View style={styles.detailBlock}>
-                              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>包含内容</Text>
-                              <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>{check.contains}</Text>
-                            </View>
-                          ) : null}
-                          <View style={styles.detailBlock}>
-                            <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>是否必需</Text>
-                            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurface }]}>{check.required === false ? '可选' : '必需'}</Text>
-                          </View>
-                          {typeof check.timeoutMs === 'number' ? (
-                            <View style={styles.detailBlock}>
-                              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>超时</Text>
-                              <Text style={[theme.typography.bodySm, { color: theme.colors.onSurface }]}>{(check.timeoutMs / 1000).toFixed(1)} 秒</Text>
-                            </View>
-                          ) : null}
-                        </GlassPanel>
-                      ) : null}
-                    </View>
-                  );
-                })
-              ) : <EmptySection text="检查结果尚未同步" />}
-            </Section>
-            ) : null}
             {activeTab === 'plan' && criteriaDraft.length > 0 ? (
-              <Section title="验收标准（签署依据）">
+              <Section title="验收标准（最终签署）">
                 {criteriaDraft.map((criterion, index) => {
                   const statusColor = criterion.status === 'passed' ? theme.colors.success
                     : criterion.status === 'failed' ? theme.colors.error
