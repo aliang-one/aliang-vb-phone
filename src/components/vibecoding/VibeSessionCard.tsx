@@ -489,8 +489,8 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                 StyleSheet.absoluteFill,
                 {
                   backgroundColor: isDark
-                    ? 'rgba(2, 5, 8, 0.78)'
-                    : 'rgba(12, 18, 28, 0.34)',
+                    ? 'rgba(2, 5, 8, 0.8)'
+                    : 'rgba(12, 18, 28, 0.6)',
                 },
               ]}
             />
@@ -505,7 +505,10 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                 },
               ]}
             />
-            <GlassPanel glowColor="primary" style={styles.menuPanel}>
+            {/* opaque: the glass fill is ~4% white and meant to float on a solid
+                in-app surface; inside this Modal it would let the dimmed list
+                bleed through and the dialog would read as transparent. */}
+            <GlassPanel glowColor="primary" opaque style={styles.menuPanel}>
               <View style={styles.menuHeader}>
                 <View style={styles.menuTitleBlock}>
                   {renaming ? (
