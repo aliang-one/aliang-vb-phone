@@ -68,4 +68,4 @@ export interface MobilePlatformSnapshot {
 }
 
 export const fetchMobileSnapshot = (eventLimit = 40): Promise<MobilePlatformSnapshot> =>
-  apiGet<MobilePlatformSnapshot>(`/api/mobile/snapshot?event_limit=${eventLimit}`);
+  apiGet<MobilePlatformSnapshot>(`/api/mobile/snapshot?event_limit=${eventLimit}`, { timeoutMs: 30_000 });
