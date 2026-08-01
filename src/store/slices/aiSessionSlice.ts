@@ -2,6 +2,7 @@ import type { StateCreator } from 'zustand';
 import type { AgentCommandInfo, VibeCodingRun, VibeStatus } from '../../data/platformModels';
 import { platformTransport } from '../../services/platformTransport';
 import { refreshSessionCommands as refreshSessionCommandsApi, serverAiMessageToAgent } from '../../api/sessions';
+import type { ServerAiSession } from '../../api/sessions';
 import { normalizeProvider, providerLabel } from '../../utils/modelIntensity';
 import {
   isAuthoritativeRunLive,
@@ -24,13 +25,19 @@ import {
   nowTime,
   serverAiSessionToVibeRun,
 } from '../internals';
+import {
+  emptyHistoryPage,
+  historyPageFromServer,
+  mergeHistoryById,
+} from '../historyPaging';
 
 type AiSessionSlice = Pick<
   ControlCenterState,
-  | 'vibeRuns' | 'previewLinks' | 'sessionCommands'
+  | 'vibeRuns' | 'aiSessionHistory' | 'aiSessionHistoryPage' | 'previewLinks' | 'sessionCommands'
   | 'startAgentSession' | 'loadAgentSessionDetail' | 'pauseAgentSession'
   | 'interruptAgentSession' | 'resumeAgentSession' | 'terminateAgentSession' | 'updateAgentSession'
   | 'deleteAgentSession' | 'appendAgentMessage' | 'loadEarlierAgentMessages'
+  | 'loadAiSessionHistory'
   | 'retryAgentMessage' | 'dismissFailedMessage' | 'cacheStructuredDetail'
   | 'markSessionViewed' | 'clearCurrentlyViewedSession' | 'demoteIdleSessions'
   | 'refreshSessionCommands'
@@ -59,6 +66,8 @@ const providerDefaultModelLabel = (provider: AgentProvider): string =>
 
 export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSessionSlice> = (set, get) => ({
   vibeRuns: [],
+  aiSessionHistory: [],
+  aiSessionHistoryPage: emptyHistoryPage(),
   previewLinks: [],
   sessionCommands: {},
 
@@ -300,6 +309,71 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     });
   },
 
+  loadAiSessionHistory: async options => {
+    if (!get().serverMode) {
+      throw new Error('Platform connection is required before loading session history.');
+    }
+    const currentPage = get().aiSessionHistoryPage;
+    if (currentPage.loading) return;
+    const reset = options?.reset === true;
+    if (!reset && currentPage.initialized && !currentPage.hasMore) return;
+
+    set({
+      aiSessionHistoryPage: {
+        ...currentPage,
+        loading: true,
+        error: undefined,
+      },
+    });
+    try {
+      const response = await platformTransport.loadAiSessionsPage({
+        limit: 30,
+        before: reset ? undefined : currentPage.nextBeforeCursor,
+      });
+      // Defensive: old server returns a flat array, new server returns
+      // {items:[...], page:{...}}. Normalize both.
+      const raw = response as unknown;
+      const items: ServerAiSession[] = Array.isArray(raw)
+        ? raw
+        : (raw as { items?: ServerAiSession[] }).items ?? [];
+      set(state => {
+        const incoming = items
+          .filter(session =>
+            state.devices.some(device => device.id === session.device_id),
+          )
+          .map(session =>
+            serverAiSessionToVibeRun(session, state.devices, state.projects),
+          );
+        const liveById = new Map(state.vibeRuns.map(run => [run.id, run]));
+        const updatedLive = state.vibeRuns.map(run => {
+          const next = incoming.find(item => item.id === run.id);
+          return next ? mergeVibeRunSnapshot(run, next) : run;
+        });
+        const historyOnly = incoming
+          .filter(run => !liveById.has(run.id))
+          .map(run => {
+            const existing = state.aiSessionHistory.find(item => item.id === run.id);
+            return mergeVibeRunSnapshot(existing, run);
+          });
+        return {
+          vibeRuns: updatedLive,
+          aiSessionHistory: mergeHistoryById(historyOnly, state.aiSessionHistory),
+          aiSessionHistoryPage: historyPageFromServer(response.page),
+        };
+      });
+    } catch (error) {
+      set(state => ({
+        aiSessionHistoryPage: {
+          ...state.aiSessionHistoryPage,
+          initialized: true,
+          loading: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      }));
+      throw error;
+    }
+  },
+
   interruptAgentSession: async sessionId => {
     if (!get().serverMode) {
       throw new Error('Platform connection is required before interrupting a VibeCoding turn.');
@@ -425,6 +499,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       delete sessionCommands[sessionId];
       return {
         vibeRuns: state.vibeRuns.filter(item => item.id !== sessionId),
+        aiSessionHistory: state.aiSessionHistory.filter(item => item.id !== sessionId),
         sessionCommands,
         devices: state.devices.map(device => ({
         ...device,
