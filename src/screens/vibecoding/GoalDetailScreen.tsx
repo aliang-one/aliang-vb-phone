@@ -670,14 +670,98 @@ export const GoalDetailScreen: React.FC = () => {
             </View>
 
             {activeTab === 'execution' ? (
-            <Section title="当前运行">
-              <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                {summary.currentRunHealth ?? '运行健康度尚未同步'}
-              </Text>
-              <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-                {summary.updatedAt ? `最近更新：${displayTimestamp(summary.updatedAt)}` : '等待下一次权威快照'}
-              </Text>
+            <>
+            {/* Planning live activity */}
+            {summary.state === 'planning' || summary.state === 'planning_failed' ? (
+              <Section title="规划进度">
+                <View style={{ gap: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    {summary.state === 'planning' ? <ActivityIndicator size="small" color={theme.colors.primary} /> : null}
+                    <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                      {summary.planningPhase ?? (summary.state === 'planning' ? 'AI 正在规划...' : '规划失败')}
+                    </Text>
+                  </View>
+                  {summary.planningAttempt ? (
+                    <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                      第 {summary.planningAttempt} 次尝试 · {summary.planningThinkingChars ?? 0} 字符思考
+                    </Text>
+                  ) : null}
+                  {summary.planningThinkingPreview ? (
+                    <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]} numberOfLines={6}>
+                      {summary.planningThinkingPreview}
+                    </Text>
+                  ) : null}
+                  {summary.planningErrorCode ? (
+                    <Text style={[theme.typography.labelSm, { color: theme.colors.error }]}>
+                      错误：{summary.planningErrorCode}
+                    </Text>
+                  ) : null}
+                </View>
+              </Section>
+            ) : null}
+
+            {/* Current run / task execution */}
+            <Section title="执行状态">
+              <View style={{ gap: 6 }}>
+                {summary.state === 'active' || summary.state === 'verifying' || summary.state === 'approval_pending' ? (
+                  <>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <ActivityIndicator size="small" color={theme.colors.primary} />
+                      <Text style={[theme.typography.bodyMd, { color: theme.colors.primary, flexShrink: 1 }]} numberOfLines={2}>
+                        {summary.currentTask ?? '正在执行...'}
+                      </Text>
+                    </View>
+                    <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                      {summary.state === 'verifying' ? '正在验证检查...' : summary.state === 'approval_pending' ? '等待审批...' : 'AI 正在工作中'}
+                    </Text>
+                  </>
+                ) : summary.state === 'awaiting_approval' ? (
+                  <Text style={[theme.typography.bodyMd, { color: theme.colors.warning }]}>
+                    计划已就绪，等待你确认
+                  </Text>
+                ) : summary.state === 'awaiting_user_acceptance' ? (
+                  <Text style={[theme.typography.bodyMd, { color: theme.colors.success }]}>
+                    所有任务完成，等待你验收
+                  </Text>
+                ) : summary.state === 'blocked' ? (
+                  <Text style={[theme.typography.bodyMd, { color: theme.colors.error }]}>
+                    被阻塞：{summary.attention ?? '未知原因'}
+                  </Text>
+                ) : summary.state === 'budget_limited' ? (
+                  <Text style={[theme.typography.bodyMd, { color: theme.colors.warning }]}>
+                    已达预算上限，可继续或重新规划
+                  </Text>
+                ) : summary.state === 'paused' ? (
+                  <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurfaceVariant }]}>
+                    已暂停
+                  </Text>
+                ) : (
+                  <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                    {summary.currentRunHealth ?? '状态：' + goalStateLabel(summary.state)}
+                  </Text>
+                )}
+                <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+                  最近更新：{summary.updatedAt ? displayTimestamp(summary.updatedAt) : '同步中'}
+                </Text>
+              </View>
             </Section>
+
+            {/* Task progress summary */}
+            {summary.tasks?.length ? (
+              <Section title="任务进度">
+                {summary.tasks.map(task => (
+                  <View key={task.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}>
+                    <Text style={[theme.typography.codeSm, { color: task.status === 'completed' ? theme.colors.primary : task.status === 'blocked' ? theme.colors.error : theme.colors.onSurfaceVariant }]}>
+                      {task.status === 'completed' ? '✓' : task.status === 'in_progress' ? '▶' : task.status === 'blocked' ? '✕' : task.status === 'superseded' ? '⊘' : '○'}
+                    </Text>
+                    <Text style={[theme.typography.bodySm, { color: task.isCurrent ? theme.colors.primary : theme.colors.onSurface, fontWeight: task.isCurrent ? '600' : '400' }]} numberOfLines={1}>
+                      {task.title}
+                    </Text>
+                  </View>
+                ))}
+              </Section>
+            ) : null}
+            </>
             ) : null}
             {activeTab === 'plan' ? (
             <Section title="计划">
