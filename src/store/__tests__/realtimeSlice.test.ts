@@ -12,6 +12,7 @@ jest.mock('../../api/client', () => {
 });
 
 import { useControlCenterStore } from '../controlCenterStore';
+import { emptySessionData } from '../internals';
 import { platformTransport } from '../../services/platformTransport';
 import { getApiAuthToken } from '../../api/client';
 
@@ -41,6 +42,7 @@ describe('refreshFromServer outcome', () => {
     mockedGetAuthToken.mockReset();
     mockedGetAuthToken.mockReturnValue('token');
     useControlCenterStore.setState({
+      ...emptySessionData(),
       serverMode: true,
       stale: false,
       lastConnectError: null,
@@ -57,6 +59,35 @@ describe('refreshFromServer outcome', () => {
     };
 
     expect(result).toEqual({ ok: true });
+  });
+
+  test('keeps cursor-loaded histories across a snapshot refresh', async () => {
+    useControlCenterStore.setState({
+      notificationHistory: [
+        {
+          id: 'history-notification',
+          type: 'completed',
+          title: 'Older completion',
+          body: 'done',
+          read: true,
+          createdAt: '2026-07-01T00:00:00Z',
+        },
+      ],
+      notificationHistoryPage: {
+        initialized: true,
+        loading: false,
+        hasMore: true,
+        nextBeforeCursor: 'older-cursor',
+      },
+    });
+    mockedLoadSnapshot.mockResolvedValue(emptySnapshot as never);
+
+    await useControlCenterStore.getState().refreshFromServer();
+
+    expect(useControlCenterStore.getState().notificationHistory).toHaveLength(1);
+    expect(useControlCenterStore.getState().notificationHistoryPage).toMatchObject({
+      nextBeforeCursor: 'older-cursor',
+    });
   });
 
   test('returns {ok:false, error} when the snapshot fetch fails', async () => {

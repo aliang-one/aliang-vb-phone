@@ -6,6 +6,7 @@ import {
   apiPost,
 } from './client';
 import type { AgentCommandInfo, AgentMessage, GoalState } from '../data/platformModels';
+import { cursorPageQuery, type ServerCursorPageResponse } from './pagination';
 
 const AI_TURN_REQUEST_TIMEOUT_MS = 120_000;
 const aiSessionDetailRequests = new Map<string, Promise<ServerAiSession>>();
@@ -288,6 +289,14 @@ export interface ServerTerminalCommandResult {
 
 export const fetchAiSessions = (): Promise<ServerAiSession[]> =>
   apiGet<ServerAiSession[]>('/api/ai/sessions');
+
+export const fetchAiSessionsPage = (options?: {
+  limit?: number;
+  before?: string;
+}): Promise<ServerCursorPageResponse<ServerAiSession>> =>
+  apiGet<ServerCursorPageResponse<ServerAiSession>>(
+    `/api/ai/sessions?${cursorPageQuery(options)}`,
+  );
 
 export const fetchAiSession = (
   sessionId: string,

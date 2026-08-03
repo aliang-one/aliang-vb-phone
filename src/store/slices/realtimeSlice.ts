@@ -6,16 +6,20 @@ import { cancelAiStreamBatch } from '../aiStreamBatching';
 import { cancelTerminalBatch } from '../terminalBatching';
 import type { ControlCenterState, RefreshOutcome } from '../types';
 import {
+  dedupeUnifiedEvents,
   emptySessionData,
+  realtimeEventToUnifiedEvent,
   resolveRefreshAction,
   stateFromSnapshot,
 } from '../internals';
+import { emptyHistoryPage, historyPageFromServer } from '../historyPaging';
 
-const SNAPSHOT_SYNC_TIMEOUT_MS = 12000;
+const SNAPSHOT_SYNC_TIMEOUT_MS = 30_000;
 
 type RealtimeSlice = Pick<
   ControlCenterState,
   | 'wsConnected' | 'serverMode' | 'lastSyncedAt' | 'stale' | 'lastConnectError'
+  | 'eventHistory' | 'eventHistoryPages' | 'loadEventHistory'
   | 'initializeFromServer' | 'refreshFromServer' | 'disconnectFromServer'
   | 'resetSessionData' | 'markStale'
 >;
@@ -45,6 +49,54 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
   lastSyncedAt: null,
   stale: false,
   lastConnectError: null,
+  eventHistory: [],
+  eventHistoryPages: {},
+
+  loadEventHistory: async options => {
+    if (!get().serverMode) {
+      throw new Error('Platform connection is required before loading event history.');
+    }
+    const scopeKey = `${options?.deviceId ?? 'all'}:${options?.sessionId ?? 'all'}`;
+    const currentPage = get().eventHistoryPages[scopeKey] ?? emptyHistoryPage();
+    if (currentPage.loading) return;
+    const reset = options?.reset === true;
+    if (!reset && currentPage.initialized && !currentPage.hasMore) return;
+    set(state => ({
+      eventHistoryPages: {
+        ...state.eventHistoryPages,
+        [scopeKey]: { ...currentPage, loading: true, error: undefined },
+      },
+    }));
+    try {
+      const response = await platformTransport.loadRealtimeEventsPage({
+        limit: 30,
+        before: reset ? undefined : currentPage.nextBeforeCursor,
+        deviceId: options?.deviceId,
+        sessionId: options?.sessionId,
+      });
+      const incoming = response.events.map(realtimeEventToUnifiedEvent);
+      set(state => ({
+        eventHistory: dedupeUnifiedEvents([...incoming, ...state.eventHistory]),
+        eventHistoryPages: {
+          ...state.eventHistoryPages,
+          [scopeKey]: historyPageFromServer(response.page),
+        },
+      }));
+    } catch (error) {
+      set(state => ({
+        eventHistoryPages: {
+          ...state.eventHistoryPages,
+          [scopeKey]: {
+            ...(state.eventHistoryPages[scopeKey] ?? currentPage),
+            initialized: true,
+            loading: false,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        },
+      }));
+      throw error;
+    }
+  },
 
   initializeFromServer: async (token) => {
     platformTransport.disconnect();

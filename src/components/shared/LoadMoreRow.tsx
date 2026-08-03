@@ -1,5 +1,11 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 
 interface LoadMoreRowProps {
@@ -7,6 +13,9 @@ interface LoadMoreRowProps {
   totalCount: number;
   onPress: () => void;
   label?: string;
+  serverHasMore?: boolean;
+  loading?: boolean;
+  error?: string;
 }
 
 export const LoadMoreRow: React.FC<LoadMoreRowProps> = ({
@@ -14,16 +23,20 @@ export const LoadMoreRow: React.FC<LoadMoreRowProps> = ({
   totalCount,
   onPress,
   label = 'LOAD MORE',
+  serverHasMore = false,
+  loading = false,
+  error,
 }) => {
   const { theme, isDark } = useTheme();
 
-  if (visibleCount >= totalCount) {
+  if (visibleCount >= totalCount && !serverHasMore && !error) {
     return null;
   }
 
   return (
     <TouchableOpacity
       activeOpacity={0.75}
+      disabled={loading}
       onPress={onPress}
       style={[
         styles.row,
@@ -34,18 +47,32 @@ export const LoadMoreRow: React.FC<LoadMoreRowProps> = ({
             ? 'rgba(255,255,255,0.03)'
             : theme.colors.surfaceContainerLow,
         },
-      ]}>
+      ]}
+    >
       <View style={styles.copy}>
-        <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
-          {label}
+        <Text
+          style={[theme.typography.labelCaps, { color: theme.colors.primary }]}
+        >
+          {loading ? 'LOADING...' : error ? 'RETRY' : label}
         </Text>
-        <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+        <Text
+          style={[
+            theme.typography.labelSm,
+            { color: theme.colors.onSurfaceVariant },
+          ]}
+        >
           {visibleCount} / {totalCount}
         </Text>
       </View>
-      <Text style={[theme.typography.codeMd, { color: theme.colors.primary }]}>
+      {loading ? (
+        <ActivityIndicator size="small" color={theme.colors.primary} />
+      ) : (
+        <Text
+          style={[theme.typography.codeMd, { color: theme.colors.primary }]}
+        >
         +
       </Text>
+      )}
     </TouchableOpacity>
   );
 };

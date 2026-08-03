@@ -19,6 +19,7 @@ import {
 } from './terminalBatching';
 import type {
   ControlCenterState,
+  PushNotificationItem,
   TerminalSessionStatus,
   UnifiedEvent,
 } from './types';
@@ -57,6 +58,12 @@ import { createDeviceProjectSlice } from './slices/deviceProjectSlice';
 import { reconcileStructured } from './slices/structuredSlice';
 
 const EMPTY_SESSION_APPROVALS: ControlCenterState['approvals'] = [];
+
+const notificationUnreadDelta = (
+  existing: PushNotificationItem | undefined,
+  incoming: PushNotificationItem,
+): number =>
+  Number(!incoming.read) - Number(Boolean(existing && !existing.read));
 
 // Re-export the domain types so the 21 consumer files keep importing them from
 // this module — their import paths (`../store/controlCenterStore`) stay valid.
@@ -200,6 +207,20 @@ export function __resetStableRunCacheForTest(): void {
 export function useStableVibeRuns(): VibeCodingRun[] {
   return useControlCenterStore(
     useShallow(state => state.vibeRuns.map(toStableRun)),
+  );
+}
+
+/** Merge cursor-loaded summaries into the live session list without allowing
+ * stale history to replace a resident realtime session with the same id. */
+export function useSessionListRuns(): VibeCodingRun[] {
+  return useControlCenterStore(
+    useShallow(state => {
+      const liveIds = new Set(state.vibeRuns.map(run => run.id));
+      return [
+        ...state.vibeRuns,
+        ...state.aiSessionHistory.filter(run => !liveIds.has(run.id)),
+      ].map(toStableRun);
+    }),
   );
 }
 
@@ -1096,6 +1117,15 @@ export const useControlCenterStore = create<ControlCenterState>()(
                   state.notifications,
                   nextNotification,
                 ),
+                unreadNotificationsTotal: Math.max(
+                  0,
+                  state.unreadNotificationsTotal +
+                    notificationUnreadDelta(
+                      state.notifications.find(item => item.id === nextNotification.id) ??
+                        state.notificationHistory.find(item => item.id === nextNotification.id),
+                      nextNotification,
+                    ),
+                ),
                 approvals: approvalDecision
                   ? state.approvals.map(item =>
                       item.id === nextNotification.approvalId
@@ -1196,6 +1226,19 @@ export const useControlCenterStore = create<ControlCenterState>()(
                   state.notifications,
                   nextNotification,
                 ),
+                notificationHistory: upsertNotification(
+                  state.notificationHistory,
+                  nextNotification,
+                ),
+                unreadNotificationsTotal: Math.max(
+                  0,
+                  state.unreadNotificationsTotal +
+                    notificationUnreadDelta(
+                      state.notifications.find(item => item.id === nextNotification.id) ??
+                        state.notificationHistory.find(item => item.id === nextNotification.id),
+                      nextNotification,
+                    ),
+                ),
               }));
               return;
             }
@@ -1207,6 +1250,11 @@ export const useControlCenterStore = create<ControlCenterState>()(
                     ...item,
                     read: true,
                   })),
+                  notificationHistory: state.notificationHistory.map(item => ({
+                    ...item,
+                    read: true,
+                  })),
+                  unreadNotificationsTotal: 0,
                 }));
               }
               return;

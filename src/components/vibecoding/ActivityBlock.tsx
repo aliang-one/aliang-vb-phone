@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,13 +14,15 @@ import { CodeHighlight } from '../shared/CodeHighlight';
 import { summarizeActivity } from '../../utils/activitySummary';
 import { fetchStructuredEventDetail } from '../../api/sessions';
 import type { StructuredActivityEvent } from '../../data/platformModels';
+import { THINKING_RENDER_BUCKET_CHARS } from '../../utils/activityRenderMemo';
 
 /**
  * Collapsed "工具活动" block rendered per assistant turn. Header shows the live
  * headline + counts (from {@link summarizeActivity}) with a spinner while
  * commands/thinking are active; tapping toggles an expandable list of rows
- * grouped commands → files → tasks. Each row lazily fetches its heavy detail
- * (command output / file diff) via {@link fetchStructuredEventDetail} on first
+ * grouped thinking → commands → files → tasks. Each row lazily fetches its heavy
+ * detail (thinking text / command output / file diff) via
+ * {@link fetchStructuredEventDetail} on first
  * open and caches it through the parent-owned `detailCache` / `onCacheDetail`
  * props — this component is purely presentational and never touches the store.
  */
@@ -65,6 +67,10 @@ export const ActivityBlock: React.FC<ActivityBlockProps> = React.memo(
       (e): e is Extract<StructuredActivityEvent, { kind: 'file_change' }> =>
         e.kind === 'file_change',
     );
+    const thinking = events.filter(
+      (e): e is Extract<StructuredActivityEvent, { kind: 'thinking' }> =>
+        e.kind === 'thinking',
+    );
     const task = events.find(
       (e): e is Extract<StructuredActivityEvent, { kind: 'task' }> =>
         e.kind === 'task',
@@ -73,6 +79,7 @@ export const ActivityBlock: React.FC<ActivityBlockProps> = React.memo(
     return (
       <GlassPanel style={styles.block}>
         <TouchableOpacity
+          testID="activity-header"
           activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel={
@@ -119,6 +126,28 @@ export const ActivityBlock: React.FC<ActivityBlockProps> = React.memo(
 
         {expanded ? (
           <View style={styles.body}>
+            {thinking.length > 0 ? (
+              <View style={styles.group}>
+                <Text
+                  style={[
+                    theme.typography.labelCaps,
+                    { color: theme.colors.onSurfaceVariant },
+                    styles.groupLabel,
+                  ]}>
+                  {t('activity.thinkingGroupLabel')}
+                </Text>
+                {thinking.map(event => (
+                  <ThinkingRow
+                    key={event.eventId}
+                    sessionId={sessionId}
+                    event={event}
+                    detailCache={detailCache}
+                    onCacheDetail={onCacheDetail}
+                  />
+                ))}
+              </View>
+            ) : null}
+
             {commands.length > 0 ? (
               <View style={styles.group}>
                 <Text
@@ -173,7 +202,7 @@ export const ActivityBlock: React.FC<ActivityBlockProps> = React.memo(
 ActivityBlock.displayName = 'ActivityBlock';
 
 // ---------------------------------------------------------------------------
-// Lazy-fetch hook — shared by CommandRow / FileChangeRow
+// Lazy-fetch hook — shared by ThinkingRow / CommandRow / FileChangeRow
 // ---------------------------------------------------------------------------
 
 /**
@@ -192,9 +221,11 @@ const useDetail = (
   ) => void,
 ) => {
   const [loading, setLoading] = useState(false);
+  const requestInFlight = useRef(false);
 
   const ensureDetail = useCallback(async () => {
-    if (detailCache[eventId]) return;
+    if (detailCache[eventId] || requestInFlight.current) return;
+    requestInFlight.current = true;
     setLoading(true);
     try {
       const r = await fetchStructuredEventDetail(sessionId, eventId);
@@ -205,6 +236,7 @@ const useDetail = (
       // "详情不可用" instead of re-fetching on every open.
       onCacheDetail(eventId, { text: '', truncated: false });
     } finally {
+      requestInFlight.current = false;
       setLoading(false);
     }
   }, [sessionId, eventId, detailCache, onCacheDetail]);
@@ -225,6 +257,165 @@ interface RowProps {
   ) => void;
 }
 
+// ---------------------------------------------------------------------------
+// ThinkingRow
+// ---------------------------------------------------------------------------
+
+const THINKING_DETAIL_CHUNK_CHARS = 4_000;
+
+const ThinkingRowBase: React.FC<
+  RowProps & {
+    event: Extract<StructuredActivityEvent, { kind: 'thinking' }>;
+  }
+> = ({ sessionId, event, detailCache, onCacheDetail }) => {
+  const { theme, isDark } = useTheme();
+  const { t } = useTranslation('vibecoding');
+  const [open, setOpen] = useState(false);
+  const [visibleChars, setVisibleChars] = useState(THINKING_DETAIL_CHUNK_CHARS);
+  const { loading, ensureDetail, cached } = useDetail(
+    sessionId,
+    event.eventId,
+    detailCache,
+    onCacheDetail,
+  );
+  const visibleText = useMemo(
+    () => cached?.text?.slice(0, visibleChars),
+    [cached?.text, visibleChars],
+  );
+  const hasMore = Boolean(cached?.text && cached.text.length > visibleChars);
+
+  const handlePress = () => {
+    const next = !open;
+    setOpen(next);
+    if (next) ensureDetail();
+  };
+
+  return (
+    <View
+      style={[
+        styles.row,
+        { borderColor: isDark ? 'rgba(255,255,255,0.06)' : theme.colors.outlineVariant },
+      ]}>
+      <TouchableOpacity
+        testID={`thinking-row-${event.eventId}`}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        onPress={handlePress}
+        style={styles.rowMain}>
+        <Text
+          style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}
+          numberOfLines={1}
+        >
+          {open ? '▾' : '▸'} {t('activity.thinkingLabel')}
+        </Text>
+        <Badge
+          text={t('activity.thinkingChars', { count: event.chars })}
+          tone="info"
+        />
+      </TouchableOpacity>
+
+      {open ? (
+        <View style={styles.detailWrap}>
+          {loading ? (
+            <Text
+              style={[
+                theme.typography.codeSm,
+                { color: theme.colors.onSurfaceVariant },
+              ]}
+            >
+              {t('activity.loading')}
+            </Text>
+          ) : visibleText ? (
+            <>
+              <Text
+                selectable
+                style={[
+                  theme.typography.codeSm,
+                  { color: theme.colors.onSurface },
+                ]}
+              >
+                {visibleText}
+              </Text>
+              {hasMore ? (
+                <TouchableOpacity
+                  testID={`thinking-show-more-${event.eventId}`}
+                  accessibilityRole="button"
+                  onPress={() =>
+                    setVisibleChars(value =>
+                      Math.min(
+                        value + THINKING_DETAIL_CHUNK_CHARS,
+                        cached?.text?.length ?? value,
+                      ),
+                    )
+                  }
+                  style={styles.showMoreButton}
+                >
+                  <Text
+                    style={[
+                      theme.typography.labelSm,
+                      { color: theme.colors.primary },
+                    ]}
+                  >
+                    {t('activity.showMore')}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+              {cached?.truncated && !hasMore ? (
+                <Text
+                  style={[
+                    theme.typography.labelSm,
+                    { color: theme.colors.onSurfaceVariant },
+                    styles.trunc,
+                  ]}
+                >
+                  {t('activity.thinkingTruncated')}
+                </Text>
+              ) : null}
+            </>
+          ) : cached && cached.text === '' ? (
+            <Text
+              style={[
+                theme.typography.codeSm,
+                { color: theme.colors.onSurfaceVariant },
+              ]}
+            >
+              {t('activity.detailUnavailable')}
+            </Text>
+          ) : cached ? (
+            <Text
+              style={[
+                theme.typography.codeSm,
+                { color: theme.colors.onSurfaceVariant },
+              ]}
+            >
+              {t('activity.noThinking')}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+};
+
+const ThinkingRow = React.memo(ThinkingRowBase, (previous, next) => {
+  const previousBucket = Math.floor(
+    previous.event.chars / THINKING_RENDER_BUCKET_CHARS,
+  );
+  const nextBucket = Math.floor(
+    next.event.chars / THINKING_RENDER_BUCKET_CHARS,
+  );
+  return (
+    previous.sessionId === next.sessionId &&
+    previous.event.eventId === next.event.eventId &&
+    previous.event.active === next.event.active &&
+    previousBucket === nextBucket &&
+    previous.detailCache[previous.event.eventId] ===
+      next.detailCache[next.event.eventId] &&
+    previous.onCacheDetail === next.onCacheDetail
+  );
+});
+ThinkingRow.displayName = 'ThinkingRow';
+
 const statusBadge = (
   status: string,
   exitCode: number | null | undefined,
@@ -241,7 +432,7 @@ const statusBadge = (
   }
 };
 
-const CommandRow: React.FC<
+const CommandRowBase: React.FC<
   RowProps & {
     event: Extract<StructuredActivityEvent, { kind: 'command' }>;
   }
@@ -346,7 +537,25 @@ const fileBadgeLabel = (
   }
 };
 
-const FileChangeRow: React.FC<
+const CommandRow = React.memo(
+  CommandRowBase,
+  (previous, next) =>
+    previous.sessionId === next.sessionId &&
+    previous.event.eventId === next.event.eventId &&
+    previous.event.status === next.event.status &&
+    previous.event.exitCode === next.event.exitCode &&
+    previous.event.command === next.event.command &&
+    previous.detailCache[previous.event.eventId] ===
+      next.detailCache[next.event.eventId] &&
+    previous.onCacheDetail === next.onCacheDetail,
+);
+CommandRow.displayName = 'CommandRow';
+
+// ---------------------------------------------------------------------------
+// FileChangeRow
+// ---------------------------------------------------------------------------
+
+const FileChangeRowBase: React.FC<
   RowProps & {
     event: Extract<StructuredActivityEvent, { kind: 'file_change' }>;
   }
@@ -449,6 +658,22 @@ const FileChangeRow: React.FC<
     </View>
   );
 };
+
+const FileChangeRow = React.memo(
+  FileChangeRowBase,
+  (previous, next) =>
+    previous.sessionId === next.sessionId &&
+    previous.event.eventId === next.event.eventId &&
+    previous.event.changeKind === next.event.changeKind &&
+    previous.event.path === next.event.path &&
+    previous.event.renamedFrom === next.event.renamedFrom &&
+    previous.event.added === next.event.added &&
+    previous.event.removed === next.event.removed &&
+    previous.detailCache[previous.event.eventId] ===
+      next.detailCache[next.event.eventId] &&
+    previous.onCacheDetail === next.onCacheDetail,
+);
+FileChangeRow.displayName = 'FileChangeRow';
 
 // ---------------------------------------------------------------------------
 // TaskList
@@ -627,6 +852,12 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(128,128,128,0.25)',
   },
   trunc: {
+    marginTop: 4,
+  },
+  showMoreButton: {
+    alignSelf: 'flex-start',
+    minHeight: 32,
+    justifyContent: 'center',
     marginTop: 4,
   },
   taskRow: {

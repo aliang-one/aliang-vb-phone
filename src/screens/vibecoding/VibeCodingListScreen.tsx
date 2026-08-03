@@ -44,7 +44,7 @@ import type { Device, VibeStatus } from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
 import {
   useControlCenterStore,
-  useStableVibeRuns,
+  useSessionListRuns,
 } from '../../store/controlCenterStore';
 import { isConnectionFailed } from '../../store/internals';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
@@ -208,7 +208,9 @@ export const VibeCodingListScreen: React.FC = () => {
   const { width } = useWindowDimensions();
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
-  const vibeRuns = useStableVibeRuns();
+  const vibeRuns = useSessionListRuns();
+  const historyPage = useControlCenterStore(state => state.aiSessionHistoryPage);
+  const loadAiSessionHistory = useControlCenterStore(state => state.loadAiSessionHistory);
   const serverMode = useControlCenterStore(state => state.serverMode);
   const lastSyncedAt = useControlCenterStore(state => state.lastSyncedAt);
   const lastConnectError = useControlCenterStore(
@@ -234,6 +236,14 @@ export const VibeCodingListScreen: React.FC = () => {
   const holdTimerRef = useRef<HoldTimer | null>(null);
   const holdPreviewTimerRef = useRef<HoldTimer | null>(null);
   const holdTriggeredRef = useRef(false);
+
+  useEffect(() => {
+    if (serverMode && !historyPage.initialized) {
+      void loadAiSessionHistory({ reset: true }).catch(error => {
+        console.warn('[sessions] failed to load history', error);
+      });
+    }
+  }, [historyPage.initialized, loadAiSessionHistory, serverMode]);
 
   // Folder-tab activeness driven directly by the horizontal pager's scroll
   // offset, so each tab's card lifts/fades in real time as you swipe (and
@@ -365,6 +375,18 @@ export const VibeCodingListScreen: React.FC = () => {
     step: 12,
     resetKey: `${normalizedQuery}:${filter}`,
   });
+  const handleShowMoreSessions = useCallback(() => {
+    if (sessionList.hasMore) {
+      sessionList.showMore();
+      return;
+    }
+    if (!historyPage.hasMore || historyPage.loading) return;
+    void loadAiSessionHistory()
+      .then(() => sessionList.showMore())
+      .catch(error => {
+        console.warn('[sessions] failed to load more history', error);
+      });
+  }, [historyPage.hasMore, historyPage.loading, loadAiSessionHistory, sessionList]);
 
   // All live remote shells across every device (Tab 2). Resume reopens the same
   // PTY; Close kills it. Closed/stopped sessions are filtered out. Searchable by
@@ -669,7 +691,11 @@ export const VibeCodingListScreen: React.FC = () => {
             progress={progress}
             index={index}
             title={tab.title}
-            count={index === 0 ? filtered.length : activeTerminals.length}
+            count={index === 0
+              ? !normalizedQuery && filter === 'all'
+                ? historyPage.totalCount ?? filtered.length
+                : filtered.length
+              : activeTerminals.length}
             onPress={() => goToTab(index)}
           />
         ))}
@@ -783,7 +809,9 @@ export const VibeCodingListScreen: React.FC = () => {
               </ScrollView>
               <View style={styles.summary}>
                 <StatusChip
-                  label={`${filtered.length} SESSIONS`}
+                  label={`${!normalizedQuery && filter === 'all'
+                    ? historyPage.totalCount ?? filtered.length
+                    : filtered.length} SESSIONS`}
                   type="info"
                 />
                 <StatusChip
@@ -806,8 +834,13 @@ export const VibeCodingListScreen: React.FC = () => {
               ))}
               <LoadMoreRow
                 visibleCount={sessionList.visibleCount}
-                totalCount={sessionList.totalCount}
-                onPress={sessionList.showMore}
+                totalCount={!normalizedQuery && filter === 'all'
+                  ? historyPage.totalCount ?? sessionList.totalCount
+                  : sessionList.totalCount}
+                serverHasMore={historyPage.hasMore}
+                loading={historyPage.loading}
+                error={historyPage.error}
+                onPress={handleShowMoreSessions}
               />
               {!filtered.length ? (
                 <Text

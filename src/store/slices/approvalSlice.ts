@@ -11,6 +11,11 @@ import {
   upsertNotification,
 } from '../internals';
 import { ApiResponseError } from '../../api/client';
+import {
+  emptyHistoryPage,
+  historyPageFromServer,
+  mergeHistoryById,
+} from '../historyPaging';
 
 /**
  * Whether a failed approval-resolve should DROP the local pending copy so it
@@ -32,12 +37,89 @@ function shouldDropPendingApproval(error: unknown): boolean {
 
 type ApprovalSlice = Pick<
   ControlCenterState,
-  'approvals' | 'notifications' | 'resolveApproval' | 'markNotificationRead' | 'markAllNotificationsRead'
+  | 'approvals' | 'approvalHistory' | 'approvalHistoryPage'
+  | 'notifications' | 'notificationHistory' | 'notificationHistoryPage'
+  | 'unreadNotificationsTotal' | 'resolveApproval'
+  | 'loadApprovalHistory' | 'loadNotificationHistory'
+  | 'markNotificationRead' | 'markAllNotificationsRead'
 >;
 
 export const createApprovalSlice: StateCreator<ControlCenterState, [], [], ApprovalSlice> = (set, get) => ({
   approvals: [],
+  approvalHistory: [],
+  approvalHistoryPage: emptyHistoryPage(),
   notifications: [],
+  notificationHistory: [],
+  notificationHistoryPage: emptyHistoryPage(),
+  unreadNotificationsTotal: 0,
+
+  loadApprovalHistory: async options => {
+    if (!get().serverMode) {
+      throw new Error('Platform connection is required before loading approval history.');
+    }
+    const currentPage = get().approvalHistoryPage;
+    if (currentPage.loading) return;
+    const reset = options?.reset === true;
+    if (!reset && currentPage.initialized && !currentPage.hasMore) return;
+    set({
+      approvalHistoryPage: { ...currentPage, loading: true, error: undefined },
+    });
+    try {
+      const response = await platformTransport.loadApprovalsPage({
+        limit: 30,
+        before: reset ? undefined : currentPage.nextBeforeCursor,
+      });
+      const incoming = response.items.map(serverApprovalToClient);
+      set(state => ({
+        approvalHistory: mergeHistoryById(incoming, state.approvalHistory),
+        approvalHistoryPage: historyPageFromServer(response.page),
+      }));
+    } catch (error) {
+      set(state => ({
+        approvalHistoryPage: {
+          ...state.approvalHistoryPage,
+          initialized: true,
+          loading: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      }));
+      throw error;
+    }
+  },
+
+  loadNotificationHistory: async options => {
+    if (!get().serverMode) {
+      throw new Error('Platform connection is required before loading notification history.');
+    }
+    const currentPage = get().notificationHistoryPage;
+    if (currentPage.loading) return;
+    const reset = options?.reset === true;
+    if (!reset && currentPage.initialized && !currentPage.hasMore) return;
+    set({
+      notificationHistoryPage: { ...currentPage, loading: true, error: undefined },
+    });
+    try {
+      const response = await platformTransport.loadNotificationsPage({
+        limit: 30,
+        before: reset ? undefined : currentPage.nextBeforeCursor,
+      });
+      const incoming = response.items.map(serverNotificationToClient);
+      set(state => ({
+        notificationHistory: mergeHistoryById(incoming, state.notificationHistory),
+        notificationHistoryPage: historyPageFromServer(response.page),
+      }));
+    } catch (error) {
+      set(state => ({
+        notificationHistoryPage: {
+          ...state.notificationHistoryPage,
+          initialized: true,
+          loading: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      }));
+      throw error;
+    }
+  },
 
   resolveApproval: async (approvalId, decision, options) => {
     const approval = get().approvals.find(item => item.id === approvalId);
@@ -68,10 +150,24 @@ export const createApprovalSlice: StateCreator<ControlCenterState, [], [], Appro
       approvals: state.approvals.map(item =>
         item.id === approvalId ? resolved : item
       ),
+      approvalHistory: mergeHistoryById([resolved], state.approvalHistory),
       notifications: state.notifications.map(item =>
         item.type === 'approval' && item.approvalId === approvalId
           ? { ...item, read: true }
           : item,
+      ),
+      notificationHistory: state.notificationHistory.map(item =>
+        item.type === 'approval' && item.approvalId === approvalId
+          ? { ...item, read: true }
+          : item,
+      ),
+      unreadNotificationsTotal: Math.max(
+        0,
+        state.unreadNotificationsTotal -
+          (state.notifications.some(item => item.approvalId === approvalId && !item.read) ||
+          state.notificationHistory.some(item => item.approvalId === approvalId && !item.read)
+            ? 1
+            : 0),
       ),
       vibeRuns: state.vibeRuns.map(run => {
         if (run.id !== resolved.sessionId) return run;
@@ -123,11 +219,19 @@ export const createApprovalSlice: StateCreator<ControlCenterState, [], [], Appro
     if (!get().serverMode) {
       throw new Error('Platform connection is required before marking notifications read.');
     }
+    const previous =
+      get().notifications.find(item => item.id === notificationId) ??
+      get().notificationHistory.find(item => item.id === notificationId);
     const updated = serverNotificationToClient(
       await platformTransport.markNotificationRead(notificationId),
     );
     set(state => ({
       notifications: upsertNotification(state.notifications, updated),
+      notificationHistory: upsertNotification(state.notificationHistory, updated),
+      unreadNotificationsTotal:
+        previous && !previous.read && updated.read
+          ? Math.max(0, state.unreadNotificationsTotal - 1)
+          : state.unreadNotificationsTotal,
     }));
   },
 
@@ -138,6 +242,8 @@ export const createApprovalSlice: StateCreator<ControlCenterState, [], [], Appro
     await platformTransport.markAllNotificationsRead();
     set(state => ({
       notifications: state.notifications.map(item => ({ ...item, read: true })),
+      notificationHistory: state.notificationHistory.map(item => ({ ...item, read: true })),
+      unreadNotificationsTotal: 0,
     }));
   },
 });

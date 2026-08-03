@@ -33,6 +33,15 @@ export type AgentProvider = 'claude_code' | 'codex' | 'opencode';
  */
 export type RefreshOutcome = { ok: true } | { ok: false; error: string };
 
+export interface HistoryPageState {
+  initialized: boolean;
+  loading: boolean;
+  hasMore: boolean;
+  nextBeforeCursor?: string;
+  totalCount?: number;
+  error?: string;
+}
+
 export type UnifiedEventType =
   | 'terminal.output'
   | 'agent.delta'
@@ -248,6 +257,8 @@ export interface ControlCenterState {
   devices: Device[];
   projects: Project[];
   vibeRuns: VibeCodingRun[];
+  aiSessionHistory: VibeCodingRun[];
+  aiSessionHistoryPage: HistoryPageState;
   /** Active Claude/Codex capability snapshot keyed by AI session id. */
   sessionCommands: Record<string, AgentCommandInfo[]>;
   /**
@@ -262,8 +273,15 @@ export interface ControlCenterState {
   terminalCommandHistory: Record<string, TerminalCommandHistoryItem[]>;
   scanResults: ProjectScanResult[];
   approvals: ApprovalRequest[];
+  approvalHistory: ApprovalRequest[];
+  approvalHistoryPage: HistoryPageState;
   notifications: PushNotificationItem[];
+  unreadNotificationsTotal: number;
+  notificationHistory: PushNotificationItem[];
+  notificationHistoryPage: HistoryPageState;
   events: UnifiedEvent[];
+  eventHistory: UnifiedEvent[];
+  eventHistoryPages: Record<string, HistoryPageState>;
   projectFiles: ProjectFileEntry[];
   // Actions
   initializeFromServer: (token?: string) => Promise<void>;
@@ -316,6 +334,7 @@ export interface ControlCenterState {
     options?: { refresh?: boolean },
   ) => Promise<void>;
   loadEarlierAgentMessages: (sessionId: string) => Promise<void>;
+  loadAiSessionHistory: (options?: { reset?: boolean }) => Promise<void>;
   /**
    * On-demand `/`-command discovery for a session. Auto path (ToolsMenu open,
    * `force=false`) is 1h-gated + in-flight-deduped (cheap). Manual path (input
@@ -365,6 +384,13 @@ export interface ControlCenterState {
     decision: 'approved' | 'denied',
     options?: { selectedOptionId?: string; message?: string },
   ) => Promise<void>;
+  loadApprovalHistory: (options?: { reset?: boolean }) => Promise<void>;
+  loadNotificationHistory: (options?: { reset?: boolean }) => Promise<void>;
+  loadEventHistory: (options?: {
+    reset?: boolean;
+    deviceId?: string;
+    sessionId?: string;
+  }) => Promise<void>;
   /**
    * Cache the lazily-fetched heavy detail (command output / diff / thinking
    * text) for one structured activity event on the matching run's

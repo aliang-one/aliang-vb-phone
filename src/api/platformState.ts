@@ -5,6 +5,7 @@ import type { ServerDevice } from './devices';
 import type { ServerNotification } from './notifications';
 import type { ServerProject } from './projects';
 import type { ServerAiSession, ServerTerminalSession } from './sessions';
+import { cursorPageQuery, type ServerCursorPageMeta } from './pagination';
 
 export interface ServerPreviewLink {
   id: string;
@@ -67,5 +68,35 @@ export interface MobilePlatformSnapshot {
   realtime_events: ServerRealtimeEvent[];
 }
 
-export const fetchMobileSnapshot = (eventLimit = 40): Promise<MobilePlatformSnapshot> =>
-  apiGet<MobilePlatformSnapshot>(`/api/mobile/snapshot?event_limit=${eventLimit}`, { timeoutMs: 30_000 });
+export interface ServerRealtimeEventsPageResponse {
+  events: ServerRealtimeEvent[];
+  page: ServerCursorPageMeta;
+}
+
+export const fetchMobileSnapshot = (
+  eventLimit = 0,
+): Promise<MobilePlatformSnapshot> =>
+  apiGet<MobilePlatformSnapshot>(
+    `/api/mobile/snapshot?event_limit=${eventLimit}`,
+    { timeoutMs: 30_000 },
+  );
+
+export const fetchRealtimeEventsPage = (options?: {
+  limit?: number;
+  before?: string;
+  deviceId?: string;
+  sessionId?: string;
+}): Promise<ServerRealtimeEventsPageResponse> =>
+  apiGet<ServerRealtimeEventsPageResponse>(
+    `/api/realtime/events?${[
+      cursorPageQuery(options),
+      options?.deviceId
+        ? `device_id=${encodeURIComponent(options.deviceId)}`
+        : '',
+      options?.sessionId
+        ? `session_id=${encodeURIComponent(options.sessionId)}`
+        : '',
+    ]
+      .filter(Boolean)
+      .join('&')}`,
+  );

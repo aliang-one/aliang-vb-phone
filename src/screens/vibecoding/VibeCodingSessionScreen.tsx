@@ -116,6 +116,7 @@ import {
   type ServerGoalSnapshot,
 } from '../../api/goals';
 import { ApiResponseError } from '../../api/client';
+import { fallbackApprovalStatus } from '../../utils/sessionApprovalFallback';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type SessionRoute = RouteProp<RootStackParamList, 'VibeCodingSession'>;
@@ -1701,17 +1702,26 @@ export const VibeCodingSessionScreen: React.FC = () => {
     session?.provider,
   ]);
 
+  // Keep approval derivation independent from the whole session object. The
+  // object is replaced for every streamed text batch, while these fields only
+  // change when approval or run state actually changes.
+  const approvalSessionId = session?.id;
+  const approvalDeviceId = session?.deviceId;
+  const approvalProjectId = session?.projectId;
+  const approvalSessionStatus = session?.status;
+  const approvalSessionPhase = session?.phase;
+  const approvalRunState = session?.runState;
+  const approvalRunStateVersion = session?.runStateVersion;
+  const approvalSessionEvents = session?.events;
   const approvals = useMemo(() => {
-    if (!session) return sessionApprovals;
+    if (!approvalSessionId || !approvalDeviceId || !approvalSessionStatus) {
+      return sessionApprovals;
+    }
     const byId = new Map<string, ApprovalRequest>();
     const addApproval = (approval: ApprovalRequest | undefined) => {
       if (!approval) return;
       byId.set(approval.id, approval);
     };
-    const statusFromEvent = (
-      status: 'done' | 'running' | 'waiting' | 'failed' | string,
-    ): ApprovalRequest['status'] =>
-      status === 'failed' ? 'denied' : status === 'done' ? 'approved' : 'pending';
     const fallbackId = (eventId: string, approvalId?: string) =>
       approvalId ?? (eventId.startsWith('approval-') ? eventId.slice(9) : undefined);
     const addFallback = (input: {
@@ -1722,16 +1732,26 @@ export const VibeCodingSessionScreen: React.FC = () => {
       timestamp: string;
     }) => {
       if (!input.id || byId.has(input.id)) return;
+      const status = fallbackApprovalStatus(input.status, {
+        status: approvalSessionStatus,
+        phase: approvalSessionPhase,
+        runState: approvalRunState,
+        runStateVersion: approvalRunStateVersion,
+      });
+      // An unresolved historical event cannot represent a current approval once
+      // the authoritative run is terminal. A canonical resolved approval, when
+      // available, was already inserted above and remains visible in history.
+      if (!status) return;
       byId.set(input.id, {
         id: input.id,
         kind: 'client_response',
         title: input.title || t('session.approval.fallbackTitle'),
         summary: input.detail || t('session.approval.fallbackSummary'),
-        deviceId: session.deviceId,
-        projectId: session.projectId,
-        sessionId: session.id,
+        deviceId: approvalDeviceId,
+        projectId: approvalProjectId,
+        sessionId: approvalSessionId,
         risk: 'medium',
-        status: statusFromEvent(input.status),
+        status,
         createdAt: input.timestamp,
       });
     };
@@ -1747,7 +1767,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
         timestamp: event.timestamp,
       });
     });
-    session.events
+    (approvalSessionEvents ?? [])
       .filter(event => event.type === 'approval')
       .forEach(event => {
         addFallback({
@@ -1763,7 +1783,20 @@ export const VibeCodingSessionScreen: React.FC = () => {
       (left, right) =>
         Date.parse(right.createdAt) - Date.parse(left.createdAt),
     );
-  }, [focusedApproval, sessionApprovalEvents, session, sessionApprovals, t]);
+  }, [
+    focusedApproval,
+    approvalDeviceId,
+    approvalProjectId,
+    approvalRunState,
+    approvalRunStateVersion,
+    approvalSessionEvents,
+    approvalSessionId,
+    approvalSessionPhase,
+    approvalSessionStatus,
+    sessionApprovalEvents,
+    sessionApprovals,
+    t,
+  ]);
   const pendingApprovals = useMemo(
     () => approvals.filter(approval => approval.status === 'pending'),
     [approvals],

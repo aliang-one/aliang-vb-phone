@@ -1,4 +1,5 @@
 import { apiGet, apiPost } from './client';
+import { cursorPageQuery, type ServerCursorPageResponse } from './pagination';
 
 export interface ServerApproval {
   id: string;
@@ -28,6 +29,14 @@ export interface ServerApproval {
 
 export const fetchApprovals = (): Promise<ServerApproval[]> =>
   apiGet<ServerApproval[]>('/api/approvals');
+
+export const fetchApprovalsPage = (options?: {
+  limit?: number;
+  before?: string;
+}): Promise<ServerCursorPageResponse<ServerApproval>> =>
+  apiGet<ServerCursorPageResponse<ServerApproval>>(
+    `/api/approvals?${cursorPageQuery(options)}`,
+  );
 
 export const respondApproval = (
   approvalId: string,

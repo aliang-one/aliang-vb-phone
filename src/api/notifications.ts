@@ -1,4 +1,5 @@
 import { apiGet, apiPost } from './client';
+import { cursorPageQuery, type ServerCursorPageResponse } from './pagination';
 
 export interface ServerNotification {
   id: string;
@@ -17,6 +18,14 @@ export interface ServerNotification {
 
 export const fetchNotifications = (): Promise<ServerNotification[]> =>
   apiGet<ServerNotification[]>('/api/notifications');
+
+export const fetchNotificationsPage = (options?: {
+  limit?: number;
+  before?: string;
+}): Promise<ServerCursorPageResponse<ServerNotification>> =>
+  apiGet<ServerCursorPageResponse<ServerNotification>>(
+    `/api/notifications?${cursorPageQuery(options)}`,
+  );
 
 export const markNotificationRead = (notificationId: string): Promise<ServerNotification> =>
   apiPost<ServerNotification>(`/api/notifications/${notificationId}/read`);

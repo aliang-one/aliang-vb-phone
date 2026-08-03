@@ -7,6 +7,10 @@ import { IconBadge } from '../visual/IconBadge';
 import { GlassPanel } from '../shared/GlassPanel';
 import { StatusChip } from '../shared/StatusChip';
 import { ActivityBlock } from './ActivityBlock';
+import {
+  activityEventsRenderSignature,
+  relevantActivityDetailsEqual,
+} from '../../utils/activityRenderMemo';
 import type { StructuredActivityEvent } from '../../data/platformModels';
 import type {
   TranscriptCalloutSegment,
@@ -1184,42 +1188,18 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
 // rebuilds the per-message activity Map/array too. So we compare by VALUE on
 // the props that drive rendered output — the bubble's contentKey (source text),
 // its activity-event signatures (captures command status / thinking-active
-// flips and event additions), the live-message id (drives the "处理中… / 已完成"
-// label), the timeline slot, and the detail-cache reference. Callbacks and
+// flips, coarse thinking-size buckets, and event additions), the live-message
+// id (drives the "处理中… / 已完成" label), the timeline slot, and relevant
+// detail-cache entries. Callbacks and
 // activitySessionId don't affect what's rendered, so they're intentionally
 // ignored — their identity churn must not force a re-render.
-const eventSignature = (event: StructuredActivityEvent): string => {
-  // eventId and kind are present on every variant, so read them once before the
-  // exhaustive switch narrows `event` to `never` in the default branch.
-  const base = `${event.eventId}:${event.kind}`;
-  switch (event.kind) {
-    case 'command':
-      return `${base}:${event.status}:${event.exitCode ?? ''}`;
-    case 'thinking':
-      return `${base}:${event.active ? 1 : 0}:${event.chars}`;
-    case 'file_change':
-      return `${base}:${event.changeKind ?? ''}:${event.path ?? ''}`;
-    case 'usage':
-      return `${base}:${event.inputTokens ?? ''}:${event.outputTokens ?? ''}`;
-    case 'task':
-      return `${base}:${event.tasks.length}`;
-    default:
-      return base;
-  }
-};
-
-const activityEventsSignature = (
-  events: StructuredActivityEvent[] | undefined,
-): string =>
-  events && events.length ? events.map(eventSignature).join('|') : '';
-
 const orphanMapSignature = (
   map: ReadonlyMap<string, StructuredActivityEvent[]> | undefined,
 ): string => {
   if (!map || !map.size) return '';
   let signature = '';
   for (const [messageId, events] of map) {
-    signature += `${messageId}:${activityEventsSignature(events)};`;
+    signature += `${messageId}:${activityEventsRenderSignature(events)};`;
   }
   return signature;
 };
@@ -1252,8 +1232,8 @@ const areTranscriptPropsEqual = (
   }
 
   if (
-    activityEventsSignature(prev.messageActivityEvents) !==
-    activityEventsSignature(next.messageActivityEvents)
+    activityEventsRenderSignature(prev.messageActivityEvents) !==
+    activityEventsRenderSignature(next.messageActivityEvents)
   ) {
     return false;
   }
@@ -1273,10 +1253,24 @@ const areTranscriptPropsEqual = (
   // re-render of all bubbles then — never per flush.
   if (prev.liveMessageId !== next.liveMessageId) return false;
   if (prev.timelinePosition !== next.timelinePosition) return false;
-  // activityDetailCache is carried by reference through streaming flushes (the
-  // store spreads the run but keeps the cache object), so a ref change means a
-  // detail was actually fetched/cached.
-  if (prev.activityDetailCache !== next.activityDetailCache) return false;
+  // A fetched detail changes the session-level cache object. Only invalidate
+  // this row when one of its own events changed, otherwise every transcript row
+  // would re-render (including open diff highlighters) for an unrelated detail.
+  const relevantEvents: StructuredActivityEvent[] = [
+    ...(next.messageActivityEvents ?? []),
+  ];
+  next.orphanActivityEventsByMessageId?.forEach(events => {
+    relevantEvents.push(...events);
+  });
+  if (
+    !relevantActivityDetailsEqual(
+      relevantEvents,
+      prev.activityDetailCache,
+      next.activityDetailCache,
+    )
+  ) {
+    return false;
+  }
   return true;
 };
 

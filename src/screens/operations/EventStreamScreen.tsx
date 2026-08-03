@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -83,10 +83,37 @@ export const EventStreamScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
   const route = useRoute<EventStreamRoute>();
-  const events = useControlCenterStore(state => state.events);
+  const liveEvents = useControlCenterStore(state => state.events);
+  const eventHistory = useControlCenterStore(state => state.eventHistory);
+  const eventHistoryPages = useControlCenterStore(state => state.eventHistoryPages);
+  const loadEventHistory = useControlCenterStore(state => state.loadEventHistory);
+  const serverMode = useControlCenterStore(state => state.serverMode);
+  const scopeKey = `${route.params?.deviceId ?? 'all'}:${route.params?.sessionId ?? 'all'}`;
+  const historyPage = eventHistoryPages[scopeKey] ?? {
+    initialized: false,
+    loading: false,
+    hasMore: true,
+  };
+  const events = useMemo(() => {
+    const byId = new Map(eventHistory.map(item => [item.id, item]));
+    liveEvents.forEach(item => byId.set(item.id, item));
+    return Array.from(byId.values());
+  }, [eventHistory, liveEvents]);
   const [filter, setFilter] = useState<EventFilter>(
     route.params?.scope === 'conversation' ? 'conversation' : 'all',
   );
+
+  useEffect(() => {
+    if (serverMode && !historyPage.initialized) {
+      void loadEventHistory({
+        reset: true,
+        deviceId: route.params?.deviceId,
+        sessionId: route.params?.sessionId,
+      }).catch(error => {
+        console.warn('[events] failed to load history', error);
+      });
+    }
+  }, [historyPage.initialized, loadEventHistory, route.params?.deviceId, route.params?.sessionId, serverMode]);
 
   const filtered = events.filter(item => {
     const matchesType =
@@ -105,6 +132,21 @@ export const EventStreamScreen: React.FC = () => {
     step: 24,
     resetKey: `${filter}:${route.params?.deviceId ?? 'all'}:${route.params?.sessionId ?? 'all'}`,
   });
+  const handleShowMore = useCallback(() => {
+    if (eventList.hasMore) {
+      eventList.showMore();
+      return;
+    }
+    if (!historyPage.hasMore || historyPage.loading) return;
+    void loadEventHistory({
+      deviceId: route.params?.deviceId,
+      sessionId: route.params?.sessionId,
+    })
+      .then(() => eventList.showMore())
+      .catch(error => {
+        console.warn('[events] failed to load more history', error);
+      });
+  }, [eventList, historyPage.hasMore, historyPage.loading, loadEventHistory, route.params?.deviceId, route.params?.sessionId]);
 
   return (
     <SafeAreaWrapper>
@@ -169,8 +211,13 @@ export const EventStreamScreen: React.FC = () => {
         ListFooterComponent={
           <LoadMoreRow
             visibleCount={eventList.visibleCount}
-            totalCount={eventList.totalCount}
-            onPress={eventList.showMore}
+            totalCount={filter === 'all'
+              ? historyPage.totalCount ?? eventList.totalCount
+              : eventList.totalCount}
+            serverHasMore={historyPage.hasMore}
+            loading={historyPage.loading}
+            error={historyPage.error}
+            onPress={handleShowMore}
           />
         }
       />

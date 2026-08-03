@@ -24,6 +24,7 @@ import {
   fetchAiSession,
   fetchAiSessionMessages,
   fetchAiSessions,
+  fetchAiSessionsPage,
   fetchTerminalSessionCommands,
   interruptAiSession as apiInterruptAiSession,
   pauseAiSession as apiPauseAiSession,
@@ -39,18 +40,22 @@ import {
 } from '../api/sessions';
 import {
   respondApproval as apiRespondApproval,
+  fetchApprovalsPage,
   type ServerApproval,
 } from '../api/approvals';
 import {
+  fetchNotificationsPage,
   markAllNotificationsRead as apiMarkAllNotificationsRead,
   markNotificationRead as apiMarkNotificationRead,
   type ServerNotification,
 } from '../api/notifications';
 import {
   fetchMobileSnapshot,
+  fetchRealtimeEventsPage,
   type ServerPreviewLink,
   type ServerRealtimeEvent,
 } from '../api/platformState';
+import type { ServerCursorPageResponse } from '../api/pagination';
 import {
   connectMobileSocket,
   disconnectMobileSocket,
@@ -105,6 +110,7 @@ export interface PlatformSnapshot {
   terminalSessions: PlatformTerminalSessionSnapshot[];
   approvals: PlatformApprovalSnapshot[];
   notifications: PlatformNotificationSnapshot[];
+  unreadNotificationsTotal?: number;
   previewLinks: PlatformPreviewSnapshot[];
   realtimeEvents: PlatformRealtimeEventSnapshot[];
   loadedAt: string;
@@ -256,6 +262,7 @@ class PlatformTransport {
       terminalSessions: snapshot.terminal_sessions,
       approvals: snapshot.approvals,
       notifications: snapshot.notifications ?? [],
+      unreadNotificationsTotal: snapshot.summary.unread_notifications,
       previewLinks: snapshot.preview_links.map(normalizeServerPreviewLink),
       realtimeEvents: snapshot.realtime_events,
       loadedAt: snapshot.generated_at,
@@ -269,6 +276,30 @@ class PlatformTransport {
 
   async loadAiSessions(): Promise<PlatformAiSessionSnapshot[]> {
     return fetchAiSessions();
+  }
+
+  loadAiSessionsPage(options?: {
+    limit?: number;
+    before?: string;
+  }): Promise<ServerCursorPageResponse<PlatformAiSessionSnapshot>> {
+    return fetchAiSessionsPage(options);
+  }
+
+  loadApprovalsPage(options?: { limit?: number; before?: string }) {
+    return fetchApprovalsPage(options);
+  }
+
+  loadNotificationsPage(options?: { limit?: number; before?: string }) {
+    return fetchNotificationsPage(options);
+  }
+
+  loadRealtimeEventsPage(options?: {
+    limit?: number;
+    before?: string;
+    deviceId?: string;
+    sessionId?: string;
+  }) {
+    return fetchRealtimeEventsPage(options);
   }
 
   async loadAiSession(

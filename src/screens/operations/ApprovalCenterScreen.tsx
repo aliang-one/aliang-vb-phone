@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   ScrollView,
@@ -57,7 +57,16 @@ export const ApprovalCenterScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const { t } = useTranslation('operations');
   const navigation = useNavigation<Navigation>();
-  const approvals = useControlCenterStore(state => state.approvals);
+  const liveApprovals = useControlCenterStore(state => state.approvals);
+  const approvalHistory = useControlCenterStore(state => state.approvalHistory);
+  const historyPage = useControlCenterStore(state => state.approvalHistoryPage);
+  const loadApprovalHistory = useControlCenterStore(state => state.loadApprovalHistory);
+  const serverMode = useControlCenterStore(state => state.serverMode);
+  const approvals = useMemo(() => {
+    const byId = new Map(approvalHistory.map(item => [item.id, item]));
+    liveApprovals.forEach(item => byId.set(item.id, item));
+    return Array.from(byId.values());
+  }, [approvalHistory, liveApprovals]);
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
   const vibeRuns = useStableVibeRuns();
@@ -78,6 +87,14 @@ export const ApprovalCenterScreen: React.FC = () => {
     [navigation],
   );
   const [filter, setFilter] = useState<ApprovalFilter>('pending');
+
+  useEffect(() => {
+    if (serverMode && !historyPage.initialized) {
+      void loadApprovalHistory({ reset: true }).catch(error => {
+        console.warn('[approvals] failed to load history', error);
+      });
+    }
+  }, [historyPage.initialized, loadApprovalHistory, serverMode]);
 
   const handleResolveApproval = useCallback(
     (
@@ -116,6 +133,18 @@ export const ApprovalCenterScreen: React.FC = () => {
     step: 16,
     resetKey: filter,
   });
+  const handleShowMore = useCallback(() => {
+    if (approvalList.hasMore) {
+      approvalList.showMore();
+      return;
+    }
+    if (!historyPage.hasMore || historyPage.loading) return;
+    void loadApprovalHistory()
+      .then(() => approvalList.showMore())
+      .catch(error => {
+        console.warn('[approvals] failed to load more history', error);
+      });
+  }, [approvalList, historyPage.hasMore, historyPage.loading, loadApprovalHistory]);
   const pendingCount = approvals.filter(
     item => item.status === 'pending',
   ).length;
@@ -258,8 +287,13 @@ export const ApprovalCenterScreen: React.FC = () => {
         ListFooterComponent={
           <LoadMoreRow
             visibleCount={approvalList.visibleCount}
-            totalCount={approvalList.totalCount}
-            onPress={approvalList.showMore}
+            totalCount={filter === 'all'
+              ? historyPage.totalCount ?? approvalList.totalCount
+              : approvalList.totalCount}
+            serverHasMore={filter !== 'pending' && historyPage.hasMore}
+            loading={filter !== 'pending' && historyPage.loading}
+            error={filter !== 'pending' ? historyPage.error : undefined}
+            onPress={handleShowMore}
           />
         }
       />

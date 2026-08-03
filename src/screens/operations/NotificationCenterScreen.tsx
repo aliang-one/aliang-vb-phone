@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -53,7 +53,17 @@ export const NotificationCenterScreen: React.FC = () => {
   const { theme } = useTheme();
   const { t } = useTranslation('operations');
   const navigation = useNavigation<Navigation>();
-  const notifications = useControlCenterStore(state => state.notifications);
+  const liveNotifications = useControlCenterStore(state => state.notifications);
+  const notificationHistory = useControlCenterStore(state => state.notificationHistory);
+  const historyPage = useControlCenterStore(state => state.notificationHistoryPage);
+  const loadNotificationHistory = useControlCenterStore(state => state.loadNotificationHistory);
+  const serverMode = useControlCenterStore(state => state.serverMode);
+  const unreadNotificationsTotal = useControlCenterStore(state => state.unreadNotificationsTotal);
+  const notifications = useMemo(() => {
+    const byId = new Map(notificationHistory.map(item => [item.id, item]));
+    liveNotifications.forEach(item => byId.set(item.id, item));
+    return Array.from(byId.values());
+  }, [liveNotifications, notificationHistory]);
   const devices = useControlCenterStore(state => state.devices);
   const vibeRuns = useStableVibeRuns();
   const deviceStatusIndex = useMemo(
@@ -66,7 +76,16 @@ export const NotificationCenterScreen: React.FC = () => {
   const markAllNotificationsRead = useControlCenterStore(
     state => state.markAllNotificationsRead,
   );
-  const unreadCount = notifications.filter(item => !item.read).length;
+
+  useEffect(() => {
+    if (serverMode && !historyPage.initialized) {
+      void loadNotificationHistory({ reset: true }).catch(error => {
+        console.warn('[notifications] failed to load history', error);
+      });
+    }
+  }, [historyPage.initialized, loadNotificationHistory, serverMode]);
+
+  const unreadCount = unreadNotificationsTotal;
   const notificationList = useIncrementalList(
     [...notifications].sort((left, right) =>
       newestFirst(left.createdAt, right.createdAt),
@@ -74,9 +93,20 @@ export const NotificationCenterScreen: React.FC = () => {
     {
       initialCount: 12,
       step: 16,
-      resetKey: notifications.length,
     },
   );
+  const handleShowMore = useCallback(() => {
+    if (notificationList.hasMore) {
+      notificationList.showMore();
+      return;
+    }
+    if (!historyPage.hasMore || historyPage.loading) return;
+    void loadNotificationHistory()
+      .then(() => notificationList.showMore())
+      .catch(error => {
+        console.warn('[notifications] failed to load more history', error);
+      });
+  }, [historyPage.hasMore, historyPage.loading, loadNotificationHistory, notificationList]);
 
   const handleOpen = useCallback(
     (item: PushNotificationItem) => {
@@ -158,8 +188,11 @@ export const NotificationCenterScreen: React.FC = () => {
         ListFooterComponent={
           <LoadMoreRow
             visibleCount={notificationList.visibleCount}
-            totalCount={notificationList.totalCount}
-            onPress={notificationList.showMore}
+            totalCount={historyPage.totalCount ?? notificationList.totalCount}
+            serverHasMore={historyPage.hasMore}
+            loading={historyPage.loading}
+            error={historyPage.error}
+            onPress={handleShowMore}
           />
         }
       />
