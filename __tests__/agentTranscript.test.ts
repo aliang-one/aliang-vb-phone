@@ -346,7 +346,7 @@ describe('agentTranscript', () => {
     expect(new Set(segmentIds).size).toBe(segmentIds.length);
   });
 
-  it('carries sourceMessageIds through coalescing (single + merged)', () => {
+  it('keeps each assistant segment as its own bubble (no coalescing)', () => {
     // Single bubble: one source id.
     const single = buildDisplayTranscript([
       message('a1', 'assistant', 'hello'),
@@ -354,14 +354,20 @@ describe('agentTranscript', () => {
     expect(single).toHaveLength(1);
     expect(single[0].sourceMessageIds).toEqual(['a1']);
 
-    // Coalesced assistant bubble: both source ids, in merge order.
-    const merged = buildDisplayTranscript([
+    // Consecutive assistant segments are NOT coalesced — each is its own
+    // bubble. With per-turn segment ids (one assistant message per provider
+    // turn), coalescing would fuse DISTINCT turns into one giant bubble and
+    // make rounds indistinguishable. Byte-identical repeats are still deduped
+    // upstream (lastContent guard).
+    const separate = buildDisplayTranscript([
       message('a1', 'assistant', 'hello'),
       message('a2', 'assistant', 'world'),
     ]);
-    expect(merged).toHaveLength(1);
-    expect(merged[0].mergedCount).toBe(2);
-    expect(merged[0].sourceMessageIds).toEqual(['a1', 'a2']);
+    expect(separate).toHaveLength(2);
+    expect(separate[0].mergedCount).toBe(1);
+    expect(separate[0].sourceMessageIds).toEqual(['a1']);
+    expect(separate[1].mergedCount).toBe(1);
+    expect(separate[1].sourceMessageIds).toEqual(['a2']);
   });
 
   it('drops tool-only (empty-prose) assistant turns so their ids are absent', () => {

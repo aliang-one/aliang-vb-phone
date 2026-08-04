@@ -175,19 +175,22 @@ export const buildDisplayTranscript = (
     }
 
     if (role === 'assistant') {
-      if (previous?.role === 'assistant') {
-        appendSegments(previous, message, segments);
-      } else {
-        result.push({
-          id: uniqueId(message.id, usedDisplayIds),
-          role: 'assistant',
-          timestamp: message.timestamp,
-          mergedCount: 1,
-          segments,
-          contentKey: message.content ?? '',
-          sourceMessageIds: [message.id],
-        });
-      }
+      // Each assistant segment is its own bubble. An earlier design coalesced
+      // consecutive assistant messages (appendSegments), but with per-turn
+      // segment ids (one assistant message per provider turn) that merges
+      // DISTINCT turns into one giant bubble — rounds become indistinguishable.
+      // User messages are already kept separate for the same reason; assistant
+      // turns now match. Byte-identical repeats (optimistic + snapshot double-
+      // store) are dropped by the `lastContent` dedup above before reaching here.
+      result.push({
+        id: uniqueId(message.id, usedDisplayIds),
+        role: 'assistant',
+        timestamp: message.timestamp,
+        mergedCount: 1,
+        segments,
+        contentKey: message.content ?? '',
+        sourceMessageIds: [message.id],
+      });
       continue;
     }
 
