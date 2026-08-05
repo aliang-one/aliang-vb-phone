@@ -33,7 +33,7 @@ export class SttSocket {
     const baseUrl = await getPlatformServiceBaseUrl();
     const url = `${toWebSocketUrl(baseUrl)}/ws/stt?token=${encodeURIComponent(this.token)}`;
     const ws = new WebSocket(url);
-    this.ws = ws;
+    this.ws = ws as unknown as WebSocket;
 
     await new Promise<void>((resolve, reject) => {
       let settled = false;

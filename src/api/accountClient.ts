@@ -89,7 +89,7 @@ export async function accountFetch<T = unknown>(
           let errorMessage = `${fetchOptions.method ?? 'GET'} ${url} failed with HTTP ${response.status}`;
           let errorCode: string | undefined;
           try {
-            const payload = await response.json();
+            const payload = (await response.json()) as Record<string, unknown> | null;
             if (typeof payload?.error === 'string') {
               errorMessage = `${fetchOptions.method ?? 'GET'} ${url}: ${payload.error}`;
               errorCode = payload.error;

@@ -256,7 +256,7 @@ export const fetchGoalSnapshot = (
   goalId: string,
   signal?: AbortSignal,
 ): Promise<ServerGoalSnapshot> =>
-  apiGet<ServerGoalSnapshot>(`/api/goals/${encodeURIComponent(goalId)}`, { signal });
+  apiGet<ServerGoalSnapshot>(`/api/goals/${encodeURIComponent(goalId)}`, { signal: signal as unknown as RequestInit['signal'] });
 
 export const fetchGoals = (input: {
   deviceId: string;
@@ -267,7 +267,7 @@ export const fetchGoals = (input: {
   if (input.projectPath) params.set('project_path', input.projectPath);
   return apiGet<Array<ServerGoalSnapshot & { ai_session_id: string }>>(
     `/api/goals?${params.toString()}`,
-    { signal: input.signal },
+    { signal: input.signal as unknown as RequestInit['signal'] },
   );
 };
 
@@ -323,7 +323,7 @@ export const fetchGoalEvents = (
   goalId: string,
   signal?: AbortSignal,
 ): Promise<{ events: GoalEventSnapshot[]; next_after?: number }> =>
-  apiGet(`/api/goals/${encodeURIComponent(goalId)}/events?limit=100`, { signal });
+  apiGet(`/api/goals/${encodeURIComponent(goalId)}/events?limit=100`, { signal: signal as unknown as RequestInit['signal'] });
 
 export const queueGoalMessage = (
   goalId: string,

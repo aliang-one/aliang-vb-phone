@@ -173,7 +173,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   // result, then possibly overridden via the DevicePicker in the confirm step.
   const [chosenDeviceId, setChosenDeviceId] = useState<string | undefined>(undefined);
   const [chosenCwd, setChosenCwd] = useState<string | undefined>(undefined);
-  const [chosenDeviceName, setChosenDeviceName] = useState<string | undefined>(undefined);
+  const [_chosenDeviceName, setChosenDeviceName] = useState<string | undefined>(undefined);
   // Live commandGen.* step timeline accumulated while the AI tool-loop runs.
   // Reset to empty on every (re-)entry into the generating phase. Captured into
   // the activeRunIdRef from the first matching commandGen.runStarted, after

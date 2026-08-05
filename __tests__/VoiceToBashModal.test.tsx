@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
-import { Text, TextInput } from 'react-native';
+import { Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
@@ -217,7 +217,7 @@ describe('VoiceToBashModal', () => {
 
   it('auto-start does not fire twice on re-render while still opening', () => {
     const props = baseProps();
-    const root = render(props);
+    const _root = render(props);
     // Re-render with identical visible=true — guard ref must prevent a 2nd start.
     rerender(props);
     rerender(props);
@@ -490,7 +490,7 @@ describe('VoiceToBashModal', () => {
 
   it('cancel() runs on dismiss (visible → false)', () => {
     const props = baseProps();
-    const root = render(props);
+    const _root = render(props);
     setState('recording');
     rerender(baseProps());
     const before = mockCancel.mock.calls.length;

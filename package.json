@@ -16,7 +16,8 @@
     "start": "react-native start",
     "stop:metro": "node scripts/stop-metro.js",
     "generate-icons": "node scripts/generate-icons.mjs",
-    "test": "jest"
+    "test": "jest",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^3.1.0",

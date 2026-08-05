@@ -13,7 +13,6 @@ import { IconBadge } from '../visual/IconBadge';
 import { useModelOptions } from '../../hooks/useModelOptions';
 import {
   putDeviceModelConfig,
-  type CatalogProvider,
 } from '../../api/modelConfig';
 import {
   EFFORT_PROVIDERS,

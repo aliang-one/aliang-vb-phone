@@ -87,7 +87,7 @@ async function requestJson<T>(
   try {
     response = await fetch(url, {
       ...options,
-      signal: controller.signal,
+      signal: controller.signal as unknown as RequestInit['signal'],
     });
   } catch (error) {
     if (didTimeout) {
@@ -103,7 +103,7 @@ async function requestJson<T>(
     let errorMessage = `Request failed with HTTP ${response.status}`;
     let errorCode: string | undefined;
     try {
-      const payload = await response.json();
+      const payload = (await response.json()) as Record<string, unknown> | null;
       if (typeof payload?.error === 'string') {
         errorMessage = payload.error;
         errorCode = payload.error;

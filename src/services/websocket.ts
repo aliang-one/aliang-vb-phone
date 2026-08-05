@@ -171,7 +171,7 @@ export class MobileWebSocket {
       // close from a socket we've already replaced.
     };
 
-    this.ws = ws;
+    this.ws = ws as unknown as WebSocket;
   }
 
   private scheduleReconnect(): void {

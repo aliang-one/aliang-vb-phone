@@ -70,7 +70,6 @@ import { buildDisplayTranscript } from '../../utils/agentTranscript';
 import {
   approvalTimelineItemId,
   buildConversationTimeline,
-  goalFoldTimelineItemId,
 } from '../../utils/conversationTimeline';
 import { deriveTurnScrubberStops } from '../../utils/conversationScrubber';
 import {

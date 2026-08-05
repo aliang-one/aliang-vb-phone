@@ -1,6 +1,13 @@
 module.exports = {
   root: true,
   extends: '@react-native',
+  rules: {
+    // 允许 _ 前缀表示"故意未使用"(catch err 不用、解构占位等),TS 项目惯例。
+    '@typescript-eslint/no-unused-vars': [
+      'error',
+      { argsIgnorePattern: '^_', varsIgnorePattern: '^_', ignoreRestSiblings: true },
+    ],
+  },
   overrides: [
     {
       // 依赖方向边界:store 是 domain/service 层,绝不能依赖 UI(components/screens)。

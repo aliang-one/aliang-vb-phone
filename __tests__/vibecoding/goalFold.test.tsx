@@ -10,7 +10,6 @@ import { buildConversationTurns } from '../../src/utils/conversationTurns';
 import {
   buildGoalFolds,
   partitionHiddenGoalMessages,
-  type GoalFoldGroup,
 } from '../../src/utils/goalFolds';
 import { GoalDeletedFold } from '../../src/components/vibecoding/GoalDeletedFold';
 import { ThemeContext } from '../../src/theme/ThemeContext';

@@ -91,7 +91,7 @@ const checkStateLabels: Record<string, string> = {
   error: '检查错误',
 };
 
-const checkTypeLabels: Record<GoalCheckType, string> = {
+const _checkTypeLabels: Record<GoalCheckType, string> = {
   command: '命令验收',
   file_exists: '文件存在',
   file_contains: '文件包含',
@@ -104,7 +104,7 @@ const toneForTaskState = (state?: string): 'success' | 'primary' | 'error' | 'on
   return 'onSurfaceVariant';
 };
 
-const toneForCheckState = (state?: string): 'success' | 'error' | 'primary' | 'onSurfaceVariant' => {
+const _toneForCheckState = (state?: string): 'success' | 'error' | 'primary' | 'onSurfaceVariant' => {
   if (state === 'passed') return 'success';
   if (state === 'failed' || state === 'error') return 'error';
   if (state === 'running') return 'primary';
@@ -257,7 +257,7 @@ export const GoalDetailScreen: React.FC = () => {
   const [actionFeedback, setActionFeedback] = useState('');
   const [events, setEvents] = useState<GoalEventSnapshot[]>([]);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
-  const [expandedCheckId, setExpandedCheckId] = useState<string | null>(null);
+  const [_expandedCheckId, _setExpandedCheckId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'plan' | 'execution'>('plan');
   // Phase 2 criterion editing (codex #1): editable copy of the goal's acceptance
   // criteria. Synced from the server when the criterion key-set changes (first
@@ -584,6 +584,7 @@ export const GoalDetailScreen: React.FC = () => {
     } finally {
       setActionLoading(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canAccept, canApprove, loadAgentSessionDetail, performAccept, performRecover, refreshGoal, route.params.sourceSessionId, summary]);
 
   const performDelete = useCallback(async () => {

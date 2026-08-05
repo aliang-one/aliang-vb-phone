@@ -81,7 +81,7 @@ export const ModelPresetLibraryCard: React.FC = () => {
     try {
       const { presets: userPresets } = await getUserPresets();
       setPresets(userPresets ?? []);
-    } catch (err) {
+    } catch {
       // Fallback to the merged view if the user-presets endpoint 404s; the PUT
       // below will create the user's list on first save.
       try {
