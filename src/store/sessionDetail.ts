@@ -122,3 +122,29 @@ export function mergeDetailState(
 ): DetailState | undefined {
   return isAuthoritativeDetail(incoming) ? incoming : existing;
 }
+
+/**
+ * `empty` means "fetched, and the server genuinely reported no history at that
+ * moment" — it is NOT a permanent fact. If the session now reports history
+ * (`transcriptCount > 0` — e.g. another client produced messages and a
+ * lightweight snapshot arrived), the `empty` is stale: the page has no content
+ * but history provably exists. Demote it to `recoverable_empty` so the screen
+ * stops treating the conversation as definitively empty and re-fetches.
+ *
+ * Other kinds are unaffected: `ready` already has content; `recoverable_empty`/
+ * `offline`/`failed` already stay retryable. `undefined` (never fetched) stays
+ * undefined — we don't fabricate a state from a count alone.
+ *
+ * Call this AFTER {@link mergeDetailState}, with the merged run's current
+ * transcriptCount, so an old authoritative `empty` can't survive evidence that
+ * history now exists.
+ */
+export function invalidateStaleEmptyDetail(
+  state: DetailState | undefined,
+  transcriptCount: number,
+): DetailState | undefined {
+  if (state?.kind === 'empty' && transcriptCount > 0) {
+    return { kind: 'recoverable_empty' };
+  }
+  return state;
+}

@@ -758,3 +758,59 @@ describe('evictStaleSessionDetail — characterization (boundary)', () => {
     expect(out.some(r => r.id !== 'active' && r.detailState === undefined)).toBe(true);
   });
 });
+
+describe('mergeVibeRunSnapshot — empty 失效(#1:历史矛盾须重拉,非永久事实)', () => {
+  const emptyRun = (over: Partial<VibeCodingRun> & { id: string }): VibeCodingRun =>
+    makeRun({
+      status: 'completed',
+      detailState: { kind: 'empty' },
+      transcript: [],
+      transcriptCount: 0,
+      lastActivityMs: 1000,
+      ...over,
+    });
+
+  it('existing empty + 快照 transcriptCount>0(无 transcript)→ recoverable_empty(屏重拉)', () => {
+    // 另一客户端产消息, 手机收到轻量快照(transcriptCount=5, 无 transcript)。
+    // 旧的 empty 须失效, 否则 hasDetail=true 卡住"明明有历史却显空"。
+    const existing = emptyRun({ id: 's' });
+    const snapshot = makeRun({
+      id: 's',
+      status: 'completed',
+      detailState: undefined, // 快照不带 detailState
+      transcript: [],
+      transcriptCount: 5,
+      lastActivityMs: 2000,
+    });
+    const merged = mergeVibeRunSnapshot(existing, snapshot);
+    expect(merged.detailState).toEqual({ kind: 'recoverable_empty' });
+    expect(merged.transcriptCount).toBe(5);
+  });
+
+  it('existing empty + 快照 transcriptCount=0(无变化)→ 保持 empty', () => {
+    const existing = emptyRun({ id: 's' });
+    const snapshot = makeRun({
+      id: 's',
+      detailState: undefined,
+      transcriptCount: 0,
+      lastActivityMs: 2000,
+    });
+    expect(mergeVibeRunSnapshot(existing, snapshot).detailState).toEqual({ kind: 'empty' });
+  });
+
+  it('existing empty + 快照带新 transcript 内容 → ready(内容快照经映射带 detailState=ready)', () => {
+    const existing = emptyRun({ id: 's' });
+    const snapshot = makeRun({
+      id: 's',
+      // serverAiSessionToVibeRun 对带 transcript 的快照映射为 detailState=ready
+      detailState: { kind: 'ready' },
+      transcript: [
+        { id: 'm1', role: 'user', content: 'new', timestamp: 't1' } as unknown as VibeCodingRun['transcript'][number],
+      ],
+      transcriptCount: 1,
+      lastActivityMs: 2000,
+    });
+    const merged = mergeVibeRunSnapshot(existing, snapshot);
+    expect(merged.detailState).toEqual({ kind: 'ready' });
+  });
+});

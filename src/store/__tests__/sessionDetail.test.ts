@@ -3,6 +3,7 @@ import {
   resolveDetailState,
   isAuthoritativeDetail,
   mergeDetailState,
+  invalidateStaleEmptyDetail,
 } from '../sessionDetail';
 
 describe('shouldEscalateEmptyDetailToRefresh', () => {
@@ -154,5 +155,24 @@ describe('mergeDetailState — 权威 incoming 覆盖,非权威保留 existing',
   it('两者皆非权威/缺省 → undefined', () => {
     expect(mergeDetailState({ kind: 'recoverable_empty' }, undefined)).toBeUndefined();
     expect(mergeDetailState(undefined, undefined)).toBeUndefined();
+  });
+});
+
+describe('invalidateStaleEmptyDetail — empty 不是永久事实', () => {
+  // empty = "拉过, 确实无历史"。若会话现在报告有历史(transcriptCount>0),
+  // empty 即过时, 须降级 recoverable_empty 让屏重拉(修"明明有历史却显空"回归)。
+  it('empty + transcriptCount>0 → recoverable_empty(历史矛盾,须重拉)', () => {
+    expect(invalidateStaleEmptyDetail({ kind: 'empty' }, 5)).toEqual({ kind: 'recoverable_empty' });
+  });
+  it('empty + transcriptCount=0 → 保持 empty(确实无历史)', () => {
+    expect(invalidateStaleEmptyDetail({ kind: 'empty' }, 0)).toEqual({ kind: 'empty' });
+  });
+  it('ready/recoverable_empty/offline/failed 不受 transcriptCount 影响', () => {
+    for (const s of [{kind:'ready'},{kind:'recoverable_empty'},{kind:'offline'},{kind:'failed'}] as const) {
+      expect(invalidateStaleEmptyDetail(s, 99)).toEqual(s);
+    }
+  });
+  it('undefined + transcriptCount>0 → 仍 undefined(从未拉过,不捏造状态)', () => {
+    expect(invalidateStaleEmptyDetail(undefined, 5)).toBeUndefined();
   });
 });

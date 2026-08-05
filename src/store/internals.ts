@@ -31,6 +31,7 @@ import { serverAiMessageToAgent } from '../api/sessions';
 import {
   isAuthoritativeDetail,
   mergeDetailState,
+  invalidateStaleEmptyDetail,
 } from './sessionDetail';
 import type {
   ApprovalKind,
@@ -858,7 +859,14 @@ export function mergeVibeRunSnapshot(
     updatedAt: formatActivityLabel(lastActivityMs),
     transcript,
     events,
-    detailState: mergeDetailState(incoming.detailState, existing.detailState),
+    // `empty` is not a permanent fact: if the merged run now proves history
+    // exists (transcriptCount > 0 — another client produced messages and a
+    // lightweight snapshot arrived), demote a stale `empty` so the screen
+    // re-fetches instead of freezing on a blank conversation.
+    detailState: invalidateStaleEmptyDetail(
+      mergeDetailState(incoming.detailState, existing.detailState),
+      incoming.transcriptCount ?? existing.transcriptCount ?? 0,
+    ),
     // lastViewedAt is purely client-side (never in a server snapshot), so always
     // keep the existing value — otherwise every ai.session.updated / snapshot
     // merge would wipe it and break idle demotion immediately.
