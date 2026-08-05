@@ -32,6 +32,7 @@ import {
   isAuthoritativeDetail,
   mergeDetailState,
   invalidateStaleEmptyDetail,
+  resolveDetailState,
 } from './sessionDetail';
 import type {
   ApprovalKind,
@@ -819,6 +820,33 @@ export function mergeVibeRunSnapshot(
   const events = incomingHasDetail
     ? mergeAgentEvents(existing.events, incoming.events)
     : existing.events;
+  // Resolve the merged detail state. Three steps, in order:
+  //  1. mergeDetailState — authoritative incoming (ready/empty) wins; else keep
+  //     existing (a transient-empty fetch must not clobber content held locally).
+  //  2. invalidateStaleEmptyDetail — `empty` is not permanent; if the merged run
+  //     now proves history exists (transcriptCount > 0), demote it so the screen
+  //     re-fetches instead of freezing on a blank conversation.
+  //  3. re-resolve from the snapshot's detailRefreshStatus — detailState is only
+  //     resolved at fetch time otherwise, so a snapshot that pushes a new status
+  //     (failed / skipped_offline) wouldn't update it, and the UI (which reads
+  //     detailState.kind) would miss the change. Re-resolve when the snapshot
+  //     carries a status and we're not holding content (ready is authoritative).
+  //     List snapshots omit detailRefreshStatus, so they don't trigger this.
+  const mergedTranscriptCount = incoming.transcriptCount ?? existing.transcriptCount ?? 0;
+  let detailState = invalidateStaleEmptyDetail(
+    mergeDetailState(incoming.detailState, existing.detailState),
+    mergedTranscriptCount,
+  );
+  if (
+    incoming.detailRefreshStatus !== undefined &&
+    detailState?.kind !== 'ready'
+  ) {
+    detailState = resolveDetailState({
+      transcriptLength: transcript.length,
+      transcriptCount: mergedTranscriptCount,
+      detailRefreshStatus: incoming.detailRefreshStatus,
+    });
+  }
   const incomingGoalVersion = incoming.goalSummary?.stateVersion;
   const existingGoalVersion = existing.goalSummary?.stateVersion;
   const goalSummary = !incoming.goalSummary
@@ -859,14 +887,7 @@ export function mergeVibeRunSnapshot(
     updatedAt: formatActivityLabel(lastActivityMs),
     transcript,
     events,
-    // `empty` is not a permanent fact: if the merged run now proves history
-    // exists (transcriptCount > 0 — another client produced messages and a
-    // lightweight snapshot arrived), demote a stale `empty` so the screen
-    // re-fetches instead of freezing on a blank conversation.
-    detailState: invalidateStaleEmptyDetail(
-      mergeDetailState(incoming.detailState, existing.detailState),
-      incoming.transcriptCount ?? existing.transcriptCount ?? 0,
-    ),
+    detailState,
     // lastViewedAt is purely client-side (never in a server snapshot), so always
     // keep the existing value — otherwise every ai.session.updated / snapshot
     // merge would wipe it and break idle demotion immediately.

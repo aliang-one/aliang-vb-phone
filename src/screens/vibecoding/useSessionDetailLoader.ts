@@ -28,7 +28,6 @@ export interface SessionDetailLoaderInput {
   targetSessionId: string | undefined;
   detailState: DetailState | undefined;
   transcriptLength: number;
-  detailRefreshStatus: string | undefined;
   wsConnected: boolean;
   deviceStatus: string | undefined;
   loadAgentSessionDetail: (
@@ -59,7 +58,6 @@ export function useSessionDetailLoader(
     targetSessionId,
     detailState,
     transcriptLength,
-    detailRefreshStatus,
     wsConnected,
     deviceStatus,
     loadAgentSessionDetail,
@@ -80,12 +78,12 @@ export function useSessionDetailLoader(
   const prevRecoverableRef = useRef(false);
 
   const hasDetail = computeHasDetail(detailState, transcriptLength);
-  const detailFetchUnavailable = isDetailFetchUnavailable(detailRefreshStatus);
+  const detailFetchUnavailable = isDetailFetchUnavailable(detailState);
   const recoverableConversation = isRecoverableConversation({
     wsConnected,
     deviceStatus,
     transcriptLength,
-    detailRefreshStatus,
+    detailState,
   });
 
   useEffect(() => {

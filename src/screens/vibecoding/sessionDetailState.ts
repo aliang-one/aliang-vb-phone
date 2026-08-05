@@ -29,18 +29,21 @@ export function computeHasDetail(
  * Whether the last detail fetch is permanently unavailable for this connection
  * state (agent errored or was offline). Drives the "agent offline, pull to
  * retry" empty state and short-circuits the mount auto-load.
+ *
+ * Reads `detailState.kind` (the canonical state), NOT the raw
+ * `detailRefreshStatus` — the two can diverge on snapshots, and detailState is
+ * re-resolved in mergeVibeRunSnapshot to track the snapshot's status. The raw
+ * status stays as diagnostic only.
  */
 export function isDetailFetchUnavailable(
-  detailRefreshStatus: string | undefined,
+  detailState: DetailState | undefined,
 ): boolean {
-  return (
-    detailRefreshStatus === 'failed' || detailRefreshStatus === 'skipped_offline'
-  );
+  return detailState?.kind === 'failed' || detailState?.kind === 'offline';
 }
 
 /**
  * Whether the conversation is "blank but recoverable": connected + device
- * online, yet the transcript is empty and the last fetch failed / went offline.
+ * online, yet the transcript is empty and the detail state is offline/failed.
  * The screen edge-triggers ONE forced refresh when this becomes true (the agent
  * came back online / WS reconnected while a blank session is on screen).
  */
@@ -48,13 +51,13 @@ export function isRecoverableConversation(input: {
   wsConnected: boolean;
   deviceStatus: string | undefined;
   transcriptLength: number;
-  detailRefreshStatus: string | undefined;
+  detailState: DetailState | undefined;
 }): boolean {
   return (
     input.wsConnected &&
     input.deviceStatus !== 'offline' &&
     input.transcriptLength === 0 &&
-    (input.detailRefreshStatus === 'skipped_offline' ||
-      input.detailRefreshStatus === 'failed')
+    (input.detailState?.kind === 'offline' ||
+      input.detailState?.kind === 'failed')
   );
 }

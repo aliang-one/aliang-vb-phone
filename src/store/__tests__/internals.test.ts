@@ -814,3 +814,32 @@ describe('mergeVibeRunSnapshot — empty 失效(#1:历史矛盾须重拉,非永�
     expect(merged.detailState).toEqual({ kind: 'ready' });
   });
 });
+
+describe('mergeVibeRunSnapshot — snapshot 的 detailRefreshStatus 重 resolve detailState(#2:UI 只读 kind)', () => {
+  // detailState 只在 fetch 时 resolve; snapshot 只更新 detailRefreshStatus。
+  // 要让 UI 只读 detailState.kind, snapshot 带 detailRefreshStatus 时须重 resolve,
+  // 否则 hook 读不到 snapshot 推来的 failed/offline(recoverable 自愈回归)。
+  it('existing empty + snapshot detailRefreshStatus=failed → detailState=failed(重 resolve)', () => {
+    const existing = makeRun({ id: 's', detailState: { kind: 'empty' }, transcript: [], transcriptCount: 0 });
+    const snap = makeRun({ id: 's', detailState: undefined, detailRefreshStatus: 'failed', transcript: [], transcriptCount: 0, lastActivityMs: 2000 });
+    expect(mergeVibeRunSnapshot(existing, snap).detailState).toEqual({ kind: 'failed' });
+  });
+  it('existing empty + snapshot detailRefreshStatus=skipped_offline → offline', () => {
+    const existing = makeRun({ id: 's', detailState: { kind: 'empty' }, transcript: [] });
+    const snap = makeRun({ id: 's', detailRefreshStatus: 'skipped_offline', transcript: [], lastActivityMs: 2000 });
+    expect(mergeVibeRunSnapshot(existing, snap).detailState).toEqual({ kind: 'offline' });
+  });
+  it('existing ready(有内容) + snapshot detailRefreshStatus=failed → 保持 ready(内容权威,不被 status 翻)', () => {
+    const existing = makeRun({
+      id: 's', detailState: { kind: 'ready' },
+      transcript: [{ id: 'm1', role: 'user', content: 'x', timestamp: 't' } as unknown as VibeCodingRun['transcript'][number]],
+    });
+    const snap = makeRun({ id: 's', detailRefreshStatus: 'failed', transcript: [], lastActivityMs: 2000 });
+    expect(mergeVibeRunSnapshot(existing, snap).detailState).toEqual({ kind: 'ready' });
+  });
+  it('snapshot 不带 detailRefreshStatus(list 快照)→ 不重 resolve, 保持 existing detailState', () => {
+    const existing = makeRun({ id: 's', detailState: { kind: 'empty' }, transcript: [], transcriptCount: 0 });
+    const snap = makeRun({ id: 's', detailRefreshStatus: undefined, transcript: [], transcriptCount: 0, lastActivityMs: 2000 });
+    expect(mergeVibeRunSnapshot(existing, snap).detailState).toEqual({ kind: 'empty' });
+  });
+});

@@ -843,7 +843,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
     targetSessionId,
     detailState: session?.detailState,
     transcriptLength: session?.transcript.length ?? 0,
-    detailRefreshStatus: session?.detailRefreshStatus,
     wsConnected,
     deviceStatus: device?.status,
     loadAgentSessionDetail,
@@ -2317,14 +2316,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
     detail: string;
     tone: 'offline' | 'error' | 'neutral';
   } = (() => {
-    if (deviceOffline || session?.detailRefreshStatus === 'skipped_offline') {
+    if (deviceOffline || session?.detailState?.kind === 'offline') {
       return {
         title: t('session.empty.offlineTitle'),
         detail: t('session.empty.offlineDetail'),
         tone: 'offline' as const,
       };
     }
-    if (session?.detailRefreshStatus === 'failed') {
+    if (session?.detailState?.kind === 'failed') {
       return {
         title: t('session.empty.failedTitle'),
         detail: t('session.empty.failedDetail'),

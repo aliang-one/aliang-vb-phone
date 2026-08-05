@@ -26,14 +26,15 @@ describe('computeHasDetail (mount auto-load gate)', () => {
   });
 });
 
-describe('isDetailFetchUnavailable', () => {
-  it('failed / skipped_offline → true', () => {
-    expect(isDetailFetchUnavailable('failed')).toBe(true);
-    expect(isDetailFetchUnavailable('skipped_offline')).toBe(true);
+describe('isDetailFetchUnavailable (读 detailState.kind)', () => {
+  it('offline / failed → true', () => {
+    expect(isDetailFetchUnavailable({ kind: 'failed' })).toBe(true);
+    expect(isDetailFetchUnavailable({ kind: 'offline' })).toBe(true);
   });
-  it('fresh / cached / undefined → false', () => {
-    expect(isDetailFetchUnavailable('fresh')).toBe(false);
-    expect(isDetailFetchUnavailable('cached')).toBe(false);
+  it('ready / empty / recoverable_empty / undefined → false', () => {
+    expect(isDetailFetchUnavailable({ kind: 'ready' })).toBe(false);
+    expect(isDetailFetchUnavailable({ kind: 'empty' })).toBe(false);
+    expect(isDetailFetchUnavailable({ kind: 'recoverable_empty' })).toBe(false);
     expect(isDetailFetchUnavailable(undefined)).toBe(false);
   });
 });
@@ -43,13 +44,13 @@ describe('isRecoverableConversation (self-heal edge trigger)', () => {
     wsConnected: true,
     deviceStatus: 'online',
     transcriptLength: 0,
-    detailRefreshStatus: 'failed' as const,
+    detailState: { kind: 'failed' as const },
   };
   it('connected + online + empty + failed → true', () => {
     expect(isRecoverableConversation(base)).toBe(true);
   });
-  it('skipped_offline status → true', () => {
-    expect(isRecoverableConversation({ ...base, detailRefreshStatus: 'skipped_offline' })).toBe(true);
+  it('offline status → true', () => {
+    expect(isRecoverableConversation({ ...base, detailState: { kind: 'offline' } })).toBe(true);
   });
   it('disconnected → false', () => {
     expect(isRecoverableConversation({ ...base, wsConnected: false })).toBe(false);
@@ -60,8 +61,9 @@ describe('isRecoverableConversation (self-heal edge trigger)', () => {
   it('non-empty transcript → false (already has content)', () => {
     expect(isRecoverableConversation({ ...base, transcriptLength: 2 })).toBe(false);
   });
-  it('fresh / non-unavailable status → false', () => {
-    expect(isRecoverableConversation({ ...base, detailRefreshStatus: 'fresh' })).toBe(false);
-    expect(isRecoverableConversation({ ...base, detailRefreshStatus: undefined })).toBe(false);
+  it('ready / empty / recoverable_empty → false (非 offline/failed)', () => {
+    expect(isRecoverableConversation({ ...base, detailState: { kind: 'ready' } })).toBe(false);
+    expect(isRecoverableConversation({ ...base, detailState: { kind: 'empty' } })).toBe(false);
+    expect(isRecoverableConversation({ ...base, detailState: { kind: 'recoverable_empty' } })).toBe(false);
   });
 });
