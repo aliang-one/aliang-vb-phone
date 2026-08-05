@@ -22,9 +22,12 @@ import {
   mergeEarlierAgentMessages,
   mergeIds,
   mergeVibeRunSnapshot,
-  nowTime,
   serverAiSessionToVibeRun,
 } from '../internals';
+import {
+  shouldEscalateEmptyDetailToRefresh,
+  resolveDetailState,
+} from '../sessionDetail';
 import {
   emptyHistoryPage,
   historyPageFromServer,
@@ -223,31 +226,58 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     // to bypass the page cache and re-ask the agent (see shouldAskAgent in the server
     // handler). Used by the chat screen's pull-to-refresh / retry so an empty/offline
     // result can actually recover instead of being stuck on the cached empty page.
-    const serverSession = await platformTransport.loadAiSession(sessionId, {
+    const isManualRefresh = options?.refresh === true;
+    let serverSession = await platformTransport.loadAiSession(sessionId, {
       refresh: options?.refresh,
     });
+    // Auto-recovery for "agent returned fresh-but-empty for a session the server
+    // knows has history" — the root cause of "open a conversation, it's blank
+    // until I pull to refresh". The cache-first fetch above came back empty; when
+    // the resident metadata disagrees (transcriptCount > 0) and the agent path is
+    // eligible, escalate to exactly ONE forced (refresh:true) agent fetch before
+    // deciding the page is genuinely blank. The predicate bounds this: manual
+    // refresh, goal/server_owned sessions, and failed/skipped_offline results opt
+    // out, so this never loops and never double-asks on a user-driven refresh.
+    const firstMapped = serverAiSessionToVibeRun(
+      serverSession,
+      get().devices,
+      get().projects,
+    );
+    if (
+      shouldEscalateEmptyDetailToRefresh({
+        transcriptLength: firstMapped.transcript.length,
+        transcriptCount: firstMapped.transcriptCount ?? 0,
+        detailRefreshStatus: firstMapped.detailRefreshStatus,
+        purpose: firstMapped.purpose,
+        isManualRefresh,
+      })
+    ) {
+      serverSession = await platformTransport.loadAiSession(sessionId, {
+        refresh: true,
+      });
+    }
     set(state => {
       const mapped = serverAiSessionToVibeRun(
         serverSession,
         state.devices,
         state.projects,
       );
-      // Only mark the session as "detail loaded" when we actually received
-      // transcript content OR a definitive (non-transient) answer from the
-      // agent. A `skipped_offline` / `failed` result with no transcript must
-      // stay "not loaded" so the chat screen re-attempts on reopen / recovery
-      // instead of freezing on a blank conversation whose top bar already reads
-      // DONE — the run snapshot that flips `status` to completed never carries
-      // the transcript (refreshFromServer / mergeVibeRunSnapshot skip it when the
-      // snapshot has no detail), so a transient-empty fetch is the ONLY thing
-      // that can fill it, and it must remain retryable.
-      const transientEmpty =
-        mapped.transcript.length === 0 &&
-        (mapped.detailRefreshStatus === 'skipped_offline' ||
-          mapped.detailRefreshStatus === 'failed');
+      // Resolve the typed DetailState from the fetch outcome (ready / empty /
+      // recoverable_empty / offline / failed) and store it as the canonical
+      // representation on the run. Readers use `isAuthoritativeDetail` instead
+      // of a timestamp: authoritative (ready/empty) counts as loaded; the
+      // retryable kinds keep the screen re-attempting instead of freezing on a
+      // blank conversation (the run snapshot that flips `status` to completed
+      // never carries transcript, so a transient-empty fetch is the ONLY thing
+      // that can fill it).
+      const detailState = resolveDetailState({
+        transcriptLength: mapped.transcript.length,
+        transcriptCount: mapped.transcriptCount ?? 0,
+        detailRefreshStatus: mapped.detailRefreshStatus,
+      });
       const nextRun = {
         ...mapped,
-        detailLoadedAt: transientEmpty ? undefined : nowTime(),
+        detailState,
       };
       const exists = state.vibeRuns.some(run => run.id === nextRun.id);
       const vibeRuns = evictStaleSessionDetail(exists ? state.vibeRuns.map(run => run.id === nextRun.id ? mergeVibeRunSnapshot(run, nextRun) : run) : [nextRun, ...state.vibeRuns]);
@@ -299,7 +329,8 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
           ),
           detailRefreshStatus:
             response.detail_refresh?.status ?? run.detailRefreshStatus,
-          detailLoadedAt: nowTime(),
+          // Loading earlier messages delivered content → authoritative ready.
+          detailState: { kind: 'ready' as const },
         };
       });
       return {

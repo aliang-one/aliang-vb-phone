@@ -40,6 +40,8 @@
   },
   "notification": {
     "channelName": "Vibe background notifications",
+    "approve": "Approve",
+    "deny": "Deny",
     "summaryTitle": "Vibe updates",
     "summaryBody": "{{count}} additional updates. Open the notification center to review them.",
     "approvalTitle": "Approval needed",

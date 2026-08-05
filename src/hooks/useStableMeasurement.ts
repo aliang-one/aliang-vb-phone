@@ -71,3 +71,44 @@ export function useStableMeasurement(
 
   return [value, commit] as const;
 }
+
+/**
+ * Fold a batch of freshly measured (already-rounded) per-item layouts into the
+ * committed map, returning the SAME object reference when nothing meaningfully
+ * changed so React bails out of the re-render.
+ *
+ * "Meaningfully changed" = the item is new, OR its `top`/`height` moved by at
+ * least `tolerance` (default 1px) on either axis. This convergence is what lets
+ * a deferred layout flush settle: once a rounded measurement is committed,
+ * repeated `onLayout` passes reporting the same rounded value are a no-op.
+ *
+ * Pure so it is unit-testable; the conversation screen's deferred flush calls it
+ * inside a `setMessageLayouts` updater.
+ *
+ * @param current   The committed layout map (each value already rounded).
+ * @param pending   Items staged by `onLayout` since the last flush (values
+ *                  already rounded). An iterable of `[id, {top, height}]`.
+ * @param tolerance Minimum px change on either axis that counts as a real update.
+ * @returns The next map, or the SAME `current` reference if no item changed.
+ */
+export function mergeMeasuredLayouts(
+  current: Record<string, { top: number; height: number }>,
+  pending: Iterable<readonly [string, { top: number; height: number }]>,
+  tolerance: number = DEFAULT_MEASUREMENT_TOLERANCE,
+): Record<string, { top: number; height: number }> {
+  let next: Record<string, { top: number; height: number }> | null = null;
+  for (const [id, value] of pending) {
+    const existing = current[id];
+    if (
+      !existing ||
+      shouldCommitMeasurement(existing.top, value.top, tolerance) ||
+      shouldCommitMeasurement(existing.height, value.height, tolerance)
+    ) {
+      if (next === null) {
+        next = { ...current };
+      }
+      next[id] = value;
+    }
+  }
+  return next ?? current;
+}

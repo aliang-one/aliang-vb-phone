@@ -119,16 +119,14 @@ export const PortMappingsScreen: React.FC = () => {
       refresh ? setRefreshing(true) : setLoading(true);
       setError(null);
       try {
-        const result = await fetchPortMappings();
+        const result = await fetchPortMappings(route.params.deviceId);
         if (!mountedRef.current) return;
         setMappings(
-          result
-            .filter(mapping => mapping.device_id === route.params.deviceId)
-            .sort(
-              (left, right) =>
-                new Date(right.created_at).getTime() -
-                new Date(left.created_at).getTime(),
-            ),
+          [...result].sort(
+            (left, right) =>
+              new Date(right.created_at).getTime() -
+              new Date(left.created_at).getTime(),
+          ),
         );
       } catch (loadError) {
         if (!mountedRef.current) return;

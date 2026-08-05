@@ -166,6 +166,19 @@ export type VibeStatus =
   | 'completed'
   | 'paused';
 
+/**
+ * Typed single-session detail-loading state. Replaces the legacy
+ * `detailLoadedAt` timestamp on `VibeCodingRun`. `undefined` on a run means
+ * "never detail-fetched" (only list-snapshot metadata is resident). Resolved
+ * by the session-detail domain (`resolveDetailState`); see `isAuthoritativeDetail`.
+ */
+export type DetailState =
+  | { kind: 'ready' }
+  | { kind: 'empty' }
+  | { kind: 'recoverable_empty' }
+  | { kind: 'offline' }
+  | { kind: 'failed' };
+
 export type GoalState =
   | 'planning'
   | 'planning_failed'
@@ -419,7 +432,25 @@ export interface VibeCodingRun {
    * when not yet bound.
    */
   sourceSessionId?: string;
-  detailLoadedAt?: string;
+  /**
+   * Typed detail-loading state for this session — the canonical replacement
+   * for the legacy `detailLoadedAt` timestamp. `undefined` = never fetched
+   * (the run only has list-snapshot metadata). Resolved by the session-detail
+   * domain (`resolveDetailState`) on each single-session fetch; readers ask
+   * `isAuthoritativeDetail` instead of guessing from a timestamp.
+   *
+   * Variants:
+   *   - `ready`             — transcript content delivered.
+   *   - `empty`             — fetched, genuinely no history (`transcriptCount` 0).
+   *   - `recoverable_empty` — empty page but server reports known history
+   *                           (a cache/agent miss; retryable, NOT "loaded").
+   *   - `offline`           — agent offline (`skipped_offline`); history unreachable.
+   *   - `failed`            — agent request errored.
+   *
+   * `ready` / `empty` are "authoritative" (count as detail-loaded for eviction
+   * and the chat screen's hasDetail); the rest stay retryable.
+   */
+  detailState?: DetailState;
   /**
    * Server `detail_refresh.status` from the last single-session fetch — lets the
    * chat screen distinguish "genuinely no messages" from "agent offline /

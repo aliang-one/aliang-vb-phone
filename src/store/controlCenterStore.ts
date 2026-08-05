@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { shallow, useShallow } from 'zustand/shallow';
 import type { PreviewLink, VibeCodingRun, VibeStatus } from '../data/platformModels';
-import { routeTerminalOutputToEmulator } from '../components/terminal/TerminalEmulator';
+import { routeTerminalOutputToEmulator } from '../services/terminalOutputRegistry';
 import { terminalDisplayUpdate } from '../utils/terminalOutput';
 import {
   flushAiStreamEvents,

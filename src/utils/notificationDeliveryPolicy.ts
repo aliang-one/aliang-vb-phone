@@ -35,3 +35,35 @@ export function decideNotificationDelivery(
     },
   };
 }
+
+/**
+ * The event categories a user can switch on/off individually. Keys match the
+ * `data.type` (BackgroundNotificationType) carried by each pending notification
+ * so the background hook can filter without any mapping.
+ */
+export type NotifiableEventType =
+  | 'approval'
+  | 'session_done'
+  | 'session_failed'
+  | 'device_offline';
+
+export type NotificationPrefs = Record<NotifiableEventType, boolean>;
+
+export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
+  approval: true,
+  session_done: true,
+  session_failed: true,
+  device_offline: true,
+};
+
+/**
+ * True unless the user has explicitly switched this type off. A missing key
+ * (older persisted state predating a type) defaults to enabled so a pref schema
+ * change can never silently suppress notifications.
+ */
+export function isEventTypeEnabled(
+  prefs: NotificationPrefs,
+  type: NotifiableEventType,
+): boolean {
+  return prefs[type] !== false;
+}

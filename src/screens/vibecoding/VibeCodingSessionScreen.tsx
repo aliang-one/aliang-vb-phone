@@ -98,7 +98,10 @@ import { deriveLivePulse } from '../../utils/activitySummary';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { isGoalCommand, parseGoalCommand } from '../../utils/goalComposer';
 import { useNowTick } from '../../hooks/useNowTick';
-import { useStableMeasurement } from '../../hooks/useStableMeasurement';
+import {
+  mergeMeasuredLayouts,
+  useStableMeasurement,
+} from '../../hooks/useStableMeasurement';
 import { useThrottledValue } from '../../hooks/useThrottledValue';
 import { useVoiceStt } from '../../hooks/useVoiceStt';
 import {
@@ -106,6 +109,7 @@ import {
   normalizeProvider,
 } from '../../utils/modelIntensity';
 import { createId } from '../../store/internals';
+import { useSessionDetailLoader } from './useSessionDetailLoader';
 import {
   createGoal,
   deleteGoal,
@@ -117,6 +121,7 @@ import {
 } from '../../api/goals';
 import { ApiResponseError } from '../../api/client';
 import { fallbackApprovalStatus } from '../../utils/sessionApprovalFallback';
+import { groupConsecutiveToolMessageIds } from '../../utils/activityGrouping';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type SessionRoute = RouteProp<RootStackParamList, 'VibeCodingSession'>;
@@ -132,7 +137,6 @@ const SCROLL_THROTTLE_MS = 80;
 // wait for the desktop Agent to answer ai.session.detail — isn't pre-empted by
 // the screen race. The underlying HTTP request uses its own 15s timeout too
 // (fetchAiSession); this race is the safety net on top.
-const DETAIL_LOAD_TIMEOUT_MS = 15000;
 
 // Bug 2 fix: createGoal (POST /api/goals) hang 时强制超时阈值。
 // export 出来便于测试断言常量值。
@@ -200,6 +204,15 @@ const hasActivityMessageId = (
 ): event is Extract<StructuredActivityEvent, { messageId: string }> =>
   'messageId' in event &&
   typeof (event as { messageId?: unknown }).messageId === 'string';
+
+const hasRenderableActivity = (events: StructuredActivityEvent[]): boolean =>
+  events.some(
+    event =>
+      (event.kind === 'thinking' && event.active) ||
+      event.kind === 'command' ||
+      event.kind === 'file_change' ||
+      event.kind === 'task',
+  );
 
 // Splits a formatted session title ("Subject · meta · meta …" — the parts are
 // joined by formatVibeSessionTitle with ' · ') into a primary subject and a
@@ -528,17 +541,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const [autoFocusText, setAutoFocusText] = useState(false);
   const voiceStt = useVoiceStt();
   const { providerCatalog } = useModelOptions();
-  const [loadingDetail, setLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState('');
   // Drives the ScrollView's RefreshControl. Pull-to-refresh forces a server
   // re-fetch (`refresh: true`) so an empty / offline result can recover — the
   // auto-load on mount only fires once and respects the cache.
   const [refreshing, setRefreshing] = useState(false);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
-  // Dedicated spinner for the bottom-bubble "refresh latest" action. Kept
-  // separate from `refreshing` (which now drives the pull-to-load-earlier
-  // indicator) so the bubble can show its own state without hijacking the pull.
-  const [refreshingLatest, setRefreshingLatest] = useState(false);
   // Transient "已是最早的消息" notice: shown when the user pulls at the top but
   // there is no earlier history to load (and the conversation isn't blank).
   const [noMoreEarlierHint, setNoMoreEarlierHint] = useState(false);
@@ -579,16 +587,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
   } | null>(null);
   const mountedRef = useRef(true);
   const targetSessionIdRef = useRef<string | undefined>(undefined);
-  const detailLoadRequestRef = useRef(0);
-  const detailLoadInFlightRef = useRef<string | null>(null);
-  // Guards the mount auto-fetch against re-firing when a transient-empty
-  // (skipped_offline / failed) detail result leaves `hasDetail` false. Without
-  // it the fetch effect would loop on every render once the store no longer
-  // stamps detailLoadedAt for transient-empty results. Reset on session change.
-  const autoFetchRef = useRef(false);
-  // Tracks the false→true edge of the "recoverable blank conversation" state so
-  // the agent-online recovery refresh fires once per transition, not per render.
-  const prevRecoverableRef = useRef(false);
   // Pins the viewport to the topmost message while an earlier-history page is
   // prepended above it, so loading older doesn't shove what the user is reading
   // out of view. Set right before a reveal/fetch; consumed (and cleared) by the
@@ -686,6 +684,17 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const [messageLayouts, setMessageLayouts] = useState<
     Record<string, { top: number; height: number }>
   >({});
+  // Per-item layout is STAGED here by onLayout and flushed in a deferred
+  // macrotask. onLayout must NOT setState synchronously: on Android Fabric the
+  // new ActivityBlock structure lets a conversation item's height jitter ≈1px,
+  // which the old strict `<1px` guard can't converge (1.0 is not <1), so each
+  // pass re-measured a "new" height → setState → re-render → onLayout → ... ≥50
+  // nested updates → `Maximum update depth exceeded` crash. Stage + defer breaks
+  // the synchronous loop; mergeMeasuredLayouts rounds + dedupes so it converges.
+  const pendingLayoutsRef = useRef<
+    Map<string, { top: number; height: number }>
+  >(new Map());
+  const layoutFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [timelineExpanded, setTimelineExpanded] = useState(false);
   const [titleExpanded, setTitleExpanded] = useState(false);
   // Conversation scrubber (the right-edge magnifier locator). `pendingJumpId`
@@ -744,6 +753,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
     }
     return byMessageId;
   }, [session?.structuredEvents]);
+  const activityEventCountsByMessageId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const [messageId, events] of activityEventsByMessageId) {
+      counts.set(messageId, events.length);
+    }
+    return counts;
+  }, [activityEventsByMessageId]);
   // Reverse lookup (source AgentMessage.id → coalesced display message id),
   // built from the transcript. Depends ONLY on transcript, so it recomputes
   // rarely — Phase 1 keeps the transcript array referentially stable while only
@@ -813,96 +829,32 @@ export const VibeCodingSessionScreen: React.FC = () => {
   );
 
   // First-fetch guard: skip the auto-load only when we already hold the
-  // transcript detail (a prior fetch set detailLoadedAt, or a hot window
-  // delivered messages). DO NOT count events — a session can carry lifecycle
-  // events while its hot transcript is empty (status-only WS updates), and
-  // counting those would suppress the fetch and leave the chat blank.
-  const hasDetail = Boolean(
-    session?.detailLoadedAt || session?.transcript.length,
-  );
-  const detailFetchUnavailable =
-    session?.detailRefreshStatus === 'failed' ||
-    session?.detailRefreshStatus === 'skipped_offline';
-
-  useEffect(() => {
-    if (hasDetail) {
-      autoFetchRef.current = false;
-    }
-  }, [hasDetail, targetSessionId]);
-
-  useEffect(() => {
-    if (!targetSessionId || hasDetail || detailError || detailFetchUnavailable)
-      return;
-    if (detailLoadInFlightRef.current === targetSessionId) return;
-    // A transient-empty result no longer stamps detailLoadedAt, so hasDetail
-    // stays false after such a fetch — without this guard the effect would
-    // re-fire immediately and loop. One auto-attempt per mount is enough; live
-    // recovery is handled by the recoverable-conversation effect below.
-    if (autoFetchRef.current) return;
-    autoFetchRef.current = true;
-
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    const requestId = detailLoadRequestRef.current + 1;
-    detailLoadRequestRef.current = requestId;
-    detailLoadInFlightRef.current = targetSessionId;
-    setLoadingDetail(true);
-    setDetailError('');
-
-    const detailLoad = loadAgentSessionDetail(targetSessionId);
-    const timeout = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(
-        () => reject(new Error(t('session.loading.detailTimeout'))),
-        DETAIL_LOAD_TIMEOUT_MS,
-      );
-    });
-
-    void Promise.race([detailLoad, timeout])
-      .catch(error => {
-        if (
-          mountedRef.current &&
-          detailLoadRequestRef.current === requestId &&
-          targetSessionIdRef.current === targetSessionId
-        ) {
-          setDetailError(
-            error instanceof Error
-              ? error.message
-              : t('session.loading.loadDetailFailed'),
-          );
-        }
-      })
-      .finally(() => {
-        if (timeoutId) clearTimeout(timeoutId);
-        if (detailLoadRequestRef.current === requestId) {
-          detailLoadInFlightRef.current = null;
-        }
-        if (
-          mountedRef.current &&
-          detailLoadRequestRef.current === requestId &&
-          targetSessionIdRef.current === targetSessionId
-        ) {
-          setLoadingDetail(false);
-        }
-      });
-
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [
-    detailError,
-    detailFetchUnavailable,
-    hasDetail,
+  // transcript detail (an authoritative detailState — ready/empty — or a hot
+  // window delivered messages). DO NOT count events — a session can carry
+  // lifecycle events while its hot transcript is empty (status-only WS
+  // updates), and counting those would suppress the fetch and leave the chat
+  // blank. Recoverable/offline/failed states stay non-authoritative so the
+  // auto-load keeps re-attempting instead of freezing on a blank conversation.
+  const {
+    loadingDetail,
+    refreshingLatest,
+    refreshLatest,
+  } = useSessionDetailLoader({
+    targetSessionId,
+    detailState: session?.detailState,
+    transcriptLength: session?.transcript.length ?? 0,
+    detailRefreshStatus: session?.detailRefreshStatus,
+    wsConnected,
+    deviceStatus: device?.status,
     loadAgentSessionDetail,
     t,
-    targetSessionId,
-  ]);
+    refreshing,
+    detailError,
+    setDetailError,
+  });
 
-  useEffect(() => {
-    if (!loadingDetail || !detailFetchUnavailable) return;
-    if (targetSessionIdRef.current !== targetSessionId) return;
-    detailLoadRequestRef.current += 1;
-    detailLoadInFlightRef.current = null;
-    setLoadingDetail(false);
-  }, [detailFetchUnavailable, loadingDetail, targetSessionId]);
+
+
 
   // Pull-to-refresh + retry entry point. Unlike the mount auto-load (which runs
   // once and respects the server's page cache), this forces `refresh: true` so
@@ -913,22 +865,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // to recover from an earlier blank/offline result. Exposed as a dedicated
   // affordance on the bottom status bubble, so pull-to-refresh can stay
   // dedicated to "load earlier history".
-  const handleRefreshLatest = useCallback(async () => {
-    if (!targetSessionId) return;
-    setRefreshingLatest(true);
-    setDetailError('');
-    try {
-      await loadAgentSessionDetail(targetSessionId, { refresh: true });
-    } catch (error) {
-      setDetailError(
-        error instanceof Error
-          ? error.message
-          : t('session.loading.loadDetailFailed'),
-      );
-    } finally {
-      setRefreshingLatest(false);
-    }
-  }, [loadAgentSessionDetail, t, targetSessionId]);
 
   // Capture the topmost visible message so the viewport can be pinned to it
   // once older messages are prepended above (otherwise prepending content
@@ -1010,13 +946,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
     setRefreshing(true);
     setDetailError('');
     try {
-      await handleRefreshLatest();
+      await refreshLatest();
     } finally {
       setRefreshing(false);
     }
   }, [
     handleLoadEarlierMessages,
-    handleRefreshLatest,
+    refreshLatest,
     hasServerEarlierMessages,
     session?.transcript.length,
     targetSessionId,
@@ -1045,8 +981,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
     scrollYRef.current = 0;
     followTailRef.current = true;
     pendingScrollToEndRef.current = true;
-    autoFetchRef.current = false;
-    prevRecoverableRef.current = false;
     preserveFocusRef.current = null;
     setPendingJumpId(null);
     setNoMoreEarlierHint(false);
@@ -1060,26 +994,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // offline→online, or a WS reconnect) while such a blank session is on screen,
   // fire one forced refresh. Edge-triggered so it runs once per recovery, not
   // every render; prevRecoverableRef is reset on session change above.
-  const recoverableConversation =
-    wsConnected &&
-    device?.status !== 'offline' &&
-    (session?.transcript.length ?? 0) === 0 &&
-    (session?.detailRefreshStatus === 'skipped_offline' ||
-      session?.detailRefreshStatus === 'failed');
-  useEffect(() => {
-    if (!recoverableConversation || prevRecoverableRef.current) return;
-    if (!targetSessionId || refreshing || loadingDetail) return;
-    prevRecoverableRef.current = true;
-    void loadAgentSessionDetail(targetSessionId, { refresh: true }).catch(
-      () => {},
-    );
-  }, [
-    recoverableConversation,
-    targetSessionId,
-    refreshing,
-    loadingDetail,
-    loadAgentSessionDetail,
-  ]);
 
   useEffect(
     () => () => {
@@ -1090,6 +1004,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
       if (scrollToEndTimer.current) {
         clearTimeout(scrollToEndTimer.current);
       }
+      if (layoutFlushTimerRef.current !== null) {
+        clearTimeout(layoutFlushTimerRef.current);
+        layoutFlushTimerRef.current = null;
+      }
     },
     [],
   );
@@ -1099,20 +1017,24 @@ export const VibeCodingSessionScreen: React.FC = () => {
     y: number,
     height: number,
   ) => {
-    // Store the item's offset relative to the conversation container only.
-    // `conversationTop` (the container's own offset within the scroll content) is
-    // applied at calculation time so stale closure captures can't desync the rail.
-    setMessageLayouts(current => {
-      const existing = current[itemId];
-      if (
-        existing &&
-        Math.abs(existing.top - y) < 1 &&
-        Math.abs(existing.height - height) < 1
-      ) {
-        return current;
-      }
-      return { ...current, [itemId]: { top: y, height } };
+    // Stage the rounded measurement; do NOT setState here. `conversationTop`
+    // (the container's own offset within the scroll content) is applied at
+    // calculation time downstream so stale closure captures can't desync the rail.
+    // See pendingLayoutsRef above for why onLayout must not setState synchronously
+    // (Fabric sub-pixel jitter → nested updates → Maximum update depth crash).
+    pendingLayoutsRef.current.set(itemId, {
+      top: Math.round(y),
+      height: Math.round(height),
     });
+    if (layoutFlushTimerRef.current === null) {
+      layoutFlushTimerRef.current = setTimeout(() => {
+        layoutFlushTimerRef.current = null;
+        const pending = pendingLayoutsRef.current;
+        pendingLayoutsRef.current = new Map();
+        if (pending.size === 0) return;
+        setMessageLayouts(current => mergeMeasuredLayouts(current, pending));
+      }, 0);
+    }
   }, []);
   // Stable callback so TranscriptMessageList's React.memo isn't defeated by a
   // fresh inline closure on every render.
@@ -1996,9 +1918,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // dropped by buildDisplayTranscript, so their ids never appear in any
   // sourceMessageIds — those need a synthetic activity bubble. We compute the
   // orphan ids here: assistant message ids that have ≥1 structured event AND
-  // are not in any display bubble's sourceMessageIds. Grouped per-id so each
-  // orphan turn renders one ActivityBlock. Kept in render order (transcript
-  // order) for a stable layout.
+  // are not in any display bubble's sourceMessageIds. Keep transcript order
+  // when possible, then append events whose paged transcript anchor is not
+  // loaded; the next grouping step applies hard/soft boundaries.
   const orphanActivityMessageIds = useMemo(() => {
     if (!session) return [];
     if (activityEventsByMessageId.size === 0) return [];
@@ -2006,20 +1928,43 @@ export const VibeCodingSessionScreen: React.FC = () => {
     const covered = new Set(
       transcript.flatMap(message => message.sourceMessageIds),
     );
-    // Walk the raw transcript in order; an assistant id is an orphan iff it
-    // has structured events but isn't covered. De-duped.
+    // Prefer transcript order when its anchor is present. A paged detail
+    // response may not include an older tool-only assistant anchor even though
+    // its structured events are still retained, so append every remaining
+    // renderable event id in event-arrival order instead of dropping it.
     const seen = new Set<string>();
     const orphans: string[] = [];
     for (const m of session.transcript) {
       if (m.role !== 'assistant') continue;
       if (covered.has(m.id)) continue;
-      if (!activityEventsByMessageId.has(m.id)) continue;
+      const events = activityEventsByMessageId.get(m.id);
+      if (!events || !hasRenderableActivity(events)) continue;
       if (seen.has(m.id)) continue;
       seen.add(m.id);
       orphans.push(m.id);
     }
+    for (const [messageId, events] of activityEventsByMessageId) {
+      if (covered.has(messageId)) continue;
+      if (!hasRenderableActivity(events)) continue;
+      if (seen.has(messageId)) continue;
+      seen.add(messageId);
+      orphans.push(messageId);
+    }
     return orphans;
   }, [activityEventsByMessageId, session, transcript]);
+  const orphanActivityMessageGroups = useMemo(() => {
+    return groupConsecutiveToolMessageIds(
+      session?.transcript ?? [],
+      orphanActivityMessageIds,
+      {
+        eventCountByMessageId: activityEventCountsByMessageId,
+      },
+    );
+  }, [
+    activityEventCountsByMessageId,
+    orphanActivityMessageIds,
+    session,
+  ]);
   const messageTimelinePositions = useMemo(() => {
     const entries: Array<{ id?: string; hasRail: boolean }> = [];
     for (const item of conversationItems) {
@@ -3038,16 +2983,16 @@ export const VibeCodingSessionScreen: React.FC = () => {
                   })}
                   {/* Tool-only assistant turns (empty prose, dropped during
                       coalescing) whose structured activity would otherwise vanish.
-                      Rendered once for the whole conversation, in transcript
-                      order. Each id → one ActivityBlock grouping its events. */}
-                  {orphanActivityMessageIds.length > 0 ? (
+                      Adjacent anchors are grouped into bounded ActivityBlocks;
+                      user/prose boundaries still split them. */}
+                  {orphanActivityMessageGroups.length > 0 ? (
                     <TranscriptMessageList
                       key="orphan-activity-block"
                       activitySessionId={session.id}
                       orphanActivityEventsByMessageId={activityEventsByMessageId}
+                      orphanActivityMessageGroups={orphanActivityMessageGroups}
                       activityDetailCache={session.eventDetailCache}
                       onCacheActivityDetail={handleCacheActivityDetail}
-                      orphanActivityMessageIds={orphanActivityMessageIds}
                       liveMessageId={liveMessageId}
                     />
                   ) : null}
@@ -3447,7 +3392,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                     hitSlop={{ top: 12, bottom: 12, left: 4, right: 8 }}
                     activeOpacity={0.6}
                     disabled={refreshingLatest}
-                    onPress={handleRefreshLatest}
+                    onPress={refreshLatest}
                     style={styles.timelineBadgeRefresh}
                     accessibilityLabel={t('session.quickActions.refreshLatest')}
                     accessibilityRole="button">

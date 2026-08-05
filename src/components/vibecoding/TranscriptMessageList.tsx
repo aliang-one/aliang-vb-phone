@@ -48,19 +48,12 @@ interface TranscriptMessageListProps {
   structuredEvents?: StructuredActivityEvent[];
   messageActivityEvents?: StructuredActivityEvent[];
   orphanActivityEventsByMessageId?: ReadonlyMap<string, StructuredActivityEvent[]>;
+  orphanActivityMessageGroups?: string[][];
   activityDetailCache?: ActivityDetailCache;
   onCacheActivityDetail?: (
     eventId: string,
     detail: { text?: string; truncated?: boolean },
   ) => void;
-  /**
-   * Assistant message ids that produced no display bubble (tool-only turns
-   * whose empty prose was skipped by `buildDisplayTranscript`) but still have
-   * structured events. Each renders a standalone activity bubble after the
-   * transcript. Built by the owning screen so this component doesn't import
-   * the run.
-   */
-  orphanActivityMessageIds?: string[];
   /**
    * L2:当前仍在流式的最新助手消息 id(由会话屏按 lastActivityMs 窗口算出)。
    * 提供时,属于该消息的 ActivityBlock 在请求空档显示「处理中…」而非「已完成」;
@@ -181,9 +174,9 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
   structuredEvents,
   messageActivityEvents,
   orphanActivityEventsByMessageId,
+  orphanActivityMessageGroups,
   activityDetailCache,
   onCacheActivityDetail,
-  orphanActivityMessageIds,
   liveMessageId,
   onRetryFailed,
   onDismissFailed,
@@ -1129,13 +1122,14 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
           </View>
         );
       })}
-      {hasActivity && orphanActivityMessageIds
-        ? orphanActivityMessageIds.map((messageId, index) => {
+      {hasActivity && orphanActivityMessageGroups
+        ? orphanActivityMessageGroups.map((messageGroup, index) => {
             // Tool-only assistant turn: empty prose was dropped during
             // coalescing, but structured events still exist for it. Render a
             // standalone activity bubble (under an agent badge) so the turn's
-            // activity is visible. Events are grouped per orphan messageId.
-            const orphanEvents =
+            // activity is visible. One bubble may contain several bounded
+            // adjacent orphan anchors.
+            const orphanEvents = messageGroup.flatMap(messageId =>
               orphanActivityEventsByMessageId?.get(messageId) ??
               structuredEvents?.filter(
                 e =>
@@ -1143,15 +1137,19 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                   typeof (e as { messageId?: unknown }).messageId === 'string' &&
                   (e as { messageId: string }).messageId === messageId,
               ) ??
-              [];
+              [],
+            );
             if (orphanEvents.length === 0) return null;
             return (
-              <View key={`orphan-activity:${messageId}`} style={styles.messageRow}>
+              <View
+                key={`orphan-activity:${messageGroup.join(':')}`}
+                style={styles.messageRow}
+              >
                 {renderTimelineNode(
                   'agent',
                   'primary',
                   theme.colors.primary,
-                  index === orphanActivityMessageIds.length - 1 ? 'end' : 'middle',
+                  index === orphanActivityMessageGroups.length - 1 ? 'end' : 'middle',
                 )}
                 <View style={styles.messageStack}>
                   <Text
@@ -1169,7 +1167,9 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                     events={orphanEvents}
                     detailCache={activityDetailCache ?? {}}
                     onCacheDetail={onCacheActivityDetail!}
-                    turnSettled={!liveMessageId || messageId !== liveMessageId}
+                    turnSettled={
+                      !liveMessageId || !messageGroup.includes(liveMessageId)
+                    }
                   />
                 </View>
               </View>
@@ -1204,14 +1204,23 @@ const orphanMapSignature = (
   return signature;
 };
 
-const sameStringList = (
-  a: string[] | undefined,
-  b: string[] | undefined,
+const sameStringList = (a: string[], b: string[]): boolean => {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) return false;
+  }
+  return true;
+};
+
+const sameStringGroups = (
+  a: string[][] | undefined,
+  b: string[][] | undefined,
 ): boolean => {
   if (a === b) return true;
   if (!a || !b || a.length !== b.length) return false;
   for (let index = 0; index < a.length; index += 1) {
-    if (a[index] !== b[index]) return false;
+    if (!sameStringList(a[index], b[index])) return false;
   }
   return true;
 };
@@ -1244,7 +1253,10 @@ const areTranscriptPropsEqual = (
     return false;
   }
   if (
-    !sameStringList(prev.orphanActivityMessageIds, next.orphanActivityMessageIds)
+    !sameStringGroups(
+      prev.orphanActivityMessageGroups,
+      next.orphanActivityMessageGroups,
+    )
   ) {
     return false;
   }

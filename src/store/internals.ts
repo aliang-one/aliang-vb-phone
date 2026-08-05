@@ -28,6 +28,10 @@ import {
   type PlatformTerminalSessionSnapshot,
 } from '../services/platformTransport';
 import { serverAiMessageToAgent } from '../api/sessions';
+import {
+  isAuthoritativeDetail,
+  mergeDetailState,
+} from './sessionDetail';
 import type {
   ApprovalKind,
   ApprovalRequest,
@@ -149,7 +153,7 @@ export const ACTIVE_RUN_STATUS = new Set<VibeStatus>([
 export function evictStaleSessionDetail(
   runs: VibeCodingRun[],
 ): VibeCodingRun[] {
-  const detailed = runs.filter(run => run.detailLoadedAt);
+  const detailed = runs.filter(run => isAuthoritativeDetail(run.detailState));
   if (detailed.length <= MAX_SESSION_DETAIL) return runs;
   const overflow = detailed.length - MAX_SESSION_DETAIL;
   const toEvict = new Set(
@@ -184,7 +188,7 @@ export function demoteRunDetail(run: VibeCodingRun): VibeCodingRun {
     events: [],
     structuredEvents: [],
     eventDetailCache: undefined,
-    detailLoadedAt: undefined,
+    detailState: undefined,
   };
 }
 
@@ -584,15 +588,15 @@ export function serverAiSessionToVibeRun(
     lastMessage,
     lastUserMessage,
     sourceSessionId: session.source_session_id || undefined,
-    // Only mark detail-loaded when there is actual content. An empty array is
+    // Mark detail-resolved only when there is actual content. An empty array is
     // truthy in JS, so the old `session.transcript || session.events` form
     // marked a snapshot whose arrays were `[]` as "loaded" and suppressed the
-    // chat screen's first-fetch. (In the load path detailLoadedAt is set
+    // chat screen's first-fetch. (In the load path detailState is resolved
     // explicitly in loadAgentSessionDetail regardless; this governs the
     // list-snapshot shape — kept correct defensively.) Use the mapped lengths,
     // not the raw fields, so an empty `[]` never counts as content.
-    detailLoadedAt:
-      transcript.length > 0 || events.length > 0 ? nowTime() : undefined,
+    detailState:
+      transcript.length > 0 || events.length > 0 ? { kind: 'ready' } : undefined,
     // Surface why the last page resolved the way it did (skipped_offline /
     // failed / cache_miss / fresh) so the chat screen can tell an empty
     // conversation apart from "agent offline, history unreachable".
@@ -617,7 +621,7 @@ export function serverAiSessionToVibeRun(
 }
 
 export const hasLoadedSessionDetail = (run: VibeCodingRun) =>
-  Boolean(run.detailLoadedAt);
+  isAuthoritativeDetail(run.detailState);
 
 export function mergeAgentMessages(
   existing: VibeCodingRun['transcript'],
@@ -854,7 +858,7 @@ export function mergeVibeRunSnapshot(
     updatedAt: formatActivityLabel(lastActivityMs),
     transcript,
     events,
-    detailLoadedAt: incoming.detailLoadedAt ?? existing.detailLoadedAt,
+    detailState: mergeDetailState(incoming.detailState, existing.detailState),
     // lastViewedAt is purely client-side (never in a server snapshot), so always
     // keep the existing value — otherwise every ai.session.updated / snapshot
     // merge would wipe it and break idle demotion immediately.

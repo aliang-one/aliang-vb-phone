@@ -43,6 +43,18 @@
       "not_determined": "未设置",
       "denied": "已阻止",
       "authorized": "已开启"
+    },
+    "testTitle": "测试通知",
+    "testCaption": "检测这台设备能否显示状态栏提醒",
+    "testBody": "如果你能看到这条,说明本地通知已生效。",
+    "sendTest": "发送测试通知",
+    "testSent": "测试通知已发送",
+    "testFailed": "发送失败 — 请检查通知权限是否已开启",
+    "types": {
+      "approval": "审批请求",
+      "session_done": "会话已完成",
+      "session_failed": "会话失败",
+      "device_offline": "设备离线"
     }
   },
   "account": {

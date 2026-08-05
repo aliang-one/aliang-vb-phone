@@ -21,7 +21,11 @@ function load(): NotifyKit | null {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     cache = require('react-native-notify-kit');
     return cache;
-  } catch {
+  } catch (error) {
+    // require failures used to be silently swallowed, which hid the root cause
+    // of "notifications never appear" on builds where notify-kit's native
+    // module was missing. Surface it.
+    console.warn('[localNotifications] notify-kit require failed', error);
     unavailable = true;
     return null;
   }
@@ -33,6 +37,7 @@ const SUMMARY_ID = 'vibe_background_summary';
 const RATE_WINDOW_MS = 60_000;
 const MAX_ALERTS_PER_WINDOW = 5;
 const MAX_DISPLAYED_NOTIFICATIONS = 12;
+const SMALL_ICON = 'ic_notification';
 
 let channelEnsured = false;
 let deliveryState: NotificationDeliveryState = {
@@ -56,7 +61,8 @@ export async function ensureChannel(): Promise<void> {
       importance: lib.AndroidImportance.HIGH,
     });
     channelEnsured = true;
-  } catch {
+  } catch (error) {
+    console.warn('[localNotifications] ensureChannel failed', error);
     // Best effort. displayNotification reports failure to its caller.
   }
 }
@@ -77,7 +83,11 @@ export async function getNotificationPermissionStatus(): Promise<
       return 'not_determined';
     }
     return 'denied';
-  } catch {
+  } catch (error) {
+    console.warn(
+      '[localNotifications] getNotificationPermissionStatus failed',
+      error,
+    );
     return 'unsupported';
   }
 }
@@ -92,7 +102,8 @@ export async function requestPermission(): Promise<boolean> {
   try {
     const settings = await lib.default.requestPermission();
     return settings.authorizationStatus === lib.AuthorizationStatus.AUTHORIZED;
-  } catch {
+  } catch (error) {
+    console.warn('[localNotifications] requestPermission failed', error);
     return false;
   }
 }
@@ -103,7 +114,8 @@ export async function openNotificationSettings(): Promise<boolean> {
   try {
     await lib.default.openNotificationSettings(CHANNEL_ID);
     return true;
-  } catch {
+  } catch (error) {
+    console.warn('[localNotifications] openNotificationSettings failed', error);
     return false;
   }
 }
@@ -123,6 +135,7 @@ export async function displayNotification(
   const lib = load();
   if (!lib) return false;
   await ensureChannel();
+  const isApproval = notification.data?.type === 'approval';
   try {
     await lib.default.displayNotification({
       id: notification.id,
@@ -131,14 +144,31 @@ export async function displayNotification(
       data: notification.data,
       android: {
         channelId: CHANNEL_ID,
-        smallIcon: 'ic_launcher',
+        smallIcon: SMALL_ICON,
         groupId: GROUP_ID,
         groupSummary: notification.summary,
         pressAction: { id: 'default' },
+        // Approval notifications carry inline 批准/拒绝 actions so the user can
+        // resolve without opening the app. Other types fall back to body-tap.
+        ...(isApproval
+          ? {
+              actions: [
+                {
+                  title: i18n.t('common:notification.approve'),
+                  pressAction: { id: 'approve' },
+                },
+                {
+                  title: i18n.t('common:notification.deny'),
+                  pressAction: { id: 'deny' },
+                },
+              ],
+            }
+          : {}),
       },
     });
     return true;
-  } catch {
+  } catch (error) {
+    console.warn('[localNotifications] displayNotification failed', error);
     return false;
   }
 }
@@ -226,7 +256,8 @@ async function trimDisplayedNotifications(): Promise<void> {
         item.id ? lib.default.cancelNotification(item.id) : Promise.resolve(),
       ),
     );
-  } catch {
+  } catch (error) {
+    console.warn('[localNotifications] trimDisplayedNotifications failed', error);
     // Trimming is defensive and must not make a successful display look failed.
   }
 }
@@ -234,6 +265,7 @@ async function trimDisplayedNotifications(): Promise<void> {
 type PressEvent = {
   type: number;
   detail?: {
+    pressAction?: { id?: string };
     notification?: {
       id?: string;
       data?: Record<string, unknown>;
@@ -263,8 +295,56 @@ export function onNotificationPress(
         );
       }
     });
-  } catch {
+  } catch (error) {
+    console.warn('[localNotifications] onNotificationPress failed', error);
     return () => undefined;
+  }
+}
+
+/**
+ * Subscribes to notification *action* button presses (e.g. 批准/拒绝 on an
+ * approval notification), as opposed to a body tap. `actionId` is the
+ * `pressAction.id` of the pressed action (e.g. 'approve' / 'deny'). Returns an
+ * unsubscribe. No-op on non-Android / when notify-kit is unavailable.
+ */
+export function onNotificationAction(
+  callback: (
+    data: Record<string, unknown> | undefined,
+    actionId: string,
+  ) => void,
+): () => void {
+  const lib = load();
+  if (!lib) return () => undefined;
+  try {
+    return lib.default.onForegroundEvent(event => {
+      const current = event as unknown as PressEvent;
+      if (current.type === lib.EventType.ACTION_PRESS) {
+        const actionId = current.detail?.pressAction?.id;
+        if (actionId) {
+          callback(
+            withNativeId(
+              current.detail?.notification?.data,
+              current.detail?.notification?.id,
+            ),
+            actionId,
+          );
+        }
+      }
+    });
+  } catch (error) {
+    console.warn('[localNotifications] onNotificationAction failed', error);
+    return () => undefined;
+  }
+}
+
+/** Cancels a displayed notification by its native id (best effort). */
+export async function cancelNotification(nativeId: string): Promise<void> {
+  const lib = load();
+  if (!lib) return;
+  try {
+    await lib.default.cancelNotification(nativeId);
+  } catch (error) {
+    console.warn('[localNotifications] cancelNotification failed', error);
   }
 }
 
@@ -279,7 +359,8 @@ export async function getInitialNotificationData(): Promise<
       initial?.notification?.data as Record<string, unknown> | undefined,
       initial?.notification?.id,
     );
-  } catch {
+  } catch (error) {
+    console.warn('[localNotifications] getInitialNotificationData failed', error);
     return undefined;
   }
 }

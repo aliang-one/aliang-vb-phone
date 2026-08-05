@@ -40,6 +40,8 @@
   },
   "notification": {
     "channelName": "Vibe 后台通知",
+    "approve": "批准",
+    "deny": "拒绝",
     "summaryTitle": "Vibe 更新",
     "summaryBody": "另有 {{count}} 条更新，请打开通知中心查看。",
     "approvalTitle": "需要审批",

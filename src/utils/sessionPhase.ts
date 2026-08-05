@@ -65,6 +65,19 @@ export function deriveSessionPhase(
  * 注意:本函数修不了「快照陈旧」—— 若回合真已结束但手机快照仍报 `status='running'`
  * (settle 推送丢失 / 列表未刷新),第 2 步会让它显进行中。那是**刷新缺口**(列表回不到
  * 服务端拉新快照),不是显示规则 bug;详见 vibecoding-stale-snapshot-focus-refresh。
+ *
+ * 【lifecycle 收敛纪律 — 2026-08-05 审计】这是 lifecycle 推导的 canonical 入口;主
+ * 显示消费点(VibeCodingSessionScreen.sessionPhase、VibeSessionCard、
+ * stableSessionSortMs、compareSessionsByStableActivity)已统一经此求值。**别再把下列
+ * 裸 status/runState 读点强行收敛到这里**——它们是经过审计的合法更具体判定,强转会改行为:
+ *  - `sessionApprovalFallback.isTerminalSession`:保守终态判定(idle+无 phase → 非终态,
+ *    保留审批 fallback),与本函数默认 completed 不同。
+ *  - `aiSessionSlice` 的 `waitingApproval`:`status/runState === 'waiting_approval'` 的
+ *    单值检查;本函数非 v2 会把该 status 兜底成 completed,不等价。
+ *  - `controlCenterStore`/`internals`/`approvalSlice` 的 `runStateVersion !== undefined`:
+ *    版本权威(merge 信任)判定,非相位推导。
+ *  - `AgentSessionsScreen` 的 StatusChip 用裸 status(vibeStatusLabel):故意的粒度保留
+ *    (TESTING/PREVIEW/PAUSED),与本函数 4 相位不同抽象层。
  */
 export function runDisplayPhase(
   status: VibeStatus,

@@ -17,14 +17,8 @@ import type { StructuredActivityEvent } from '../../data/platformModels';
 import { THINKING_RENDER_BUCKET_CHARS } from '../../utils/activityRenderMemo';
 
 /**
- * Collapsed "工具活动" block rendered per assistant turn. Header shows the live
- * headline + counts (from {@link summarizeActivity}) with a spinner while
- * commands/thinking are active; tapping toggles an expandable list of rows
- * grouped thinking → commands → files → tasks. Each row lazily fetches its heavy
- * detail (thinking text / command output / file diff) via
- * {@link fetchStructuredEventDetail} on first
- * open and caches it through the parent-owned `detailCache` / `onCacheDetail`
- * props — this component is purely presentational and never touches the store.
+ * Thinking is transient and rendered separately while active. Tool/file/task
+ * records stay in their own activity block after the turn settles.
  */
 export interface ActivityBlockProps {
   sessionId: string;
@@ -45,6 +39,116 @@ export interface ActivityBlockProps {
 
 export const ActivityBlock: React.FC<ActivityBlockProps> = React.memo(
   ({ sessionId, events, detailCache, onCacheDetail, turnSettled = true }) => {
+    const activeThinking = events.filter(
+      (event): event is Extract<StructuredActivityEvent, { kind: 'thinking' }> =>
+        event.kind === 'thinking' && event.active,
+    );
+    const persistentEvents = events.filter(event => event.kind !== 'thinking');
+
+    return (
+      <>
+        {activeThinking.length > 0 ? (
+          <LiveThinkingBlock
+            sessionId={sessionId}
+            events={activeThinking}
+            detailCache={detailCache}
+            onCacheDetail={onCacheDetail}
+          />
+        ) : null}
+        {persistentEvents.length > 0 ? (
+          <ToolActivityBlock
+            sessionId={sessionId}
+            events={persistentEvents}
+            detailCache={detailCache}
+            onCacheDetail={onCacheDetail}
+            turnSettled={turnSettled}
+          />
+        ) : null}
+      </>
+    );
+  },
+);
+ActivityBlock.displayName = 'ActivityBlock';
+
+const LiveThinkingBlock: React.FC<{
+  sessionId: string;
+  events: Extract<StructuredActivityEvent, { kind: 'thinking' }>[];
+  detailCache: Record<string, { text?: string; truncated?: boolean }>;
+  onCacheDetail: ActivityBlockProps['onCacheDetail'];
+}> = ({ sessionId, events, detailCache, onCacheDetail }) => {
+  const { theme } = useTheme();
+  const { t } = useTranslation('vibecoding');
+  const [expanded, setExpanded] = useState(false);
+  const summary = summarizeActivity(events, false);
+
+  if (!summary) return null;
+
+  return (
+    <GlassPanel style={styles.block}>
+      <TouchableOpacity
+        testID="thinking-activity-header"
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={expanded ? t('activity.collapse') : t('activity.expand')}
+        onPress={() => setExpanded(value => !value)}
+        style={styles.header}>
+        <Text
+          style={[
+            theme.typography.labelSm,
+            { color: theme.colors.onSurfaceVariant },
+            styles.caret,
+          ]}>
+          {expanded ? '▾' : '▸'}
+        </Text>
+        <ActivityIndicator
+          size="small"
+          color={theme.colors.primary}
+          style={styles.spinner}
+        />
+        <Text
+          style={[
+            theme.typography.labelMd,
+            { color: theme.colors.onSurface },
+            styles.headline,
+          ]}
+          numberOfLines={1}>
+          {summary.headline}
+        </Text>
+      </TouchableOpacity>
+      {expanded ? (
+        <View style={styles.body}>
+          <View style={styles.group}>
+            <Text
+              style={[
+                theme.typography.labelCaps,
+                { color: theme.colors.onSurfaceVariant },
+                styles.groupLabel,
+              ]}>
+              {t('activity.thinkingGroupLabel')}
+            </Text>
+            {events.map(event => (
+              <ThinkingRow
+                key={event.eventId}
+                sessionId={sessionId}
+                event={event}
+                detailCache={detailCache}
+                onCacheDetail={onCacheDetail}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
+    </GlassPanel>
+  );
+};
+
+const ToolActivityBlock: React.FC<ActivityBlockProps> = ({
+  sessionId,
+  events,
+  detailCache,
+  onCacheDetail,
+  turnSettled = true,
+}) => {
     const { theme } = useTheme();
     const { t } = useTranslation('vibecoding');
     const [expanded, setExpanded] = useState(false);
@@ -54,6 +158,7 @@ export const ActivityBlock: React.FC<ActivityBlockProps> = React.memo(
 
     const metaParts: string[] = [];
     if (summary.fileCount > 0) metaParts.push(`📝×${summary.fileCount}`);
+    if (summary.commandCount > 0) metaParts.push(`⚙×${summary.commandCount}`);
     if (summary.taskTotal > 0) {
       metaParts.push(`🎯 ${summary.taskDone}/${summary.taskTotal}`);
     }
@@ -66,10 +171,6 @@ export const ActivityBlock: React.FC<ActivityBlockProps> = React.memo(
     const files = events.filter(
       (e): e is Extract<StructuredActivityEvent, { kind: 'file_change' }> =>
         e.kind === 'file_change',
-    );
-    const thinking = events.filter(
-      (e): e is Extract<StructuredActivityEvent, { kind: 'thinking' }> =>
-        e.kind === 'thinking',
     );
     const task = events.find(
       (e): e is Extract<StructuredActivityEvent, { kind: 'task' }> =>
@@ -126,28 +227,6 @@ export const ActivityBlock: React.FC<ActivityBlockProps> = React.memo(
 
         {expanded ? (
           <View style={styles.body}>
-            {thinking.length > 0 ? (
-              <View style={styles.group}>
-                <Text
-                  style={[
-                    theme.typography.labelCaps,
-                    { color: theme.colors.onSurfaceVariant },
-                    styles.groupLabel,
-                  ]}>
-                  {t('activity.thinkingGroupLabel')}
-                </Text>
-                {thinking.map(event => (
-                  <ThinkingRow
-                    key={event.eventId}
-                    sessionId={sessionId}
-                    event={event}
-                    detailCache={detailCache}
-                    onCacheDetail={onCacheDetail}
-                  />
-                ))}
-              </View>
-            ) : null}
-
             {commands.length > 0 ? (
               <View style={styles.group}>
                 <Text
@@ -197,9 +276,7 @@ export const ActivityBlock: React.FC<ActivityBlockProps> = React.memo(
         ) : null}
       </GlassPanel>
     );
-  },
-);
-ActivityBlock.displayName = 'ActivityBlock';
+};
 
 // ---------------------------------------------------------------------------
 // Lazy-fetch hook — shared by ThinkingRow / CommandRow / FileChangeRow

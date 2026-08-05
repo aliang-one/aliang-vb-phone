@@ -13,11 +13,14 @@ import { ToastViewport } from './src/components/shared/ToastViewport';
 import { usePresenceHeartbeat } from './src/hooks/usePresenceHeartbeat';
 import { useBackgroundNotifications } from './src/hooks/useBackgroundNotifications';
 import {
-  onNotificationPress,
+  cancelNotification,
   getInitialNotificationData,
+  onNotificationAction,
+  onNotificationPress,
 } from './src/services/localNotifications';
 import {
   type NotificationTapData,
+  resolveApprovalAction,
 } from './src/utils/notificationTap';
 import {
   notificationTapIdentity,
@@ -105,6 +108,35 @@ function AppContent({ debugDeviceTerminal }: AppInitialProps = {}) {
       });
     };
     const unsub = onNotificationPress(handleTap);
+    // Approval action buttons (批准/拒绝) on the notification itself: resolve
+    // server-side via the same store action the in-app card uses, then dismiss
+    // the notification. Falls back to body-tap → session for multi-option cases.
+    const handleAction = (
+      raw: Record<string, unknown> | undefined,
+      actionId: string,
+    ) => {
+      const decision = resolveApprovalAction(
+        raw as NotificationTapData | undefined,
+        actionId,
+      );
+      if (!decision) return;
+      void useControlCenterStore
+        .getState()
+        .resolveApproval(
+          decision.approvalId,
+          decision.kind === 'approve' ? 'approved' : 'denied',
+        )
+        .then(() => {
+          const nativeId = raw?.nativeId;
+          if (typeof nativeId === 'string' && nativeId) {
+            void cancelNotification(nativeId);
+          }
+        })
+        .catch((error: unknown) => {
+          console.warn('[notifications] approval action failed', error);
+        });
+    };
+    const unsubActions = onNotificationAction(handleAction);
     void getInitialNotificationData().then(data => {
       if (!cancelled) {
         handleTap(data);
@@ -113,6 +145,7 @@ function AppContent({ debugDeviceTerminal }: AppInitialProps = {}) {
     return () => {
       cancelled = true;
       unsub();
+      unsubActions();
     };
   }, []);
 

@@ -1,9 +1,6 @@
 import type { StateCreator } from 'zustand';
 import { platformTransport } from '../../services/platformTransport';
-import {
-  clearPendingTerminalOutput,
-  terminalOutputHandlers,
-} from '../../components/terminal/TerminalEmulator';
+import { disposeTerminalOutput } from '../../services/terminalOutputRegistry';
 import type {
   ControlCenterState,
   TerminalCommandHistoryItem,
@@ -223,8 +220,7 @@ export const createTerminalSlice: StateCreator<
       terminalId,
     );
     const closed = serverTerminalSessionToClient(serverSession);
-    terminalOutputHandlers.delete(terminalId);
-    clearPendingTerminalOutput(terminalId);
+    disposeTerminalOutput(terminalId);
     set(state => ({
       terminalSessions: state.terminalSessions.map(item =>
         item.id === terminalId
@@ -315,8 +311,7 @@ export const createTerminalSlice: StateCreator<
       sessionId,
     );
     const closed = serverTerminalSessionToClient(serverSession);
-    terminalOutputHandlers.delete(sessionId);
-    clearPendingTerminalOutput(sessionId);
+    disposeTerminalOutput(sessionId);
     set(state => ({
       terminalSessions: state.terminalSessions.map(item =>
         item.id === sessionId

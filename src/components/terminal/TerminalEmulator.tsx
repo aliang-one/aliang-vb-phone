@@ -4,6 +4,10 @@ import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useTheme } from '../../theme/useTheme';
 import { getTerminalHtml, getTerminalThemePalette } from './terminalHtml';
 import { platformTransport } from '../../services/platformTransport';
+import {
+  registerTerminalOutputHandler,
+  unregisterTerminalOutputHandler,
+} from '../../services/terminalOutputRegistry';
 
 interface TerminalEmulatorProps {
   /** Server-side terminal session ID */
@@ -26,44 +30,6 @@ export interface TerminalEmulatorHandle {
   fit: () => void;
 }
 
-const MAX_PENDING_OUTPUT = 200;
-
-interface TerminalOutputChunk {
-  data: string;
-  encoding: string;
-}
-
-const pendingTerminalOutput = new Map<string, TerminalOutputChunk[]>();
-
-export const routeTerminalOutputToEmulator = (
-  sessionId: string,
-  data: string,
-  encoding = 'text',
-) => {
-  const handler = terminalOutputHandlers.get(sessionId);
-  if (handler) {
-    handler(data, encoding);
-    return true;
-  }
-
-  const pending = pendingTerminalOutput.get(sessionId) ?? [];
-  pendingTerminalOutput.set(sessionId, [
-    ...pending.slice(-(MAX_PENDING_OUTPUT - 1)),
-    { data, encoding },
-  ]);
-  return false;
-};
-
-export const drainPendingTerminalOutput = (sessionId: string) => {
-  const pending = pendingTerminalOutput.get(sessionId) ?? [];
-  pendingTerminalOutput.delete(sessionId);
-  return pending;
-};
-
-export const clearPendingTerminalOutput = (sessionId: string) => {
-  pendingTerminalOutput.delete(sessionId);
-};
-
 /**
  * WebView-based xterm.js terminal emulator.
  *
@@ -83,6 +49,10 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
   const webViewRef = useRef<WebView>(null);
   const readyRef = useRef(false);
   const renderedRef = useRef(false);
+  // Buffer output received while the WebView isn't ready to receive injectJS
+  // yet (distinct from the registry's pre-mount buffer, which covers the case
+  // where no emulator handler is registered at all). Capped to bound memory.
+  const MAX_WEBVIEW_READY_PENDING_OUTPUT = 200;
   const pendingOutputRef = useRef<Array<{ data: string; encoding: string }>>([]);
   const html = useRef(getTerminalHtml(isDark)).current;
   const terminalTheme = useMemo(() => getTerminalThemePalette(isDark), [isDark]);
@@ -117,7 +87,7 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
     (data: string, encoding = 'text') => {
       if (!readyRef.current || !webViewRef.current) {
         pendingOutputRef.current = [
-          ...pendingOutputRef.current.slice(-(MAX_PENDING_OUTPUT - 1)),
+          ...pendingOutputRef.current.slice(-(MAX_WEBVIEW_READY_PENDING_OUTPUT - 1)),
           { data, encoding },
         ];
         return;
@@ -155,16 +125,16 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
     injectTerminalData('theme', terminalThemeJson);
   }, [injectTerminalData, terminalThemeJson]);
 
-  // Register/unregister output handler on the global socket listener
+  // Register/unregister output handler on the global socket listener.
+  // The registry owns the routing table; the component only (un)registers its
+  // own handler and replays whatever was buffered before it mounted.
   useEffect(() => {
-    // Register this session's output handler
-    terminalOutputHandlers.set(sessionId, handleOutput);
-    drainPendingTerminalOutput(sessionId).forEach(item => {
+    registerTerminalOutputHandler(sessionId, handleOutput).forEach(item => {
       handleOutput(item.data, item.encoding);
     });
 
     return () => {
-      terminalOutputHandlers.delete(sessionId);
+      unregisterTerminalOutputHandler(sessionId);
     };
   }, [sessionId, handleOutput]);
 
@@ -284,15 +254,6 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
     </View>
   );
 };
-
-/**
- * Global registry for terminal output handlers.
- * The store's WS message handler checks this map before appending to line-based output.
- */
-export const terminalOutputHandlers = new Map<
-  string,
-  (data: string, encoding?: string) => void
->();
 
 const styles = StyleSheet.create({
   container: {

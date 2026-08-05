@@ -43,6 +43,18 @@
       "not_determined": "NOT SET",
       "denied": "BLOCKED",
       "authorized": "ENABLED"
+    },
+    "testTitle": "Test notification",
+    "testCaption": "Checks whether this device can display status-bar alerts",
+    "testBody": "If you can see this, local notifications work.",
+    "sendTest": "SEND TEST NOTIFICATION",
+    "testSent": "Test notification sent",
+    "testFailed": "Failed — check that notifications are allowed",
+    "types": {
+      "approval": "Approvals",
+      "session_done": "Session completed",
+      "session_failed": "Session failed",
+      "device_offline": "Device offline"
     }
   },
   "account": {

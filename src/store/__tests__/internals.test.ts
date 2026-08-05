@@ -60,7 +60,7 @@ describe('demoteRunDetail', () => {
       title: 'My session',
       status: 'completed',
       lastActivityMs: 123,
-      detailLoadedAt: '100',
+      detailState: { kind: 'ready' },
       transcript: [{ id: 'm1' } as unknown as VibeCodingRun['transcript'][number]],
       events: [{ id: 'x' } as unknown as VibeCodingRun['events'][number]],
       structuredEvents: [
@@ -77,7 +77,7 @@ describe('demoteRunDetail', () => {
     expect(out.events).toEqual([]);
     expect(out.structuredEvents).toEqual([]);
     expect(out.eventDetailCache).toBeUndefined();
-    expect(out.detailLoadedAt).toBeUndefined();
+    expect(out.detailState).toBeUndefined();
   });
 });
 
@@ -95,7 +95,7 @@ describe('demoteIdleSessions', () => {
     });
     const out = demoteIdleSessions([idle], now);
     expect(out[0].structuredEvents).toEqual([]);
-    expect(out[0].detailLoadedAt).toBeUndefined();
+    expect(out[0].detailState).toBeUndefined();
   });
 
   it('never demotes an active (streaming) session', () => {
@@ -163,7 +163,7 @@ describe('evictStaleSessionDetail clears structured activity too', () => {
       makeRun({
         id: `s${i}`,
         status: 'completed',
-        detailLoadedAt: String(100 + i),
+        detailState: { kind: 'ready' },
         lastActivityMs: 1000 + i, // s0 oldest
         structuredEvents: [
           { kind: 'command', eventId: `e${i}` } as unknown as VibeCodingRun['structuredEvents'][number],
@@ -176,7 +176,7 @@ describe('evictStaleSessionDetail clears structured activity too', () => {
     const evicted = out.find(r => r.id === 's0')!;
     expect(evicted.structuredEvents).toEqual([]);
     expect(evicted.eventDetailCache).toBeUndefined();
-    expect(evicted.detailLoadedAt).toBeUndefined();
+    expect(evicted.detailState).toBeUndefined();
     // Others retain their activity.
     const kept = out.find(r => r.id === 's8')!;
     expect(kept.structuredEvents).toHaveLength(1);
@@ -186,7 +186,7 @@ describe('evictStaleSessionDetail clears structured activity too', () => {
     const recentlyViewedOldActivity = makeRun({
       id: 'recently-viewed',
       status: 'completed',
-      detailLoadedAt: '100',
+      detailState: { kind: 'ready' },
       lastActivityMs: 1,
       lastViewedAt: 10_000,
       structuredEvents: [
@@ -199,7 +199,7 @@ describe('evictStaleSessionDetail clears structured activity too', () => {
         makeRun({
           id: `older-view-${i}`,
           status: 'completed',
-          detailLoadedAt: String(200 + i),
+          detailState: { kind: 'ready' },
           lastActivityMs: 1_000 + i,
           lastViewedAt: 100 + i,
           structuredEvents: [
@@ -597,5 +597,164 @@ describe('isConnectionFailed (从未连上 → 显连接失败卡)', () => {
 
   it('正常连上且有数据 → false', () => {
     expect(isConnectionFailed(true, Date.now(), null)).toBe(false);
+  });
+});
+
+// --- Characterization tests: pin current behavior BEFORE the session-detail
+// state-machine / DetailState refactor (#2/#3). These are NOT "desired behavior"
+// specs — they document what the code does today so the refactor can prove it
+// preserves every invariant. If any of these flips during the migration, that's
+// a behavior change to investigate, not a test to update.
+describe('mergeVibeRunSnapshot — characterization (refactor safety net)', () => {
+  const detailedRun = (over: Partial<VibeCodingRun> & { id: string }): VibeCodingRun =>
+    makeRun({
+      status: 'completed',
+      detailState: { kind: 'ready' },
+      lastActivityMs: 1000,
+      lastViewedAt: 5000,
+      transcript: [
+        { id: 'keep-1', role: 'user', content: 'old', timestamp: 't1' } as unknown as VibeCodingRun['transcript'][number],
+      ],
+      events: [
+        { id: 'evt-1', type: 'status', title: 'old', detail: '', status: 'done', timestamp: 't1' } as unknown as VibeCodingRun['events'][number],
+      ],
+      ...over,
+    });
+
+  it('existing 缺省 → 原样返回 incoming', () => {
+    const incoming = detailedRun({ id: 'x' });
+    expect(mergeVibeRunSnapshot(undefined, incoming)).toBe(incoming);
+  });
+
+  it('incoming 无 detail(列表快照)→ 保留 existing 的 transcript/events(不擦)', () => {
+    const existing = detailedRun({ id: 's1' });
+    // A list snapshot: no transcript, no detailState.
+    const snapshot = makeRun({
+      id: 's1',
+      status: 'completed',
+      detailState: undefined,
+      transcript: [],
+      events: [],
+      lastActivityMs: 2000,
+    });
+    const merged = mergeVibeRunSnapshot(existing, snapshot);
+    expect(merged.transcript.map(m => m.id)).toEqual(['keep-1']);
+    expect(merged.events.map(e => e.id)).toEqual(['evt-1']);
+  });
+
+  it('incoming 有 detail → 合并 transcript(incoming 内容进合并集,不丢)', () => {
+    const existing = detailedRun({ id: 's1' });
+    const incoming = detailedRun({
+      id: 's1',
+      transcript: [
+        { id: 'keep-1', role: 'user', content: 'old', timestamp: 't1' } as unknown as VibeCodingRun['transcript'][number],
+        { id: 'new-2', role: 'assistant', content: 'fresh', timestamp: 't2' } as unknown as VibeCodingRun['transcript'][number],
+      ],
+    });
+    const merged = mergeVibeRunSnapshot(existing, incoming);
+    expect(merged.transcript.map(m => m.id).sort()).toEqual(['keep-1', 'new-2']);
+  });
+
+  it('detailState: 权威 incoming(ready/empty)覆盖 existing;非权威 incoming 保留 existing', () => {
+    // incoming authoritative wins over existing authoritative
+    expect(
+      mergeVibeRunSnapshot(
+        detailedRun({ id: 's', detailState: { kind: 'ready' } }),
+        detailedRun({ id: 's', detailState: { kind: 'empty' } }),
+      ).detailState,
+    ).toEqual({ kind: 'empty' });
+    // existing retained when incoming is non-authoritative (recoverable_empty)
+    expect(
+      mergeVibeRunSnapshot(
+        detailedRun({ id: 's', detailState: { kind: 'ready' } }),
+        detailedRun({ id: 's', detailState: { kind: 'recoverable_empty' } }),
+      ).detailState,
+    ).toEqual({ kind: 'ready' });
+    // existing retained when incoming is a list snapshot (undefined)
+    expect(
+      mergeVibeRunSnapshot(
+        detailedRun({ id: 's', detailState: { kind: 'ready' } }),
+        detailedRun({ id: 's', detailState: undefined }),
+      ).detailState,
+    ).toEqual({ kind: 'ready' });
+    // both undefined → undefined
+    expect(
+      mergeVibeRunSnapshot(
+        detailedRun({ id: 's', detailState: undefined }),
+        detailedRun({ id: 's', detailState: undefined }),
+      ).detailState,
+    ).toBeUndefined();
+  });
+
+  it('lastViewedAt 永远取 existing(快照不带,不能擦)', () => {
+    const existing = detailedRun({ id: 's', lastViewedAt: 5000 });
+    const snapshot = detailedRun({ id: 's', lastViewedAt: undefined });
+    expect(mergeVibeRunSnapshot(existing, snapshot).lastViewedAt).toBe(5000);
+  });
+
+  it('lastActivityMs 取 max(existing, incoming)', () => {
+    const merged = mergeVibeRunSnapshot(
+      detailedRun({ id: 's', lastActivityMs: 1000 }),
+      detailedRun({ id: 's', lastActivityMs: 3000 }),
+    );
+    expect(merged.lastActivityMs).toBe(3000);
+  });
+
+  it('stale guard: 旧 runStateVersion 不能把活跃会话降级(状态/相位保留 existing)', () => {
+    const existing = detailedRun({ id: 's', status: 'running', runStateVersion: 5 });
+    const incoming = detailedRun({
+      id: 's',
+      status: 'completed',
+      runStateVersion: 4, // older
+      lastActivityMs: 500, // also older — must not demote
+    });
+    const merged = mergeVibeRunSnapshot(existing, incoming);
+    expect(merged.status).toBe('running');
+    expect(merged.runStateVersion).toBe(5);
+  });
+
+  it('stale reactivation: 已结算会话不被活动不更新的活跃快照重新激活', () => {
+    const existing = detailedRun({ id: 's', status: 'completed', lastActivityMs: 1000 });
+    const incoming = detailedRun({
+      id: 's',
+      status: 'running',
+      lastActivityMs: 1000, // not newer
+    });
+    expect(mergeVibeRunSnapshot(existing, incoming).status).toBe('completed');
+  });
+});
+
+describe('evictStaleSessionDetail — characterization (boundary)', () => {
+  it('恰好等于 MAX_SESSION_DETAIL → 不驱逐(返回同一引用)', () => {
+    const runs = Array.from({ length: 8 }, (_, i) =>
+      makeRun({
+        id: `s${i}`,
+        status: 'completed',
+        detailState: { kind: 'ready' },
+        lastActivityMs: 1000 + i,
+      }),
+    );
+    expect(evictStaleSessionDetail(runs)).toBe(runs);
+  });
+
+  it('active(running)会话即使最老也不被驱逐', () => {
+    const active = makeRun({
+      id: 'active',
+      status: 'running', // protected
+      detailState: { kind: 'ready' },
+      lastActivityMs: 1, // oldest
+    });
+    const inactive = Array.from({ length: 8 }, (_, i) =>
+      makeRun({
+        id: `c${i}`,
+        status: 'completed',
+        detailState: { kind: 'ready' },
+        lastActivityMs: 1000 + i,
+      }),
+    );
+    const out = evictStaleSessionDetail([active, ...inactive]);
+    // active kept its detail; one inactive run got demoted instead.
+    expect(out.find(r => r.id === 'active')?.detailState).toEqual({ kind: 'ready' });
+    expect(out.some(r => r.id !== 'active' && r.detailState === undefined)).toBe(true);
   });
 });

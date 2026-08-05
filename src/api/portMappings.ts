@@ -31,8 +31,13 @@ export interface CreatePortMappingInput {
   expiresInSeconds: number;
 }
 
-export const fetchPortMappings = async (): Promise<PortMapping[]> => {
-  const response = await apiGet<{ mappings: PortMapping[] }>('/api/port-mappings');
+export const fetchPortMappings = async (
+  deviceId?: string,
+): Promise<PortMapping[]> => {
+  const path = deviceId
+    ? `/api/port-mappings?device_id=${encodeURIComponent(deviceId)}`
+    : '/api/port-mappings';
+  const response = await apiGet<{ mappings: PortMapping[] }>(path);
   return response.mappings;
 };
 

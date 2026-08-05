@@ -1,4 +1,9 @@
-import { decideNotificationDelivery } from '../notificationDeliveryPolicy';
+import {
+  DEFAULT_NOTIFICATION_PREFS,
+  decideNotificationDelivery,
+  isEventTypeEnabled,
+  type NotificationPrefs,
+} from '../notificationDeliveryPolicy';
 
 describe('decideNotificationDelivery', () => {
   it('allows five individual alerts, then collapses overflow into one summary', () => {
@@ -34,5 +39,32 @@ describe('decideNotificationDelivery', () => {
       kind: 'individual',
       state: { recentAlertTimes: [65_000], suppressedCount: 0 },
     });
+  });
+});
+
+describe('isEventTypeEnabled', () => {
+  it('returns true for every type when all prefs are enabled', () => {
+    const prefs: NotificationPrefs = { ...DEFAULT_NOTIFICATION_PREFS };
+    expect(isEventTypeEnabled(prefs, 'approval')).toBe(true);
+    expect(isEventTypeEnabled(prefs, 'session_done')).toBe(true);
+    expect(isEventTypeEnabled(prefs, 'session_failed')).toBe(true);
+    expect(isEventTypeEnabled(prefs, 'device_offline')).toBe(true);
+  });
+
+  it('returns false only for the type the user switched off', () => {
+    const prefs: NotificationPrefs = {
+      ...DEFAULT_NOTIFICATION_PREFS,
+      approval: false,
+    };
+    expect(isEventTypeEnabled(prefs, 'approval')).toBe(false);
+    expect(isEventTypeEnabled(prefs, 'session_done')).toBe(true);
+  });
+
+  it('defaults to enabled when a type is missing from persisted prefs', () => {
+    // Older persisted state may predate a newly-added event type. Missing must
+    // never silently suppress — it should notify.
+    const prefs = { approval: false } as unknown as NotificationPrefs;
+    expect(isEventTypeEnabled(prefs, 'approval')).toBe(false);
+    expect(isEventTypeEnabled(prefs, 'session_failed')).toBe(true);
   });
 });

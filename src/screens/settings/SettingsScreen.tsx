@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Switch,
   View,
   Text,
   StyleSheet,
@@ -31,16 +32,25 @@ import { ratioPercent, daysUntil, formatDate } from '../../utils/format';
 import type { AccountSubscription } from '../../api/account';
 import { UserModelDefaultCard } from '../../components/account/UserModelDefaultCard';
 import {
+  displayNotification,
   getNotificationPermissionStatus,
   openNotificationSettings,
   requestPermission,
   type LocalNotificationPermissionStatus,
 } from '../../services/localNotifications';
+import { type NotifiableEventType } from '../../utils/notificationDeliveryPolicy';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 const ratio = (value: number, total: number) =>
   total > 0 ? Math.min(100, (value / total) * 100) : 0;
+
+const NOTIFIABLE_EVENT_TYPES: NotifiableEventType[] = [
+  'approval',
+  'session_done',
+  'session_failed',
+  'device_offline',
+];
 
 export const SettingsScreen: React.FC = () => {
   const { theme, isDark, mode, setMode } = useTheme();
@@ -59,6 +69,8 @@ export const SettingsScreen: React.FC = () => {
   const refreshAccountData = useSessionStore(state => state.refreshAccountData);
   const clearSavedCredentials = useSessionStore(state => state.clearSavedCredentials);
   const show = useToastStore(s => s.show);
+  const notificationPrefs = useSessionStore(s => s.notificationPrefs);
+  const setNotificationPrefs = useSessionStore(s => s.setNotificationPrefs);
   const disconnectFromServer = useControlCenterStore(state => state.disconnectFromServer);
   const resetSessionData = useControlCenterStore(state => state.resetSessionData);
   const wsConnected = useControlCenterStore(state => state.wsConnected);
@@ -198,6 +210,23 @@ export const SettingsScreen: React.FC = () => {
       setUpdatingNotificationPermission(false);
     }
   };
+
+  // Diagnostic: pops a local notification immediately, isolating "can notify-kit
+  // display at all on this device" from the WS/background trigger chain.
+  const handleSendTestNotification = useCallback(async () => {
+    const displayed = await displayNotification({
+      id: `vibe_test_${Date.now()}`,
+      title: t('notifications.testTitle'),
+      body: t('notifications.testBody'),
+      data: { type: 'test' },
+    });
+    show(
+      displayed
+        ? t('notifications.testSent')
+        : t('notifications.testFailed'),
+      displayed ? 'success' : 'error',
+    );
+  }, [show, t]);
 
   const renderSectionTitle = (label: string) => (
     <Text
@@ -478,6 +507,54 @@ export const SettingsScreen: React.FC = () => {
                   style={styles.serviceButton}
                 />
               </View>
+            </GlassPanel>
+
+            <GlassPanel style={styles.panel}>
+              <View style={styles.settingRow}>
+                <View style={styles.settingCopy}>
+                  <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                    {t('notifications.testTitle')}
+                  </Text>
+                  <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                    {t('notifications.testCaption')}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.serviceActionsInset}>
+                <GlowButton
+                  title={t('notifications.sendTest')}
+                  onPress={() => void handleSendTestNotification()}
+                  disabled={notificationPermission !== 'authorized'}
+                  variant="secondary"
+                  style={styles.serviceButton}
+                />
+              </View>
+              {NOTIFIABLE_EVENT_TYPES.map(type => {
+                const enabled = notificationPrefs[type] ?? true;
+                return (
+                  <View style={styles.settingRow} key={type}>
+                    <View style={styles.settingCopy}>
+                      <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                        {t(`notifications.types.${type}`)}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={enabled}
+                      accessibilityLabel={t(`notifications.types.${type}`)}
+                      trackColor={{
+                        false: theme.colors.surfaceContainerHighest,
+                        true: theme.colors.primaryContainer,
+                      }}
+                      thumbColor={
+                        enabled ? theme.colors.primary : theme.colors.onSurfaceVariant
+                      }
+                      onValueChange={value =>
+                        setNotificationPrefs({ ...notificationPrefs, [type]: value })
+                      }
+                    />
+                  </View>
+                );
+              })}
             </GlassPanel>
 
             {renderSectionTitle(t('sections.capacity'))}

@@ -1,4 +1,7 @@
-import { resolveNotificationTapTarget } from '../notificationTap';
+import {
+  resolveApprovalAction,
+  resolveNotificationTapTarget,
+} from '../notificationTap';
 
 describe('resolveNotificationTapTarget', () => {
   it('opens an approval in its session', () => {
@@ -51,5 +54,56 @@ describe('resolveNotificationTapTarget', () => {
       resolveNotificationTapTarget({ type: 'device_offline', deviceId: ' ' }),
     ).toBeNull();
     expect(resolveNotificationTapTarget(null)).toBeNull();
+  });
+});
+
+describe('resolveApprovalAction', () => {
+  it('maps an approve action press to an approved decision', () => {
+    expect(
+      resolveApprovalAction(
+        { type: 'approval', sessionId: 's1', approvalId: 'a1' },
+        'approve',
+      ),
+    ).toEqual({ kind: 'approve', approvalId: 'a1' });
+  });
+
+  it('maps a deny action press to a denied decision', () => {
+    expect(
+      resolveApprovalAction(
+        { type: 'approval', sessionId: 's1', approvalId: 'a1' },
+        'deny',
+      ),
+    ).toEqual({ kind: 'deny', approvalId: 'a1' });
+  });
+
+  it('ignores action presses on non-approval notifications', () => {
+    expect(
+      resolveApprovalAction(
+        { type: 'session_done', sessionId: 's1' },
+        'approve',
+      ),
+    ).toBeNull();
+  });
+
+  it('ignores presses with no approval id', () => {
+    expect(
+      resolveApprovalAction({ type: 'approval', sessionId: 's1' }, 'approve'),
+    ).toBeNull();
+  });
+
+  it('ignores unknown action ids and missing input', () => {
+    expect(
+      resolveApprovalAction(
+        { type: 'approval', sessionId: 's1', approvalId: 'a1' },
+        'snooze',
+      ),
+    ).toBeNull();
+    expect(
+      resolveApprovalAction(
+        { type: 'approval', sessionId: 's1', approvalId: 'a1' },
+        undefined,
+      ),
+    ).toBeNull();
+    expect(resolveApprovalAction(null, 'approve')).toBeNull();
   });
 });

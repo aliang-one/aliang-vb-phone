@@ -62,7 +62,7 @@ describe('serverAiSessionToVibeRun detail signalling', () => {
     expect(run.detailRefreshStatus).toBeUndefined();
   });
 
-  it('does NOT mark detailLoadedAt when transcript and events are empty arrays', () => {
+  it('does NOT mark detailState when transcript and events are empty arrays', () => {
     // Regression guard: an empty array is truthy in JS. The old
     // `session.transcript || session.events` form treated `[]` as "has detail"
     // and suppressed the chat screen's first-fetch, leaving it blank.
@@ -71,10 +71,10 @@ describe('serverAiSessionToVibeRun detail signalling', () => {
       [],
       [],
     );
-    expect(run.detailLoadedAt).toBeUndefined();
+    expect(run.detailState).toBeUndefined();
   });
 
-  it('marks detailLoadedAt when the snapshot carries real transcript content', () => {
+  it('marks detailState ready when the snapshot carries real transcript content', () => {
     const run = serverAiSessionToVibeRun(
       baseSession({
         transcript: [
@@ -89,7 +89,7 @@ describe('serverAiSessionToVibeRun detail signalling', () => {
       [],
       [],
     );
-    expect(run.detailLoadedAt).toBeTruthy();
+    expect(run.detailState).toEqual({ kind: 'ready' });
     expect(run.transcript).toHaveLength(1);
   });
 

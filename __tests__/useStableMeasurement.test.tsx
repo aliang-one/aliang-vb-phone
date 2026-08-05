@@ -11,6 +11,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import {
+  mergeMeasuredLayouts,
   shouldCommitMeasurement,
   useStableMeasurement,
 } from '../src/hooks/useStableMeasurement';
@@ -132,5 +133,57 @@ describe('useStableMeasurement', () => {
     act(() => probe.getCommit()(100.5)); // forces a re-render
     expect(probe.getCommit()).toBe(firstCommit);
     probe.unmount();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-item layout map merge (deferred flush convergence)
+// ---------------------------------------------------------------------------
+
+describe('mergeMeasuredLayouts', () => {
+  test('returns the SAME reference when nothing is pending', () => {
+    const current = { a: { top: 10, height: 50 } };
+    expect(mergeMeasuredLayouts(current, [])).toBe(current);
+  });
+
+  test('returns the SAME reference when pending values equal committed (sub-pixel already rounded away)', () => {
+    const current = { a: { top: 10, height: 50 } };
+    // Same rounded values → no meaningful change → bail (no re-render).
+    const result = mergeMeasuredLayouts(current, [
+      ['a', { top: 10, height: 50 }],
+    ]);
+    expect(result).toBe(current);
+  });
+
+  test('returns a NEW map with the changed item when an axis moved >=1px', () => {
+    const current = { a: { top: 10, height: 50 }, b: { top: 80, height: 20 } };
+    const result = mergeMeasuredLayouts(current, [
+      ['a', { top: 12, height: 50 }], // top moved 2px → commit
+    ]);
+    expect(result).not.toBe(current);
+    expect(result.a).toEqual({ top: 12, height: 50 });
+    expect(result.b).toBe(current.b); // unchanged item keeps its value
+  });
+
+  test('adds a brand-new item', () => {
+    const current = { a: { top: 10, height: 50 } };
+    const result = mergeMeasuredLayouts(current, [
+      ['c', { top: 200, height: 30 }],
+    ]);
+    expect(result).not.toBe(current);
+    expect(result.c).toEqual({ top: 200, height: 30 });
+  });
+
+  test('coalesces a burst: only changed items are written, in one new map', () => {
+    const current = { a: { top: 10, height: 50 }, b: { top: 80, height: 20 } };
+    const result = mergeMeasuredLayouts(current, [
+      ['a', { top: 10, height: 50 }], // unchanged
+      ['b', { top: 90, height: 20 }], // changed
+      ['c', { top: 200, height: 30 }], // new
+    ]);
+    expect(result).not.toBe(current);
+    expect(result.a).toEqual({ top: 10, height: 50 });
+    expect(result.b).toEqual({ top: 90, height: 20 });
+    expect(result.c).toEqual({ top: 200, height: 30 });
   });
 });

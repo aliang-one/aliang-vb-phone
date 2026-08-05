@@ -34,6 +34,10 @@ import {
   setSessionRefresher,
 } from '../src/api/sessionAuth';
 import { useControlCenterStore } from '../src/store/controlCenterStore';
+import {
+  DEFAULT_NOTIFICATION_PREFS,
+  type NotificationPrefs,
+} from '../src/utils/notificationDeliveryPolicy';
 
 // Informed-consent prompt before a biometric-gated credential save. Android's
 // setGenericPassword(accessControl) prompts fingerprint on WRITE, so we ask
@@ -80,6 +84,12 @@ interface SessionState {
   refreshSession: () => Promise<boolean>;
   refreshAccountData: () => Promise<void>;
   setOperatorName: (operatorName: string) => void;
+  /**
+   * Per-event-type toggles for Android background status-bar notifications.
+   * Persisted locally (server-agnostic); defaults to all enabled.
+   */
+  notificationPrefs: NotificationPrefs;
+  setNotificationPrefs: (prefs: NotificationPrefs) => void;
 }
 
 export const useSessionStore = create<SessionState>()(
@@ -91,6 +101,7 @@ export const useSessionStore = create<SessionState>()(
       refreshToken: null,
       operatorName: 'Aliang',
       accountData: null,
+      notificationPrefs: { ...DEFAULT_NOTIFICATION_PREFS },
       restoreUser: async () => {
         const token = get().token;
         if (!token) {
@@ -260,6 +271,7 @@ export const useSessionStore = create<SessionState>()(
       },
       setOperatorName: operatorName =>
         set({ operatorName: operatorName.trim() || 'Aliang' }),
+      setNotificationPrefs: notificationPrefs => set({ notificationPrefs }),
     }),
     {
       name: 'console-profile-store',
@@ -281,6 +293,7 @@ export const useSessionStore = create<SessionState>()(
         refreshToken: state.refreshToken,
         operatorName: state.operatorName,
         accountData: state.accountData,
+        notificationPrefs: state.notificationPrefs,
       }),
       onRehydrateStorage: () => state => {
         useSessionStore.setState({

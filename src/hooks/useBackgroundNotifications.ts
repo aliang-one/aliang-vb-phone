@@ -7,6 +7,8 @@ import {
   getNotificationPermissionStatus,
   requestPermission,
 } from '../services/localNotifications';
+import { isEventTypeEnabled } from '../utils/notificationDeliveryPolicy';
+import { useSessionStore } from '../../stores/useSettingsStore';
 
 interface BackgroundNotificationOptions {
   enabled: boolean;
@@ -75,7 +77,11 @@ export function useBackgroundNotifications({
         alreadyNotified: excluded,
         userId,
       });
+      const prefs = useSessionStore.getState().notificationPrefs;
       for (const notification of result.notifications) {
+        // Honour the per-event-type toggles from Settings: a switched-off type
+        // is silently skipped (no native notification, no dedupe bookkeeping).
+        if (!isEventTypeEnabled(prefs, notification.data.type)) continue;
         inFlightRef.current.add(notification.key);
         void displayManagedNotification({
           id: notification.nativeId,

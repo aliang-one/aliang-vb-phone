@@ -43,7 +43,7 @@ const wrap = (ui: React.ReactElement) => {
 const collectStrings = (root: ReactTestRenderer.ReactTestInstance): string =>
   root
     .findAllByType(Text)
-    .map((t) => String(t.props.children ?? ''))
+    .map(t => String(t.props.children ?? ''))
     .join('|');
 
 describe('ActivityBlock smoke', () => {
@@ -97,7 +97,7 @@ describe('ActivityBlock smoke', () => {
     expect(text).toContain('npm test');
   });
 
-  it('fetches thinking detail only when its row opens and reveals it in chunks', async () => {
+  it('keeps tools after thinking stops while removing the transient thinking block', async () => {
     const longThinking = `${'x'.repeat(4_000)}THE_END`;
     jest.mocked(fetchStructuredEventDetail).mockResolvedValueOnce({
       text: longThinking,
@@ -108,7 +108,7 @@ describe('ActivityBlock smoke', () => {
         kind: 'thinking',
         eventId: 'think-1',
         messageId: 'm1',
-        active: false,
+        active: true,
         chars: longThinking.length,
       },
       {
@@ -144,6 +144,9 @@ describe('ActivityBlock smoke', () => {
     });
 
     act(() => {
+      renderer!.root
+        .findByProps({ testID: 'thinking-activity-header' })
+        .props.onPress();
       renderer!.root.findByProps({ testID: 'activity-header' }).props.onPress();
     });
     expect(fetchStructuredEventDetail).not.toHaveBeenCalled();
@@ -169,5 +172,42 @@ describe('ActivityBlock smoke', () => {
     expect(
       renderer!.root.findAllByType(TouchableOpacity).length,
     ).toBeGreaterThan(1);
+
+    const settledEvents = events.map(event =>
+      event.kind === 'thinking' ? { ...event, active: false } : event,
+    );
+    act(() => {
+      renderer!.update(
+        <ThemeContext.Provider
+          value={{
+            theme: utilityMinimalist,
+            mode: 'light',
+            setMode: jest.fn(),
+            isDark: false,
+          }}
+        >
+          <SafeAreaProvider
+            initialMetrics={{
+              frame: { x: 0, y: 0, width: 390, height: 844 },
+              insets: { top: 0, right: 0, bottom: 0, left: 0 },
+            }}
+          >
+            <ActivityBlock
+              sessionId="s1"
+              events={settledEvents}
+              detailCache={{}}
+              onCacheDetail={jest.fn()}
+            />
+          </SafeAreaProvider>
+        </ThemeContext.Provider>,
+      );
+    });
+    expect(
+      renderer!.root.findAllByProps({ testID: 'thinking-activity-header' }),
+    ).toHaveLength(0);
+    act(() => {
+      renderer!.root.findByProps({ testID: 'activity-header' }).props.onPress();
+    });
+    expect(collectStrings(renderer!.root)).toContain('npm test');
   });
 });
