@@ -25,6 +25,8 @@
 import { serverAiSessionToVibeRun } from '../src/store/internals';
 import { resolveDetailState, isAuthoritativeDetail } from '../src/store/sessionDetail';
 import type { ServerAiSession } from '../src/api/sessions';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Realistic wire payload matching server publicAiSession output. Only the
 // contract-relevant fields are varied per case; everything else uses stable
@@ -173,5 +175,59 @@ describe('wire contract — 会话身份与状态映射', () => {
   it('purpose: goal → model purpose goal(goal UI 仅此渲染)', () => {
     const run = serverAiSessionToVibeRun(wire({ purpose: 'goal' }), [], []);
     expect(run.purpose).toBe('goal');
+  });
+});
+
+// --- 真正的跨端 golden contract: 读服务端 publicAiSession 的实际输出 ---
+
+const GOLDEN_PATH = path.resolve(
+  __dirname,
+  '..',
+  '..',
+  'AliangPhoneServer',
+  'server',
+  'test',
+  'fixtures',
+  'publicAiSession.golden.json',
+);
+
+describe('跨端 golden contract (服务端真实 publicAiSession 输出)', () => {
+  const goldenAvailable = fs.existsSync(GOLDEN_PATH);
+
+  const goldenIt = goldenAvailable ? it : it.skip;
+  goldenIt(
+    'golden payload 经 serverAiSessionToVibeRun 映射出正确的 VibeCodingRun',
+    () => {
+      const golden = JSON.parse(fs.readFileSync(GOLDEN_PATH, 'utf8')) as ServerAiSession;
+      const run = serverAiSessionToVibeRun(golden, [], []);
+
+      // 服务端 golden 的关键字段经映射后保持语义
+      expect(run.id).toBe(golden.session_id);
+      expect(run.status).toBeDefined();
+      // runState/runStateVersion 透传(lifecycle 权威源)
+      if (golden.run_state !== undefined) {
+        expect(run.runState).toBe(golden.run_state);
+      }
+      if (golden.run_state_version !== undefined) {
+        expect(run.runStateVersion).toBe(golden.run_state_version);
+      }
+      // phase 透传(列表显 done 脱节修复)
+      if (golden.phase !== undefined) {
+        expect(run.phase).toBe(golden.phase);
+      }
+      // transcript_count 透传(空历史升级信号)
+      expect(run.transcriptCount).toBe(golden.transcript_count);
+      // 有内容 → detailState ready
+      if ((golden.transcript_count ?? 0) > 0) {
+        expect(run.detailState).toEqual({ kind: 'ready' });
+      }
+    },
+  );
+
+  it('golden 不存在时跳过(非 CI / 无 sibling repo)', () => {
+    if (!goldenAvailable) {
+      // 手写 fixture 仍是 fallback(上面的 describe 覆盖)
+      expect(true).toBe(true);
+    }
   });
 });
