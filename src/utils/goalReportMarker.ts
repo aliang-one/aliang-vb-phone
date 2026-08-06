@@ -102,12 +102,19 @@ const indexOfLineStart = (content: string, marker: string): number => {
  * tail of `content` (the streaming case: the marker is mid-arrival), or -1.
  * Longest-prefix-first so we suppress as early as possible once the line
  * clearly intends to be the marker. The line-start gate is the prose guard.
+ *
+ * Minimum prefix length is 5 (`'ALIAN'`): shorter prefixes like `'A'` or
+ * `'AL'` are common in prose (especially single-letter test messages) and
+ * would cause false-positive partial-marker detection, stripping the narrative
+ * to empty and silently dropping the message.
  */
+const MIN_PARTIAL_PREFIX = 5;
+
 const partialPrefixAtLineStart = (
   content: string,
   marker: string,
 ): number => {
-  for (let len = marker.length - 1; len >= 1; len -= 1) {
+  for (let len = marker.length - 1; len >= MIN_PARTIAL_PREFIX; len -= 1) {
     const prefix = marker.slice(0, len);
     if (!content.endsWith(prefix)) continue;
     const start = content.length - len;

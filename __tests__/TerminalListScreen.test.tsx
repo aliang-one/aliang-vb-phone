@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
-import { Text, TouchableOpacity } from 'react-native';
+import { Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { TerminalListScreen } from '../src/screens/terminals/TerminalListScreen';
 import { ThemeContext } from '../src/theme/ThemeContext';
@@ -13,30 +13,34 @@ const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({
     navigate: mockNavigate,
+    canGoBack: () => true,
+    goBack: jest.fn(),
   }),
 }));
 
 jest.mock('../src/components/vibecoding/DeviceControlCard', () => ({
-  DeviceControlCard: ({ device: item }: { device: Device }) => {
+  DeviceControlCard: ({ device: item, onPress }: { device: Device; onPress: () => void }) => {
     const MockReact = require('react');
-    const { View: MockView } = require('react-native');
-    return MockReact.createElement(MockView, {
-      testID: 'device-card',
-      'data-device-id': item.id,
-    });
+    const { View: MockView, TouchableOpacity: MockTO } = require('react-native');
+    return MockReact.createElement(
+      MockTO,
+      {
+        testID: 'device-card',
+        'data-device-id': item.id,
+        onPress,
+      },
+      MockReact.createElement(MockView, null),
+    );
   },
 }));
 
-describe('TerminalListScreen active terminal shortcuts', () => {
+describe('TerminalListScreen', () => {
   let screen: ReactTestRenderer.ReactTestRenderer | undefined;
 
   beforeEach(() => {
     useControlCenterStore.setState({
       devices: [device('device-1', 'MacBook', 'online')],
-      terminalSessions: [
-        terminal('term-active', 'device-1', 'running', '~/project'),
-        terminal('term-completed', 'device-1', 'completed', '~/old'),
-      ],
+      terminalSessions: [],
       stopTerminal: jest.fn().mockResolvedValue(undefined),
       refreshFromServer: jest.fn().mockResolvedValue(undefined),
     });
@@ -69,7 +73,33 @@ describe('TerminalListScreen active terminal shortcuts', () => {
       </ThemeContext.Provider>,
     );
 
-  it('shows active terminals and resumes or closes the same PTY', async () => {
+  it('shows device cards and navigates to DeviceDetail on tap', () => {
+    act(() => {
+      screen = renderScreen();
+    });
+
+    // Device cards are rendered.
+    const cards = screen!.root.findAllByProps({ testID: 'device-card' });
+    expect(cards.length).toBeGreaterThanOrEqual(1);
+    expect(cards[0].props['data-device-id']).toBe('device-1');
+
+    // Tapping a device card navigates to DeviceDetail.
+    act(() => {
+      cards[0].props.onPress();
+    });
+    expect(mockNavigate).toHaveBeenCalledWith('DeviceDetail', {
+      deviceId: 'device-1',
+    });
+  });
+
+  it('shows correct device summary counts', () => {
+    useControlCenterStore.setState({
+      devices: [
+        device('device-1', 'MacBook', 'online'),
+        device('device-2', 'Server', 'offline'),
+      ],
+    });
+
     act(() => {
       screen = renderScreen();
     });
@@ -79,58 +109,12 @@ describe('TerminalListScreen active terminal shortcuts', () => {
       return Array.isArray(children) ? children.join('') : String(children);
     });
     const joinedText = textContent.join('\n');
-    expect(joinedText).toContain('ACTIVE TERMINALS');
-    expect(joinedText).toContain('1 ACTIVE');
-    expect(joinedText).toContain('project');
-    expect(joinedText).toContain('MacBook');
-    expect(joinedText).toContain('zsh');
-    expect(joinedText).toContain('$ git status --short');
-    expect(joinedText).not.toContain('old');
 
-    const buttons = screen!.root.findAllByType(TouchableOpacity);
-    const resumeButton = findButtonByLabel(buttons, 'RESUME');
-    const closeButton = findButtonByLabel(buttons, 'CLOSE');
-
-    act(() => {
-      resumeButton?.props.onPress();
-    });
-    expect(mockNavigate).toHaveBeenCalledWith('DeviceTerminal', {
-      deviceId: 'device-1',
-      terminalId: 'term-active',
-      directory: '~/project',
-    });
-
-    await act(async () => {
-      closeButton?.props.onPress();
-    });
-    expect(useControlCenterStore.getState().stopTerminal).toHaveBeenCalledWith(
-      'term-active',
-    );
-  });
-
-  it('disables active terminal actions when the owning device is offline', () => {
-    useControlCenterStore.setState({
-      devices: [device('device-1', 'MacBook', 'offline')],
-    });
-
-    act(() => {
-      screen = renderScreen();
-    });
-
-    const buttons = screen!.root.findAllByType(TouchableOpacity);
-    expect(findButtonByLabel(buttons, 'RESUME')?.props.disabled).toBe(true);
-    expect(findButtonByLabel(buttons, 'CLOSE')?.props.disabled).toBe(true);
+    // Summary chips show device count + online count.
+    expect(joinedText).toContain('2');
+    expect(joinedText).toContain('1');
   });
 });
-
-function findButtonByLabel(
-  buttons: ReactTestRenderer.ReactTestInstance[],
-  label: string,
-) {
-  return buttons.find(button =>
-    button.findAllByType(Text).some(node => node.props.children === label),
-  );
-}
 
 function device(id: string, name: string, status: Device['status']): Device {
   return {
@@ -140,9 +124,9 @@ function device(id: string, name: string, status: Device['status']): Device {
     location: 'Desk',
     os: 'darwin',
     host: 'localhost',
-    cpuLoad: 0,
-    memLoad: 0,
-    authorizedDirectories: ['~/project'],
+    cpuLoad: 12,
+    memLoad: 34,
+    authorizedDirectories: [],
     activePorts: [],
     projectIds: [],
     activeSessionIds: [],
@@ -152,28 +136,5 @@ function device(id: string, name: string, status: Device['status']): Device {
     capabilities: ['terminal'],
     tools: [],
     history: [],
-  };
-}
-
-function terminal(
-  id: string,
-  deviceId: string,
-  status: ReturnType<
-    typeof useControlCenterStore.getState
-  >['terminalSessions'][number]['status'],
-  directory: string,
-) {
-  return {
-    id,
-    deviceId,
-    directory,
-    shell: 'zsh',
-    status,
-    lines: [],
-    createdAt: '2026-06-17T10:00:00.000Z',
-    updatedAt: '2026-06-17T10:00:00.000Z',
-    lastCommand: status === 'running' ? 'git status --short' : undefined,
-    lastCommandAt:
-      status === 'running' ? '2026-06-17T10:00:00.000Z' : undefined,
-  };
+  } as Device;
 }

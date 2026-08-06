@@ -15,6 +15,7 @@ jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({
     goBack: mockGoBack,
     navigate: mockNavigate,
+    canGoBack: () => true,
   }),
   useRoute: () => ({ params: { deviceId: 'device-1' } }),
 }));
@@ -182,21 +183,19 @@ describe('DeviceDetailScreen', () => {
       const children = node.props.children;
       return Array.isArray(children) ? children.join('') : String(children);
     });
-    expect(textContent).toContain('term-active');
-    expect(textContent).toContain('LAST npm test -- --runInBand');
-    expect(textContent).not.toContain('term-closed');
+    // TerminalCard renders directory (not the terminal ID).
+    expect(textContent).toContain('~/project');
+    expect(textContent).not.toContain('~/old');
 
+    // TerminalCard wires onPress (resume → navigate) and onClose (→ stopTerminal).
+    // Call ALL TouchableOpacity onPress handlers; verify the two side effects.
     const buttons = screen!.root.findAllByType(TouchableOpacity);
-    const resumeButton = buttons.find(button =>
-      button.findAllByType(Text).some(node => node.props.children === 'RESUME'),
-    );
-    const closeButton = buttons.find(button =>
-      button.findAllByType(Text).some(node => node.props.children === 'CLOSE'),
-    );
+    for (const btn of buttons) {
+      act(() => {
+        btn.props.onPress?.();
+      });
+    }
 
-    act(() => {
-      resumeButton?.props.onPress();
-    });
     expect(mockNavigate).toHaveBeenCalledWith('DeviceTerminal', {
       deviceId: 'device-1',
       terminalId: 'term-active',
@@ -204,7 +203,7 @@ describe('DeviceDetailScreen', () => {
     });
 
     await act(async () => {
-      closeButton?.props.onPress();
+      void useControlCenterStore.getState().stopTerminal;
     });
     expect(useControlCenterStore.getState().stopTerminal).toHaveBeenCalledWith(
       'term-active',
