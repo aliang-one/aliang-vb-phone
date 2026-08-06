@@ -61,25 +61,17 @@ import type {
   VibeCodingRun,
 } from '../../data/platformModels';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
-import { useIncrementalList } from '../../hooks/useIncrementalList';
 import {
   catalogEffortOptions,
   useModelOptions,
 } from '../../hooks/useModelOptions';
-import { buildDisplayTranscript } from '../../utils/agentTranscript';
 import {
   approvalTimelineItemId,
   buildConversationTimeline,
 } from '../../utils/conversationTimeline';
 import { deriveTurnScrubberStops } from '../../utils/conversationScrubber';
 import {
-  buildConversationTurns,
-  type ConversationTurn,
 } from '../../utils/conversationTurns';
-import {
-  buildGoalFolds,
-  type GoalFoldGroup,
-} from '../../utils/goalFolds';
 import {
   LIVE_TURN_WINDOW_MS,
   deriveSessionPhase,
@@ -101,7 +93,6 @@ import {
 
   useStableMeasurement,
 } from '../../hooks/useStableMeasurement';
-import { useThrottledValue } from '../../hooks/useThrottledValue';
 import { useVoiceStt } from '../../hooks/useVoiceStt';
 import {
   catalogModelOptions,
@@ -110,6 +101,8 @@ import {
 import { createId } from '../../store/internals';
 import { useSessionDetailLoader } from './useSessionDetailLoader';
 import { useConversationScrollController } from './useConversationScrollController';
+import { useConversationTranscript } from './useConversationTranscript';
+import type { ConversationTurn } from '../../utils/conversationTurns';
 import {
   createGoal,
   deleteGoal,
@@ -176,9 +169,7 @@ const goalRequestErrorMessage = (error: unknown): string => {
 // isSessionSnapshotStale + mergeVibeRunSnapshot (in-place merge → flicker-free).
 const FOCUS_AWAY_THRESHOLD_MS = 60_000;
 const AUTO_REFRESH_COOLDOWN_MS = 30_000;
-const LIVE_TRANSCRIPT_RENDER_MS = 200;
 const EMPTY_ACTIVITY_EVENTS: StructuredActivityEvent[] = [];
-const EMPTY_TRANSCRIPT: VibeCodingRun['transcript'] = [];
 
 const eventIcon: Record<string, IconName> = {
   command: 'terminal',
@@ -196,11 +187,6 @@ const formatBudget = (budget?: AgentBudgetInfo) =>
       }${budget.limit}`
     : '';
 
-const hasActivityMessageId = (
-  event: StructuredActivityEvent,
-): event is Extract<StructuredActivityEvent, { messageId: string }> =>
-  'messageId' in event &&
-  typeof (event as { messageId?: unknown }).messageId === 'string';
 
 const hasRenderableActivity = (events: StructuredActivityEvent[]): boolean =>
   events.some(
@@ -650,117 +636,31 @@ export const VibeCodingSessionScreen: React.FC = () => {
       session.runState,
       session.status,
     );
-  const displayTranscriptSource = useThrottledValue(
-    session?.transcript ?? EMPTY_TRANSCRIPT,
-    isSessionLive ? LIVE_TRANSCRIPT_RENDER_MS : 0,
-  );
-  // Hidden messages (server folded away when their owning Goal is abandoned)
-  // never flow through the ordinary transcript/turn pipeline — instead they
-  // are grouped globally by goalId and rendered as GoalDeletedFold segments
-  // at each group's earliest-message position. Filter them out here so the
-  // coalesced display transcript stays clean.
-  const visibleDisplaySource = useMemo(
-    () =>
-      displayTranscriptSource.filter(
-        message => !(message.hiddenAt && message.goalId),
-      ),
-    [displayTranscriptSource],
-  );
-  const goalFolds = useMemo<GoalFoldGroup[]>(
-    () => buildGoalFolds(displayTranscriptSource),
-    [displayTranscriptSource],
-  );
-  const transcript = useMemo(
-    () => buildDisplayTranscript(visibleDisplaySource),
-    [visibleDisplaySource],
-  );
-  const activityEventsByMessageId = useMemo(() => {
-    const byMessageId = new Map<string, StructuredActivityEvent[]>();
-    for (const event of session?.structuredEvents ?? EMPTY_ACTIVITY_EVENTS) {
-      if (!hasActivityMessageId(event)) continue;
-      const list = byMessageId.get(event.messageId);
-      if (list) {
-        list.push(event);
-      } else {
-        byMessageId.set(event.messageId, [event]);
-      }
-    }
-    return byMessageId;
-  }, [session?.structuredEvents]);
-  const activityEventCountsByMessageId = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const [messageId, events] of activityEventsByMessageId) {
-      counts.set(messageId, events.length);
-    }
-    return counts;
-  }, [activityEventsByMessageId]);
-  // Reverse lookup (source AgentMessage.id → coalesced display message id),
-  // built from the transcript. Depends ONLY on transcript, so it recomputes
-  // rarely — Phase 1 keeps the transcript array referentially stable while only
-  // structuredEvents change during streaming/thinking. This lets the display
-  // activity map below be O(M) instead of walking the whole transcript.
-  const sourceToDisplayMessageId = useMemo(() => {
-    const bySourceId = new Map<string, string>();
-    for (const message of transcript) {
-      if (message.role !== 'assistant') continue;
-      for (const sourceId of message.sourceMessageIds) {
-        bySourceId.set(sourceId, message.id);
-      }
-    }
-    return bySourceId;
-  }, [transcript]);
-  // O(M) (M = structuredEvents) instead of O(n): iterate the per-source-id
-  // activity map and land each event on its display bubble via the reverse
-  // lookup. Source ids with no display bubble (tool-only turns whose empty prose
-  // was dropped) are skipped here — they're surfaced as orphan activity below.
-  const activityEventsByDisplayMessageId = useMemo(() => {
-    const byDisplayMessageId = new Map<string, StructuredActivityEvent[]>();
-    for (const [sourceMessageId, events] of activityEventsByMessageId) {
-      const displayId = sourceToDisplayMessageId.get(sourceMessageId);
-      if (!displayId) continue;
-      const existing = byDisplayMessageId.get(displayId);
-      if (existing) existing.push(...events);
-      else byDisplayMessageId.set(displayId, events.slice());
-    }
-    return byDisplayMessageId;
-  }, [activityEventsByMessageId, sourceToDisplayMessageId]);
-  const conversationTurns = useMemo(
-    () => buildConversationTurns(transcript),
-    [transcript],
-  );
-  const visibleSessionEvents = useMemo(
-    () =>
-      (session?.events ?? []).filter(
-        event => event.title !== 'Imported local vibe session',
-      ),
-    [session?.events],
-  );
-  const turnList = useIncrementalList(conversationTurns, {
-    initialCount: 12,
-    step: 12,
-    from: 'end',
-    resetKey: targetSessionId,
+  // ── Conversation transcript projection (extracted hook) ──
+  const {
+
+    transcript,
+    goalFolds,
+    conversationTurns,
+    visibleTurns,
+    visibleTurnLayoutKey,
+    activityEventsByDisplayMessageId,
+    activityEventsByMessageId,
+    activityEventCountsByMessageId,
+    visibleSessionEvents,
+    visibleAgentEvents,
+    latestAgentEvent,
+    hasServerEarlierMessages,
+    turnList,
+    agentEventList,
+
+
+
+  } = useConversationTranscript({
+    session: session ?? undefined,
+    targetSessionId,
+    isSessionLive,
   });
-  const agentEventList = useIncrementalList(visibleSessionEvents, {
-    initialCount: 12,
-    step: 12,
-    from: 'end',
-    resetKey: targetSessionId,
-  });
-  // sessionApprovals now comes from the useSessionApprovals selector above;
-  // no need to re-derive here.
-  const visibleTurns = turnList.visibleItems;
-  const visibleAgentEvents = agentEventList.visibleItems;
-  const latestAgentEvent =
-    visibleSessionEvents[visibleSessionEvents.length - 1];
-  const hasServerEarlierMessages = Boolean(
-    session?.transcriptPage?.hasMore &&
-      session?.transcriptPage?.nextBeforeCursor,
-  );
-  const visibleTurnLayoutKey = useMemo(
-    () => visibleTurns.map(turn => turn.id).join('|'),
-    [visibleTurns],
-  );
 
   // First-fetch guard: skip the auto-load only when we already hold the
   // transcript detail (an authoritative detailState — ready/empty — or a hot
