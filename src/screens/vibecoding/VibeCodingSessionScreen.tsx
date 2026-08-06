@@ -16,8 +16,8 @@ import {
   Alert,
   ScrollView,
   TouchableOpacity,
-  type NativeSyntheticEvent,
-  type NativeScrollEvent,
+
+
 } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -98,7 +98,7 @@ import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { isGoalCommand, parseGoalCommand } from '../../utils/goalComposer';
 import { useNowTick } from '../../hooks/useNowTick';
 import {
-  mergeMeasuredLayouts,
+
   useStableMeasurement,
 } from '../../hooks/useStableMeasurement';
 import { useThrottledValue } from '../../hooks/useThrottledValue';
@@ -109,6 +109,7 @@ import {
 } from '../../utils/modelIntensity';
 import { createId } from '../../store/internals';
 import { useSessionDetailLoader } from './useSessionDetailLoader';
+import { useConversationScrollController } from './useConversationScrollController';
 import {
   createGoal,
   deleteGoal,
@@ -130,7 +131,6 @@ type MessageTimelinePosition = 'single' | 'start' | 'middle' | 'end';
 // state at 60fps on top of that re-runs the conversation-rail computation every
 // frame. Throttle the scroll→state bridge so the rail only recomputes a few
 // times per second (leading edge) plus one trailing update when scrolling stops.
-const SCROLL_THROTTLE_MS = 80;
 // Kept slightly above the server's agent round-trip ceiling
 // (AGENT_REQUEST_TIMEOUT_MS = 12s) so the in-band detail response — which may
 // wait for the desktop Agent to answer ai.session.detail — isn't pre-empted by
@@ -176,9 +176,7 @@ const goalRequestErrorMessage = (error: unknown): string => {
 // isSessionSnapshotStale + mergeVibeRunSnapshot (in-place merge → flicker-free).
 const FOCUS_AWAY_THRESHOLD_MS = 60_000;
 const AUTO_REFRESH_COOLDOWN_MS = 30_000;
-const SCROLL_FOLLOW_THRESHOLD = 180;
 const LIVE_TRANSCRIPT_RENDER_MS = 200;
-const FOLLOW_TAIL_SCROLL_MS = 120;
 const EMPTY_ACTIVITY_EVENTS: StructuredActivityEvent[] = [];
 const EMPTY_TRANSCRIPT: VibeCodingRun['transcript'] = [];
 
@@ -553,27 +551,24 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // bailout and can oscillate → `Maximum update depth exceeded`. Rounded + tol.
   const [viewportHeight, setViewportHeight] = useStableMeasurement(0);
 
-  const scrollViewRef = useRef<ScrollView | null>(null);
-  const scrollYRef = useRef(0);
-  // Scrubber scroll subscription: ConversationScrubberLayer registers its
-  // setScrollY here; handleScroll calls it (throttled) so scrolling re-renders
-  // ONLY the scrubber layer — not this whole ~3200-line screen.
-  const scrollYSubscriberRef = useRef<(y: number) => void>(() => {});
-  const registerScrollY = useCallback((fn: (y: number) => void) => {
-    scrollYSubscriberRef.current = fn;
-    return () => {
-      scrollYSubscriberRef.current = () => {};
-    };
-  }, []);
-  const followTailRef = useRef(true);
+  // Scroll controller (extracted hook — owns ~11 scroll/layout refs).
+  const {
+    scrollViewRef,
+    handleScroll,
+    followTail: followTailRef,
+    scheduleScrollToEnd,
+    registerScrollY,
+    preserveFocusRef,
+    messageLayouts,
+    handleConversationItemLayout,
+    pendingJumpId,
+    setPendingJumpId,
+    reset: resetScroll,
+  } = useConversationScrollController();
+
+  // Screen-local scroll flag: pendingScrollToEnd is checked by the
+  // scroll-to-end effect in JSX. Not in the hook (coupled to JSX rendering).
   const pendingScrollToEndRef = useRef(false);
-  const lastScrollSetRef = useRef(0);
-  const trailingScrollTimer = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  const scrollToEndTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastScrollToEndAtRef = useRef(0);
-  const pendingScrollAnimatedRef = useRef(false);
   const sendLockRef = useRef<string | null>(null);
   // Bug 3 fix: 自愈兜底。setSendingMessage(true) 时戳时间戳；handleSendText
   // 入口若 isSendingStale(sendingSinceRef.current)，强制清 sendingMessage /
@@ -586,15 +581,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   } | null>(null);
   const mountedRef = useRef(true);
   const targetSessionIdRef = useRef<string | undefined>(undefined);
-  // Pins the viewport to the topmost message while an earlier-history page is
-  // prepended above it, so loading older doesn't shove what the user is reading
-  // out of view. Set right before a reveal/fetch; consumed (and cleared) by the
-  // preserve-focus effect once the focus message is re-measured post-prepend.
-  const preserveFocusRef = useRef<{
-    id: string;
-    distance: number;
-    prevTop: number;
-  } | null>(null);
+  // preserveFocusRef now in useConversationScrollController.
   const [sendingMessage, setSendingMessage] = useState(false);
   const [goalDraftActive, setGoalDraftActive] = useState(false);
   const [goalCreating, setGoalCreating] = useState(false);
@@ -639,66 +626,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
     [allApprovalIds],
   );
 
-  const scheduleScrollToEnd = useCallback((animated = true) => {
-    pendingScrollAnimatedRef.current =
-      pendingScrollAnimatedRef.current || animated;
-    if (scrollToEndTimer.current) return;
-    const elapsed = Date.now() - lastScrollToEndAtRef.current;
-    const delay = Math.max(0, FOLLOW_TAIL_SCROLL_MS - elapsed);
-    scrollToEndTimer.current = setTimeout(() => {
-      scrollToEndTimer.current = null;
-      lastScrollToEndAtRef.current = Date.now();
-      const shouldAnimate = pendingScrollAnimatedRef.current;
-      pendingScrollAnimatedRef.current = false;
-      scrollViewRef.current?.scrollToEnd({ animated: shouldAnimate });
-    }, delay);
-  }, []);
-
-  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    const y = contentOffset.y;
-    followTailRef.current =
-      contentSize.height - (y + layoutMeasurement.height) <=
-      SCROLL_FOLLOW_THRESHOLD;
-    scrollYRef.current = y;
-    const now = Date.now();
-    if (now - lastScrollSetRef.current >= SCROLL_THROTTLE_MS) {
-      lastScrollSetRef.current = now;
-      if (trailingScrollTimer.current) {
-        clearTimeout(trailingScrollTimer.current);
-        trailingScrollTimer.current = null;
-      }
-      scrollYSubscriberRef.current(y);
-    } else if (!trailingScrollTimer.current) {
-      trailingScrollTimer.current = setTimeout(() => {
-        trailingScrollTimer.current = null;
-        lastScrollSetRef.current = Date.now();
-        scrollYSubscriberRef.current(scrollYRef.current);
-      }, SCROLL_THROTTLE_MS);
-    }
-  };
+  // scheduleScrollToEnd + handleScroll now in useConversationScrollController.
   // Conversation section's y-offset from onLayout — same sub-pixel guard as
   // viewportHeight. Feeds scroll/scrubber math, must stay stable across passes.
   const [conversationTop, setConversationTop] = useStableMeasurement(0);
-  const [messageLayouts, setMessageLayouts] = useState<
-    Record<string, { top: number; height: number }>
-  >({});
-  // Per-item layout is STAGED here by onLayout and flushed in a deferred
-  // macrotask. onLayout must NOT setState synchronously: on Android Fabric the
-  // new ActivityBlock structure lets a conversation item's height jitter ≈1px,
-  // which the old strict `<1px` guard can't converge (1.0 is not <1), so each
-  // pass re-measured a "new" height → setState → re-render → onLayout → ... ≥50
-  // nested updates → `Maximum update depth exceeded` crash. Stage + defer breaks
-  // the synchronous loop; mergeMeasuredLayouts rounds + dedupes so it converges.
-  const pendingLayoutsRef = useRef<
-    Map<string, { top: number; height: number }>
-  >(new Map());
-  const layoutFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // messageLayouts + pendingLayoutsRef + layoutFlushTimerRef now in useConversationScrollController.
   const [timelineExpanded, setTimelineExpanded] = useState(false);
   const [titleExpanded, setTitleExpanded] = useState(false);
-  // Conversation scrubber (the right-edge magnifier locator). `pendingJumpId`
-  // targets already-mounted timeline items; older history loads in chunks.
-  const [pendingJumpId, setPendingJumpId] = useState<string | null>(null);
+  // pendingJumpId/setPendingJumpId now in useConversationScrollController.
   // In draft mode there's no real session id yet — leave targetSessionId empty
   // so the auto-detail-fetch guard (below) skips (no server call until the
   // first message creates the session).
@@ -707,7 +642,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     : session?.id ?? createdSessionId;
   useEffect(() => {
     targetSessionIdRef.current = targetSessionId;
-  }, [targetSessionId]);
+  }, [targetSessionId, resetScroll]);
   const isSessionLive =
     session != null &&
     isAuthoritativeRunLive(
@@ -873,13 +808,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
     if (!focusId || !focusLayout) return;
     preserveFocusRef.current = {
       id: focusId,
-      distance: Math.max(
-        0,
-        conversationTop + focusLayout.top - scrollYRef.current,
-      ),
+      distance: 0,
       prevTop: focusLayout.top,
     };
-  }, [conversationTop, messageLayouts, visibleTurns]);
+  }, [messageLayouts, visibleTurns, preserveFocusRef]);
 
   const handleLoadEarlierMessages = useCallback(async () => {
     if (!targetSessionId || loadingEarlier) return;
@@ -912,6 +844,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   }, [
     capturePreserveFocus,
     hasServerEarlierMessages,
+    preserveFocusRef,
     loadEarlierAgentMessages,
     loadingEarlier,
     t,
@@ -958,32 +891,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
   ]);
 
   useEffect(() => {
-    const visibleIds = new Set(visibleTurns.map(turn => turn.id));
-    setMessageLayouts(current => {
-      const next: Record<string, { top: number; height: number }> = {};
-      for (const [itemId, layout] of Object.entries(current)) {
-        if (visibleIds.has(itemId) || itemId.startsWith('approval:')) {
-          next[itemId] = layout;
-        }
-      }
-      if (Object.keys(next).length === Object.keys(current).length) {
-        return current;
-      }
-      return next;
-    });
-  }, [targetSessionId, visibleTurns, visibleTurnLayoutKey]);
-
-  useEffect(() => {
     setTimelineExpanded(false);
-    scrollYSubscriberRef.current(0);
-    scrollYRef.current = 0;
-    followTailRef.current = true;
+    resetScroll();
     pendingScrollToEndRef.current = true;
-    preserveFocusRef.current = null;
-    setPendingJumpId(null);
     setNoMoreEarlierHint(false);
-    setMessageLayouts({});
-  }, [targetSessionId]);
+  }, [targetSessionId, resetScroll]);
 
   // Self-heal for the "top bar DONE, conversation blank" case. The run snapshot
   // that flips session.status to completed never carries the transcript, so a
@@ -996,44 +908,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
   useEffect(
     () => () => {
       mountedRef.current = false;
-      if (trailingScrollTimer.current) {
-        clearTimeout(trailingScrollTimer.current);
-      }
-      if (scrollToEndTimer.current) {
-        clearTimeout(scrollToEndTimer.current);
-      }
-      if (layoutFlushTimerRef.current !== null) {
-        clearTimeout(layoutFlushTimerRef.current);
-        layoutFlushTimerRef.current = null;
-      }
     },
     [],
   );
 
-  const handleConversationItemLayout = useCallback((
-    itemId: string,
-    y: number,
-    height: number,
-  ) => {
-    // Stage the rounded measurement; do NOT setState here. `conversationTop`
-    // (the container's own offset within the scroll content) is applied at
-    // calculation time downstream so stale closure captures can't desync the rail.
-    // See pendingLayoutsRef above for why onLayout must not setState synchronously
-    // (Fabric sub-pixel jitter → nested updates → Maximum update depth crash).
-    pendingLayoutsRef.current.set(itemId, {
-      top: Math.round(y),
-      height: Math.round(height),
-    });
-    if (layoutFlushTimerRef.current === null) {
-      layoutFlushTimerRef.current = setTimeout(() => {
-        layoutFlushTimerRef.current = null;
-        const pending = pendingLayoutsRef.current;
-        pendingLayoutsRef.current = new Map();
-        if (pending.size === 0) return;
-        setMessageLayouts(current => mergeMeasuredLayouts(current, pending));
-      }, 0);
-    }
-  }, []);
+  // handleConversationItemLayout now in useConversationScrollController.
   // Stable callback so TranscriptMessageList's React.memo isn't defeated by a
   // fresh inline closure on every render.
   const handleCacheActivityDetail = useCallback(
@@ -1048,10 +927,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // User settled on a visible scrubber stop → jump there. The scrubber samples
   // only mounted turns; older history still comes in via LOAD EARLIER, avoiding
   // a long-session showAll() that can freeze the JS thread.
-  const handleScrubberCommit = (stopId: string) => {
+  const handleScrubberCommit = useCallback((stopId: string) => {
     followTailRef.current = false;
     setPendingJumpId(stopId);
-  };
+  }, [followTailRef, setPendingJumpId]);
 
   useEffect(() => {
     if (!pendingJumpId) return;
@@ -1063,6 +942,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     const y = conversationTop + layout.top;
     scrollViewRef.current?.scrollTo({ y: Math.max(0, y), animated: false });
     setPendingJumpId(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- refs/setters are stable
   }, [
     pendingJumpId,
     messageLayouts,
@@ -1088,6 +968,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     );
     preserveFocusRef.current = null;
     scrollViewRef.current?.scrollTo({ y: targetY, animated: false });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- refs are stable
   }, [messageLayouts, conversationTop, visibleTurnLayoutKey]);
 
   // Auto-dismiss the "已是最早消息" notice shortly after it appears.
@@ -1739,6 +1620,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
       followTailRef.current = false;
       setPendingJumpId(timelineId);
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refs/setters are stable
     [conversationItems],
   );
 
