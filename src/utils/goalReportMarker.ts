@@ -88,7 +88,6 @@ const atLineStart = (content: string, index: number): boolean =>
 /** First occurrence of `marker` that sits at a line boundary, or -1. */
 const indexOfLineStart = (content: string, marker: string): number => {
   let from = 0;
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const idx = content.indexOf(marker, from);
     if (idx < 0) return -1;

@@ -18,7 +18,6 @@ function load(): NotifyKit | null {
     return null;
   }
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     cache = require('react-native-notify-kit');
     return cache;
   } catch (error) {

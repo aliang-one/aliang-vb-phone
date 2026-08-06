@@ -14,6 +14,7 @@ const escapeSequencePattern = new RegExp(
   'g',
 );
 const controlPattern =
+// eslint-disable-next-line no-control-regex
   /[\u0000-\u0008\u000b\u000c\u000e-\u001a\u001c-\u001f\u007f]/g;
 const screenRewritePattern = new RegExp(
   `${escapeControl}c|(?:${escapeControl}\\[|${csiControl})(?:\\?(?:1049|1047|47)[hl]|[?=><0-9;]*[Hf]|(?:2|3)(?:;[0-9]*)*J)`,

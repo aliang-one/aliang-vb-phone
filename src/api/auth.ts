@@ -21,8 +21,8 @@ export interface AuthSession {
 }
 
 const asRecord = (value: unknown): Record<string, unknown> | undefined =>
-  Boolean(value && typeof value === 'object' && !Array.isArray(value))
-    ? value as Record<string, unknown>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
     : undefined;
 
 const asString = (value: unknown): string | undefined => {

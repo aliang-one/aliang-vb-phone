@@ -45,7 +45,6 @@ class FakeWebSocket {
 
 const flush = async (rounds = 5) => {
   for (let i = 0; i < rounds; i++) {
-    // eslint-disable-next-line no-await-in-loop
     await new Promise<void>(resolve => setImmediate(resolve));
   }
 };
