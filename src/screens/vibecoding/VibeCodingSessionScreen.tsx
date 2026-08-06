@@ -32,7 +32,6 @@ import { StatusChip } from '../../components/shared/StatusChip';
 import { ToolsMenu } from '../../components/vibecoding/ToolsMenu';
 import { MessageComposer } from '../../components/vibecoding/MessageComposer';
 import { GoalDraftBar, GoalStatusBar } from '../../components/vibecoding/GoalStatusBar';
-import { GOAL_USER_ACTION_STATES } from '../../utils/goalStatePresentation';
 import { GoalDeletedFold } from '../../components/vibecoding/GoalDeletedFold';
 import { mergeCommands } from '../../utils/agentCommands';
 import { TranscriptMessageList } from '../../components/vibecoding/TranscriptMessageList';
@@ -74,18 +73,14 @@ import {
 } from '../../utils/conversationTurns';
 import {
   LIVE_TURN_WINDOW_MS,
-  deriveSessionPhase,
   isAuthoritativeRunLive,
-  lastUnrepliedUserMessageId,
   liveAssistantMessageId,
   phaseLabel,
-  runDisplayPhase,
   sessionPhaseType,
   shouldLockComposerForProvider,
-  type SessionPhase,
+
 } from '../../utils/sessionPhase';
 import { isSessionSnapshotStale } from '../../utils/sessionSnapshotStale';
-import { deriveLivePulse } from '../../utils/activitySummary';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { isGoalCommand, parseGoalCommand } from '../../utils/goalComposer';
 import { useNowTick } from '../../hooks/useNowTick';
@@ -103,6 +98,7 @@ import { useSessionDetailLoader } from './useSessionDetailLoader';
 import { useConversationScrollController } from './useConversationScrollController';
 import { useConversationTranscript } from './useConversationTranscript';
 import { useGoalControl, goalRequestErrorMessage } from './useGoalControl';
+import { useSessionHeader } from './useSessionHeader';
 import type { ConversationTurn } from '../../utils/conversationTurns';
 import {
   createGoal,
@@ -620,6 +616,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     transcript,
     goalFolds,
     conversationTurns,
+    displayTranscriptSource,
     visibleTurns,
     visibleTurnLayoutKey,
     activityEventsByDisplayMessageId,
@@ -881,10 +878,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
         : undefined,
     [isSessionLive, session?.lastActivityMs, session?.transcript, now],
   );
-  const livePulse = useMemo(
-    () => deriveLivePulse(session?.structuredEvents ?? [], isSessionLive),
-    [isSessionLive, session?.structuredEvents],
-  );
+  // livePulse now in useSessionHeader.
   // Composer 锁:用 isSessionLive 判活(与顶部相位同源)。失败会话不锁(发新消息/重试会让
   // 服务端把 error 翻回 running)。详见 utils/sessionPhase.shouldLockComposerForProvider。
   const shouldDisableComposerForProvider = shouldLockComposerForProvider(
@@ -1515,111 +1509,22 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // gives instant 进行中 feedback before the server's phase catches up. Once
   // status leaves running, the server's phase is authoritative; older servers
   // without phase fall back to deriveSessionPhase.
-  const sessionPhase = useMemo<SessionPhase>(
-    () => {
-      let phase: SessionPhase;
-      if (session?.runStateVersion !== undefined && session.phase) {
-        phase = runDisplayPhase(
-          session.status,
-          session.phase,
-          session.runStateVersion,
-          session.runState,
-        );
-      } else if (session?.status === 'failed') {
-        phase = 'failed';
-      } else if (isSessionLive) {
-        phase = 'running';
-      } else if (session?.phase) {
-        phase = session.phase;
-      } else {
-        phase = deriveSessionPhase(
-          session?.status ?? 'idle',
-          pendingApprovals.length > 0,
-          false,
-        );
-      }
-      // Phase 1 可信签署闸 (codex #16): for goal sessions the GoalStatusBar is
-      // the authoritative state indicator. A goal awaiting sign-off (or approval
-      // / blocked) must NOT make the chat header read "已完成" — the turn settled
-      // but the goal has not. Clamp completed → waiting_approval so the header
-      // reads "needs action", never "done", while the goal awaits the user.
-      if (
-        phase === 'completed' &&
-        session?.purpose === 'goal' &&
-        !!session.goalSummary?.state &&
-        GOAL_USER_ACTION_STATES.has(session.goalSummary.state)
-      ) {
-        phase = 'waiting_approval';
-      }
-      return phase;
-    },
-    [
-      isSessionLive,
-      pendingApprovals.length,
-      session?.purpose,
-      session?.goalSummary?.state,
-      session?.status,
-      session?.phase,
-      session?.runStateVersion,
-      session?.runState,
-    ],
-  );
-  // case B 失败回合定位:会话 failed 且最后一条是没收到回复的 user 消息 → 在该
-  // 消息旁挂「未收到回复 · 重试」。重发后 status→running,入口自动消失。
-  const failedTurnMessageId =
-    sessionPhase === 'failed'
-      ? lastUnrepliedUserMessageId(transcript)
-      : undefined;
-  // Live retry indicator (gateway 5xx being retried). Overrides the generic
-  // "处理中…" pulse so the user sees WHY the run is stalled during the
-  // (potentially long, 30s–3min) retry window. Clears automatically when the
-  // server stops retrying (retry_active=false on the next publish).
-  const retryHeadline = session?.retryActive
-    ? (session.retryMax
-        ? session.retryErrorStatus
-          ? t('session.error.retryHeadlineGateway', {
-              attempt: session.retryAttempt ?? '?',
-              max: `/${session.retryMax}`,
-              status: session.retryErrorStatus,
-            })
-          : t('session.error.retryHeadlineMax', {
-              attempt: session.retryAttempt ?? '?',
-              max: `/${session.retryMax}`,
-            })
-        : session.retryErrorStatus
-          ? t('session.error.retryHeadlineGateway', {
-              attempt: session.retryAttempt ?? '?',
-              max: '',
-              status: session.retryErrorStatus,
-            })
-          : t('session.error.retryHeadline', {
-              attempt: session.retryAttempt ?? '?',
-              max: '',
-            }))
-    : undefined;
-  // Structured failure cause for the failed-phase, so the bubble shows
-  // "会话失败 · 网关 502（重试 10/10）" instead of a bare "会话失败".
-  const failedLabel = session?.lastErrorStatus
-    ? session.lastRetryMax
-      ? t('session.error.sessionFailedGatewayRetry', {
-          status: session.lastErrorStatus,
-          attempt: session.lastRetryAttempt ?? '?',
-          max: session.lastRetryMax,
-        })
-      : t('session.error.sessionFailedGateway', {
-          status: session.lastErrorStatus,
-        })
-    : t('session.error.sessionFailed');
-  const bottomPulseHeadline = isDraft
-    ? t('session.phase.pendingStart')
-    : sessionPhase === 'failed'
-      ? failedLabel
-      : sessionPhase === 'completed'
-        ? t('session.phase.lastTurnCompleted')
-        : sessionPhase === 'waiting_approval'
-          ? t('session.phase.waitingApproval')
-          : retryHeadline ?? livePulse?.headline;
-  // failed 相位不再锁 composer:失败只是「上一轮没收到回复」,会话仍可继续——发新
+  // Session header phase derivation (extracted hook).
+  const {
+    sessionPhase,
+    failedTurnMessageId,
+
+
+    bottomPulseHeadline,
+
+  } = useSessionHeader({
+    session: session ?? undefined,
+    isSessionLive,
+    pendingApprovalCount: pendingApprovals.length,
+    transcript: displayTranscriptSource,
+    isDraft,
+    t,
+  });  // failed 相位不再锁 composer:失败只是「上一轮没收到回复」,会话仍可继续——发新
   // 消息(或点失败消息旁的「重试」)会经服务端 claimAiSessionForRun 把 error 翻回
   // running。失败原因由底部气泡 failedLabel(「会话失败 · 网关502…」)承担,这里不阻断输入。
   const composerReadOnlyReason = isDraft
