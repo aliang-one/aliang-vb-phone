@@ -21,10 +21,18 @@ const ACCOUNT_BASE_URL_CANDIDATES = [
 
 type HeadersInitLike = Record<string, string> | [string, string][] | Headers;
 
-const timeout = (ms: number) =>
-  new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error(`Timed out after ${ms}ms`)), ms);
+/** Race a promise against a timeout. Clears the timer when either side
+ * settles so a fast fetch doesn't leave a pending setTimeout (which Jest's
+ * --detectOpenHandles reports and which masks real resource leaks). */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timed out after ${ms}ms`)), ms);
   });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
 
 function normalizeHeaders(headers?: HeadersInitLike): Record<string, string> {
   if (!headers) return {};
@@ -80,10 +88,10 @@ export async function accountFetch<T = unknown>(
     for (const candidate of baseCandidates) {
       try {
         const url = `${candidate}${path}`;
-        const response = await Promise.race([
+        const response = await withTimeout(
           fetch(url, { ...fetchOptions, headers }),
-          timeout(REQUEST_TIMEOUT_MS),
-        ]);
+          REQUEST_TIMEOUT_MS,
+        );
 
         if (!response.ok) {
           let errorMessage = `${fetchOptions.method ?? 'GET'} ${url} failed with HTTP ${response.status}`;

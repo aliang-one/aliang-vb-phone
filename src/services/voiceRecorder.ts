@@ -40,7 +40,21 @@ interface LiveAudioStreamApi {
  */
 let liveAudioStream: LiveAudioStreamApi | null | undefined;
 
-const delay = (ms: number) => new Promise<void>(resolve => setTimeout(() => resolve(), ms));
+/** Resolve when `promise` settles OR `ms` elapses, whichever comes first.
+ * Distinct from a rejecting `withTimeout`: a slow native stop is intentionally
+ * treated as success here, so the timeout RESOLVES (never rejects). The timer
+ * is cleared on settlement so a fast native stop doesn't leave a pending
+ * setTimeout (which Jest's --detectOpenHandles flags and which masks real
+ * resource leaks). */
+function raceOrTimeout(promise: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>(resolve => {
+    timer = setTimeout(resolve, ms);
+  });
+  return Promise.race([Promise.resolve(promise).then(() => undefined), timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
 
 function patchLiveAudioStreamEmitterMethods(): void {
   const nativeModule = (NativeModules as {
@@ -169,7 +183,7 @@ class VoiceRecorderService {
         // ignore
       });
     let stopping!: Promise<void>;
-    stopping = Promise.race([nativeStop, delay(NATIVE_STOP_TIMEOUT_MS)])
+    stopping = raceOrTimeout(nativeStop, NATIVE_STOP_TIMEOUT_MS)
       .then(() => {
         if (this.options === activeOptions) {
           this.options = null;

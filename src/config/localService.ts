@@ -50,10 +50,18 @@ export interface PlatformServiceHealth {
 const DISCOVERY_TIMEOUT_MS = 2500;
 const DEFAULT_CHECK_TIMEOUT_MS = 5000;
 
-const timeout = (ms: number) =>
-  new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error(`Timed out after ${ms}ms`)), ms);
+/** Race a promise against a timeout. Clears the timer when either side
+ * settles (promise wins OR timeout wins) so Jest doesn't report an open
+ * handle. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timed out after ${ms}ms`)), ms);
   });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
 
 // Session flag: confirmed reachable at least once this session so the HTTP
 // client can skip re-probing /health on every request once the host answered.
@@ -85,10 +93,10 @@ export async function getPlatformServiceBaseUrl(): Promise<string> {
 
 async function probeHealth(baseUrl: string, timeoutMs: number): Promise<void> {
   const normalized = normalizeServiceBaseUrl(baseUrl);
-  const response = await Promise.race([
+  const response = await withTimeout(
     fetch(`${normalized}/health`, { method: 'GET' }),
-    timeout(timeoutMs),
-  ]);
+    timeoutMs,
+  );
   if (!response.ok) {
     throw new Error(`${normalized} responded HTTP ${response.status}`);
   }
@@ -101,10 +109,10 @@ async function probePlatformService(
   const normalized = normalizeServiceBaseUrl(baseUrl);
   const startedAt = Date.now();
   try {
-    const response = await Promise.race([
+    const response = await withTimeout(
       fetch(`${normalized}/health`, { method: 'GET' }),
-      timeout(timeoutMs),
-    ]);
+      timeoutMs,
+    );
     const latencyMs = Date.now() - startedAt;
     return {
       ok: response.ok,

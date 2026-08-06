@@ -978,8 +978,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
       // → sendLockRef / sendingMessage 残留 → 后续发送全部静默 no-op。
       // 用 Promise.race 加 CREATE_GOAL_TIMEOUT_MS 超时：到点 reject → 进
       // catch 提示 → finally 必执行清锁。配合 Bug 3 的 sendingSinceRef 兜底。
+      let goalTimeoutId: ReturnType<typeof setTimeout> | undefined;
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error(`创建 Goal 超时（${CREATE_GOAL_TIMEOUT_MS / 1000}s 无响应）`)), CREATE_GOAL_TIMEOUT_MS);
+        goalTimeoutId = setTimeout(() => reject(new Error(`创建 Goal 超时（${CREATE_GOAL_TIMEOUT_MS / 1000}s 无响应）`)), CREATE_GOAL_TIMEOUT_MS);
       });
       const created = await Promise.race([
         createGoal({
@@ -996,7 +997,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
           aiSessionId: !isDraft && session ? session.id : undefined,
         }),
         timeoutPromise,
-      ]);
+      ]).finally(() => {
+        if (goalTimeoutId) clearTimeout(goalTimeoutId);
+      });
       goalCreateRequestRef.current = null;
       enterGoalSession(created);
       return true;
