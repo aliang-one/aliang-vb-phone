@@ -200,20 +200,48 @@ export const SettingsScreen: React.FC = () => {
   const handleNotificationPermission = async () => {
     setUpdatingNotificationPermission(true);
     try {
-      if (notificationPermission === 'not_determined') {
-        await requestPermission();
-      } else {
-        await openNotificationSettings();
-      }
+      // Both branches report a boolean: requestPermission → granted,
+      // openNotificationSettings → opened. The old code dropped it, so a
+      // rejected openNotificationSettings looked like the button did nothing.
+      const opened =
+        notificationPermission === 'not_determined'
+          ? await requestPermission()
+          : await openNotificationSettings();
       setNotificationPermission(await getNotificationPermissionStatus());
+      if (!opened) {
+        show(t('notifications.openSettingsFailed'), 'error');
+      }
     } finally {
       setUpdatingNotificationPermission(false);
     }
   };
 
   // Diagnostic: pops a local notification immediately, isolating "can notify-kit
-  // display at all on this device" from the WS/background trigger chain.
+  // display at all on this device" from the WS/background trigger chain. Drives
+  // the permission flow too, so the button always responds — not_determined →
+  // system dialog, denied/unsupported → system settings (user returns to retry),
+  // authorized → send right away.
   const handleSendTestNotification = useCallback(async () => {
+    if (notificationPermission === 'not_determined') {
+      const granted = await requestPermission();
+      setNotificationPermission(await getNotificationPermissionStatus());
+      if (!granted) {
+        show(t('notifications.testDenied'), 'error');
+        return;
+      }
+    } else if (
+      notificationPermission === 'denied' ||
+      notificationPermission === 'unsupported'
+    ) {
+      const opened = await openNotificationSettings();
+      show(
+        opened
+          ? t('notifications.testOpenSettings')
+          : t('notifications.openSettingsFailed'),
+        opened ? 'info' : 'error',
+      );
+      return;
+    }
     const displayed = await displayNotification({
       id: `vibe_test_${Date.now()}`,
       title: t('notifications.testTitle'),
@@ -226,7 +254,7 @@ export const SettingsScreen: React.FC = () => {
         : t('notifications.testFailed'),
       displayed ? 'success' : 'error',
     );
-  }, [show, t]);
+  }, [notificationPermission, show, t]);
 
   const renderSectionTitle = (label: string) => (
     <Text
@@ -524,7 +552,6 @@ export const SettingsScreen: React.FC = () => {
                 <GlowButton
                   title={t('notifications.sendTest')}
                   onPress={() => void handleSendTestNotification()}
-                  disabled={notificationPermission !== 'authorized'}
                   variant="secondary"
                   style={styles.serviceButton}
                 />

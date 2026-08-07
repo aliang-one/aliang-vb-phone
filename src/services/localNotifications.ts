@@ -111,7 +111,13 @@ export async function openNotificationSettings(): Promise<boolean> {
   const lib = load();
   if (!lib) return false;
   try {
-    await lib.default.openNotificationSettings(CHANNEL_ID);
+    // Open APP-LEVEL notification settings (no channelId). A user whose
+    // permission is `denied` needs the app's master notification toggle to
+    // re-enable — per-channel settings can't even be reached while the app is
+    // off. Passing a channelId ALSO breaks when the channel was never created
+    // (it is only created lazily inside displayNotification), which made this
+    // call silently fail and left the Settings button looking dead.
+    await lib.default.openNotificationSettings();
     return true;
   } catch (error) {
     console.warn('[localNotifications] openNotificationSettings failed', error);

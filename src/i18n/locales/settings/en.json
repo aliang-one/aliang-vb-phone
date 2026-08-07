@@ -50,6 +50,9 @@
     "sendTest": "SEND TEST NOTIFICATION",
     "testSent": "Test notification sent",
     "testFailed": "Failed — check that notifications are allowed",
+    "openSettingsFailed": "Couldn't open system notification settings",
+    "testDenied": "Notification permission was denied",
+    "testOpenSettings": "Enable notifications in system settings, then tap test again",
     "types": {
       "approval": "Approvals",
       "session_done": "Session completed",
