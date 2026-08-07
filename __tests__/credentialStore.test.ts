@@ -131,6 +131,53 @@ describe('loadCredentials', () => {
     (Keychain.getGenericPassword as jest.Mock).mockRejectedValue(err);
     await expect(loadCredentials({ title: 't' })).resolves.toEqual({ status: 'unavailable' });
   });
+
+  // Android reality: react-native-keychain REJECTS when the user cancels the
+  // BiometricPrompt (iOS resolves `false`). The reject carries code
+  // `E_CRYPTO_FAILED` with the BiometricPrompt errorCode embedded in the
+  // message as "code: N". User-initiated dismiss codes must map to
+  // 'cancelled' so the login screen keeps the fingerprint entry and the user
+  // can tap it again — NOT to 'unavailable', which would wipe the saved-creds
+  // flag and strand the user on the password view.
+  //   5  = ERROR_CANCELED        (home/back, or another dialog stole focus)
+  //   10 = ERROR_USER_CANCELED   (user tapped cancel)
+  //   13 = ERROR_NEGATIVE_BUTTON (user tapped the negative button, e.g. "Cancel")
+  test.each([
+    ['5 (ERROR_CANCELED)', 5],
+    ['10 (ERROR_USER_CANCELED)', 10],
+    ['13 (ERROR_NEGATIVE_BUTTON)', 13],
+  ])(
+    'Android reject E_CRYPTO_FAILED "code: %s" → {status:"cancelled"} (user can retry)',
+    async (_label, errorCode) => {
+      const err = Object.assign(
+        new Error(`code: ${errorCode}, msg: canceled by user`),
+        { code: 'E_CRYPTO_FAILED' },
+      );
+      (Keychain.getGenericPassword as jest.Mock).mockRejectedValue(err);
+      await expect(loadCredentials({ title: 't' })).resolves.toEqual({ status: 'cancelled' });
+    },
+  );
+
+  // Genuine OS/hardware refusals stay 'unavailable' — retrying won't help and
+  // the login screen should fall back to password (and clear the stale flag).
+  //   2  = ERROR_HW_UNAVAILABLE
+  //   7  = ERROR_LOCKOUT (too many failed attempts — temporary, but not a retry-this-instant)
+  //   11 = ERROR_NO_BIOMETRICS (none enrolled)
+  test.each([
+    ['2 (ERROR_HW_UNAVAILABLE)', 2],
+    ['7 (ERROR_LOCKOUT)', 7],
+    ['11 (ERROR_NO_BIOMETRICS)', 11],
+  ])(
+    'Android reject E_CRYPTO_FAILED "code: %s" → {status:"unavailable"} (genuine)',
+    async (_label, errorCode) => {
+      const err = Object.assign(
+        new Error(`code: ${errorCode}, msg: biometry unavailable`),
+        { code: 'E_CRYPTO_FAILED' },
+      );
+      (Keychain.getGenericPassword as jest.Mock).mockRejectedValue(err);
+      await expect(loadCredentials({ title: 't' })).resolves.toEqual({ status: 'unavailable' });
+    },
+  );
 });
 
 describe('flag + clear', () => {
