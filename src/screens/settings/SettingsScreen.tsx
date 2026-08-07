@@ -255,17 +255,17 @@ export const SettingsScreen: React.FC = () => {
       );
       return;
     }
-    const displayed = await displayNotification({
+    const result = await displayNotification({
       id: `vibe_test_${Date.now()}`,
       title: t('notifications.testTitle'),
       body: t('notifications.testBody'),
       data: { type: 'test' },
     });
     show(
-      displayed
+      result.ok
         ? t('notifications.testSent')
-        : t('notifications.testFailed'),
-      displayed ? 'success' : 'error',
+        : `${t('notifications.testFailed')} — ${result.error}`,
+      result.ok ? 'success' : 'error',
     );
   }, [notificationPermission, show, t]);
 

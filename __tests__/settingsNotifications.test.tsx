@@ -119,7 +119,7 @@ describe('SettingsScreen notification panel', () => {
     (getNotificationPermissionStatus as jest.Mock).mockResolvedValue('denied');
     (openNotificationSettings as jest.Mock).mockResolvedValue(true);
     (requestPermission as jest.Mock).mockResolvedValue(true);
-    (displayNotification as jest.Mock).mockResolvedValue(true);
+    (displayNotification as jest.Mock).mockResolvedValue({ ok: true });
 
     // Seed only render-critical state; rely on the real stores' defaults for
     // the rest (scalars/actions aren't exercised by the notification panel).
@@ -206,5 +206,29 @@ describe('SettingsScreen notification panel', () => {
 
     expect(displayNotification).toHaveBeenCalledTimes(1);
     expect(openNotificationSettings).not.toHaveBeenCalled();
+  });
+
+  test('SEND TEST surfaces the actual error from displayNotification, not a generic failure', async () => {
+    (getNotificationPermissionStatus as jest.Mock).mockResolvedValue('authorized');
+    (displayNotification as jest.Mock).mockResolvedValue({
+      ok: false,
+      error: 'channel vibe_background does not exist',
+    });
+    let r!: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      r = renderScreen();
+    });
+    await flush();
+
+    const testBtn = findButtonByText(r.root, '发送测试通知');
+    await act(async () => {
+      (testBtn!.props as { onPress: () => void }).onPress();
+      await flush();
+    });
+
+    expect(showSpy).toHaveBeenCalledWith(
+      expect.stringContaining('channel vibe_background does not exist'),
+      'error',
+    );
   });
 });

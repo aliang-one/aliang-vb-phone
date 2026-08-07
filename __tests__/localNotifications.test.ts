@@ -19,6 +19,7 @@ import { Platform } from 'react-native';
 import {
   openNotificationSettings,
   getNotificationPermissionStatus,
+  displayNotification,
 } from '../src/services/localNotifications';
 
 // Match how the service itself reads the lib (`require(...).default`). `import * as`
@@ -85,5 +86,28 @@ describe('getNotificationPermissionStatus', () => {
       authorizationStatus: 'something_else',
     });
     await expect(getNotificationPermissionStatus()).resolves.toBe('denied');
+  });
+});
+
+// displayNotification returns a result object (not a bare boolean) so the
+// Settings test button can show WHY a display failed instead of a generic toast.
+describe('displayNotification result contract', () => {
+  test('returns {ok:true} when the native display succeeds', async () => {
+    (NotifyKit.default.createChannel as jest.Mock).mockResolvedValue(undefined);
+    (NotifyKit.default.displayNotification as jest.Mock).mockResolvedValue(undefined);
+    const result = await displayNotification({ id: 'x', title: 't', body: 'b' });
+    expect(result).toEqual({ ok: true });
+  });
+
+  test('returns {ok:false, error} with the native message on rejection (NOT a bare false)', async () => {
+    (NotifyKit.default.createChannel as jest.Mock).mockResolvedValue(undefined);
+    (NotifyKit.default.displayNotification as jest.Mock).mockRejectedValue(
+      new Error('channel vibe_background does not exist'),
+    );
+    const result = await displayNotification({ id: 'x', title: 't', body: 'b' });
+    expect(result.ok).toBe(false);
+    expect((result as { error: string }).error).toContain(
+      'channel vibe_background does not exist',
+    );
   });
 });

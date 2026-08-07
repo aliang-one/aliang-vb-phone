@@ -133,12 +133,21 @@ export interface LocalNotificationInput {
   summary?: boolean;
 }
 
-/** Displays or replaces one local notification and reports actual success. */
+export type DisplayResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Displays or replaces one local notification. Returns a result object (not a
+ * bare boolean) so callers can surface WHY a display failed — the Settings
+ * "send test" button shows `error` in its toast, which is what lets us diagnose
+ * a silent failure (e.g. channel-not-created, invalid icon) without logcat.
+ */
 export async function displayNotification(
   notification: LocalNotificationInput,
-): Promise<boolean> {
+): Promise<DisplayResult> {
   const lib = load();
-  if (!lib) return false;
+  if (!lib) {
+    return { ok: false, error: 'notify-kit unavailable on this platform' };
+  }
   await ensureChannel();
   const isApproval = notification.data?.type === 'approval';
   try {
@@ -171,10 +180,11 @@ export async function displayNotification(
           : {}),
       },
     });
-    return true;
+    return { ok: true };
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     console.warn('[localNotifications] displayNotification failed', error);
-    return false;
+    return { ok: false, error: message };
   }
 }
 
@@ -201,7 +211,7 @@ export async function displayManagedNotification(
     MAX_ALERTS_PER_WINDOW,
   );
   if (decision.kind === 'summary') {
-    const displayed = await displayNotification({
+    const result = await displayNotification({
       id: SUMMARY_ID,
       title: i18n.t('common:notification.summaryTitle'),
       body: i18n.t('common:notification.summaryBody', {
@@ -215,14 +225,14 @@ export async function displayManagedNotification(
         createdAt: String(now),
       },
     });
-    if (displayed) {
+    if (result.ok) {
       deliveryState = decision.state;
       await trimDisplayedNotifications();
     }
-    return displayed;
+    return result.ok;
   }
 
-  const displayed = await displayNotification({
+  const result = await displayNotification({
     id: notification.id,
     title: notification.title,
     body: notification.body,
@@ -232,7 +242,7 @@ export async function displayManagedNotification(
       createdAt: notification.createdAt,
     },
   });
-  if (!displayed) return false;
+  if (!result.ok) return false;
   deliveryState = decision.state;
   await trimDisplayedNotifications();
   return true;
