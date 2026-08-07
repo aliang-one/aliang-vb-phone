@@ -160,7 +160,13 @@ export async function displayNotification(
         channelId: CHANNEL_ID,
         smallIcon: SMALL_ICON,
         groupId: GROUP_ID,
-        groupSummary: notification.summary,
+        // Only set for actual group-summary notifications. Passing `undefined`
+        // here makes Notifee's validator reject ("'notification.android.groupSummary'
+        // expected a boolean value") — which silently broke every non-summary
+        // display (the Settings test button AND all background notifications).
+        ...(notification.summary !== undefined
+          ? { groupSummary: notification.summary }
+          : {}),
         pressAction: { id: 'default' },
         // Approval notifications carry inline 批准/拒绝 actions so the user can
         // resolve without opening the app. Other types fall back to body-tap.

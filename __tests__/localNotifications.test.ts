@@ -110,4 +110,27 @@ describe('displayNotification result contract', () => {
       'channel vibe_background does not exist',
     );
   });
+
+  // Regression: passing `groupSummary: undefined` (notification without a
+  // summary) makes Notifee's validator reject with "expected a boolean value",
+  // which silently broke EVERY non-summary notification — the Settings test
+  // button and all background server notifications. Assert the native call
+  // never receives an undefined groupSummary.
+  test('omits groupSummary when the notification has no summary', async () => {
+    (NotifyKit.default.createChannel as jest.Mock).mockResolvedValue(undefined);
+    (NotifyKit.default.displayNotification as jest.Mock).mockResolvedValue(undefined);
+    await displayNotification({ id: 'x', title: 't', body: 'b' });
+    const passed = (NotifyKit.default.displayNotification as jest.Mock).mock
+      .calls[0][0] as { android: Record<string, unknown> };
+    expect(passed.android).not.toHaveProperty('groupSummary');
+  });
+
+  test('still passes groupSummary when the notification IS a summary', async () => {
+    (NotifyKit.default.createChannel as jest.Mock).mockResolvedValue(undefined);
+    (NotifyKit.default.displayNotification as jest.Mock).mockResolvedValue(undefined);
+    await displayNotification({ id: 'x', title: 't', body: 'b', summary: true });
+    const passed = (NotifyKit.default.displayNotification as jest.Mock).mock
+      .calls[0][0] as { android: Record<string, unknown> };
+    expect(passed.android.groupSummary).toBe(true);
+  });
 });
