@@ -1,5 +1,6 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  AppState,
   ActivityIndicator,
   Image,
   Switch,
@@ -86,6 +87,18 @@ export const SettingsScreen: React.FC = () => {
   }, []);
 
   useFocusEffect(refreshNotificationPermission);
+
+  // React-Navigation focus fires on tab switches but NOT when the app returns
+  // to the foreground. After the user grants (or toggles) notifications in the
+  // system settings and comes back, the status would otherwise stay stale — so
+  // the SEND TEST button would re-open settings instead of sending. Re-read on
+  // every foreground transition.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (nextAppState === 'active') refreshNotificationPermission();
+    });
+    return () => subscription.remove();
+  }, [refreshNotificationPermission]);
 
   // The Account tab's first visit instantiates a heavy subtree (SVG RingMeters,
   // IconBadges, several panels) in one synchronous JS-thread commit that races

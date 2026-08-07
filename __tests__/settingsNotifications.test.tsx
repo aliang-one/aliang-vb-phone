@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
-import { Text, TouchableOpacity } from 'react-native';
+import { Text, TouchableOpacity, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
@@ -74,6 +74,13 @@ const findButtonByText = (
       node.findAllByType(Text).some(t => String(t.props.children) === title),
     );
 
+type AppStateChangeHandler = (state: string) => void;
+let appStateChangeHandlers: AppStateChangeHandler[] = [];
+// Drive the captured AppState 'change' handlers (the screen subscribes on mount).
+const emitAppState = (state: string) => {
+  for (const handler of appStateChangeHandlers) handler(state);
+};
+
 const renderScreen = () =>
   ReactTestRenderer.create(
     <ThemeContext.Provider
@@ -100,6 +107,15 @@ describe('SettingsScreen notification panel', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    appStateChangeHandlers = [];
+    jest
+      .spyOn(AppState, 'addEventListener')
+      .mockImplementation(
+        (((event: string, handler: AppStateChangeHandler) => {
+          if (event === 'change') appStateChangeHandlers.push(handler);
+          return { remove: jest.fn() };
+        }) as unknown) as typeof AppState.addEventListener,
+      );
     (getNotificationPermissionStatus as jest.Mock).mockResolvedValue('denied');
     (openNotificationSettings as jest.Mock).mockResolvedValue(true);
     (requestPermission as jest.Mock).mockResolvedValue(true);
@@ -128,6 +144,10 @@ describe('SettingsScreen notification panel', () => {
     });
     showSpy = jest.fn();
     useToastStore.setState({ show: showSpy });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   test('the SEND TEST button is tappable (NOT disabled) when permission is denied', async () => {
@@ -159,5 +179,32 @@ describe('SettingsScreen notification panel', () => {
     });
 
     expect(showSpy).toHaveBeenCalledWith(expect.any(String), 'error');
+  });
+
+  test('returning to the foreground refreshes permission, so SEND TEST sends instead of re-opening settings', async () => {
+    // Mounted while still denied (user hasn't granted yet).
+    let r!: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      r = renderScreen();
+    });
+    await flush();
+
+    // User grants in system settings; on return the app goes active and the
+    // permission read now reflects the grant. React-Navigation focus does NOT
+    // fire on app foreground, so without an AppState listener the status would
+    // stay stale at 'denied' and the test button would re-open settings.
+    (getNotificationPermissionStatus as jest.Mock).mockResolvedValue('authorized');
+    emitAppState('active');
+    await flush();
+
+    const testBtn = findButtonByText(r.root, '发送测试通知');
+    expect(testBtn).toBeDefined();
+    await act(async () => {
+      (testBtn!.props as { onPress: () => void }).onPress();
+      await flush();
+    });
+
+    expect(displayNotification).toHaveBeenCalledTimes(1);
+    expect(openNotificationSettings).not.toHaveBeenCalled();
   });
 });
