@@ -75,13 +75,48 @@ export async function probeBiometry(): Promise<boolean> {
 
 export type LoadResult =
   | { status: 'ok'; email: string; password: string }
-  | { status: 'cancelled' } // getGenericPassword resolved false (cancel or missing)
-  | { status: 'unavailable' }; // getGenericPassword rejected (BIOMETRIC_NOT_ENROLLED, PASSCODE_NOT_SET, …)
+  // iOS: `getGenericPassword` resolved `false` (cancel OR missing — indistinguishable).
+  // Android: user dismissed the BiometricPrompt → reject "code: 5/10/13" (see below).
+  | { status: 'cancelled' }
+  // Genuine OS refusal; retrying won't help: BIOMETRIC_NOT_ENROLLED, PASSCODE_NOT_SET,
+  // hw unavailable, lockout, …
+  | { status: 'unavailable' };
 
 /**
- * Read saved credentials. `getGenericPassword` RESOLVES `false` on missing entry
- * OR user-cancel (indistinguishable), and REJECTS with error.code on OS refusal.
- * The 3-way result lets the UI retry only when retry can succeed.
+ * BiometricPrompt errorCodes that mean the *user* dismissed the prompt and can
+ * simply retry — NOT a hardware/enrollment problem. react-native-keychain
+ * embeds them in the reject message as `code: <N>` (see
+ * `ResultHandlerInteractiveBiometric.onAuthenticationError`, which throws
+ * `CryptoFailedException("code: $errorCode, msg: …")`). Values from
+ * `androidx.biometric.BiometricPrompt`:
+ *   5  ERROR_CANCELED        (home/back, or another dialog stole focus)
+ *   10 ERROR_USER_CANCELED   (user tapped the cancel button)
+ *   13 ERROR_NEGATIVE_BUTTON (user tapped the negative button, e.g. "Cancel")
+ * Kept narrow on purpose — everything else (hw off, lockout, not enrolled) is a
+ * genuine `unavailable`.
+ */
+const BIOMETRIC_USER_CANCEL_CODES = new Set([5, 10, 13]);
+
+/**
+ * On Android, canceling the BiometricPrompt makes `getGenericPassword` REJECT
+ * with code `E_CRYPTO_FAILED` and a message of the form `code: <N>, msg: …`,
+ * NOT resolve `false` like iOS. Detect that user-initiated cancel so the login
+ * screen keeps the fingerprint entry (retryable) instead of treating it as a
+ * broken-biometry `unavailable` (which would also wipe the saved-creds flag).
+ */
+function isBiometricUserCancel(error: unknown): boolean {
+  const message = String(
+    (error as { message?: unknown } | null | undefined)?.message ?? '',
+  );
+  const match = message.match(/code:\s*(\d+)/i);
+  return match ? BIOMETRIC_USER_CANCEL_CODES.has(Number(match[1])) : false;
+}
+
+/**
+ * Read saved credentials. `getGenericPassword` RESOLVES `false` on iOS for a
+ * missing entry OR user-cancel (indistinguishable), and REJECTS on OS refusal —
+ * but on Android it ALSO rejects for a user cancel (see `isBiometricUserCancel`).
+ * The 3-way result lets the UI retry only when retry can actually succeed.
  */
 export async function loadCredentials(
   authenticationPrompt: AuthenticationPrompt,
@@ -93,7 +128,8 @@ export async function loadCredentials(
     });
     if (!result || typeof result === 'boolean') return { status: 'cancelled' };
     return { status: 'ok', email: result.username, password: result.password };
-  } catch {
+  } catch (error) {
+    if (isBiometricUserCancel(error)) return { status: 'cancelled' };
     return { status: 'unavailable' };
   }
 }
