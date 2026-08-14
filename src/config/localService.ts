@@ -14,14 +14,6 @@
 // constant is the only source of the base URL.
 
 // ---------------------------------------------------------------------------
-// Local service (device-binding helper on port 5174) — separate concern.
-// ---------------------------------------------------------------------------
-const DEFAULT_DESKTOP_HOST = '172.16.0.123';
-export const LOCAL_SERVICE_HOST = DEFAULT_DESKTOP_HOST;
-export const LOCAL_SERVICE_PORT = 5174;
-export const LOCAL_SERVICE_BASE_URL = `http://${LOCAL_SERVICE_HOST}:${LOCAL_SERVICE_PORT}`;
-
-// ---------------------------------------------------------------------------
 // Platform service — THE single config. Edit this one line to retarget.
 // ---------------------------------------------------------------------------
 export function normalizeServiceBaseUrl(baseUrl: string): string {
