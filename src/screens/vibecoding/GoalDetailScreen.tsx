@@ -238,6 +238,8 @@ const planningPhaseLabel = (phase?: string): string => {
       return '探索工作区中';
     case 'emitting':
       return '生成计划中';
+    case 'awaiting_user_input':
+      return '等待你的回答';
     default:
       return '规划中';
   }
