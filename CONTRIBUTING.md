@@ -4,7 +4,7 @@
 
 ## 开发环境
 
-见 [README · 快速开始](README.md#快速开始)。克隆后：
+见 [README · 快速开始](README.zh-CN.md#快速开始)（英文版见 [README · Getting started](README.md#getting-started)）。克隆后：
 
 ```sh
 npm install
