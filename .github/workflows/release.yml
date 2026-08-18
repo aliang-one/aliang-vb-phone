@@ -63,12 +63,15 @@ jobs:
         env:
           VERSION_NAME: ${{ github.ref_name }} # e.g. v1.0.1
           VERSION_CODE: ${{ github.run_number }} # monotonic, enables update-installs
-          ALIANG_RELEASE_STORE_FILE: ${{ runner.temp }}/release.keystore
           ALIANG_RELEASE_STORE_PASSWORD: ${{ secrets.ALIANG_RELEASE_STORE_PASSWORD }}
           ALIANG_RELEASE_KEY_ALIAS: ${{ secrets.ALIANG_RELEASE_KEY_ALIAS }}
           ALIANG_RELEASE_KEY_PASSWORD: ${{ secrets.ALIANG_RELEASE_KEY_PASSWORD }}
         run: |
-          if [ "${{ steps.signing.outputs.mode }}" != "release" ]; then
+          if [ "${{ steps.signing.outputs.mode }}" = "release" ]; then
+            export ALIANG_RELEASE_STORE_FILE="$RUNNER_TEMP/release.keystore"
+          else
+            # No keystore — do NOT set STORE_FILE (gradle treats a lone store
+            # path as partially-configured signing and fails the build).
             export ALLOW_DEBUG_RELEASE_SIGNING=true
           fi
           npm run android:release

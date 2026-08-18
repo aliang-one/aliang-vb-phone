@@ -48,12 +48,22 @@ if (fs.existsSync(gradlePropsPath)) {
 }
 
 const missing = REQUIRED_KEYS.filter(key => !gradleProps[key] && !process.env[key]);
-if (missing.length > 0) {
+// The advertised internal-testing escape hatch. Gradle checks the same value
+// (prop or env) in build.gradle — mirror it here so the pre-check doesn't
+// block the debug-signed path it points to.
+const allowDebugSigning =
+  process.env.ALLOW_DEBUG_RELEASE_SIGNING === 'true' ||
+  gradleProps.ALLOW_DEBUG_RELEASE_SIGNING === 'true';
+if (missing.length > 0 && !allowDebugSigning) {
   console.error('❌ Release signing is not configured. Missing: ' + missing.join(', '));
   console.error('   Set all four in ~/.gradle/gradle.properties (NOT in the repo):');
   REQUIRED_KEYS.forEach(key => console.error(`     ${key}=...`));
   console.error('   For an internal-only test APK instead, set ALLOW_DEBUG_RELEASE_SIGNING=true.');
   process.exit(1);
+}
+if (missing.length > 0) {
+  console.warn('⚠️  ALLOW_DEBUG_RELEASE_SIGNING=true — building a debug-signed internal APK.');
+  console.warn('   Do not distribute this artifact as a production update.');
 }
 
 // ABI filter: default arm64-v8a (mainstream devices, smallest APK). Variants
