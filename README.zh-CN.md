@@ -129,6 +129,21 @@ npm run android:release:full       # 全架构
 
 > 仅供内测时，可用 `ALLOW_DEBUG_RELEASE_SIGNING=true` 产出 debug 签名 APK —— 该产物**不得**作为正式版本分发。
 
+### Tag 触发的 CI 打包
+
+推送一个指向 `main` 提交的 `v*` tag —— 例如 `git tag v1.0.1 && git push github v1.0.1` —— 即触发 [Release APK 工作流](.github/workflows/release.yml)：自动构建 arm64-v8a release APK（`VERSION_NAME`/`VERSION_CODE` 取自 tag），并挂到对应 tag 的 GitHub Release 上（同时上传为 workflow artifact）。
+
+要产出正式签名的 APK，需在仓库配置以下 secrets：
+
+| Secret | 值 |
+| --- | --- |
+| `ALIANG_RELEASE_KEYSTORE_BASE64` | release `.jks` keystore 的 base64 |
+| `ALIANG_RELEASE_STORE_PASSWORD` | keystore 密码 |
+| `ALIANG_RELEASE_KEY_ALIAS` | key 别名 |
+| `ALIANG_RELEASE_KEY_PASSWORD` | key 密码 |
+
+未配置时工作流不会失败，而是产出**明确标注的 debug 签名内测包** —— 可用于测试，不可用于分发。
+
 ## 开发
 
 ```sh

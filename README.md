@@ -130,6 +130,21 @@ npm run android:release:full       # all architectures
 
 > For internal testing only, `ALLOW_DEBUG_RELEASE_SIGNING=true` produces a debug-signed APK — that artifact must **not** ship as a production update.
 
+### Tag-triggered release builds (CI)
+
+Pushing a `v*` tag that points at a commit on `main` — e.g. `git tag v1.0.1 && git push github v1.0.1` — triggers the [Release APK workflow](.github/workflows/release.yml): an arm64-v8a release APK is built with `VERSION_NAME`/`VERSION_CODE` derived from the tag, then attached to the GitHub Release for that tag (and uploaded as a workflow artifact).
+
+To get production-signed APKs, set these repository secrets:
+
+| Secret | Value |
+| --- | --- |
+| `ALIANG_RELEASE_KEYSTORE_BASE64` | base64 of your release `.jks` keystore |
+| `ALIANG_RELEASE_STORE_PASSWORD` | keystore password |
+| `ALIANG_RELEASE_KEY_ALIAS` | key alias |
+| `ALIANG_RELEASE_KEY_PASSWORD` | key password |
+
+Without them the workflow still succeeds but produces a clearly-labelled **debug-signed internal APK** — fine for testing, not for distribution.
+
 ## Development
 
 ```sh
