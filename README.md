@@ -143,7 +143,11 @@ To get production-signed APKs, set these repository secrets:
 | `ALIANG_RELEASE_KEY_ALIAS` | key alias |
 | `ALIANG_RELEASE_KEY_PASSWORD` | key password |
 
-Without them the workflow still succeeds but produces a clearly-labelled **debug-signed internal APK** — fine for testing, not for distribution.
+Without them the workflow still succeeds and publishes a **debug-signed APK** that anyone can download and install — this is the intended default for this repo. Since every CI build signs with the same public `debug.keystore` committed in the repo:
+
+- users can upgrade directly across released APKs (same key, monotonically increasing `versionCode`),
+- self-built APKs (`npm run android`) are signed with the same key, so they upgrade-install over the released ones and vice versa,
+- the trade-off: the key is public, so the signature proves no authorship. If you ever need a trusted release identity, configure the secrets above — installed users would then need a one-time uninstall to switch signatures.
 
 ## Development
 

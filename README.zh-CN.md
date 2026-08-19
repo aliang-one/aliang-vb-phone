@@ -142,7 +142,11 @@ npm run android:release:full       # 全架构
 | `ALIANG_RELEASE_KEY_ALIAS` | key 别名 |
 | `ALIANG_RELEASE_KEY_PASSWORD` | key 密码 |
 
-未配置时工作流不会失败，而是产出**明确标注的 debug 签名内测包** —— 可用于测试，不可用于分发。
+不配置时工作流不会失败，而是发布**debug 签名的 APK**，任何人都可以直接下载安装 —— 这是本仓库预期默认的分发方式。由于每次 CI 都用仓库里公开的同一把 `debug.keystore` 签名：
+
+- 用户可以在各发布版本之间直接覆盖升级（同一把钥匙，`versionCode` 单调递增），
+- 自己编译的 APK（`npm run android`）用的也是同一把钥匙，与发布包互相覆盖升级，
+- 取舍：钥匙是公开的，签名不构成作者身份证明。将来若需要可信的发布身份，再配置上述 secrets —— 已装用户需卸载重装一次以切换签名。
 
 ## 开发
 
