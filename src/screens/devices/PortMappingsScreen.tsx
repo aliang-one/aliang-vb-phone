@@ -23,6 +23,8 @@ import {
   fetchPortMappings,
   PortMapping,
   revokePortMapping,
+  tunnelHealth,
+  TunnelStatusInfo,
 } from '../../api/portMappings';
 import { ApiResponseError } from '../../api/client';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
@@ -165,6 +167,10 @@ export const PortMappingsScreen: React.FC = () => {
         .slice(0, 12),
     [device?.activePorts],
   );
+  // The Piko data channel is per-device, so every mapping of this device
+  // carries the same tunnel_status; surface it so a dead tunnel (502 on the
+  // public URL) is visible instead of silently showing 'active' mappings.
+  const deviceTunnel = mappings.find(item => item.tunnel_status)?.tunnel_status;
 
   const handleCreate = async () => {
     if (!device || !canCreate || parsedPort == null) return;
@@ -387,6 +393,7 @@ export const PortMappingsScreen: React.FC = () => {
           ) : null}
 
           <SectionLabel text={t('portMappings.listSection')} />
+          {deviceTunnel ? <TunnelStatusLine status={deviceTunnel} /> : null}
           {loading ? (
             <View style={styles.loadingRow}>
               <ActivityIndicator color={theme.colors.primary} />
@@ -442,6 +449,42 @@ const SectionLabel = ({ text }: { text: string }) => {
       ]}>
       {text}
     </Text>
+  );
+};
+
+const TUNNEL_STATE_LABEL_KEYS: Record<string, string> = {
+  connecting: 'portMappings.tunnelConnecting',
+  connected: 'portMappings.tunnelConnected',
+  reconnecting: 'portMappings.tunnelReconnecting',
+  failed: 'portMappings.tunnelFailed',
+  stopped: 'portMappings.tunnelStopped',
+  control_disconnected: 'portMappings.tunnelControlDisconnected',
+};
+
+const TunnelStatusLine = ({ status }: { status: TunnelStatusInfo }) => {
+  const { theme } = useTheme();
+  const { t } = useTranslation('devices');
+  const health = tunnelHealth(status);
+  const dotColor =
+    health === 'ok'
+      ? theme.colors.success
+      : health === 'down'
+        ? theme.colors.error
+        : theme.colors.warning;
+  const labelKey =
+    TUNNEL_STATE_LABEL_KEYS[status.state] ?? 'portMappings.tunnelUnknown';
+  return (
+    <View style={styles.tunnelRow}>
+      <View style={[styles.tunnelDot, { backgroundColor: dotColor }]} />
+      <Text
+        style={[
+          theme.typography.labelSm,
+          { color: theme.colors.onSurfaceVariant, flex: 1 },
+        ]}>
+        {t('portMappings.tunnelPrefix')} · {t(labelKey)}
+        {status.error ? `\n${status.error}` : null}
+      </Text>
+    </View>
   );
 };
 
@@ -683,6 +726,17 @@ const styles = StyleSheet.create({
   sectionLabel: {
     marginTop: 8,
     marginBottom: 8,
+  },
+  tunnelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  tunnelDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   formPanel: {
     padding: 14,

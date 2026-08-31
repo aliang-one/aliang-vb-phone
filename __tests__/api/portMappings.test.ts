@@ -3,6 +3,7 @@ import {
   createPortMapping,
   fetchPortMappings,
   revokePortMapping,
+  tunnelHealth,
   type PortMapping,
 } from '../../src/api/portMappings';
 
@@ -60,7 +61,10 @@ describe('port mapping API', () => {
         target_port: 3000,
         expires_in_seconds: 28_800,
       },
-      { timeoutMs: 20_000 },
+      // Must clear the server's tunnel.configure fence (35s), which itself
+      // covers the Agent's 30s Piko WSS handshake budget. 20s aborted slow
+      // networks that the server would have served fine.
+      { timeoutMs: 40_000 },
     );
   });
 
@@ -72,5 +76,25 @@ describe('port mapping API', () => {
     expect(mockedDelete).toHaveBeenCalledWith(
       '/api/port-mappings/pm%2Funsafe',
     );
+  });
+
+  describe('tunnelHealth', () => {
+    it.each([
+      ['connected', 'ok'],
+      ['connecting', 'pending'],
+      ['reconnecting', 'pending'],
+      ['failed', 'down'],
+      ['stopped', 'down'],
+      ['control_disconnected', 'down'],
+    ] as const)(
+      'maps server state %s to %s',
+      (state, expected) => {
+        expect(tunnelHealth({ state } as PortMapping['tunnel_status'])).toBe(expected);
+      },
+    );
+
+    it('treats a missing tunnel status as unknown', () => {
+      expect(tunnelHealth(undefined)).toBe('unknown');
+    });
   });
 });
