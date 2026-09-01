@@ -79,7 +79,7 @@ AI 运行中 agent 检测到 dev server 端口
 
 **d. PreviewLink 扩展 + 新 WS 事件**
 - `PreviewLink` 加 `publicUrl?/portMappingId?/mappingStatus?: 'mapped'|'failed'|'unavailable'|'revoked'/mappingError?`；`publicPreviewLink` 序列化器带出。
-- `mappingStatus:'revoked'`：**服务端同步**——既有 `DELETE /api/port-mappings/:mappingId` 路由（`routes/portMappings.ts:112`）在网关撤销成功后，扫描 `previewLinks` 中 `portMappingId === mappingId` 的链接 → 翻 `'revoked'` + upsert + `scheduleStateSave` + `publishToMobiles('preview.updated')`（约 10 行，不新增端点）。手机收到撤销确认后本地同步翻 `'revoked'`（乐观更新，与服务端广播收敛）。这保证刷新/重装后快照权威状态与网关一致，撤销后的卡片不会复活成 mapped。
+- `mappingStatus:'revoked'`：**服务端同步**——既有 `DELETE /api/port-mappings/:mappingId` 路由（`routes/portMappings.ts:112`）在网关撤销成功后，扫描 `previewLinks` 中 `portMappingId === mappingId` 的链接 → 翻 `'revoked'` + upsert + `scheduleStateSave` + `publishToMobiles('preview.updated')`（约 10 行，不新增端点）。手机侧**不做本地乐观翻转**，卡片态完全由 `preview.updated` 广播/快照收敛（服务端权威，实现更简单且端态等价；plan-review 阶段拍板）。这保证刷新/重装后快照权威状态与网关一致，撤销后的卡片不会复活成 mapped。
 - 新 WS 事件 `preview.updated{preview}`，载荷形状与 `preview.ready` 相同（`publicPreviewLink` 输出），direction `agent_to_mobile` 语义沿用。
 
 **e. `publicDevice` 加 `tunnelAvailable: boolean`**（`modules/device/serializers.ts`）

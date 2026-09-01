@@ -271,19 +271,18 @@ describe('preview port-forwarding persistence', () => {
 
   it('round-trips preview link mapping state', () => {
     const db = new SQLiteDatabase(':memory:');
-    // 用 database.ts 里 previewLinks 的公开包装方法（grep 'PreviewLink' 确认方法名，
-    // 通常为 upsertPreviewLink / listPreviewLinks / getPreviewLink 之一族）。
+    // 公开包装方法（database.ts:2663-2669）：upsertPreviewLink / getPreviewLinksByUser / getPreviewLinkBySession
     db.upsertPreviewLink(link('mapped'));
-    const got = db.listPreviewLinks('u1').find(l => l.id === 'prev_1');
+    const got = db.getPreviewLinksByUser('u1').find(l => l.id === 'prev_1');
     expect(got?.mappingStatus).toBe('mapped');
     expect(got?.publicUrl).toBe('https://abc.tunnel.test');
     expect(got?.portMappingId).toBe('pm_1');
 
     db.upsertPreviewLink(link('failed'));
-    expect(db.listPreviewLinks('u1')[0]?.mappingError).toBe('boom');
+    expect(db.getPreviewLinksByUser('u1')[0]?.mappingError).toBe('boom');
 
     db.upsertPreviewLink(link(undefined));
-    expect(db.listPreviewLinks('u1')[0]?.mappingStatus).toBeUndefined();
+    expect(db.getPreviewLinksByUser('u1')[0]?.mappingStatus).toBeUndefined();
     db.close();
   });
 });
@@ -407,6 +406,7 @@ vi.mock('../../../src/shared/ws/registry.js', () => ({
 const mockDevices = new Map<string, Device>();
 vi.mock('../../../src/store.js', () => ({
   devices: mockDevices,
+  previewLinks: new Map(), // PreviewLinkRepository 委托此 Map（store 不 mock 会 undefined 崩）
   scheduleStateSave: vi.fn(),
   __esModule: true,
 }));
@@ -586,7 +586,7 @@ describe('revokeLinkedPreviewMappings', () => {
 });
 ```
 
-> 注意：`ApiError` 构造签名以 `server/src/errors.ts` 为准（`new ApiError(status, code)`）；mock 里 `previewLinks` 用真实 `PreviewLinkRepository`（纯内存 Map，无需 mock store）。
+> 注意：`ApiError` 构造签名以 `server/src/errors.ts` 为准（`new ApiError(status, code)`）；测试用真实 `PreviewLinkRepository`，**它委托 store 的 `previewLinks` Map，因此上面 store mock 必须含 `previewLinks: new Map()`**（缺了会在 `Repository.delete/upsert` 处 TypeError）。
 
 - [ ] **Step 2: 跑测试确认失败**
 
@@ -995,7 +995,8 @@ git commit -m "device: publicDevice 暴露 tunnel_available 供手机门控创�
 - Modify: `src/app/navigation/types.ts:32`（draftConfig 类型）
 - Modify: `src/store/types.ts:203`（StartAgentInput）
 - Modify: `src/data/platformModels.ts:689`（PreviewLink）
-- Modify: `src/services/platformTransport.ts`（PlatformDeviceSnapshot ~:65、PlatformPreviewSnapshot :120、normalize ~:75/213/237、ServerDevice 类型来源）
+- Modify: `src/services/platformTransport.ts`（PlatformDeviceSnapshot ~:65、PlatformPreviewSnapshot :120、normalize ~:75/213/237）
+- Modify: `src/api/platformState.ts:10`（`ServerPreviewLink` 加 4 个 snake_case 字段，否则 normalize 引用 `link.public_url` 等过不了 typecheck）
 - Modify: `src/i18n/locales/vibecoding/zh.json` + `en.json`
 
 - [ ] **Step 1: draftConfig + StartAgentInput**
@@ -1026,7 +1027,8 @@ git commit -m "device: publicDevice 暴露 tunnel_available 供手机门控创�
 2. `PlatformDeviceSnapshot` 加 `tunnelAvailable?: boolean;`；
 3. device normalize（`capabilities: asStringArray(...)` 同区）加 `tunnelAvailable: Boolean(device.tunnel_available),`；
 4. `ServerDevice` 类型（grep `interface ServerDevice` / `type ServerDevice` 定位其定义文件）加 `tunnel_available?: boolean;`；
-5. `normalizeServerPreviewLink`（:237）加：
+5. `src/api/platformState.ts` 的 `ServerPreviewLink` 接口加 `public_url?: string; port_mapping_id?: string; mapping_status?: string; mapping_error?: string;`（不加则本任务 typecheck 门过不了）；
+6. `normalizeServerPreviewLink`（:237）加：
 
 ```typescript
     publicUrl: asString(link.public_url),
@@ -1122,7 +1124,7 @@ Expected: 0 errors
 - [ ] **Step 5: Commit**
 
 ```bash
-cd PHONE && git add src/app/navigation/types.ts src/store/types.ts src/data/platformModels.ts src/services/platformTransport.ts src/i18n/locales/vibecoding/zh.json src/i18n/locales/vibecoding/en.json
+cd PHONE && git add src/app/navigation/types.ts src/store/types.ts src/data/platformModels.ts src/services/platformTransport.ts src/api/platformState.ts src/i18n/locales/vibecoding/zh.json src/i18n/locales/vibecoding/en.json
 git commit -m "types+i18n: 端口转发标记/公网映射状态贯通与双语文案"
 ```
 
@@ -1292,7 +1294,7 @@ git commit -m "session: expose_preview_port 随首条消息上行到 createAiSes
 
 **Files:**
 - Modify: `src/store/controlCenterStore.ts:1262`（preview.ready case 旁加 preview.updated case）
-- Test: `__tests__/platformTransport.test.ts`（追加 preview.updated 映射用例；store 级合并用例放 `__tests__/sessionStore.test.ts` 或按现有 store 测试文件归属）
+- Test: `__tests__/platformTransport.test.ts`（追加 preview.updated 映射用例；注意该文件**现有用例里没有 preview.ready 可照抄**——socketHandler dispatch harness 直接复用，按现有 case 的写法新起）；store 级合并用例放 `__tests__/sessionStore.test.ts` 或按现有 store 测试文件归属
 
 - [ ] **Step 1: 写失败测试**
 
@@ -1538,7 +1540,7 @@ export function SessionPreviewCard({ preview, t, onNavigate, onRevoke }: Props) 
 }
 ```
 
-> 执行者注意：GlassPanel/StatusChip/theme 导入路径与 props 以 `VibeCodingSessionScreen.tsx` 现有卡片代码（:2371-2406）为准照抄；`styles.previewCard` 等样式随组件迁移或以 props 传入；上面 `undefined as never` 占位处替换为真实样式。
+> 执行者注意：真实导入路径为本仓既有：`import { GlassPanel } from '../../components/shared/GlassPanel'`、`import { StatusChip } from '../../components/shared/StatusChip'`、`import { useTheme } from '../../theme/useTheme'`（以 `VibeCodingSessionScreen.tsx` 现有卡片代码 :2371-2406 的实际导入为准照抄）；`styles.previewCard` 等样式随组件迁移或以 props 传入；上面 `undefined as never` 占位处替换为真实样式。`Clipboard` 从 `react-native` 取（同 PortMappingsScreen 手法）。
 
 - [ ] **Step 4: 会话屏接线**
 
