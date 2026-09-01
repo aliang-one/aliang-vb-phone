@@ -66,10 +66,11 @@ AI 运行中 agent 检测到 dev server 端口
 - `PREVIEW_MAPPING_TTL_SECONDS = 86_400`。
 - `autoMapPreviewPort(session, link)`：
   1. 守卫（任一不满足 → `mappingStatus:'unavailable'`，`mappingError` 记原因码）：resolveTunnelConfig() 可用；`isAgentConnected(deviceId)`；device.capabilities 含 `http_tunnel_v1` 且 `websocket_tunnel_v1`；`link.port > 0`。
-  2. 去重：已存在同 `(userId, sessionId, port)` 且 `mappingStatus==='mapped'` 的 PreviewLink → 直接复用其 publicUrl/mappingId，不重建。
-  3. `await ensureAgentTunnel(deviceId)`（复用 control.ts，内含并发去重与 35s 等待）。
-  4. `await createPortMapping(...)`（gatewayClient.ts，target_host 恒 `127.0.0.1`——agent 侧白名单对 loopback 恒放行）。
-  5. 结果写回传入的 link（publicUrl=short_url、portMappingId=mapping.id、mappingStatus），`PreviewLinkRepository.upsert` + `scheduleStateSave` + `publishToMobiles('preview.updated', ...)`。
+  2. 去重：已存在同 `(userId, sessionId, port)` 且 `mappingStatus==='mapped'` 的 PreviewLink → **先经 `gatewayClient.getPortMapping(id)` 复核**（已有导出）：网关仍返回映射 → 复用其 publicUrl/mappingId 不重建；404/不存在 ⇒ 该映射已被撤销或过期 → 视同无映射，走新建。服务端 `mappingStatus` 不作为「网关侧仍存活」的充分证据（手机撤销、自然过期都会造成服务端状态滞后）。
+  3. 组合方式镜像既有 `POST /api/port-mappings` handler（`routes/portMappings.ts:38`：`ensureAgentTunnel(device)` → `createPortMapping(resolveTunnelConfig(), {...})`）；实现计划必须沿用真实签名：`ensureAgentTunnel(device: Device, options?)`、`createPortMapping(config, {userId, deviceId, targetHost, targetPort, kind, expiresInSeconds})`（文中 `{127.0.0.1:port}` 为语义示意）。
+  4. `await ensureAgentTunnel(device)`（复用 control.ts，内含并发去重与 35s 等待）。
+  5. `await createPortMapping(...)`（gatewayClient.ts，targetHost 恒 `127.0.0.1`——agent 侧白名单对 loopback 恒放行；e2e 冒烟覆盖）。
+  6. 结果写回传入的 link（publicUrl=short_url、portMappingId=mapping.id、mappingStatus），`PreviewLinkRepository.upsert` + `scheduleStateSave` + `publishToMobiles('preview.updated', ...)`。
 - 全程 try/catch，绝不向调用方抛错。
 
 **c. `handlePreviewReady` 挂钩**（`modules/agent/handlers/projectDevice.ts:67`）
@@ -78,7 +79,7 @@ AI 运行中 agent 检测到 dev server 端口
 
 **d. PreviewLink 扩展 + 新 WS 事件**
 - `PreviewLink` 加 `publicUrl?/portMappingId?/mappingStatus?: 'mapped'|'failed'|'unavailable'|'revoked'/mappingError?`；`publicPreviewLink` 序列化器带出。
-- `mappingStatus:'revoked'`：手机调用既有 `DELETE /api/port-mappings/:id` 成功后，手机本地把卡片状态翻成 revoked（server 无需新撤销联动端点；映射本身已在网关撤销）。
+- `mappingStatus:'revoked'`：**服务端同步**——既有 `DELETE /api/port-mappings/:mappingId` 路由（`routes/portMappings.ts:112`）在网关撤销成功后，扫描 `previewLinks` 中 `portMappingId === mappingId` 的链接 → 翻 `'revoked'` + upsert + `scheduleStateSave` + `publishToMobiles('preview.updated')`（约 10 行，不新增端点）。手机收到撤销确认后本地同步翻 `'revoked'`（乐观更新，与服务端广播收敛）。这保证刷新/重装后快照权威状态与网关一致，撤销后的卡片不会复活成 mapped。
 - 新 WS 事件 `preview.updated{preview}`，载荷形状与 `preview.ready` 相同（`publicPreviewLink` 输出），direction `agent_to_mobile` 语义沿用。
 
 **e. `publicDevice` 加 `tunnelAvailable: boolean`**（`modules/device/serializers.ts`）
@@ -100,6 +101,7 @@ AI 运行中 agent 检测到 dev server 端口
 
 **c. platformTransport**
 - WS 消息联合类型加 `preview.updated`；处理分支与 `preview.ready` 相同管道（normalize + 合并进 previewLinks 快照）。`PlatformPreviewSnapshot` 加 `publicUrl?/portMappingId?/mappingStatus?/mappingError?`。
+- 设备快照类型与 normalize 路径（`platformTransport.ts` 设备归一化处）显式带上 `tunnelAvailable?: boolean`（配合 5.1e，供创建页门控读取）。
 
 **d. 会话页 preview 卡片**（`VibeCodingSessionScreen.tsx` preview 卡）
 - `publicUrl` 存在：显示「公网」徽标 + 「复制」「打开」按钮（Clipboard/Linking，手法同 PortMappingsScreen MappingCard），原 agent 本地 shortUrl 展示保留。
@@ -120,7 +122,9 @@ AI 运行中 agent 检测到 dev server 端口
 | agent 离线 / 能力缺失 | `unavailable` |
 | ensureAgentTunnel 超时（35s）/ 409 | `unavailable`，mappingError=原因码 |
 | 网关 5s 超时 / 4xx / 5xx | `failed`，mappingError=错误文案 |
-| agent 重发同 session+port | 去重复用，不重建 |
+| agent 重发同 session+port | 去重复用，不重建（复用前经网关复核存活；已撤销/已过期 ⇒ 重建） |
+| 手机撤销某映射后刷新/重进 | 服务端已同步翻 revoked（DELETE 路由联动），快照权威一致，卡片不复活成 mapped |
+| 撤销后 agent 重报同端口（dev server 重启场景） | 去重复核发现网关 404 → 新建映射，新链接推 preview.updated |
 | 同会话多端口（3000 与 8080） | 各建各的映射 |
 | port 缺失或 0 | 跳过（`unavailable`，原因 port_missing） |
 | 老会话（无标记） | 行为零变化 |
@@ -129,7 +133,8 @@ AI 运行中 agent 检测到 dev server 端口
 ## 7. 测试策略（TDD）
 
 **Server（vitest）**
-- `previewMapping` 单测：标记关不建 / 成功写 publicUrl+推 preview.updated / 隧道不可用→unavailable / 网关失败→failed / 同 (session,port) 去重 / port=0 跳过。
+- `previewMapping` 单测：标记关不建 / 成功写 publicUrl+推 preview.updated / 隧道不可用→unavailable / 网关失败→failed / 同 (session,port) 去重 / 去重复核网关 404→重建 / port=0 跳过。
+- DELETE 联动单测：网关撤销成功后，portMappingId 匹配的 PreviewLink 翻 'revoked' + 推 preview.updated；不匹配的链接不受影响。
 - schema + 持久化 roundtrip：createAiSession 带 `expose_preview_port` → 存库 → 重启读回。
 - `publicDevice` tunnelAvailable：配置完整 true / 缺一项 false。
 
