@@ -65,8 +65,8 @@ AI 运行中 agent 检测到 dev server 端口
 **b. 新模块 `server/src/modules/tunnel/previewMapping.ts`**
 - `PREVIEW_MAPPING_TTL_SECONDS = 86_400`。
 - `autoMapPreviewPort(session, link)`：
-  1. 守卫（任一不满足 → `mappingStatus:'unavailable'`，`mappingError` 记原因码）：resolveTunnelConfig() 可用；`isAgentConnected(deviceId)`；device.capabilities 含 `http_tunnel_v1` 且 `websocket_tunnel_v1`；`link.port > 0`。
-  2. 去重：已存在同 `(userId, sessionId, port)` 且 `mappingStatus==='mapped'` 的 PreviewLink → **先经 `gatewayClient.getPortMapping(id)` 复核**（已有导出）：网关仍返回映射 → 复用其 publicUrl/mappingId 不重建；404/不存在 ⇒ 该映射已被撤销或过期 → 视同无映射，走新建。服务端 `mappingStatus` 不作为「网关侧仍存活」的充分证据（手机撤销、自然过期都会造成服务端状态滞后）。
+  1. 守卫（任一不满足 → `mappingStatus:'unavailable'`，`mappingError` 记原因码）：`requireTunnelConfig()` 完整性通过（control.ts:30，= enabled && pikoUpstreamUrl && routePublicKey；**不要用 `resolveTunnelConfig()` 判定**——它恒返回合并对象、从不抛错，当判据会恒真）；`isAgentConnected(deviceId)`；device.capabilities 含 `http_tunnel_v1` 且 `websocket_tunnel_v1`；`link.port > 0`。
+  2. 去重：已存在同 `(userId, sessionId, port)` 且 `mappingStatus==='mapped'` 的 PreviewLink → **先经 `gatewayClient.getPortMapping(id)` 复核**（已有导出；网关 404 以 **thrown `ApiError(404,'port_mapping_not_found')`** 表达，catch 须针对该错误码，而非 falsy 返回值）：网关仍返回映射 → 复用其 publicUrl/mappingId 不重建；404 ⇒ 该映射已被撤销或过期 → 视同无映射，走新建。服务端 `mappingStatus` 不作为「网关侧仍存活」的充分证据（手机撤销、自然过期都会造成服务端状态滞后）。
   3. 组合方式镜像既有 `POST /api/port-mappings` handler（`routes/portMappings.ts:38`：`ensureAgentTunnel(device)` → `createPortMapping(resolveTunnelConfig(), {...})`）；实现计划必须沿用真实签名：`ensureAgentTunnel(device: Device, options?)`、`createPortMapping(config, {userId, deviceId, targetHost, targetPort, kind, expiresInSeconds})`（文中 `{127.0.0.1:port}` 为语义示意）。
   4. `await ensureAgentTunnel(device)`（复用 control.ts，内含并发去重与 35s 等待）。
   5. `await createPortMapping(...)`（gatewayClient.ts，targetHost 恒 `127.0.0.1`——agent 侧白名单对 loopback 恒放行；e2e 冒烟覆盖）。
@@ -83,7 +83,7 @@ AI 运行中 agent 检测到 dev server 端口
 - 新 WS 事件 `preview.updated{preview}`，载荷形状与 `preview.ready` 相同（`publicPreviewLink` 输出），direction `agent_to_mobile` 语义沿用。
 
 **e. `publicDevice` 加 `tunnelAvailable: boolean`**（`modules/device/serializers.ts`）
-- = resolveTunnelConfig() 成功（server 侧隧道配置完整）。供手机把创建页开关精确置灰（能力位只代表 agent 支持，不代表 server 已启用隧道）。
+- 判据 = `requireTunnelConfig()` 的完整性谓词（enabled && pikoUpstreamUrl && routePublicKey；`resolveTunnelConfig()` 恒成功不可作判据）。供手机把创建页开关精确置灰（能力位只代表 agent 支持，不代表 server 已启用隧道）。
 
 ### 5.2 Phone（AliangVibeCodingPhone）
 
@@ -107,7 +107,7 @@ AI 运行中 agent 检测到 dev server 端口
 - `publicUrl` 存在：显示「公网」徽标 + 「复制」「打开」按钮（Clipboard/Linking，手法同 PortMappingsScreen MappingCard），原 agent 本地 shortUrl 展示保留。
 - `mappingStatus==='failed'|'unavailable'`：卡片底部一行中性提示（含可读原因），不阻塞、不显红（无 error 语义冲突）。
 - `mappingStatus==='mapped'`：卡片加「撤销」入口（Alert 确认 → 既有 `revokePortMapping(portMappingId)` → 本地翻 `'revoked'`）。撤销只影响公网映射，agent 本地 shortUrl 不动。
-- `mappingStatus==='revoked'`：徽标置灰「已撤销」，复制/打开仍指向 publicUrl（用户已复制的链接在 24h 内自然失效前行为由网关决定，UI 不再提供入口）。
+- `mappingStatus==='revoked'`：徽标置灰「已撤销」，**移除复制/打开/撤销按钮**（此前已复制出去的链接在网关侧到期前仍可解析，属用户自持行为；卡片不再提供入口）。
 
 **e. i18n**：`vibecoding` 命名空间 zh/en 补键：开关标题沿用 `createScreen.permissions.portMapping.title`，新增 hint（开/关/置灰三种）、preview 卡公网徽标、复制/打开/撤销、失败提示、已撤销。沿用现有 key 组织方式。
 
