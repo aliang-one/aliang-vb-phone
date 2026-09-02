@@ -25,6 +25,7 @@
 **Files:**
 - Modify: `server/src/modules/tunnel/settings.ts`（`resolveTunnelConfig` 在 :51）
 - Modify: `server/src/modules/tunnel/control.ts`（`requireTunnelConfig` 在 :30 附近）
+- Modify: `server/test/modules/tunnel/control.test.ts`（必要连带：settings.js mock 工厂随新导出扩展）
 - Test: `server/test/modules/tunnel/settings.test.ts`（追加 describe）
 
 - [ ] **Step 1: 写失败测试**
