@@ -94,10 +94,24 @@
         "run": "Run local commands"
       },
       "portMapping": {
-        "title": "Expose preview ports as short links",
-        "comingSoon": "Coming soon"
+        "title": "Expose preview ports as public links",
+        "comingSoon": "Coming soon",
+        "onHint": "Preview ports started by the AI get a public URL automatically (valid for 24 hours)",
+        "offHint": "Turn on to generate public URLs for preview ports automatically",
+        "disabledHint": "Device is offline or tunnel unavailable"
       }
     }
+  },
+  "sessionPreview": {
+    "publicBadge": "Public",
+    "copy": "Copy",
+    "copied": "Copied",
+    "open": "Open",
+    "revoke": "Revoke",
+    "revokeTitle": "Revoke public mapping?",
+    "revokeBody": "The public URL stops working immediately.",
+    "revoked": "Revoked",
+    "failed": "Public mapping unavailable"
   },
   "sessionSettings": {
     "title": "Session settings",

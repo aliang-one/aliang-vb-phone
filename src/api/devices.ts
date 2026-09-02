@@ -60,6 +60,8 @@ export interface ServerDevice {
   active_ports: number[];
   authorized_directories: string[];
   project_ids: string[];
+  /** True when the server-side tunnel is configured and preview port forwarding is available. */
+  tunnel_available?: boolean;
   approval_policy?: {
     scheme: 'balanced' | 'allow_all' | 'custom';
     version: number;

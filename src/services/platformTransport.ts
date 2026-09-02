@@ -90,6 +90,8 @@ export interface PlatformDeviceSnapshot {
   activePorts: number[];
   authorizedDirectories: string[];
   projectIds: string[];
+  /** Whether the server-side tunnel is configured and port forwarding is available for this device. */
+  tunnelAvailable?: boolean;
   raw: ServerDevice;
 }
 
@@ -126,6 +128,11 @@ export interface PlatformPreviewSnapshot {
   expiresIn?: string;
   access: string;
   createdAt?: string;
+  /** Auto-created public tunnel mapping (undefined = no mapping state recorded). */
+  publicUrl?: string;
+  portMappingId?: string;
+  mappingStatus?: 'mapped' | 'failed' | 'unavailable' | 'revoked';
+  mappingError?: string;
 }
 
 export type PlatformTransportEvent =
@@ -158,6 +165,7 @@ export type PlatformTransportEvent =
   | { type: 'notification.updated'; notification: PlatformNotificationSnapshot; raw: Record<string, unknown> }
   | { type: 'notifications.updated'; readAll: boolean; raw: Record<string, unknown> }
   | { type: 'preview.ready'; preview: PlatformPreviewSnapshot; expiresIn: string; raw: Record<string, unknown> }
+  | { type: 'preview.updated'; preview: PlatformPreviewSnapshot; raw: Record<string, unknown> }
   | { type: 'project.updated'; project: PlatformProjectSnapshot; raw: Record<string, unknown> }
   | { type: 'project.deleted'; projectId: string; raw: Record<string, unknown> }
   | { type: 'projects.updated'; deviceId?: string; raw: Record<string, unknown> }
@@ -211,6 +219,7 @@ export function normalizeServerDevice(device: ServerDevice): PlatformDeviceSnaps
     uniqueCode: device.unique_code,
     agentVersion: device.agent_version,
     capabilities: asStringArray(device.capabilities),
+    tunnelAvailable: Boolean(device.tunnel_available),
     tools: Array.isArray(device.tools) ? device.tools : [],
     history: Array.isArray(device.history) ? device.history : [],
     agentStartedAt: device.agent_started_at,
@@ -232,6 +241,14 @@ export function normalizeServerDevice(device: ServerDevice): PlatformDeviceSnaps
   };
 }
 
+function asPreviewMappingStatus(
+  value: unknown,
+): PlatformPreviewSnapshot['mappingStatus'] {
+  return value === 'mapped' || value === 'failed' || value === 'unavailable' || value === 'revoked'
+    ? value
+    : undefined;
+}
+
 function normalizeServerPreviewLink(link: ServerPreviewLink): PlatformPreviewSnapshot {
   return {
     id: link.id || link.preview_id,
@@ -241,6 +258,10 @@ function normalizeServerPreviewLink(link: ServerPreviewLink): PlatformPreviewSna
     targetUrl: link.target_url,
     expiresIn: link.expires_in,
     access: link.access,
+    publicUrl: asString(link.public_url),
+    portMappingId: asString(link.port_mapping_id),
+    mappingStatus: asPreviewMappingStatus(link.mapping_status),
+    mappingError: asString(link.mapping_error),
     createdAt: link.created_at,
   };
 }
@@ -732,23 +753,27 @@ class PlatformTransport {
       };
     }
 
-    if (type === 'preview.ready' && message.preview && typeof message.preview === 'object') {
+    if ((type === 'preview.ready' || type === 'preview.updated') && message.preview && typeof message.preview === 'object') {
       const preview = message.preview as Record<string, unknown>;
       return {
-        type: 'preview.ready',
+        type,
         preview: {
           id: String(preview.id ?? ''),
           sessionId: String(preview.session_id ?? ''),
           port: Number(preview.port ?? 0),
           shortUrl: String(preview.short_url ?? ''),
           targetUrl: String(preview.target_url ?? ''),
+          publicUrl: asString(preview.public_url),
+          portMappingId: asString(preview.port_mapping_id),
+          mappingStatus: asPreviewMappingStatus(preview.mapping_status),
+          mappingError: asString(preview.mapping_error),
           expiresIn: asString(preview.expires_in),
           access: String(preview.access ?? 'private'),
           createdAt: asString(preview.created_at),
         },
         expiresIn: String(message.expires_in ?? preview.expires_in ?? ''),
         raw: message,
-      };
+      } as PlatformTransportEvent;
     }
 
     if (type === 'project.updated' && isServerProject(message.project)) {

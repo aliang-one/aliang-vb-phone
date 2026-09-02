@@ -1301,6 +1301,34 @@ export const useControlCenterStore = create<ControlCenterState>()(
               return;
             }
 
+            case 'preview.updated': {
+              // Auto port-forwarding convergence: only the link record changes
+              // (publicUrl/mappingStatus). Deliberately NOT flipping run status
+              // here — preview.ready already did that, and a late mapping result
+              // must not resurrect a settled run.
+              const updated = transportEvent.preview;
+              const nextPreview: PreviewLink = {
+                id: updated.id,
+                sessionId: updated.sessionId,
+                port: updated.port,
+                shortUrl: updated.shortUrl,
+                targetUrl: updated.targetUrl,
+                expiresIn: updated.expiresIn ?? '',
+                access: updated.access as PreviewLink['access'],
+                publicUrl: updated.publicUrl,
+                portMappingId: updated.portMappingId,
+                mappingStatus: updated.mappingStatus,
+                mappingError: updated.mappingError,
+              };
+              set(state => ({
+                previewLinks: [
+                  nextPreview,
+                  ...state.previewLinks.filter(p => p.id !== nextPreview.id),
+                ],
+              }));
+              return;
+            }
+
             case 'project.updated': {
               const nextProject = serverProjectToClient(transportEvent.project);
               set(state => {

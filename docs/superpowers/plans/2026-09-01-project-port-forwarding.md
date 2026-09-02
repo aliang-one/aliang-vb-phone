@@ -25,6 +25,7 @@
 **Files:**
 - Modify: `server/src/modules/tunnel/settings.ts`（`resolveTunnelConfig` 在 :51）
 - Modify: `server/src/modules/tunnel/control.ts`（`requireTunnelConfig` 在 :30 附近）
+- Modify: `server/test/modules/tunnel/control.test.ts`（必要连带：settings.js mock 工厂随新导出扩展）
 - Test: `server/test/modules/tunnel/settings.test.ts`（追加 describe）
 
 - [ ] **Step 1: 写失败测试**
@@ -373,6 +374,7 @@ git commit -m "db: ai_sessions.expose_preview_port + preview_links.mapping_state
 **Files:**
 - Create: `server/src/modules/tunnel/previewMapping.ts`
 - Test: `server/test/modules/tunnel/previewMapping.test.ts`
+- Modify（T5 质量审查补充，已随修复提交 7335abc 落地）: `server/src/shared/serializers.ts`——`publicPreviewLink` 必须带出 `public_url/port_mapping_id/mapping_status/mapping_error` 四字段，否则 T9 的 normalize、T12 的断言、快照收敛全部拿不到映射状态
 
 - [ ] **Step 1: 写失败测试**
 
@@ -856,7 +858,7 @@ Expected: FAIL（hook 不存在，autoMap 零调用）
 
 - [ ] **Step 3: 实现**
 
-`handlePreviewReady` 中，`PreviewLinkRepository.upsert(link); scheduleStateSave();` 之后、`await publishToMobiles(...)` 之前插：
+`handlePreviewReady` 中，**`await publishToMobiles('preview.ready', ...)` 之后**（T5 质量审查修正：守卫路径的 `preview.updated` 是同步 commit，若钩子放在 publish 之前，手机会先收到 preview.updated 再收到 preview.ready，T12 的 preview.ready 合并会用无映射字段的载荷覆盖掉刚送达的映射状态）插：
 
 ```typescript
   // Auto port-forwarding hook (create-page toggle): fire-and-forget, never

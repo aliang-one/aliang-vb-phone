@@ -30,6 +30,8 @@ import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { ToolsMenu } from '../../components/vibecoding/ToolsMenu';
+import { SessionPreviewCard } from './SessionPreviewCard';
+import { revokePortMapping } from '../../api/portMappings';
 import { MessageComposer } from '../../components/vibecoding/MessageComposer';
 import { GoalDraftBar, GoalStatusBar } from '../../components/vibecoding/GoalStatusBar';
 import { GoalDeletedFold } from '../../components/vibecoding/GoalDeletedFold';
@@ -1081,6 +1083,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
           canRead: draftConfig.canRead,
           canModify: draftConfig.canModify,
           canRun: draftConfig.canRun,
+          // Create-page preview-port toggle. Normalized `=== true` so
+          // undefined → false on the wire (matches the server default).
+          exposePreviewPort: draftConfig.exposePreviewPort === true,
         });
         // Flip from draft to the real session IN PLACE — no remount. setParams
         // mutates the current route's params so the back-stack / a persisted
@@ -2371,42 +2376,21 @@ export const VibeCodingSessionScreen: React.FC = () => {
           </View>
 
           {preview && (
-            <TouchableOpacity
-              activeOpacity={0.75}
-              onPress={() =>
-                navigation.navigate('Preview', { previewId: preview.id })
-              }
-            >
-              <GlassPanel glowColor="primary" style={styles.previewCard}>
-                <View style={styles.previewTop}>
-                  <Text
-                    style={[
-                      theme.typography.titleMd,
-                      { color: theme.colors.onSurface },
-                    ]}
-                  >
-                    Preview ready
-                  </Text>
-                  <StatusChip label={`${preview.port}`} type="info" />
-                </View>
-                <Text
-                  style={[
-                    theme.typography.codeSm,
-                    { color: theme.colors.primary },
-                  ]}
-                >
-                  {preview.shortUrl}
-                </Text>
-                <Text
-                  style={[
-                    theme.typography.labelSm,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}
-                >
-                  {preview.access.toUpperCase()} / expires in {preview.expiresIn}
-                </Text>
-              </GlassPanel>
-            </TouchableOpacity>
+            <SessionPreviewCard
+              preview={preview}
+              onNavigate={() => navigation.navigate('Preview', { previewId: preview.id })}
+              onRevoke={async () => {
+                if (!preview.portMappingId) return;
+                try {
+                  await revokePortMapping(preview.portMappingId);
+                  // Server flips linked previews to 'revoked' + broadcasts
+                  // preview.updated; the store merge converges this card.
+                } catch {
+                  // 下一次轮询/广播会纠正状态；不在此处弹错（撤销按钮的
+                  // 失败反馈由既有全局错误通道承担，若无可留空）
+                }
+              }}
+            />
           )}
 
           <View
@@ -3337,11 +3321,6 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
-  previewCard: {
-    padding: 12,
-    marginTop: 12,
-    gap: 8,
-  },
   quickActions: {
     flexDirection: 'row',
     gap: 10,
@@ -3367,11 +3346,6 @@ const styles = StyleSheet.create({
   quickTileChevron: {
     fontSize: 18,
     fontWeight: '600',
-  },
-  previewTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
   },
   conversationSection: {
     marginTop: 20,

@@ -106,7 +106,7 @@ AI 运行中 agent 检测到 dev server 端口
 **d. 会话页 preview 卡片**（`VibeCodingSessionScreen.tsx` preview 卡）
 - `publicUrl` 存在：显示「公网」徽标 + 「复制」「打开」按钮（Clipboard/Linking，手法同 PortMappingsScreen MappingCard），原 agent 本地 shortUrl 展示保留。
 - `mappingStatus==='failed'|'unavailable'`：卡片底部一行中性提示（含可读原因），不阻塞、不显红（无 error 语义冲突）。
-- `mappingStatus==='mapped'`：卡片加「撤销」入口（Alert 确认 → 既有 `revokePortMapping(portMappingId)` → 本地翻 `'revoked'`）。撤销只影响公网映射，agent 本地 shortUrl 不动。
+- `mappingStatus==='mapped'`：卡片加「撤销」入口（Alert 确认 → 既有 `revokePortMapping(portMappingId)`）。**手机不做本地乐观翻转**（与 §5.1d 的服务端权威拍板一致，此为原文字修正）：DELETE 成功后由服务端联动广播 `preview.updated(revoked)` 收敛卡片；请求失败静默（卡片保持 mapped，等广播/快照纠正）。撤销只影响公网映射，agent 本地 shortUrl 不动。
 - `mappingStatus==='revoked'`：徽标置灰「已撤销」，**移除复制/打开/撤销按钮**（此前已复制出去的链接在网关侧到期前仍可解析，属用户自持行为；卡片不再提供入口）。
 
 **e. i18n**：`vibecoding` 命名空间 zh/en 补键：开关标题沿用 `createScreen.permissions.portMapping.title`，新增 hint（开/关/置灰三种）、preview 卡公网徽标、复制/打开/撤销、失败提示、已撤销。沿用现有 key 组织方式。
@@ -144,7 +144,7 @@ AI 运行中 agent 检测到 dev server 端口
 - platformTransport：preview.updated merge 进 previewLinks。
 - preview 卡：publicUrl 徽标/复制/打开/撤销；failed 提示行；revoked 态。
 
-**冒烟**：`AliangPhoneServer/scripts/tunnel-e2e.mjs` 追加一段——createAiSession 带 expose_preview_port → fake agent 发 preview.ready → 断言网关建映射 + preview.updated 推达 + 公网 URL 可命中。
+**冒烟**：~~`tunnel-e2e.mjs` 追加 preview 段~~ **实现阶段 de-scope**（2026-09-02 拍板）：该脚本只能驱动真 Go agent（其 HTTP API），无 fake-agent WS 注入通道；而当前 agent 源码（alianggate master）没有任何 `preview.ready` 发送端，e2e 无法覆盖本链路。验证责任转移：server 侧以 previewMapping(10 测)+hook(5 测)+联动+db 单测/集成测覆盖；待 agent 侧实现 preview 上报时，把「真 agent 发 preview.ready → 网关建图 → preview.updated 推达」作为 agent 任务的验收冒烟（届时优先补进 tunnel-e2e.mjs 作为契约验证器）。
 
 ## 8. 发布与回滚
 

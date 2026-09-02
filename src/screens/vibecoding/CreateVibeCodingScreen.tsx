@@ -134,6 +134,17 @@ export const CreateVibeCodingScreen: React.FC = () => {
   const [canRead, setCanRead] = useState(true);
   const [canModify, setCanModify] = useState(true);
   const [canRun, setCanRun] = useState(true);
+  // Port mapping: session-level opt-in to auto-expose agent-reported preview
+  // ports as public links. Gated on the device being online + the agent
+  // reporting both tunnel capabilities + the server having the tunnel fully
+  // configured (tunnelAvailable). Unavailable → toggle disabled, not hidden.
+  const [exposePreviewPort, setExposePreviewPort] = useState(false);
+  const tunnelCapable = Boolean(
+    device?.status === 'online' &&
+      device?.capabilities?.includes('http_tunnel_v1') &&
+      device?.capabilities?.includes('websocket_tunnel_v1') &&
+      device?.tunnelAvailable,
+  );
   const isReadOnly = approval === 'read_only';
 
   const availableProjects = useMemo(
@@ -208,6 +219,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
         canRead,
         canModify,
         canRun,
+        exposePreviewPort,
       },
     });
   };
@@ -758,17 +770,41 @@ export const CreateVibeCodingScreen: React.FC = () => {
           })}
         </GlassPanel>
 
-        {/* Port mapping: placeholder, not yet wired. Greyed + non-interactive. */}
-        <GlassPanel style={[styles.optionPanel, { marginTop: 10, opacity: 0.4 }]}>
-          <View style={styles.optionRow} testID="port-mapping-row">
-            <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-              {t('createScreen.permissions.portMapping.title')}
-            </Text>
-            <StatusChip
-              label={t('createScreen.permissions.portMapping.comingSoon')}
-              type="neutral"
-            />
-          </View>
+        {/* Port mapping: auto-expose agent-reported preview ports as public links. */}
+        <GlassPanel style={[styles.optionPanel, { marginTop: 10 }]}>
+          <TouchableOpacity
+            testID="port-mapping-toggle"
+            disabled={!tunnelCapable}
+            onPress={() => setExposePreviewPort(v => !v)}>
+            <View style={[styles.optionRow, !tunnelCapable ? { opacity: 0.4 } : null]}>
+              <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                {t('createScreen.permissions.portMapping.title')}
+              </Text>
+              <StatusChip
+                label={
+                  !tunnelCapable
+                    ? t('createScreen.permissions.portMapping.comingSoon')
+                    : exposePreviewPort
+                      ? 'ON'
+                      : 'OFF'
+                }
+                type={!tunnelCapable ? 'neutral' : exposePreviewPort ? 'success' : 'neutral'}
+              />
+            </View>
+          </TouchableOpacity>
+          <Text
+            style={[
+              theme.typography.bodySm,
+              { color: theme.colors.onSurfaceVariant, marginTop: 4 },
+            ]}>
+            {t(
+              !tunnelCapable
+                ? 'createScreen.permissions.portMapping.disabledHint'
+                : exposePreviewPort
+                  ? 'createScreen.permissions.portMapping.onHint'
+                  : 'createScreen.permissions.portMapping.offHint',
+            )}
+          </Text>
         </GlassPanel>
 
         <GlassPanel style={styles.reviewCard}>
