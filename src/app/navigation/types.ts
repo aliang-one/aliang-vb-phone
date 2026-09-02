@@ -40,6 +40,8 @@ export type RootStackParamList = {
       canRead?: boolean;
       canModify?: boolean;
       canRun?: boolean;
+      /** Create-page toggle: auto-expose agent-reported preview ports as public tunnel links. */
+      exposePreviewPort?: boolean;
       pendingRequestId?: string;
       pendingRequestFingerprint?: string;
     };

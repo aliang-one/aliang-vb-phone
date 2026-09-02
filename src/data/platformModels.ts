@@ -694,4 +694,9 @@ export interface PreviewLink {
   targetUrl: string;
   expiresIn: string;
   access: 'private' | 'team' | 'public';
+  /** Auto-created public tunnel mapping (undefined = no mapping state recorded). */
+  publicUrl?: string;
+  portMappingId?: string;
+  mappingStatus?: 'mapped' | 'failed' | 'unavailable' | 'revoked';
+  mappingError?: string;
 }

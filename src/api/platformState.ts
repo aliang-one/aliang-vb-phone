@@ -17,6 +17,10 @@ export interface ServerPreviewLink {
   target_url: string;
   expires_in?: string;
   access: 'private' | 'team' | 'public';
+  public_url?: string;
+  port_mapping_id?: string;
+  mapping_status?: string;
+  mapping_error?: string;
   created_at: string;
 }
 
