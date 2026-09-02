@@ -1097,6 +1097,13 @@ export function serverPreviewToClient(
     targetUrl: preview.targetUrl,
     expiresIn: preview.expiresIn ?? '',
     access,
+    // Auto port-forwarding mapping state (undefined = no mapping recorded);
+    // the snapshot hydration path must carry these or a refresh after a
+    // preview.updated broadcast would silently drop the public URL again.
+    publicUrl: preview.publicUrl,
+    portMappingId: preview.portMappingId,
+    mappingStatus: preview.mappingStatus,
+    mappingError: preview.mappingError,
   };
 }
 
