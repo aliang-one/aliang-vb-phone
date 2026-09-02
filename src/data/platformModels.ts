@@ -96,6 +96,8 @@ export interface Device {
   remoteTerminalEnabled: boolean;
   aiControlEnabled: boolean;
   capabilities: string[];
+  /** Whether the server-side tunnel is configured and port forwarding is available for this device. */
+  tunnelAvailable?: boolean;
   /** Tools advertised by the agent, including detected AI coding tools (claude-code/codex). */
   tools: AgentToolInfo[];
   /** Workspace roots the agent discovered (e.g. claude-code/codex session dirs). */
