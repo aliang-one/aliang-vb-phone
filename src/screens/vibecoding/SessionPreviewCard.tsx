@@ -168,7 +168,7 @@ export const SessionPreviewCard: React.FC<SessionPreviewCardProps> = ({
               style={[
                 theme.typography.labelSm,
                 {
-                  color: copied ? theme.colors.success : theme.colors.onSurface,
+                  color: copied ? theme.colors.primary : theme.colors.onSurface,
                 },
               ]}>
               {copied ? t('sessionPreview.copied') : t('sessionPreview.copy')}

@@ -30,8 +30,6 @@ import type { PreviewLink } from '../../src/data/platformModels';
 // jest.setup.js pins i18n to zh, so assertions use the zh resources.
 const COPY = '复制';
 const COPIED = '已复制';
-const OPEN = '打开';
-const REVOKE = '撤销';
 const PUBLIC_BADGE = '公网';
 const REVOKED_CHIP = '已撤销';
 const FAILED_LINE = '公网映射未能建立';
