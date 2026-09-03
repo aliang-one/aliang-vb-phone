@@ -87,7 +87,10 @@
     "createFailed": "无法生成公网网址。",
     "revokeFailed": "无法撤销公网网址。",
     "openFailed": "无法打开公网网址。",
-    "serviceUnavailable": "端口映射服务暂不可用。"
+    "serviceUnavailable": "端口映射服务暂不可用。",
+    "sourceSessionPreview": "会话自动",
+    "sourceProjectManual": "项目内新建",
+    "sourceDeviceManual": "手动新建"
   },
   "codeScanner": {
     "starting": "正在启动摄像头…"

@@ -31,10 +31,11 @@ import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
-import { StatusChip } from '../../components/shared/StatusChip';
-import { IconBadge, IconName } from '../../components/visual/IconBadge';
+import { PortMappingCard } from '../../components/devices/PortMappingCard';
+import { IconBadge } from '../../components/visual/IconBadge';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import { useTheme } from '../../theme/useTheme';
+import { isAllowedTargetHost, parsePort } from '../../utils/portInput';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type PortMappingsRoute = RouteProp<RootStackParamList, 'PortMappings'>;
@@ -45,34 +46,6 @@ const EXPIRY_OPTIONS = [
   { seconds: 86_400, labelKey: 'portMappings.expiry24h' },
   { seconds: 604_800, labelKey: 'portMappings.expiry7d' },
 ] as const;
-
-const isAllowedTargetHost = (input: string) => {
-  const host = input.trim().toLowerCase();
-  if (host === 'localhost' || host === '::1') return true;
-  const parts = host.split('.');
-  if (parts.length !== 4 || parts.some(part => !/^\d{1,3}$/.test(part))) {
-    return false;
-  }
-  const octets = parts.map(Number);
-  if (octets.some(octet => octet < 0 || octet > 255)) return false;
-  if (octets[0] === 127 || octets[0] === 10) return true;
-  if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) return true;
-  return octets[0] === 192 && octets[1] === 168;
-};
-
-const parsePort = (input: string) => {
-  if (!/^\d+$/.test(input.trim())) return null;
-  const port = Number(input);
-  return Number.isInteger(port) && port >= 1 && port <= 65_535 ? port : null;
-};
-
-const effectiveStatus = (mapping: PortMapping) => {
-  if (mapping.status === 'revoked') return 'revoked' as const;
-  if (new Date(mapping.expires_at).getTime() <= Date.now()) {
-    return 'expired' as const;
-  }
-  return 'active' as const;
-};
 
 const mappingErrorKey = (error: unknown, fallbackKey: string) => {
   if (
@@ -419,7 +392,7 @@ export const PortMappingsScreen: React.FC = () => {
             </GlassPanel>
           ) : (
             mappings.map(mapping => (
-              <MappingCard
+              <PortMappingCard
                 key={mapping.id}
                 mapping={mapping}
                 copied={copiedId === mapping.id}
@@ -559,163 +532,6 @@ const ChoiceChip = ({ label, active, onPress }: ChoiceChipProps) => {
   );
 };
 
-interface MappingCardProps {
-  mapping: PortMapping;
-  copied: boolean;
-  revoking: boolean;
-  onCopy: () => void;
-  onOpen: () => void;
-  onRevoke: () => void;
-}
-
-const MappingCard = ({
-  mapping,
-  copied,
-  revoking,
-  onCopy,
-  onOpen,
-  onRevoke,
-}: MappingCardProps) => {
-  const { theme, isDark } = useTheme();
-  const { t } = useTranslation('devices');
-  const status = effectiveStatus(mapping);
-  const active = status === 'active';
-  const statusType = active ? 'success' : 'neutral';
-  const urlSurfaceStyle = {
-    backgroundColor: isDark
-      ? 'rgba(0,0,0,0.20)'
-      : theme.colors.surfaceContainerLow,
-    borderRadius: theme.borderRadius.sm,
-  };
-
-  return (
-    <GlassPanel style={styles.mappingCard} glowColor={active ? 'primary' : 'none'}>
-      <View style={styles.mappingHeader}>
-        <View style={styles.mappingTarget}>
-          <IconBadge
-            name="port"
-            tone={active ? 'primary' : 'neutral'}
-            size={36}
-            iconSize={18}
-          />
-          <View style={styles.mappingTargetCopy}>
-            <Text
-              style={[theme.typography.codeMd, { color: theme.colors.onSurface }]}>
-              {t('portMappings.target', {
-                host: mapping.target_host,
-                port: mapping.target_port,
-              })}
-            </Text>
-            <Text
-              style={[
-                theme.typography.labelSm,
-                { color: theme.colors.onSurfaceVariant },
-              ]}>
-              {t('portMappings.expires', {
-                time: new Date(mapping.expires_at).toLocaleString(),
-              })}
-            </Text>
-          </View>
-        </View>
-        <StatusChip label={t(`portMappings.${status}`)} type={statusType} />
-      </View>
-
-      <View style={[styles.urlRow, urlSurfaceStyle]}>
-        <Text
-          selectable
-          numberOfLines={2}
-          style={[
-            theme.typography.codeSm,
-            styles.url,
-            { color: active ? theme.colors.primary : theme.colors.onSurfaceVariant },
-          ]}>
-          {mapping.short_url}
-        </Text>
-        {copied ? (
-          <Text style={[theme.typography.labelCaps, { color: theme.colors.success }]}>
-            {t('portMappings.copied')}
-          </Text>
-        ) : null}
-      </View>
-
-      <View style={styles.mappingActions}>
-        <IconAction
-          name="copy"
-          label={t('portMappings.copy')}
-          disabled={!active}
-          onPress={onCopy}
-        />
-        <IconAction
-          name="external"
-          label={t('portMappings.open')}
-          disabled={!active}
-          onPress={onOpen}
-        />
-        <View style={styles.actionSpacer} />
-        <IconAction
-          name="trash"
-          label={t('portMappings.revoke')}
-          tone="error"
-          loading={revoking}
-          disabled={!active}
-          onPress={onRevoke}
-        />
-      </View>
-    </GlassPanel>
-  );
-};
-
-interface IconActionProps {
-  name: IconName;
-  label: string;
-  onPress: () => void;
-  tone?: 'primary' | 'error';
-  loading?: boolean;
-  disabled?: boolean;
-}
-
-const IconAction = ({
-  name,
-  label,
-  onPress,
-  tone = 'primary',
-  loading = false,
-  disabled = false,
-}: IconActionProps) => {
-  const { theme, isDark } = useTheme();
-  const actionStyle = {
-    borderColor: isDark
-      ? 'rgba(255,255,255,0.10)'
-      : theme.colors.outlineVariant,
-    backgroundColor: isDark
-      ? 'rgba(255,255,255,0.04)'
-      : theme.colors.surfaceContainerLow,
-    borderRadius: theme.borderRadius.sm,
-    opacity: disabled ? 0.38 : 1,
-  };
-  return (
-    <TouchableOpacity
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      activeOpacity={0.68}
-      disabled={disabled || loading}
-      onPress={onPress}
-      style={[styles.iconAction, actionStyle]}>
-      {loading ? (
-        <ActivityIndicator size="small" color={theme.colors.error} />
-      ) : (
-        <IconBadge
-          name={name}
-          tone={tone}
-          size={28}
-          iconSize={15}
-          style={styles.iconBadgeBorderless}
-        />
-      )}
-    </TouchableOpacity>
-  );
-};
-
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: {
@@ -795,59 +611,5 @@ const styles = StyleSheet.create({
   emptyCopy: {
     flex: 1,
     gap: 4,
-  },
-  mappingCard: {
-    padding: 12,
-    gap: 11,
-    marginBottom: 10,
-  },
-  mappingHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  mappingTarget: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  mappingTargetCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  urlRow: {
-    minHeight: 48,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  url: {
-    flex: 1,
-    minWidth: 0,
-  },
-  mappingActions: {
-    minHeight: 40,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  actionSpacer: {
-    flex: 1,
-  },
-  iconAction: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-  },
-  iconBadgeBorderless: {
-    borderWidth: 0,
   },
 });

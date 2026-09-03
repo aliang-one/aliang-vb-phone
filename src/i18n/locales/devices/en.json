@@ -87,7 +87,10 @@
     "createFailed": "Could not create the public URL.",
     "revokeFailed": "Could not revoke the public URL.",
     "openFailed": "Could not open the public URL.",
-    "serviceUnavailable": "Port mapping service is not available."
+    "serviceUnavailable": "Port mapping service is not available.",
+    "sourceSessionPreview": "Auto (session)",
+    "sourceProjectManual": "Manual (project)",
+    "sourceDeviceManual": "Manual"
   },
   "codeScanner": {
     "starting": "Starting camera..."
