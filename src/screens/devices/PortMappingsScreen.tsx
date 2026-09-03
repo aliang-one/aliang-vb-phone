@@ -26,7 +26,6 @@ import {
   tunnelHealth,
   TunnelStatusInfo,
 } from '../../api/portMappings';
-import { ApiResponseError } from '../../api/client';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
@@ -35,31 +34,15 @@ import { PortMappingCard } from '../../components/devices/PortMappingCard';
 import { IconBadge } from '../../components/visual/IconBadge';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import { useTheme } from '../../theme/useTheme';
-import { isAllowedTargetHost, parsePort } from '../../utils/portInput';
+import {
+  EXPIRY_OPTIONS,
+  isAllowedTargetHost,
+  mappingErrorKey,
+  parsePort,
+} from '../../utils/portInput';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type PortMappingsRoute = RouteProp<RootStackParamList, 'PortMappings'>;
-
-const EXPIRY_OPTIONS = [
-  { seconds: 3_600, labelKey: 'portMappings.expiry1h' },
-  { seconds: 28_800, labelKey: 'portMappings.expiry8h' },
-  { seconds: 86_400, labelKey: 'portMappings.expiry24h' },
-  { seconds: 604_800, labelKey: 'portMappings.expiry7d' },
-] as const;
-
-const mappingErrorKey = (error: unknown, fallbackKey: string) => {
-  if (
-    error instanceof ApiResponseError &&
-    [
-      'tunnel_service_unavailable',
-      'tunnel_gateway_unavailable',
-      'tunnel_gateway_error',
-    ].includes(error.code ?? '')
-  ) {
-    return 'portMappings.serviceUnavailable';
-  }
-  return fallbackKey;
-};
 
 export const PortMappingsScreen: React.FC = () => {
   const { theme, isDark } = useTheme();

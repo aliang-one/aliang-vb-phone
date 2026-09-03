@@ -1,0 +1,254 @@
+import React from 'react';
+import ReactTestRenderer, { act } from 'react-test-renderer';
+import { Alert, Text, TouchableOpacity } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { ProjectPortMappingsSection } from '../src/components/projects/ProjectPortMappingsSection';
+import { GlassPanel } from '../src/components/shared/GlassPanel';
+import { ThemeContext } from '../src/theme/ThemeContext';
+import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
+import type { Device, Project } from '../src/data/platformModels';
+import type { PortMapping } from '../src/api/portMappings';
+import {
+  createPortMapping,
+  fetchPortMappings,
+  revokePortMapping,
+} from '../src/api/portMappings';
+
+jest.mock('../src/api/portMappings', () => ({
+  fetchPortMappings: jest.fn().mockResolvedValue([]),
+  createPortMapping: jest.fn(),
+  revokePortMapping: jest.fn(),
+}));
+
+const fetchMock = fetchPortMappings as jest.Mock;
+const createMock = createPortMapping as jest.Mock;
+const revokeMock = revokePortMapping as jest.Mock;
+
+const allText = (root: ReactTestRenderer.ReactTestInstance): string =>
+  root
+    .findAllByType(Text)
+    .map(node => {
+      const children = node.props.children;
+      if (typeof children === 'string') return children;
+      if (Array.isArray(children)) {
+        return children.filter(child => typeof child === 'string').join('');
+      }
+      return '';
+    })
+    .join('\n');
+
+function project(): Project {
+  return {
+    id: 'project-1',
+    name: 'Vibe Phone',
+    status: 'active',
+    branch: 'main',
+    lastDeploy: '刚刚',
+    language: 'TypeScript',
+    description: 'Mobile controller',
+    path: '~/vibe_on_phone',
+    deviceId: 'device-1',
+    detectedPorts: [3000, 8081],
+    approvalScheme: 'custom',
+  };
+}
+
+function device(overrides: Partial<Device> = {}): Device {
+  return {
+    id: 'device-1',
+    name: 'MacBook',
+    status: 'online',
+    location: 'Desk',
+    os: 'darwin',
+    host: 'localhost',
+    cpuLoad: 0,
+    memLoad: 0,
+    authorizedDirectories: ['~/vibe_on_phone'],
+    activePorts: [3000],
+    projectIds: ['project-1'],
+    activeSessionIds: [],
+    lastSeen: 'now',
+    remoteTerminalEnabled: true,
+    aiControlEnabled: true,
+    capabilities: ['terminal', 'http_tunnel_v1', 'websocket_tunnel_v1'],
+    tunnelAvailable: true,
+    tools: [],
+    history: [],
+    ...overrides,
+  };
+}
+
+function mapping(overrides: Partial<PortMapping> = {}): PortMapping {
+  return {
+    id: 'mapping-1',
+    slug: 'abc123',
+    user_id: 'user-1',
+    device_id: 'device-1',
+    target_host: '127.0.0.1',
+    target_port: 3000,
+    upstream_scheme: 'http',
+    status: 'active',
+    created_at: new Date(Date.now() - 60_000).toISOString(),
+    expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+    short_url: 'https://t.example.com/abc123',
+    tag: {
+      project_id: 'project-1',
+      project_name: 'X',
+      source: 'session_preview',
+      created_at: new Date().toISOString(),
+    },
+    ...overrides,
+  };
+}
+
+describe('ProjectPortMappingsSection', () => {
+  let screen: ReactTestRenderer.ReactTestRenderer | undefined;
+  let alertSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    fetchMock.mockReset().mockResolvedValue([]);
+    createMock.mockReset().mockResolvedValue(mapping());
+    revokeMock.mockReset().mockResolvedValue(
+      mapping({ status: 'revoked', revoked_at: new Date().toISOString() }),
+    );
+    alertSpy = jest.spyOn(Alert, 'alert');
+  });
+
+  afterEach(() => {
+    act(() => {
+      screen?.unmount();
+    });
+    screen = undefined;
+    alertSpy.mockRestore();
+  });
+
+  const renderSection = (props: { project: Project; device?: Device }) =>
+    ReactTestRenderer.create(
+      <ThemeContext.Provider
+        value={{
+          theme: utilityMinimalist,
+          mode: 'light',
+          setMode: jest.fn(),
+          isDark: false,
+        }}>
+        <SafeAreaProvider
+          initialMetrics={{
+            frame: { x: 0, y: 0, width: 390, height: 844 },
+            insets: { top: 0, right: 0, bottom: 0, left: 0 },
+          }}>
+          <ProjectPortMappingsSection {...props} />
+        </SafeAreaProvider>
+      </ThemeContext.Provider>,
+    );
+
+  it('renders project-tagged mappings and loads them by projectId', async () => {
+    fetchMock.mockResolvedValue([mapping()]);
+
+    act(() => {
+      screen = renderSection({ project: project(), device: device() });
+    });
+    await act(async () => {});
+
+    const text = allText(screen!.root);
+    expect(text).toContain('127.0.0.1:3000');
+    expect(text).toContain('X');
+    expect(fetchMock).toHaveBeenCalledWith({ projectId: 'project-1' });
+  });
+
+  it('creates a mapping bound to the project', async () => {
+    act(() => {
+      screen = renderSection({ project: project(), device: device() });
+    });
+    await act(async () => {});
+
+    act(() => {
+      screen!.root.findByProps({ testID: 'port-input' }).props.onChangeText('3000');
+    });
+    act(() => {
+      screen!.root.findByProps({ testID: 'project-port-create' }).props.onPress();
+    });
+    await act(async () => {});
+
+    expect(createMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deviceId: 'device-1',
+        targetHost: '127.0.0.1',
+        targetPort: 3000,
+        projectId: 'project-1',
+      }),
+    );
+  });
+
+  it('revokes a mapping after the destructive confirmation', async () => {
+    fetchMock.mockResolvedValue([mapping()]);
+
+    act(() => {
+      screen = renderSection({ project: project(), device: device() });
+    });
+    await act(async () => {});
+
+    // The card subtree's actions row is [copy, external, trash] — revoke is
+    // the 3rd TouchableOpacity inside the card panel.
+    const urlNode = screen!.root.findByProps({
+      children: 'https://t.example.com/abc123',
+    });
+    let cardNode: ReactTestRenderer.ReactTestInstance | null = urlNode;
+    while (cardNode && cardNode.type !== GlassPanel) {
+      cardNode = cardNode.parent;
+    }
+    if (!cardNode) throw new Error('mapping card GlassPanel not found');
+    const cardButtons = cardNode.findAllByType(TouchableOpacity);
+    expect(cardButtons).toHaveLength(3);
+
+    act(() => {
+      cardButtons[2].props.onPress();
+    });
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+
+    const destructive = alertSpy.mock.calls[0][2].find(
+      (button: { style?: string }) => button.style === 'destructive',
+    );
+    act(() => {
+      destructive.onPress();
+    });
+    await act(async () => {});
+
+    expect(revokeMock).toHaveBeenCalledWith('mapping-1');
+  });
+
+  it('shows a read-only notice and no create form without a device', async () => {
+    act(() => {
+      screen = renderSection({ project: project() });
+    });
+    await act(async () => {});
+
+    expect(
+      screen!.root.findAllByProps({ testID: 'port-input' }),
+    ).toHaveLength(0);
+    expect(allText(screen!.root)).toContain('给项目绑定设备后即可管理公网端口。');
+  });
+
+  it('shows the empty state when no mappings exist', async () => {
+    act(() => {
+      screen = renderSection({ project: project(), device: device() });
+    });
+    await act(async () => {});
+
+    expect(allText(screen!.root)).toContain('暂无公网端口');
+  });
+
+  it('hides the create form while the device is offline', async () => {
+    act(() => {
+      screen = renderSection({
+        project: project(),
+        device: device({ status: 'offline' }),
+      });
+    });
+    await act(async () => {});
+
+    expect(
+      screen!.root.findAllByProps({ testID: 'port-input' }),
+    ).toHaveLength(0);
+    expect(allText(screen!.root)).toContain('设备已离线');
+  });
+});
