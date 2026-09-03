@@ -122,8 +122,9 @@ export const resolveEffectiveModelChoice = (
 
 ## 6. ModelConfirmSheet(确认弹窗)
 
-载体:复用 `src/components/shared/BottomSheet.tsx`(项目标准弹层,
-`ApprovalQuickPolicySheet` 先例)。新组件
+载体:复用 `src/components/shared/BottomSheet.tsx`(项目标准弹层,支持
+scrim 点击/关闭按钮/系统返回关闭;无下滑手势,不做下滑承诺)。
+先例:`ApprovalQuickPolicySheet`。新组件
 `src/components/vibecoding/ModelConfirmSheet.tsx`。
 
 Props:
@@ -131,7 +132,7 @@ Props:
 ```ts
 {
   open: boolean;
-  onClose: () => void;            // 下滑/scrim/系统返回 = 返回修改
+  onClose: () => void;            // scrim/关闭按钮/系统返回 = 返回修改
   provider: EffortProvider;
   manualModel: string;            // '' = 未指定
   manualEffort: string;
@@ -154,7 +155,11 @@ Props:
 | 场景 | 主按钮 | 次按钮 |
 |------|--------|--------|
 | 解析后任一字段来源为 me | 确认开始 | 返回修改 |
-| Me 全空(无任何 me 来源) | 去 Me 页设置 | 仍用默认开始 |
+| 无任何字段来源为 me | 去 Me 页设置 | 仍用默认开始 |
+
+统一谓词:提示行与按钮组共用同一判定「无任何字段来源为 me」——涵盖
+Me 页完全未设,以及 Me 设了但因 provider 不一致不适用(meApplies=false)
+两种情况;提示行文案相应写「当前未应用个人默认模型,可在 Me 页配置」。
 
 数据流:弹窗自持 `useModelOptions()`(模块级缓存,零额外请求)+
 镜像 resolver。`draftConfig` 构造逻辑零改;server 规则已对齐,
@@ -170,9 +175,19 @@ Props:
   任一留空 → setConfirmOpen(true)
     ├─ 返回修改/关闭 → 仅关弹窗
     ├─ 确认开始 / 仍用默认开始 → 原 navigate.replace(抽 startSession() 复用)
-    └─ 去 Me 页设置 → navigation.navigate('MainTabs', { screen: 'Account' })
-        创建页保留在栈内;UserModelDefaultCard 保存成功即 refreshModelOptions,
-        订阅端(含创建页)自动拿到新默认,返回后重开弹窗即反映。
+    └─ 去 Me 页设置 → setConfirmOpen(false) 后
+        navigation.push('MainTabs', { screen: 'Account' })
+        必须用 push 而非 navigate:native-stack 下 navigate 到已在栈内的
+        MainTabs 会把其上的 CreateVibeCoding 弹出销毁,草稿态(设备/目录/
+        provider/权限)全丢;push 在栈顶叠加新 MainTabs,创建页原样保留,
+        返回(goback)即回到创建页。跳转前必须先关弹窗:BottomSheet 基于
+        RN Modal(原生层,覆盖一切 screen),不关会盖住 Account 页,且
+        Android 返回键会先命中 Modal 的 onRequestClose 而非弹栈。
+        类型前提:`RootStackParamList.MainTabs` 需从 `undefined` 改为
+        `NavigatorScreenParams<MainTabParamList>`(MainTabParamList 已存在),
+        否则带 screen 参数的 push 不类型通过——改类型,不做 as 断言。
+        UserModelDefaultCard 保存成功即 refreshModelOptions,模块级缓存更新;
+        返回创建页后重新点 Start,重开的弹窗即反映新默认。
 ```
 
 ## 8. 错误与边界
@@ -180,7 +195,7 @@ Props:
 - model-options 加载失败/404 → meDefault 视为全空 → 走「Me 空」分支
   (引导去设置),不阻塞创建。
 - 快速双击:现有 `creating` guard 保留;sheet 按钮点击即 navigate。
-- 现有 `__tests__/CreateVibeCodingScreen.test.tsx` 13 个用例未选 model/effort
+- 现有 `__tests__/CreateVibeCodingScreen.test.tsx` 全部用例未选 model/effort
   直接点 Create → 会撞上弹窗,统一适配为「先点确认再断言 draftConfig」
   (断言本体不变)。
 
