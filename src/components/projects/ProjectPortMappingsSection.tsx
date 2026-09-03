@@ -50,14 +50,17 @@ export const ProjectPortMappingsSection: React.FC<
   const [expiresInSeconds, setExpiresInSeconds] = useState(28_800);
   const [creating, setCreating] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Unmount guard in its own empty-dep effect (never re-armed when the load
   // callback identity changes) — same pattern as PortMappingsScreen.
   useEffect(
     () => () => {
       mountedRef.current = false;
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
     },
     [],
   );
@@ -88,14 +91,20 @@ export const ProjectPortMappingsSection: React.FC<
   }, [loadMappings]);
 
   const parsedPort = parsePort(targetPort);
-  const supportsTunnel = Boolean(
+  // Capability and server-config are separate blockers with separate copy:
+  // missing caps = stale agent (upgrade needed), caps present but no
+  // tunnelAvailable = the server never finished tunnel configuration. The
+  // gating below mirrors CreateVibeCodingScreen's tunnelBlocker ordering
+  // (offline → unsupported caps → server tunnel unconfigured).
+  const hasTunnelCaps = Boolean(
     device &&
-      device.tunnelAvailable &&
       device.capabilities.includes('http_tunnel_v1') &&
       device.capabilities.includes('websocket_tunnel_v1'),
   );
   const online = device?.status === 'online';
-  const canCreate = Boolean(device && online && supportsTunnel && parsedPort);
+  const canCreate = Boolean(
+    device && online && hasTunnelCaps && device.tunnelAvailable && parsedPort,
+  );
 
   const detectedPorts = useMemo(
     () =>
@@ -165,6 +174,18 @@ export const ProjectPortMappingsSection: React.FC<
     );
   };
 
+  // Copy feedback: "COPIED" chip on the card for 1.8s — mirrors the
+  // handleCopy / copiedTimerRef pattern in PortMappingsScreen (timer
+  // cleared on unmount, mountedRef guards the late setState).
+  const handleCopy = (mapping: PortMapping) => {
+    Clipboard.setString(mapping.short_url);
+    setCopiedId(mapping.id);
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = setTimeout(() => {
+      if (mountedRef.current) setCopiedId(null);
+    }, 1800);
+  };
+
   const inputColors = {
     color: theme.colors.onSurface,
     borderColor: isDark
@@ -212,11 +233,15 @@ export const ProjectPortMappingsSection: React.FC<
           <PortMappingCard
             key={mapping.id}
             mapping={mapping}
-            copied={false}
+            copied={copiedId === mapping.id}
             revoking={revokingId === mapping.id}
-            onCopy={() => Clipboard.setString(mapping.short_url)}
+            onCopy={() => handleCopy(mapping)}
             onOpen={() => {
-              Linking.openURL(mapping.short_url).catch(() => {});
+              Linking.openURL(mapping.short_url).catch(() => {
+                if (mountedRef.current) {
+                  setError(td('portMappings.openFailed'));
+                }
+              });
             }}
             onRevoke={() => confirmRevoke(mapping)}
           />
@@ -239,8 +264,10 @@ export const ProjectPortMappingsSection: React.FC<
         <Notice text={t('portMappings.readOnlyNoDevice')} />
       ) : !online ? (
         <Notice text={td('portMappings.offline')} />
-      ) : !supportsTunnel ? (
+      ) : !hasTunnelCaps ? (
         <Notice text={td('portMappings.unsupported')} />
+      ) : !device.tunnelAvailable ? (
+        <Notice text={td('portMappings.tunnelUnavailable')} />
       ) : (
         <View>
           <SectionHeader label={t('portMappings.createSection')} />

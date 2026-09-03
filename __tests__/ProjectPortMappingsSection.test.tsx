@@ -251,4 +251,22 @@ describe('ProjectPortMappingsSection', () => {
     ).toHaveLength(0);
     expect(allText(screen!.root)).toContain('设备已离线');
   });
+
+  it('blames the server tunnel, not the agent, when caps are present but tunnel is unconfigured', async () => {
+    act(() => {
+      screen = renderSection({
+        project: project(),
+        device: device({ tunnelAvailable: false }),
+      });
+    });
+    await act(async () => {});
+
+    expect(
+      screen!.root.findAllByProps({ testID: 'port-input' }),
+    ).toHaveLength(0);
+    expect(allText(screen!.root)).toContain('服务端隧道未配置');
+    // The stale "upgrade the Agent" copy must NOT show in this state — the
+    // agent is capable, the server just lacks the tunnel configuration.
+    expect(allText(screen!.root)).not.toContain('请升级桌面端 Agent');
+  });
 });

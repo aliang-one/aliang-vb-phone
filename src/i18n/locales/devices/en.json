@@ -55,6 +55,7 @@
     "creating": "Connecting...",
     "offline": "Device is offline. Existing mappings can still be revoked.",
     "unsupported": "Update the desktop Agent to create port mappings.",
+    "tunnelUnavailable": "Tunnel is not configured on the server.",
     "invalidHost": "Use localhost, 127.0.0.1, ::1, or a private network IP.",
     "invalidPort": "Enter a port from 1 to 65535.",
     "listSection": "MAPPINGS",
