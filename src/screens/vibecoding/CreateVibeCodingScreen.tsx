@@ -804,7 +804,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
                 style={[
                   theme.typography.bodyMd,
                   styles.optionText,
-                  { color: theme.colors.onSurface },
+                  { color: theme.colors.onSurface, flexShrink: 1 },
                 ]}>
                 {t('createScreen.permissions.portMapping.title')}
               </Text>
@@ -903,11 +903,13 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   optionHint: {
+    marginTop: 4,
     paddingHorizontal: 12,
     paddingBottom: 2,
   },
   divider: {
     height: 1,
+    backgroundColor: 'rgba(255,255,255,0.04)',
     marginHorizontal: 12,
   },
   objectiveInput: {
