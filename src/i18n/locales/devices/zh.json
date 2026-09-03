@@ -55,6 +55,7 @@
     "creating": "正在连接…",
     "offline": "设备已离线，已有映射仍可撤销。",
     "unsupported": "请升级桌面端 Agent 后再创建端口映射。",
+    "tunnelUnavailable": "服务端隧道未配置。",
     "invalidHost": "仅支持 localhost、127.0.0.1、::1 或局域网 IP。",
     "invalidPort": "请输入 1 到 65535 之间的端口。",
     "listSection": "映射列表",
@@ -87,7 +88,10 @@
     "createFailed": "无法生成公网网址。",
     "revokeFailed": "无法撤销公网网址。",
     "openFailed": "无法打开公网网址。",
-    "serviceUnavailable": "端口映射服务暂不可用。"
+    "serviceUnavailable": "端口映射服务暂不可用。",
+    "sourceSessionPreview": "会话自动",
+    "sourceProjectManual": "项目内新建",
+    "sourceDeviceManual": "手动新建"
   },
   "codeScanner": {
     "starting": "正在启动摄像头…"

@@ -281,13 +281,13 @@ describe('CreateVibeCodingScreen permissions section', () => {
     expect(params.draftConfig.canRun).toBe(true);
   });
 
-  it('port-mapping toggle renders disabled with 即将支持 label when device has no tunnel fields', async () => {
+  it('renders disabled with blocker chip when device lacks tunnel capabilities', async () => {
     // Plain device (no capabilities/tunnelAvailable reported) → not tunnel-capable.
     root = await wrap(<CreateVibeCodingScreen />);
     const portToggle = touchByTestID(root.root, 'port-mapping-toggle');
     expect(portToggle).toBeTruthy();
-    // Coming-soon label rendered (zh: 即将支持).
-    expect(textUnder(portToggle!)).toContain('即将支持');
+    // Blocker chip names the failing gate (zh: 需升级 Agent).
+    expect(textUnder(portToggle!)).toContain('需升级');
     // Non-interactive: the TouchableOpacity is disabled.
     expect(portToggle?.props.disabled).toBe(true);
   });
@@ -301,6 +301,8 @@ describe('CreateVibeCodingScreen permissions section', () => {
     const portToggle = touchByTestID(root.root, 'port-mapping-toggle');
     expect(portToggle).toBeTruthy();
     expect(portToggle?.props.disabled).toBe(true);
+    // Blocker chip names the capability gate (zh: 需升级 Agent).
+    expect(textUnder(portToggle!)).toContain('需升级');
     // Disabled hint copy rendered instead of the on/off hint.
     const allText = root.root
       .findAllByType(Text)
@@ -312,17 +314,26 @@ describe('CreateVibeCodingScreen permissions section', () => {
     expect(allText).toContain('设备不在线或隧道不可用');
   });
 
+  it('disabled with tunnel blocker chip when server tunnel is not configured', async () => {
+    mockDevices[0].capabilities = ['http_tunnel_v1', 'websocket_tunnel_v1'];
+    mockDevices[0].tunnelAvailable = false;
+    root = await wrap(<CreateVibeCodingScreen />);
+    const portToggle = touchByTestID(root.root, 'port-mapping-toggle');
+    expect(portToggle?.props.disabled).toBe(true);
+    expect(textUnder(portToggle!)).toContain('隧道未配置');
+  });
+
   it('tunnel-capable device: toggle flips ON and draftConfig carries exposePreviewPort=true', async () => {
     makeTunnelCapable();
     root = await wrap(<CreateVibeCodingScreen />);
     const before = touchByTestID(root.root, 'port-mapping-toggle');
     expect(before).toBeTruthy();
     expect(before?.props.disabled).toBe(false);
-    expect(textUnder(before!)).toContain('OFF');
+    expect(textUnder(before!)).toContain('关');
     tap(root.root, 'port-mapping-toggle');
     // Chip flipped to ON (re-query after re-render).
     const after = touchByTestID(root.root, 'port-mapping-toggle');
-    expect(textUnder(after!)).toContain('ON');
+    expect(textUnder(after!)).toContain('开');
     // START VIBECODING (GlowButton surfaces a TouchableOpacity titled with the
     // button label; find it by text and invoke onPress).
     const startTouch = root.root

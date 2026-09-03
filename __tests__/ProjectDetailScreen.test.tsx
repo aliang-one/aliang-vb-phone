@@ -30,6 +30,14 @@ jest.mock('../src/hooks/useProjectSessions', () => ({
   }),
 }));
 
+// The mounted port-mappings section loads on mount; stub the api so the
+// screen test never touches the real network client.
+jest.mock('../src/api/portMappings', () => ({
+  fetchPortMappings: jest.fn().mockResolvedValue([]),
+  createPortMapping: jest.fn(),
+  revokePortMapping: jest.fn(),
+}));
+
 describe('ProjectDetailScreen', () => {
   let screen: ReactTestRenderer.ReactTestRenderer | undefined;
 

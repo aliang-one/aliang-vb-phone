@@ -20,6 +20,7 @@ import { ProjectActionTile } from '../../components/shared/ProjectActionTile';
 import { IconBadge } from '../../components/visual/IconBadge';
 import { Logo } from '../../components/visual/Logo';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
+import { ProjectPortMappingsSection } from '../../components/projects/ProjectPortMappingsSection';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import { useToastStore } from '../../store/toastStore';
@@ -314,6 +315,9 @@ export const ProjectDetailScreen: React.FC = () => {
             />
           </View>
         </View>
+
+        {/* ── PUBLIC PORTS · project-tagged mappings ────────────────── */}
+        <ProjectPortMappingsSection project={project} device={device} />
 
         {/* ── HISTORY ───────────────────────────────────────────────── */}
         <SectionLabel label={t('projectDetail.vibeHistory')} count={totalCount} />

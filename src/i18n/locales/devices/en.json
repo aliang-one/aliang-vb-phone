@@ -55,6 +55,7 @@
     "creating": "Connecting...",
     "offline": "Device is offline. Existing mappings can still be revoked.",
     "unsupported": "Update the desktop Agent to create port mappings.",
+    "tunnelUnavailable": "Tunnel is not configured on the server.",
     "invalidHost": "Use localhost, 127.0.0.1, ::1, or a private network IP.",
     "invalidPort": "Enter a port from 1 to 65535.",
     "listSection": "MAPPINGS",
@@ -87,7 +88,10 @@
     "createFailed": "Could not create the public URL.",
     "revokeFailed": "Could not revoke the public URL.",
     "openFailed": "Could not open the public URL.",
-    "serviceUnavailable": "Port mapping service is not available."
+    "serviceUnavailable": "Port mapping service is not available.",
+    "sourceSessionPreview": "Auto (session)",
+    "sourceProjectManual": "Manual (project)",
+    "sourceDeviceManual": "Manual"
   },
   "codeScanner": {
     "starting": "Starting camera..."

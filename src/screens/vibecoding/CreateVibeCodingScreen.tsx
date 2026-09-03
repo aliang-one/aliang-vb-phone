@@ -169,13 +169,31 @@ export const CreateVibeCodingScreen: React.FC = () => {
   // reporting both tunnel capabilities + the server having the tunnel fully
   // configured (tunnelAvailable). Unavailable → toggle disabled, not hidden.
   const [exposePreviewPort, setExposePreviewPort] = useState(false);
-  const tunnelCapable = Boolean(
-    device?.status === 'online' &&
-      device?.capabilities?.includes('http_tunnel_v1') &&
-      device?.capabilities?.includes('websocket_tunnel_v1') &&
-      device?.tunnelAvailable,
-  );
+  // Why the port-mapping toggle is unavailable (null = available). Ordered by
+  // specificity: offline → agent lacks the tunnel capabilities → server-side
+  // tunnel not configured. Surfacing the real reason replaces the stale
+  // "Coming soon" chip (the feature has shipped).
+  const tunnelBlocker =
+    !device || device.status !== 'online'
+      ? 'offline'
+      : !device.capabilities?.includes('http_tunnel_v1') ||
+        !device.capabilities?.includes('websocket_tunnel_v1')
+      ? 'unsupported'
+      : !device.tunnelAvailable
+      ? 'tunnel'
+      : null;
+  const tunnelCapable = tunnelBlocker === null;
   const isReadOnly = approval === 'read_only';
+  // Divider between capability rows: dim white hairline on dark surfaces, theme
+  // outline on light (the static rgba worked only on dark backgrounds).
+  const dividerStyle = [
+    styles.divider,
+    {
+      backgroundColor: isDark
+        ? 'rgba(255,255,255,0.04)'
+        : theme.colors.outlineVariant,
+    },
+  ];
 
   const availableProjects = useMemo(
     () =>
@@ -813,29 +831,43 @@ export const CreateVibeCodingScreen: React.FC = () => {
                     type={row.value ? 'success' : 'neutral'}
                   />
                 </View>
-                {index < 2 && <View style={styles.divider} />}
+                {index < 2 && <View style={dividerStyle} />}
               </TouchableOpacity>
             );
           })}
         </GlassPanel>
 
         {/* Port mapping: auto-expose agent-reported preview ports as public links. */}
-        <GlassPanel style={[styles.optionPanel, { marginTop: 10 }]}>
+        <GlassPanel
+          style={[
+            styles.optionPanel,
+            { marginTop: 10 },
+            !tunnelCapable ? styles.optionPanelDisabled : null,
+          ]}>
           <TouchableOpacity
             testID="port-mapping-toggle"
             disabled={!tunnelCapable}
             onPress={() => setExposePreviewPort(v => !v)}>
-            <View style={[styles.optionRow, !tunnelCapable ? { opacity: 0.4 } : null]}>
-              <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+            <View style={styles.optionRow}>
+              <Text
+                style={[
+                  theme.typography.bodyMd,
+                  styles.optionText,
+                  { color: theme.colors.onSurface, flexShrink: 1 },
+                ]}>
                 {t('createScreen.permissions.portMapping.title')}
               </Text>
               <StatusChip
                 label={
-                  !tunnelCapable
-                    ? t('createScreen.permissions.portMapping.comingSoon')
+                  tunnelBlocker === 'offline'
+                    ? t('createScreen.permissions.portMapping.blockerOffline')
+                    : tunnelBlocker === 'unsupported'
+                    ? t('createScreen.permissions.portMapping.blockerUnsupported')
+                    : tunnelBlocker === 'tunnel'
+                    ? t('createScreen.permissions.portMapping.blockerTunnel')
                     : exposePreviewPort
-                      ? 'ON'
-                      : 'OFF'
+                    ? t('createScreen.permissions.portMapping.on')
+                    : t('createScreen.permissions.portMapping.off')
                 }
                 type={!tunnelCapable ? 'neutral' : exposePreviewPort ? 'success' : 'neutral'}
               />
@@ -844,7 +876,8 @@ export const CreateVibeCodingScreen: React.FC = () => {
           <Text
             style={[
               theme.typography.bodySm,
-              { color: theme.colors.onSurfaceVariant, marginTop: 4 },
+              styles.optionHint,
+              { color: theme.colors.onSurfaceVariant },
             ]}>
             {t(
               !tunnelCapable
@@ -917,7 +950,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   optionPanel: {
-    padding: 0,
+    padding: 12,
+  },
+  optionPanelDisabled: {
+    opacity: 0.45,
   },
   optionRow: {
     minHeight: 54,
@@ -931,6 +967,11 @@ const styles = StyleSheet.create({
   optionText: {
     flex: 1,
     gap: 2,
+  },
+  optionHint: {
+    marginTop: 4,
+    paddingHorizontal: 12,
+    paddingBottom: 2,
   },
   divider: {
     height: 1,
