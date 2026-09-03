@@ -100,6 +100,21 @@
         "offHint": "开启后自动为预览端口生成公网地址",
         "disabledHint": "设备不在线或隧道不可用"
       }
+    },
+    "confirmSheet": {
+      "title": "确认模型配置",
+      "subtitle": "即将以 {{provider}} 启动",
+      "modelLabel": "模型",
+      "effortLabel": "推理力度",
+      "sourceManual": "本次选择",
+      "sourceMe": "Me 页默认",
+      "sourceCli": "CLI 默认",
+      "cliModelValue": "provider 内置默认",
+      "noMeHint": "当前未应用个人默认模型，可在 Me 页配置",
+      "btnConfirm": "确认开始",
+      "btnBack": "返回修改",
+      "btnGoMe": "去 Me 页设置",
+      "btnStartAnyway": "仍用默认开始"
     }
   },
   "sessionPreview": {

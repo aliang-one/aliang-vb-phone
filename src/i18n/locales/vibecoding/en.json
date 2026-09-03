@@ -100,6 +100,21 @@
         "offHint": "Turn on to generate public URLs for preview ports automatically",
         "disabledHint": "Device is offline or tunnel unavailable"
       }
+    },
+    "confirmSheet": {
+      "title": "Confirm model settings",
+      "subtitle": "Starting with {{provider}}",
+      "modelLabel": "Model",
+      "effortLabel": "Effort",
+      "sourceManual": "Your choice",
+      "sourceMe": "Me-page default",
+      "sourceCli": "CLI default",
+      "cliModelValue": "provider built-in default",
+      "noMeHint": "No personal default applied — configure one on the Me page",
+      "btnConfirm": "Start",
+      "btnBack": "Edit settings",
+      "btnGoMe": "Open Me settings",
+      "btnStartAnyway": "Start anyway"
     }
   },
   "sessionPreview": {
