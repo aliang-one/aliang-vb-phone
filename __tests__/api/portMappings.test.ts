@@ -43,6 +43,16 @@ describe('port mapping API', () => {
     expect(mockedGet).toHaveBeenCalledWith('/api/port-mappings');
   });
 
+  it('builds device_id and project_id query params together', async () => {
+    mockedGet.mockResolvedValue({ mappings: [] });
+
+    await fetchPortMappings({ deviceId: 'd1', projectId: 'p1' });
+
+    expect(mockedGet).toHaveBeenCalledWith(
+      '/api/port-mappings?device_id=d1&project_id=p1',
+    );
+  });
+
   it('serializes the create request using the server field names', async () => {
     mockedPost.mockResolvedValue(mapping);
 
@@ -65,6 +75,24 @@ describe('port mapping API', () => {
       // covers the Agent's 30s Piko WSS handshake budget. 20s aborted slow
       // networks that the server would have served fine.
       { timeoutMs: 40_000 },
+    );
+  });
+
+  it('forwards project_id on create', async () => {
+    mockedPost.mockResolvedValue(mapping);
+
+    await createPortMapping({
+      deviceId: 'd1',
+      targetHost: '127.0.0.1',
+      targetPort: 3000,
+      expiresInSeconds: 3600,
+      projectId: 'p1',
+    });
+
+    expect(mockedPost).toHaveBeenCalledWith(
+      '/api/port-mappings',
+      expect.objectContaining({ device_id: 'd1', project_id: 'p1' }),
+      expect.anything(),
     );
   });
 
