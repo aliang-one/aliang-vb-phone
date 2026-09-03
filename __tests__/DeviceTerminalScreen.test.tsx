@@ -200,7 +200,9 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       backButton.props.onPress();
     });
 
-    expect(mockNavigate).toHaveBeenCalledWith('MainTabs');
+    // MainTabs 参数类型改为 NavigatorScreenParams 后,兜底导航显式传
+    // { state: undefined }(运行时语义与旧无参调用相同:回到当前 tab)。
+    expect(mockNavigate).toHaveBeenCalledWith('MainTabs', { state: undefined });
   });
 
   it('routes soft keyboard text, enter, and shortcut keys through xterm', async () => {
