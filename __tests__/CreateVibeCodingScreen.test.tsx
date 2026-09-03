@@ -50,10 +50,12 @@ jest.mock('../src/store/controlCenterStore', () => ({
   // import in the screen doesn't blow up.
 }));
 
+const mockUserDefault: Record<string, unknown> = { provider: null, model: null, effort: null };
 jest.mock('../src/hooks/useModelOptions', () => ({
   useModelOptions: () => ({
     providerCatalog: { codex: null, claude_code: null, opencode: null },
-    userDefault: { model: '', effort: '' },
+    userDefault: mockUserDefault,
+    refresh: jest.fn(),
   }),
   catalogEffortOptions: () => [
     { label: 'LOW', value: 'low' },
@@ -68,41 +70,47 @@ jest.mock('../src/hooks/useRecentModelOptions', () => ({
   }),
 }));
 
-// Navigation: capture navigation.replace args.
+// Navigation: capture navigation.replace/push args.
 const mockReplace = jest.fn();
+const mockPush = jest.fn();
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({
     replace: mockReplace,
     goBack: jest.fn(),
     navigate: jest.fn(),
+    push: mockPush,
   }),
   useRoute: () => ({ params: {} }),
 }));
 
 import { CreateVibeCodingScreen } from '../src/screens/vibecoding/CreateVibeCodingScreen';
 
+// Module-level providers so root.update() can re-wrap without dropping
+// ThemeContext/SafeAreaProvider (BottomSheet needs safe-area insets).
+const Providers: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <ThemeContext.Provider
+    value={{
+      theme: utilityMinimalist,
+      mode: 'light',
+      setMode: jest.fn(),
+      isDark: false,
+    }}
+  >
+    <SafeAreaProvider
+      initialMetrics={{
+        frame: { x: 0, y: 0, width: 390, height: 844 },
+        insets: { top: 0, right: 0, bottom: 0, left: 0 },
+      }}
+    >
+      {children}
+    </SafeAreaProvider>
+  </ThemeContext.Provider>
+);
+
 const wrap = async (ui: React.ReactElement) => {
   let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
   await act(async () => {
-    renderer = ReactTestRenderer.create(
-      <ThemeContext.Provider
-        value={{
-          theme: utilityMinimalist,
-          mode: 'light',
-          setMode: jest.fn(),
-          isDark: false,
-        }}
-      >
-        <SafeAreaProvider
-          initialMetrics={{
-            frame: { x: 0, y: 0, width: 390, height: 844 },
-            insets: { top: 0, right: 0, bottom: 0, left: 0 },
-          }}
-        >
-          {ui}
-        </SafeAreaProvider>
-      </ThemeContext.Provider>,
-    );
+    renderer = ReactTestRenderer.create(<Providers>{ui}</Providers>);
     await Promise.resolve();
   });
   return renderer!;
@@ -111,6 +119,10 @@ const wrap = async (ui: React.ReactElement) => {
 /** Find an element by testID (searches the whole tree). */
 const getByTestID = (root: ReactTestRenderer.ReactTestInstance, testID: string) =>
   root.findAll(el => el.props?.testID === testID);
+
+/** Find the FIRST node (any type) with a testID; undefined when absent. */
+const byTestID = (root: ReactTestRenderer.ReactTestInstance, testID: string) =>
+  root.findAll(el => typeof el === 'object' && el.props?.testID === testID)[0];
 
 /** Find a TouchableOpacity by testID. */
 const touchByTestID = (root: ReactTestRenderer.ReactTestInstance, testID: string) =>
@@ -121,6 +133,19 @@ const tap = (root: ReactTestRenderer.ReactTestInstance | undefined, testID: stri
   act(() => {
     (btn as { props: { onPress?: () => void } } | undefined)?.props?.onPress?.();
   });
+};
+
+/** Press the START VIBECODING GlowButton (found by its label text). */
+const pressStart = (r: ReactTestRenderer.ReactTestRenderer) => {
+  const startTouch = r.root
+    .findAllByType(TouchableOpacity)
+    .find(c => c.findAllByType(Text).some(t => String(t.props.children).includes('START VIBECODING')));
+  act(() => { (startTouch as { props: { onPress?: () => void } })?.props?.onPress?.(); });
+};
+/** Start 后若弹出了确认 sheet,点其中的确认类按钮(场景化二选一存在)。 */
+const confirmSheetIfOpen = (r: ReactTestRenderer.ReactTestRenderer) => {
+  const btn = touchByTestID(r.root, 'sheet-btn-confirm') ?? touchByTestID(r.root, 'sheet-btn-start-anyway');
+  if (btn) act(() => { btn.props.onPress?.(); });
 };
 
 /** Concatenate all Text children under a node into a single string. */
@@ -213,6 +238,8 @@ describe('CreateVibeCodingScreen permissions section', () => {
     act(() => {
       (startTouch as { props: { onPress?: () => void } })?.props?.onPress?.();
     });
+    // mock userDefault 为空 → 确认 sheet 弹出,点「仍用默认」走通原语义。
+    confirmSheetIfOpen(root);
     expect(mockReplace).toHaveBeenCalledTimes(1);
     const [dest, params] = mockReplace.mock.calls[0];
     expect(dest).toBe('VibeCodingSession');
@@ -234,6 +261,7 @@ describe('CreateVibeCodingScreen permissions section', () => {
     act(() => {
       (startTouch as { props: { onPress?: () => void } })?.props?.onPress?.();
     });
+    confirmSheetIfOpen(root);
     const params = mockReplace.mock.calls[0][1];
     expect(params.draftConfig.approvalScheme).toBeUndefined();
     expect(params.draftConfig.canRead).toBe(true);
@@ -294,6 +322,7 @@ describe('CreateVibeCodingScreen permissions section', () => {
     act(() => {
       (startTouch as { props: { onPress?: () => void } })?.props?.onPress?.();
     });
+    confirmSheetIfOpen(root);
     expect(mockReplace).toHaveBeenCalledTimes(1);
     const params = mockReplace.mock.calls[0][1];
     expect(params.draftConfig.exposePreviewPort).toBe(true);
@@ -311,6 +340,7 @@ describe('CreateVibeCodingScreen permissions section', () => {
     act(() => {
       (startTouch as { props: { onPress?: () => void } })?.props?.onPress?.();
     });
+    confirmSheetIfOpen(root);
     expect(mockReplace).toHaveBeenCalledTimes(1);
     const params = mockReplace.mock.calls[0][1];
     expect(params.draftConfig.exposePreviewPort).toBe(false);
@@ -356,5 +386,129 @@ describe('CreateVibeCodingScreen permissions section', () => {
     // No snake_case key path should leak into the rendered tree.
     expect(allText).not.toContain('createScreen.permissions.approval.allow_all');
     expect(allText).not.toContain('createScreen.permissions.approval.allow_allHint');
+  });
+});
+
+describe('CreateVibeCodingScreen model confirm sheet', () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+  beforeEach(() => {
+    Object.keys(mockUserDefault).forEach(k => delete mockUserDefault[k]);
+    Object.assign(mockUserDefault, { provider: null, model: null, effort: null });
+    mockReplace.mockClear();
+    mockPush.mockClear();
+  });
+  afterEach(() => {
+    act(() => { root?.unmount(); });
+    mockDevices[0].tools = [];
+  });
+
+  it('model/effort 均未指定:Start 打开确认 sheet,不直接 navigate', async () => {
+    root = await wrap(<CreateVibeCodingScreen />);
+    pressStart(root);
+    // Me 全空(mock 默认)→ 走 go-me 按钮组;sheet 在开 = 内容行可见
+    expect(byTestID(root.root, 'sheet-model-value')).toBeTruthy();
+    expect(touchByTestID(root.root, 'sheet-btn-start-anyway')).toBeTruthy();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it('model、effort 都手动指定:Start 直通 navigate(零打扰)', async () => {
+    root = await wrap(<CreateVibeCodingScreen />);
+    tap(root.root, 'model-chip-gpt-5');
+    tap(root.root, 'effort-chip-high');
+    pressStart(root);
+    expect(byTestID(root.root, 'sheet-model-value')).toBeUndefined();
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+  });
+
+  it('任一未指定(选了 effort 未选 model)也弹 sheet', async () => {
+    root = await wrap(<CreateVibeCodingScreen />);
+    tap(root.root, 'effort-chip-high');
+    pressStart(root);
+    expect(byTestID(root.root, 'sheet-model-value')).toBeTruthy();
+    expect(touchByTestID(root.root, 'sheet-btn-start-anyway')).toBeTruthy();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it('确认开始:navigate 且 draftConfig 与原语义一致(model/effort 不带值)', async () => {
+    Object.assign(mockUserDefault, { provider: 'codex', model: 'gpt-5.4', effort: 'high' });
+    root = await wrap(<CreateVibeCodingScreen />);
+    pressStart(root);
+    tap(root.root, 'sheet-btn-confirm');
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+    const [dest, params] = mockReplace.mock.calls[0];
+    expect(dest).toBe('VibeCodingSession');
+    expect(params.draftConfig.model).toBeUndefined();
+    expect(params.draftConfig.effort).toBeUndefined();
+  });
+
+  it('返回修改:仅关 sheet,不 navigate,可再次 Start', async () => {
+    // 种同 provider 的 Me 默认 → 走 confirm/back 按钮组
+    Object.assign(mockUserDefault, { provider: 'codex', model: 'gpt-5.4', effort: 'high' });
+    root = await wrap(<CreateVibeCodingScreen />);
+    pressStart(root);
+    expect(touchByTestID(root.root, 'sheet-btn-back')).toBeTruthy();
+    tap(root.root, 'sheet-btn-back');
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(touchByTestID(root.root, 'sheet-btn-confirm')).toBeUndefined();
+    pressStart(root);
+    expect(touchByTestID(root.root, 'sheet-btn-confirm')).toBeTruthy();
+  });
+
+  it('Me 空:按钮组为 去设置/仍用默认;去设置=push MainTabs Account 且先关 sheet', async () => {
+    root = await wrap(<CreateVibeCodingScreen />);
+    pressStart(root);
+    expect(touchByTestID(root.root, 'sheet-btn-go-me')).toBeTruthy();
+    tap(root.root, 'sheet-btn-go-me');
+    expect(mockPush).toHaveBeenCalledWith('MainTabs', { screen: 'Account' });
+    // sheet 内容已随 visible 门控立即收起
+    expect(touchByTestID(root.root, 'sheet-btn-confirm')).toBeUndefined();
+    expect(touchByTestID(root.root, 'sheet-btn-start-anyway')).toBeUndefined();
+    // 仍用默认开始路径
+    pressStart(root);
+    tap(root.root, 'sheet-btn-start-anyway');
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+  });
+
+  it('跨 provider:Me 默认(claude)对所选 codex 不适用 → 走 Me 空按钮组', async () => {
+    // claude 在本设备不可用 → 预填不切 provider(见下方缺陷 B 用例),维持 codex;
+    // Me 的 claude 默认对 codex 不适用 → CLI 默认 + 去设置按钮组。
+    mockDevices[0].tools = [{ id: 'codex', available: true }, { id: 'claude_code', available: false }];
+    Object.assign(mockUserDefault, { provider: 'claude_code', model: 'glm-5.2', effort: 'high' });
+    root = await wrap(<CreateVibeCodingScreen />);
+    pressStart(root);
+    expect(touchByTestID(root.root, 'sheet-btn-go-me')).toBeTruthy();
+    expect(touchByTestID(root.root, 'sheet-btn-confirm')).toBeUndefined();
+  });
+
+  it('缺陷B:Me 默认 provider 可用时预填 provider 芯片', async () => {
+    root = await wrap(<CreateVibeCodingScreen />);
+    // 模拟 userDefault 异步到达:wrap 时 provider 为 null,再置值并重渲染
+    Object.assign(mockUserDefault, { provider: 'claude_code', model: 'glm-5.2', effort: 'high' });
+    await act(async () => { root.update(<Providers><CreateVibeCodingScreen /></Providers>); });
+    expect(touchByTestID(root.root, 'provider-chip-claude_code')?.props.accessibilityState?.selected ?? false).toBe(true);
+    pressStart(root);
+    confirmSheetIfOpen(root);
+    expect(mockReplace.mock.calls[0][1].draftConfig.provider).toBe('claude_code');
+  });
+
+  it('缺陷B:Me 默认 provider 不可用时不预填(维持 codex/自动切换)', async () => {
+    // tools 恢复由本 describe 的 afterEach 兜底
+    mockDevices[0].tools = [{ id: 'codex', available: true }, { id: 'claude_code', available: false }];
+    Object.assign(mockUserDefault, { provider: 'claude_code' });
+    root = await wrap(<CreateVibeCodingScreen />);
+    pressStart(root);
+    confirmSheetIfOpen(root);
+    expect(mockReplace.mock.calls[0][1].draftConfig.provider).toBe('codex');
+  });
+
+  it('缺陷B:用户手动点过 provider 芯片后,Me 预填不覆盖', async () => {
+    Object.assign(mockUserDefault, { provider: null });
+    root = await wrap(<CreateVibeCodingScreen />);
+    tap(root.root, 'provider-chip-codex'); // 触碰即 providerTouchedRef=true
+    Object.assign(mockUserDefault, { provider: 'opencode' });
+    await act(async () => { root.update(<Providers><CreateVibeCodingScreen /></Providers>); });
+    pressStart(root);
+    confirmSheetIfOpen(root);
+    expect(mockReplace.mock.calls[0][1].draftConfig.provider).toBe('codex');
   });
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -31,8 +31,10 @@ import {
   EFFORT_PROVIDERS,
   availableProviders,
   catalogModelOptions,
+  normalizeProvider,
   providerLabel,
 } from '../../utils/modelIntensity';
+import { ModelConfirmSheet } from '../../components/vibecoding/ModelConfirmSheet';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type CreateRoute = RouteProp<RootStackParamList, 'CreateVibeCoding'>;
@@ -120,6 +122,19 @@ export const CreateVibeCodingScreen: React.FC = () => {
     else if (availability.claude_code) setProvider('claude_code');
     else if (availability.opencode) setProvider('opencode');
   }, [availability, provider]);
+  // Start 前的模型/effort 二次确认弹窗(model/effort 任一未手动指定时打开)。
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  // 用户手动点过 provider 芯片后,Me 默认 provider 预填不再生效。
+  const providerTouchedRef = useRef(false);
+  // Me 页默认 provider 预填(缺陷 B):用户未手动选过、且该 provider 在本设备
+  // 可用时才预填;不可用则不干预,由上面的 availability effect 兜底自动切。
+  useEffect(() => {
+    if (providerTouchedRef.current) return;
+    const meProvider = normalizeProvider(userDefault.provider ?? undefined);
+    if (meProvider && availability[meProvider] && provider !== meProvider) {
+      setProvider(meProvider);
+    }
+  }, [userDefault.provider, availability, provider]);
   const noProviderAvailable = !EFFORT_PROVIDERS.some(item => availability[item]);
   const project = useCustomPath
     ? undefined
@@ -193,8 +208,9 @@ export const CreateVibeCodingScreen: React.FC = () => {
     if (!isReadOnly) setCanRun(v => !v);
   };
 
-  const handleCreate = () => {
+  const startSession = () => {
     if (creating || !device) return;
+    // 历史模型只在确认真正开始时记录(弹「返回修改」不算)。
     rememberModel(model);
     // Project selected → run inside its path (no separate directory). Custom
     // path → use the typed value, falling back to the device's first
@@ -222,6 +238,16 @@ export const CreateVibeCodingScreen: React.FC = () => {
         exposePreviewPort,
       },
     });
+  };
+
+  const handleCreate = () => {
+    if (creating || !device) return;
+    // 任一字段未手动指定 → 先弹确认;都指定了 → 保持原直通,零打扰。
+    if (model.trim() === '' || effort.trim() === '') {
+      setConfirmOpen(true);
+      return;
+    }
+    startSession();
   };
 
   if (!device) {
@@ -472,9 +498,13 @@ export const CreateVibeCodingScreen: React.FC = () => {
             return (
               <TouchableOpacity
                 key={item}
+                testID={`provider-chip-${item}`}
+                accessibilityState={{ selected: active }}
                 activeOpacity={0.75}
                 disabled={!enabled}
                 onPress={() => {
+                  // 用户手动选定后,Me 默认 provider 预填不再覆盖。
+                  providerTouchedRef.current = true;
                   setProvider(item);
                   // Effort levels + model ids differ per provider. Reset both so
                   // we never forward a level/model the newly-selected agent
@@ -572,6 +602,8 @@ export const CreateVibeCodingScreen: React.FC = () => {
             return (
               <TouchableOpacity
                 key={preset.label}
+                testID={`model-chip-${preset.value}`}
+                accessibilityState={{ selected: active }}
                 activeOpacity={0.75}
                 onPress={() => setModel(preset.value)}
                 style={[
@@ -626,6 +658,8 @@ export const CreateVibeCodingScreen: React.FC = () => {
             return (
               <TouchableOpacity
                 key={preset.label}
+                testID={`effort-chip-${preset.value}`}
+                accessibilityState={{ selected: active }}
                 activeOpacity={0.75}
                 onPress={() => setEffort(preset.value)}
                 style={[
@@ -824,6 +858,23 @@ export const CreateVibeCodingScreen: React.FC = () => {
           style={styles.createButton}
         />
       </ScrollView>
+      <ModelConfirmSheet
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        provider={provider}
+        manualModel={model}
+        manualEffort={effort}
+        onConfirm={() => {
+          setConfirmOpen(false);
+          startSession();
+        }}
+        onGoToMeSettings={() => {
+          // 必须先关 sheet:BottomSheet 基于 RN Modal,不关会盖住 push 出的 Account 页,
+          // Android 返回键也会先命中 Modal 的 onRequestClose。
+          setConfirmOpen(false);
+          navigation.push('MainTabs', { screen: 'Account' });
+        }}
+      />
     </SafeAreaWrapper>
   );
 };
