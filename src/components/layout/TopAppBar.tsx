@@ -25,7 +25,10 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
       onBack?.();
       return;
     }
-    navigation.navigate('MainTabs');
+    // MainTabs 参数类型为 NavigatorScreenParams({screen,params} 或 {state}
+    // 的联合,空对象不合法);不指定嵌套 screen 时传 { state: undefined },
+    // 保持「回到当前 tab」的原行为。
+    navigation.navigate('MainTabs', { state: undefined });
   };
 
   return (

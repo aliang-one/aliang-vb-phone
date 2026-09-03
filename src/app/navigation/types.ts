@@ -1,11 +1,14 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import type { NavigatorScreenParams } from '@react-navigation/native';
 import type { DebugDeviceTerminalTarget } from '../debugInitialProps';
 import type { EffortProvider } from '../../utils/modelIntensity';
 
 export type RootStackParamList = {
   Login: undefined;
-  MainTabs: undefined;
+  // 带 screen 参数跳转(Me 页引导)需要嵌套参数类型;undefined 会让
+  // push('MainTabs', { screen: 'Account' }) 无法类型通过。
+  MainTabs: NavigatorScreenParams<MainTabParamList>;
   DebugDeviceTerminalBootstrap: { target: DebugDeviceTerminalTarget };
   DeviceCameraScanner: undefined;
   DeviceDetail: { deviceId: string };

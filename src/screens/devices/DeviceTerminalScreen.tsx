@@ -495,7 +495,8 @@ export const DeviceTerminalScreen: React.FC = () => {
       navigation.goBack();
       return;
     }
-    navigation.navigate('MainTabs');
+    // { state: undefined } = 不指定嵌套 screen,保持「回到当前 tab」的原行为。
+    navigation.navigate('MainTabs', { state: undefined });
   };
 
   const handleDirectoryChange = async (nextDirectory: string) => {
