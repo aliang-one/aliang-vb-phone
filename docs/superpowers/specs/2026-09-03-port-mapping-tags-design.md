@@ -95,8 +95,8 @@ CREATE INDEX IF NOT EXISTS idx_port_mapping_tags_project
 ## 6. API 变更（向后兼容）
 
 - `GET /api/port-mappings`：
-  - 每条附 `tag: { project_id?: string, project_name?: string, project_path?: string, source: 'device_manual'|'project_manual'|'session_preview', session_id?: string, created_at: string } | null`（拍平进映射对象亦可，实现时二选一，以 serializer 单点出口为准）。
-  - 新增 `?project_id=` 过滤：校验 project 归属（`getAccessibleProjectOrThrow` 语义），只返回带该标签的映射（仍按 user 隔离）。
+  - 每条附 `tag: { project_id?: string, project_name?: string, project_path?: string, source: 'device_manual'|'project_manual'|'session_preview', session_id?: string, created_at: string } | null`（`tag.created_at` 是**标注行写入时间**，与映射自身的网关 `created_at` 并列，二者语义不同；拍平进映射对象亦可，实现时二选一，以 serializer 单点出口为准）。
+  - 新增 `?project_id=` 过滤：校验 project 归属（`getAccessibleProjectOrThrow` 语义），只返回带该标签的映射（仍按 user 隔离）；与 `?device_id=` 同时携带时取 AND（交集）。
 - `POST /api/port-mappings`：body 增加可选 `project_id`。
 - 手机 `src/api/portMappings.ts` 类型同步：`PortMapping` 增加可选 tag 字段；`CreatePortMappingInput` 增加可选 `projectId`。
 - `publicAiSession`/`publicAiSessionSummary` 不动（会话列表不暴露开关状态，维持现状）。
@@ -115,7 +115,7 @@ CREATE INDEX IF NOT EXISTS idx_port_mapping_tags_project
 
 ### 7.3 ProjectDetailScreen 新「公网端口」区块
 
-- **列表**：`GET /api/port-mappings?project_id=<id>` 拉本项目标签下全部映射（会话自动 + 手动统一呈现）；卡片与设备屏共用（把 `MappingCard` 抽成共享组件，两屏消费）；支持撤销（复用 `revokePortMapping` + `Alert.confirm`，本地替换返回的 revoked 记录，与设备屏一致）。
+- **列表**：`GET /api/port-mappings?project_id=<id>` 拉本项目标签下全部映射（会话自动 + 手动统一呈现）；卡片与设备屏共用（把 `MappingCard` 抽成共享组件，两屏消费）；支持撤销（复用 `revokePortMapping` + `Alert.confirm`，本地替换返回的 revoked 记录，与设备屏一致）。项目未绑定设备（`Project.deviceId` 为空）时区块只读展示、隐藏新建入口（创建需要 `device_id`）。
 - **新建**：端口从 `project.detectedPorts` 快选；host 默认 `127.0.0.1`；有效期复用 `EXPIRY_OPTIONS`；创建带 `project_id` → 自动设备+项目双标。设备离线/能力缺失时复用设备屏现有 Notice 门控文案。
 - **空态**：说明两个来源（会话自动暴露 / 在此手动新建）。
 - i18n en+zh 新增 `projects.portMappings.*` 文案。
