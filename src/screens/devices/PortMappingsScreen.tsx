@@ -121,7 +121,7 @@ export const PortMappingsScreen: React.FC = () => {
       refresh ? setRefreshing(true) : setLoading(true);
       setError(null);
       try {
-        const result = await fetchPortMappings(route.params.deviceId);
+        const result = await fetchPortMappings({ deviceId: route.params.deviceId });
         if (!mountedRef.current) return;
         setMappings(
           [...result].sort(

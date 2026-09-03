@@ -20,6 +20,18 @@ export interface TunnelStatusInfo {
   expiresAt?: string;
 }
 
+export type PortMappingTagSource = 'device_manual' | 'project_manual' | 'session_preview';
+
+/** App-level attribution the server attaches to a mapping (project / source). */
+export interface PortMappingTag {
+  project_id?: string;
+  project_name?: string;
+  project_path?: string;
+  source: PortMappingTagSource;
+  session_id?: string;
+  created_at: string;
+}
+
 export interface PortMapping {
   id: string;
   slug: string;
@@ -34,6 +46,8 @@ export interface PortMapping {
   revoked_at?: string;
   short_url: string;
   tunnel_status?: TunnelStatusInfo;
+  /** Server-side tag (project attribution). null = untagged (older server). */
+  tag?: PortMappingTag | null;
 }
 
 export interface CreatePortMappingInput {
@@ -41,15 +55,20 @@ export interface CreatePortMappingInput {
   targetHost: string;
   targetPort: number;
   expiresInSeconds: number;
+  /** When set, the mapping is tagged device+project. */
+  projectId?: string;
 }
 
 export const fetchPortMappings = async (
-  deviceId?: string,
+  params: { deviceId?: string; projectId?: string } = {},
 ): Promise<PortMapping[]> => {
-  const path = deviceId
-    ? `/api/port-mappings?device_id=${encodeURIComponent(deviceId)}`
-    : '/api/port-mappings';
-  const response = await apiGet<{ mappings: PortMapping[] }>(path);
+  const search = new URLSearchParams();
+  if (params.deviceId) search.set('device_id', params.deviceId);
+  if (params.projectId) search.set('project_id', params.projectId);
+  const query = search.toString();
+  const response = await apiGet<{ mappings: PortMapping[] }>(
+    query ? `/api/port-mappings?${query}` : '/api/port-mappings',
+  );
   return response.mappings;
 };
 
@@ -63,6 +82,7 @@ export const createPortMapping = (
       target_host: input.targetHost,
       target_port: input.targetPort,
       expires_in_seconds: input.expiresInSeconds,
+      ...(input.projectId ? { project_id: input.projectId } : {}),
     },
     // The server chains tunnel.configure (35s fence covering the Agent's 30s
     // Piko WSS handshake budget) before creating the mapping; a 20s abort cut
