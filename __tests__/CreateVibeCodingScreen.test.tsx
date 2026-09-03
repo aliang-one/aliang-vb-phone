@@ -51,11 +51,15 @@ jest.mock('../src/store/controlCenterStore', () => ({
 }));
 
 const mockUserDefault: Record<string, unknown> = { provider: null, model: null, effort: null };
+// Module-level handle on the mocked refresh so tests can assert the
+// useFocusEffect → refresh wiring actually fires (babel-plugin-jest-hoist
+// allows referencing mock-prefixed identifiers inside the factory).
+const mockRefresh = jest.fn();
 jest.mock('../src/hooks/useModelOptions', () => ({
   useModelOptions: () => ({
     providerCatalog: { codex: null, claude_code: null, opencode: null },
     userDefault: mockUserDefault,
-    refresh: jest.fn(),
+    refresh: mockRefresh,
   }),
   catalogEffortOptions: () => [
     { label: 'LOW', value: 'low' },
@@ -404,6 +408,7 @@ describe('CreateVibeCodingScreen model confirm sheet', () => {
     Object.assign(mockUserDefault, { provider: null, model: null, effort: null });
     mockReplace.mockClear();
     mockPush.mockClear();
+    mockRefresh.mockClear();
   });
   afterEach(() => {
     act(() => { root?.unmount(); });
@@ -555,6 +560,9 @@ describe('CreateVibeCodingScreen model confirm sheet', () => {
       lastFocusEffect?.();
       root.update(<Providers><CreateVibeCodingScreen /></Providers>);
     });
+    // The focus callback must actually invoke the refresh path (guards against
+    // the wiring being deleted while the sheet still reads the mutated mock).
+    expect(mockRefresh).toHaveBeenCalled();
     pressStart(root);
     // Me 默认现在适用 → 确认/返回按钮组(而非 Me 空引导)
     expect(touchByTestID(root.root, 'sheet-btn-confirm')).toBeTruthy();
