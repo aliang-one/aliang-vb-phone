@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   TextInput,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
@@ -89,7 +89,18 @@ export const CreateVibeCodingScreen: React.FC = () => {
   // Live catalog drives the EFFORT chips for the selected provider; falls back
   // to the hardcoded ladder before it loads. "默认" =
   // inherit (don't specify), which is the default selection.
-  const { providerCatalog, userDefault } = useModelOptions();
+  const { providerCatalog, userDefault, refresh: refreshModelOptions } = useModelOptions();
+  // 从 Me 页(push 出去的 Account)配置完默认返回时,重新拉取 model-options,
+  // 否则已挂载的本页会一直读旧缓存(useModelOptions 只在挂载时拉取)。
+  // refresh 每次渲染都是新箭头函数,进 dep 会让 useFocusEffect 反复解绑/重绑,
+  // 所以走 ref 模式(零依赖,永不重绑)。
+  const refreshModelOptionsRef = useRef(refreshModelOptions);
+  refreshModelOptionsRef.current = refreshModelOptions;
+  useFocusEffect(
+    useCallback(() => {
+      refreshModelOptionsRef.current();
+    }, []),
+  );
   const effortOptions = catalogEffortOptions(provider, providerCatalog);
   const device = devices.find(item => item.id === deviceId) ?? devices[0];
   // Which providers are actually installed on this device (agent reports via
@@ -128,11 +139,15 @@ export const CreateVibeCodingScreen: React.FC = () => {
   const providerTouchedRef = useRef(false);
   // Me 页默认 provider 预填(缺陷 B):用户未手动选过、且该 provider 在本设备
   // 可用时才预填;不可用则不干预,由上面的 availability effect 兜底自动切。
+  // 切换时同步清 model/effort(与芯片手动切换同语义),避免把 A 家已选模型
+  // 残留给 B 家 provider(缺陷 A 形态)。
   useEffect(() => {
     if (providerTouchedRef.current) return;
     const meProvider = normalizeProvider(userDefault.provider ?? undefined);
     if (meProvider && availability[meProvider] && provider !== meProvider) {
       setProvider(meProvider);
+      setModel('');
+      setEffort('');
     }
   }, [userDefault.provider, availability, provider]);
   const noProviderAvailable = !EFFORT_PROVIDERS.some(item => availability[item]);

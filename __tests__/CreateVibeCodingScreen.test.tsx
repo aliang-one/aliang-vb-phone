@@ -73,6 +73,11 @@ jest.mock('../src/hooks/useRecentModelOptions', () => ({
 // Navigation: capture navigation.replace/push args.
 const mockReplace = jest.fn();
 const mockPush = jest.fn();
+// useFocusEffect mock: record the latest effect callback so tests can simulate
+// returning to this screen (focus) by invoking it manually. (React's
+// jest.mock hoisting blocks referencing the imported React binding inside the
+// factory, so the callback is only recorded, never auto-run on mount.)
+let lastFocusEffect: (() => void) | undefined;
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({
     replace: mockReplace,
@@ -81,6 +86,9 @@ jest.mock('@react-navigation/native', () => ({
     push: mockPush,
   }),
   useRoute: () => ({ params: {} }),
+  useFocusEffect: (cb: () => void) => {
+    lastFocusEffect = cb;
+  },
 }));
 
 import { CreateVibeCodingScreen } from '../src/screens/vibecoding/CreateVibeCodingScreen';
@@ -400,6 +408,8 @@ describe('CreateVibeCodingScreen model confirm sheet', () => {
   afterEach(() => {
     act(() => { root?.unmount(); });
     mockDevices[0].tools = [];
+    delete mockDevices[0].capabilities;
+    delete mockDevices[0].tunnelAvailable;
   });
 
   it('model/effort 均未指定:Start 打开确认 sheet,不直接 navigate', async () => {
@@ -510,5 +520,44 @@ describe('CreateVibeCodingScreen model confirm sheet', () => {
     pressStart(root);
     confirmSheetIfOpen(root);
     expect(mockReplace.mock.calls[0][1].draftConfig.provider).toBe('codex');
+  });
+
+  it('缺陷B:预填自动切 provider 时清空已选 model/effort(防跨 provider 残留)', async () => {
+    root = await wrap(<CreateVibeCodingScreen />);
+    // Me 默认尚未到达时用户已选了 codex 的 model 芯片
+    tap(root.root, 'model-chip-gpt-5');
+    tap(root.root, 'effort-chip-high');
+    // Me 默认到达:provider=claude_code 可用 → 自动切 provider 并清空选择
+    Object.assign(mockUserDefault, { provider: 'claude_code', model: 'glm-5.2', effort: 'high' });
+    await act(async () => { root.update(<Providers><CreateVibeCodingScreen /></Providers>); });
+    pressStart(root);
+    confirmSheetIfOpen(root);
+    expect(mockReplace.mock.calls[0][1].draftConfig.provider).toBe('claude_code');
+    // model/effort 已被清空 → draftConfig 不携带(而不是带着 gpt-5/high 投给 claude)
+    expect(mockReplace.mock.calls[0][1].draftConfig.model).toBeUndefined();
+    expect(mockReplace.mock.calls[0][1].draftConfig.effort).toBeUndefined();
+  });
+
+  it('从 Me 页返回(focus)后重拉默认值,弹窗反映新默认', async () => {
+    root = await wrap(<CreateVibeCodingScreen />);
+    // 保存前的旧缓存:空 → Me 空按钮组
+    pressStart(root);
+    expect(touchByTestID(root.root, 'sheet-btn-go-me')).toBeTruthy();
+    // Me 空按钮组没有「返回修改」按钮;真实路径是点「去设置」关 sheet 并 push
+    // Account(Me 页),配置完返回。这里走同一路径。
+    tap(root.root, 'sheet-btn-go-me');
+    expect(mockPush).toHaveBeenCalledWith('MainTabs', { screen: 'Account' });
+    // 用户在 Me 页保存了默认(mockUserDefault 更新),回到创建页触发 focus:
+    // mock 的 useFocusEffect 记录的回调即刷新通路(refresh 本身是 jest.fn,
+    // 默认值变化由 mockUserDefault 直接反映),root.update 让弹窗读到新默认。
+    Object.assign(mockUserDefault, { provider: 'codex', model: 'gpt-5.4', effort: 'high' });
+    await act(async () => {
+      lastFocusEffect?.();
+      root.update(<Providers><CreateVibeCodingScreen /></Providers>);
+    });
+    pressStart(root);
+    // Me 默认现在适用 → 确认/返回按钮组(而非 Me 空引导)
+    expect(touchByTestID(root.root, 'sheet-btn-confirm')).toBeTruthy();
+    expect(touchByTestID(root.root, 'sheet-btn-go-me')).toBeUndefined();
   });
 });
