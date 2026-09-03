@@ -319,6 +319,7 @@ export function platformDeviceToClient(sd: PlatformDeviceSnapshot): Device {
     remoteTerminalEnabled: sd.remoteTerminalEnabled,
     aiControlEnabled: sd.aiControlEnabled,
     capabilities: sd.capabilities,
+    tunnelAvailable: sd.tunnelAvailable,
     tools: sd.tools.map(tool => ({
       id: tool.id,
       name: tool.name,
