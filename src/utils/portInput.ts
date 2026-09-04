@@ -1,5 +1,26 @@
 // Shared port-mapping helpers (device + project create forms).
 import { ApiResponseError } from '../api/client';
+import type { Device } from '../data/platformModels';
+
+export type TunnelGateBlocker = 'offline' | 'unsupported' | 'tunnel';
+
+/**
+ * Single source of truth for "can this device create public port mappings".
+ * All three entries (device PortMappings screen, create-vibecoding page,
+ * project port section) gate through this so every surface tells the user
+ * the same story for the same device state.
+ */
+export const resolveTunnelBlocker = (
+  device?: Device,
+): TunnelGateBlocker | null =>
+  !device || device.status !== 'online'
+    ? 'offline'
+    : !device.capabilities?.includes('http_tunnel_v1') ||
+      !device.capabilities?.includes('websocket_tunnel_v1')
+    ? 'unsupported'
+    : !device.tunnelAvailable
+    ? 'tunnel'
+    : null;
 
 export const isAllowedTargetHost = (input: string) => {
   const host = input.trim().toLowerCase();

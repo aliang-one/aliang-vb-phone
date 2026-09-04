@@ -26,6 +26,7 @@ import {
   EXPIRY_OPTIONS,
   mappingErrorKey,
   parsePort,
+  resolveTunnelBlocker,
 } from '../../utils/portInput';
 import type { Device, Project } from '../../data/platformModels';
 
@@ -91,20 +92,13 @@ export const ProjectPortMappingsSection: React.FC<
   }, [loadMappings]);
 
   const parsedPort = parsePort(targetPort);
-  // Capability and server-config are separate blockers with separate copy:
-  // missing caps = stale agent (upgrade needed), caps present but no
-  // tunnelAvailable = the server never finished tunnel configuration. The
-  // gating below mirrors CreateVibeCodingScreen's tunnelBlocker ordering
-  // (offline → unsupported caps → server tunnel unconfigured).
-  const hasTunnelCaps = Boolean(
-    device &&
-      device.capabilities.includes('http_tunnel_v1') &&
-      device.capabilities.includes('websocket_tunnel_v1'),
-  );
-  const online = device?.status === 'online';
-  const canCreate = Boolean(
-    device && online && hasTunnelCaps && device.tunnelAvailable && parsedPort,
-  );
+  // Shared tunnel gate (same helper as the device screen + create page):
+  // offline → agent lacks the tunnel capabilities → server tunnel
+  // unconfigured. The no-device case keeps its own read-only branch below, so
+  // the blocker is only consulted when a device exists (helper also maps
+  // missing device → 'offline', which would otherwise shadow that branch).
+  const blocker = resolveTunnelBlocker(device);
+  const canCreate = Boolean(device && blocker === null && parsedPort);
 
   const detectedPorts = useMemo(
     () =>
@@ -262,11 +256,11 @@ export const ProjectPortMappingsSection: React.FC<
 
       {!device ? (
         <Notice text={t('portMappings.readOnlyNoDevice')} />
-      ) : !online ? (
+      ) : blocker === 'offline' ? (
         <Notice text={td('portMappings.offline')} />
-      ) : !hasTunnelCaps ? (
+      ) : blocker === 'unsupported' ? (
         <Notice text={td('portMappings.unsupported')} />
-      ) : !device.tunnelAvailable ? (
+      ) : blocker === 'tunnel' ? (
         <Notice text={td('portMappings.tunnelUnavailable')} />
       ) : (
         <View>

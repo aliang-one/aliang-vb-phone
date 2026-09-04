@@ -39,6 +39,7 @@ import {
   isAllowedTargetHost,
   mappingErrorKey,
   parsePort,
+  resolveTunnelBlocker,
 } from '../../utils/portInput';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -105,17 +106,12 @@ export const PortMappingsScreen: React.FC = () => {
 
   const parsedPort = parsePort(targetPort);
   const hostValid = isAllowedTargetHost(targetHost);
-  const supportsTunnel =
-    (device?.capabilities.includes('http_tunnel_v1') &&
-      device.capabilities.includes('websocket_tunnel_v1')) ??
-    false;
-  const canCreate = Boolean(
-    device &&
-      device.status === 'online' &&
-      supportsTunnel &&
-      hostValid &&
-      parsedPort,
-  );
+  // Shared tunnel gate (same helper as the create page + project section):
+  // offline → agent caps missing → server tunnel unconfigured. Unlike the old
+  // caps-only check this refuses create when tunnelAvailable is false, so the
+  // user never submits a mapping the server is guaranteed to reject.
+  const blocker = resolveTunnelBlocker(device);
+  const canCreate = Boolean(device && blocker === null && hostValid && parsedPort);
   const detectedPorts = useMemo(
     () =>
       [...new Set(device?.activePorts ?? [])]
@@ -322,10 +318,12 @@ export const PortMappingsScreen: React.FC = () => {
               ))}
             </View>
 
-            {device.status !== 'online' ? (
+            {blocker === 'offline' ? (
               <Notice text={t('portMappings.offline')} />
-            ) : !supportsTunnel ? (
+            ) : blocker === 'unsupported' ? (
               <Notice text={t('portMappings.unsupported')} />
+            ) : blocker === 'tunnel' ? (
+              <Notice text={t('portMappings.tunnelUnavailable')} />
             ) : null}
 
             <GlowButton

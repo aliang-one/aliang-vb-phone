@@ -1,4 +1,9 @@
-import { isAllowedTargetHost, parsePort } from '../src/utils/portInput';
+import {
+  isAllowedTargetHost,
+  parsePort,
+  resolveTunnelBlocker,
+} from '../src/utils/portInput';
+import type { Device } from '../src/data/platformModels';
 
 describe('isAllowedTargetHost', () => {
   it('accepts localhost and ::1', () => {
@@ -54,5 +59,66 @@ describe('parsePort', () => {
 
   it('trims surrounding whitespace', () => {
     expect(parsePort(' 8080 ')).toBe(8080);
+  });
+});
+
+// Minimal Device factory — only the fields resolveTunnelBlocker reads
+// (status / capabilities / tunnelAvailable) vary; the rest satisfies the type.
+function device(overrides: Partial<Device> = {}): Device {
+  return {
+    id: 'device-1',
+    name: 'MacBook',
+    status: 'online',
+    location: 'Desk',
+    os: 'darwin',
+    host: 'localhost',
+    cpuLoad: 0,
+    memLoad: 0,
+    authorizedDirectories: ['~/repo'],
+    activePorts: [],
+    projectIds: [],
+    activeSessionIds: [],
+    lastSeen: 'now',
+    remoteTerminalEnabled: true,
+    aiControlEnabled: true,
+    capabilities: ['http_tunnel_v1', 'websocket_tunnel_v1'],
+    tunnelAvailable: true,
+    tools: [],
+    history: [],
+    ...overrides,
+  };
+}
+
+describe('resolveTunnelBlocker', () => {
+  it('returns offline for a missing device', () => {
+    expect(resolveTunnelBlocker(undefined)).toBe('offline');
+  });
+
+  it('returns offline for an offline device', () => {
+    expect(resolveTunnelBlocker(device({ status: 'offline' }))).toBe('offline');
+  });
+
+  it('returns unsupported when tunnel capabilities are missing', () => {
+    expect(
+      resolveTunnelBlocker(device({ capabilities: ['terminal'] })),
+    ).toBe('unsupported');
+  });
+
+  it('returns tunnel when caps are present but the server tunnel is unconfigured', () => {
+    expect(resolveTunnelBlocker(device({ tunnelAvailable: false }))).toBe(
+      'tunnel',
+    );
+  });
+
+  it('returns null when online + both caps + tunnel configured', () => {
+    expect(resolveTunnelBlocker(device())).toBeNull();
+  });
+
+  it('offline outranks missing caps (specificity order)', () => {
+    expect(
+      resolveTunnelBlocker(
+        device({ status: 'offline', capabilities: [], tunnelAvailable: false }),
+      ),
+    ).toBe('offline');
   });
 });

@@ -35,6 +35,7 @@ import {
   providerLabel,
 } from '../../utils/modelIntensity';
 import { ModelConfirmSheet } from '../../components/vibecoding/ModelConfirmSheet';
+import { resolveTunnelBlocker } from '../../utils/portInput';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type CreateRoute = RouteProp<RootStackParamList, 'CreateVibeCoding'>;
@@ -172,16 +173,9 @@ export const CreateVibeCodingScreen: React.FC = () => {
   // Why the port-mapping toggle is unavailable (null = available). Ordered by
   // specificity: offline → agent lacks the tunnel capabilities → server-side
   // tunnel not configured. Surfacing the real reason replaces the stale
-  // "Coming soon" chip (the feature has shipped).
-  const tunnelBlocker =
-    !device || device.status !== 'online'
-      ? 'offline'
-      : !device.capabilities?.includes('http_tunnel_v1') ||
-        !device.capabilities?.includes('websocket_tunnel_v1')
-      ? 'unsupported'
-      : !device.tunnelAvailable
-      ? 'tunnel'
-      : null;
+  // "Coming soon" chip (the feature has shipped). Shared helper — the device
+  // PortMappings screen and the project port section gate through it too.
+  const tunnelBlocker = resolveTunnelBlocker(device);
   const tunnelCapable = tunnelBlocker === null;
   const isReadOnly = approval === 'read_only';
   // Divider between capability rows: dim white hairline on dark surfaces, theme
