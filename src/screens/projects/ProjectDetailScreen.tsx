@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Text,
@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   RefreshControl,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { useTheme } from '../../theme/useTheme';
@@ -66,18 +66,41 @@ export const ProjectDetailScreen: React.FC = () => {
   );
   // Hero "ports" metric only reads the active count here — the full list and
   // its management live on the ProjectPorts page the cell navigates to.
-  const { activeCount: activePortCount } = useProjectPortMappings(project?.id);
+  const { activeCount: activePortCount, reload: reloadPorts } =
+    useProjectPortMappings(project?.id);
   const [refreshing, setRefreshing] = useState(false);
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [result] = await Promise.all([refreshFromServer(), reload()]);
+      const [result] = await Promise.all([
+        refreshFromServer(),
+        reload(),
+        reloadPorts(),
+      ]);
       const feedback = refreshFeedback(result, t);
       show(feedback.message, feedback.type);
     } finally {
       setRefreshing(false);
     }
-  }, [refreshFromServer, reload, show, t]);
+  }, [refreshFromServer, reload, reloadPorts, show, t]);
+
+  // Returning from the ProjectPorts page (native stack keeps this screen
+  // mounted) must reflect mappings created/revoked there: refetch the ports
+  // count on focus. The FIRST focus per project id is skipped — the hook's own
+  // mount effect already fetched — and a changed projectId naturally resets
+  // the marker (the hook refetches for the new id via its own effect).
+  const focusedPortsProjectRef = useRef<string | undefined>(undefined);
+  useFocusEffect(
+    useCallback(() => {
+      const projectId = project?.id;
+      if (!projectId) return;
+      if (focusedPortsProjectRef.current === projectId) {
+        reloadPorts();
+      } else {
+        focusedPortsProjectRef.current = projectId;
+      }
+    }, [project?.id, reloadPorts]),
+  );
 
   if (!project) {
     return (

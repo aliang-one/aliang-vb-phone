@@ -14,6 +14,11 @@ const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
 const mockReloadProjectSessions = jest.fn().mockResolvedValue(undefined);
 
+// useFocusEffect mock: record the latest effect callback so tests can simulate
+// (re)gaining focus by invoking it manually — same pattern as
+// CreateVibeCodingScreen.test.tsx. The callback is only recorded, never
+// auto-run on mount, so tests control exactly which focus events fire.
+let focusEffectCallback: (() => void) | undefined;
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({
     goBack: mockGoBack,
@@ -22,6 +27,9 @@ jest.mock('@react-navigation/native', () => ({
   useRoute: () => ({
     params: { projectId: 'project-1', deviceId: 'device-1' },
   }),
+  useFocusEffect: (cb: () => void) => {
+    focusEffectCallback = cb;
+  },
 }));
 
 jest.mock('../src/hooks/useProjectSessions', () => ({
@@ -52,6 +60,8 @@ describe('ProjectDetailScreen', () => {
       refreshFromServer: jest.fn().mockResolvedValue(undefined),
     });
     jest.clearAllMocks();
+    (fetchPortMappings as jest.Mock).mockResolvedValue([]);
+    focusEffectCallback = undefined;
   });
 
   afterEach(() => {
@@ -141,6 +151,39 @@ describe('ProjectDetailScreen', () => {
     } finally {
       (fetchPortMappings as jest.Mock).mockResolvedValue([]);
     }
+  });
+
+  it('refetches the hero ports count when the screen regains focus', async () => {
+    // Mount load sees no mappings; the focus-triggered reload then reports one
+    // active mapping — as if the user created it on the ProjectPorts page and
+    // navigated back (the native stack keeps this screen mounted).
+    const fetchMock = fetchPortMappings as jest.Mock;
+    fetchMock.mockReset();
+    fetchMock
+      .mockResolvedValueOnce([]) // mount fetch (hook's own effect)
+      .mockResolvedValueOnce([activeMapping()]); // focus reload fetch
+
+    act(() => {
+      screen = renderScreen();
+    });
+    await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // The first focus callback invocation is the mount focus the skip-first
+    // guard absorbs; the second is the "returned from ProjectPorts" focus
+    // that must refetch.
+    act(() => {
+      focusEffectCallback?.();
+      focusEffectCallback?.();
+    });
+    await act(async () => {});
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const lines = screen!.root
+      .findAllByType(Text)
+      .map(node => (typeof node.props.children === 'string' ? node.props.children : ''))
+      .filter(Boolean);
+    expect(lines).toContain('1 公网');
   });
 });
 
