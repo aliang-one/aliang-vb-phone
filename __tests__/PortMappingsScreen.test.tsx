@@ -7,11 +7,7 @@ import { GlowButton } from '../src/components/shared/GlowButton';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import type { Device } from '../src/data/platformModels';
-import {
-  createPortMapping,
-  fetchPortMappings,
-  revokePortMapping,
-} from '../src/api/portMappings';
+import { createPortMapping, fetchPortMappings } from '../src/api/portMappings';
 
 // --- Mocks ---
 
