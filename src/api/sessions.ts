@@ -405,11 +405,6 @@ export const createAiSession = (input: {
   canRead?: boolean;
   canModify?: boolean;
   canRun?: boolean;
-  /**
-   * Create-flow flag: the server auto-exposes agent-reported preview ports as
-   * public tunnel mappings for this session (24h TTL). Wire field is snake_case.
-   */
-  expose_preview_port?: boolean;
 }): Promise<ServerAiSession> =>
   apiPost<ServerAiSession>('/api/ai/sessions', input, {
     timeoutMs: AI_TURN_REQUEST_TIMEOUT_MS,

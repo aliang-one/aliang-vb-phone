@@ -92,17 +92,6 @@
         "read": "Read project files",
         "modify": "Modify files",
         "run": "Run local commands"
-      },
-      "portMapping": {
-        "title": "Expose preview ports as public links",
-        "on": "ON",
-        "off": "OFF",
-        "blockerOffline": "Offline",
-        "blockerUnsupported": "Update agent",
-        "blockerTunnel": "No tunnel",
-        "onHint": "Preview ports started by the AI get a public URL automatically (valid for 24 hours)",
-        "offHint": "Turn on to generate public URLs for preview ports automatically",
-        "disabledHint": "Device is offline or tunnel unavailable"
       }
     },
     "confirmSheet": {

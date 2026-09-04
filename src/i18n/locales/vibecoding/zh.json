@@ -92,17 +92,6 @@
         "read": "读取项目文件",
         "modify": "修改文件",
         "run": "运行本地命令"
-      },
-      "portMapping": {
-        "title": "将预览端口暴露为公网短链",
-        "on": "开",
-        "off": "关",
-        "blockerOffline": "设备离线",
-        "blockerUnsupported": "需升级 Agent",
-        "blockerTunnel": "隧道未配置",
-        "onHint": "AI 起的预览端口自动生成公网地址(24小时有效)",
-        "offHint": "开启后自动为预览端口生成公网地址",
-        "disabledHint": "设备不在线或隧道不可用"
       }
     },
     "confirmSheet": {

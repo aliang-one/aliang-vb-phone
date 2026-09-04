@@ -35,7 +35,6 @@ import {
   providerLabel,
 } from '../../utils/modelIntensity';
 import { ModelConfirmSheet } from '../../components/vibecoding/ModelConfirmSheet';
-import { resolveTunnelBlocker } from '../../utils/portInput';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type CreateRoute = RouteProp<RootStackParamList, 'CreateVibeCoding'>;
@@ -165,18 +164,6 @@ export const CreateVibeCodingScreen: React.FC = () => {
   const [canRead, setCanRead] = useState(true);
   const [canModify, setCanModify] = useState(true);
   const [canRun, setCanRun] = useState(true);
-  // Port mapping: session-level opt-in to auto-expose agent-reported preview
-  // ports as public links. Gated on the device being online + the agent
-  // reporting both tunnel capabilities + the server having the tunnel fully
-  // configured (tunnelAvailable). Unavailable → toggle disabled, not hidden.
-  const [exposePreviewPort, setExposePreviewPort] = useState(false);
-  // Why the port-mapping toggle is unavailable (null = available). Ordered by
-  // specificity: offline → agent lacks the tunnel capabilities → server-side
-  // tunnel not configured. Surfacing the real reason replaces the stale
-  // "Coming soon" chip (the feature has shipped). Shared helper — the device
-  // PortMappings screen and the project port section gate through it too.
-  const tunnelBlocker = resolveTunnelBlocker(device);
-  const tunnelCapable = tunnelBlocker === null;
   const isReadOnly = approval === 'read_only';
   // Divider between capability rows: dim white hairline on dark surfaces, theme
   // outline on light (the static rgba worked only on dark backgrounds).
@@ -262,7 +249,6 @@ export const CreateVibeCodingScreen: React.FC = () => {
         canRead,
         canModify,
         canRun,
-        exposePreviewPort,
       },
     });
   };
@@ -831,58 +817,6 @@ export const CreateVibeCodingScreen: React.FC = () => {
           })}
         </GlassPanel>
 
-        {/* Port mapping: auto-expose agent-reported preview ports as public links. */}
-        <GlassPanel
-          style={[
-            styles.optionPanel,
-            { marginTop: 10 },
-            !tunnelCapable ? styles.optionPanelDisabled : null,
-          ]}>
-          <TouchableOpacity
-            testID="port-mapping-toggle"
-            disabled={!tunnelCapable}
-            onPress={() => setExposePreviewPort(v => !v)}>
-            <View style={styles.optionRow}>
-              <Text
-                style={[
-                  theme.typography.bodyMd,
-                  styles.optionText,
-                  { color: theme.colors.onSurface, flexShrink: 1 },
-                ]}>
-                {t('createScreen.permissions.portMapping.title')}
-              </Text>
-              <StatusChip
-                label={
-                  tunnelBlocker === 'offline'
-                    ? t('createScreen.permissions.portMapping.blockerOffline')
-                    : tunnelBlocker === 'unsupported'
-                    ? t('createScreen.permissions.portMapping.blockerUnsupported')
-                    : tunnelBlocker === 'tunnel'
-                    ? t('createScreen.permissions.portMapping.blockerTunnel')
-                    : exposePreviewPort
-                    ? t('createScreen.permissions.portMapping.on')
-                    : t('createScreen.permissions.portMapping.off')
-                }
-                type={!tunnelCapable ? 'neutral' : exposePreviewPort ? 'success' : 'neutral'}
-              />
-            </View>
-          </TouchableOpacity>
-          <Text
-            style={[
-              theme.typography.bodySm,
-              styles.optionHint,
-              { color: theme.colors.onSurfaceVariant },
-            ]}>
-            {t(
-              !tunnelCapable
-                ? 'createScreen.permissions.portMapping.disabledHint'
-                : exposePreviewPort
-                  ? 'createScreen.permissions.portMapping.onHint'
-                  : 'createScreen.permissions.portMapping.offHint',
-            )}
-          </Text>
-        </GlassPanel>
-
         <GlassPanel style={styles.reviewCard}>
           <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
             READY TO START
@@ -946,9 +880,6 @@ const styles = StyleSheet.create({
   optionPanel: {
     padding: 12,
   },
-  optionPanelDisabled: {
-    opacity: 0.45,
-  },
   optionRow: {
     minHeight: 54,
     flexDirection: 'row',
@@ -961,11 +892,6 @@ const styles = StyleSheet.create({
   optionText: {
     flex: 1,
     gap: 2,
-  },
-  optionHint: {
-    marginTop: 4,
-    paddingHorizontal: 12,
-    paddingBottom: 2,
   },
   divider: {
     height: 1,

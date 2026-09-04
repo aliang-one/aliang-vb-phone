@@ -1083,9 +1083,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
           canRead: draftConfig.canRead,
           canModify: draftConfig.canModify,
           canRun: draftConfig.canRun,
-          // Create-page preview-port toggle. Normalized `=== true` so
-          // undefined → false on the wire (matches the server default).
-          exposePreviewPort: draftConfig.exposePreviewPort === true,
         });
         // Flip from draft to the real session IN PLACE — no remount. setParams
         // mutates the current route's params so the back-stack / a persisted

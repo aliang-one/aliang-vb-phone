@@ -171,10 +171,6 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
           canRead: input.canRead,
           canModify: input.canModify,
           canRun: input.canRun,
-          // Create-page toggle: auto-expose agent preview ports as public tunnel
-          // links. Normalized `=== true` so undefined → false, matching the
-          // server schema's default semantics.
-          expose_preview_port: input.exposePreviewPort === true,
         });
 
         const sessionId = session.session_id;

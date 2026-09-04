@@ -85,52 +85,6 @@ describe('useSessionStore logout', () => {
   });
 });
 
-describe('startAgentSession expose_preview_port payload', () => {
-  const createAiSessionMock = platformTransport.createAiSession as jest.Mock;
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    createAiSessionMock.mockResolvedValue({
-      session_id: 'sess-1',
-      device_id: 'device-1',
-      project_path: '/repo',
-      status: 'running',
-    });
-    useControlCenterStore.setState({
-      serverMode: true,
-      devices: [],
-      projects: [],
-      vibeRuns: [],
-      events: [],
-    });
-  });
-
-  const baseInput = {
-    deviceId: 'device-1',
-    projectId: 'proj-1',
-    directory: '/repo',
-    provider: 'codex' as const,
-    objective: 'first message',
-  };
-
-  it('forwards expose_preview_port true when the input flag is set', async () => {
-    const sessionId = await useControlCenterStore
-      .getState()
-      .startAgentSession({ ...baseInput, exposePreviewPort: true });
-
-    expect(sessionId).toBe('sess-1');
-    expect(createAiSessionMock).toHaveBeenCalledTimes(1);
-    expect(createAiSessionMock.mock.calls[0][0].expose_preview_port).toBe(true);
-  });
-
-  it('sends expose_preview_port false by default (flag omitted)', async () => {
-    await useControlCenterStore.getState().startAgentSession(baseInput);
-
-    expect(createAiSessionMock).toHaveBeenCalledTimes(1);
-    expect(createAiSessionMock.mock.calls[0][0].expose_preview_port).toBe(false);
-  });
-});
-
 function terminal(
   id: string,
   status: ReturnType<typeof useControlCenterStore.getState>['terminalSessions'][number]['status'],
