@@ -20,11 +20,11 @@ import { ProjectActionTile } from '../../components/shared/ProjectActionTile';
 import { IconBadge } from '../../components/visual/IconBadge';
 import { Logo } from '../../components/visual/Logo';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
-import { ProjectPortMappingsSection } from '../../components/projects/ProjectPortMappingsSection';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import { useToastStore } from '../../store/toastStore';
 import { useProjectSessions } from '../../hooks/useProjectSessions';
+import { useProjectPortMappings } from '../../hooks/useProjectPortMappings';
 import { refreshFeedback } from '../../utils/refreshFeedback';
 import { useTranslation } from 'react-i18next';
 
@@ -64,6 +64,9 @@ export const ProjectDetailScreen: React.FC = () => {
       limit: PROJECT_SESSION_PREVIEW_COUNT,
     },
   );
+  // Hero "ports" metric only reads the active count here — the full list and
+  // its management live on the ProjectPorts page the cell navigates to.
+  const { activeCount: activePortCount } = useProjectPortMappings(project?.id);
   const [refreshing, setRefreshing] = useState(false);
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -93,9 +96,21 @@ export const ProjectDetailScreen: React.FC = () => {
       ? theme.colors.error
       : theme.colors.primary;
 
-  const portLabel = project.detectedPorts.length
-    ? project.detectedPorts.join(', ')
-    : t('projectDetail.metric.none');
+  // Ports cell: "N 公网" (active public mappings) on top, the agent-detected
+  // port count as a second dim line when present; falls back to the detected
+  // count alone, then "none". The whole cell opens the ProjectPorts page.
+  const forwardedLabel =
+    activePortCount > 0
+      ? `${activePortCount} ${t('projectDetail.metric.forwarded')}`
+      : null;
+  const detectedCountLabel =
+    project.detectedPorts.length > 0
+      ? `${project.detectedPorts.length}`
+      : null;
+  const portsValue = forwardedLabel ?? detectedCountLabel ?? t('projectDetail.metric.none');
+  const portsSecondLine = forwardedLabel
+    ? detectedCountLabel ?? undefined
+    : undefined;
   const approvalSchemeLabel =
     project.approvalScheme === 'allow_all'
       ? t('projectSettings.scheme.allowAll')
@@ -198,7 +213,19 @@ export const ProjectDetailScreen: React.FC = () => {
                     label={t('projectDetail.metric.lastActive')}
                     value={project.lastDeploy || t('projectDetail.metric.unknown')}
                   />
-                  <MetricCell label={t('projectDetail.metric.ports')} value={portLabel} mono />
+                  <MetricCell
+                    label={t('projectDetail.metric.ports')}
+                    value={portsValue}
+                    secondLine={portsSecondLine}
+                    mono
+                    testID="project-ports-entry"
+                    onPress={() =>
+                      navigation.navigate('ProjectPorts', {
+                        projectId: project.id,
+                        deviceId: device?.id,
+                      })
+                    }
+                  />
                 </View>
               </View>
 
@@ -316,9 +343,6 @@ export const ProjectDetailScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* ── PUBLIC PORTS · project-tagged mappings ────────────────── */}
-        <ProjectPortMappingsSection project={project} device={device} />
-
         {/* ── HISTORY ───────────────────────────────────────────────── */}
         <SectionLabel label={t('projectDetail.vibeHistory')} count={totalCount} />
         {sessions.length ? (
@@ -389,14 +413,19 @@ export const ProjectDetailScreen: React.FC = () => {
 
 // Small labelled cell used inside the hero metric grid — gives the project
 // meta (path / device / last active / ports) a structured "spec sheet" read
-// instead of two floating code lines.
+// instead of two floating code lines. An optional `secondLine` renders a dim
+// smaller line under the value (ports: "N 公网" over the detected count), and
+// `onPress` makes the whole cell tappable (arrow cue, hero-settings style).
 const MetricCell: React.FC<{
   label: string;
   value: string;
   mono?: boolean;
-}> = ({ label, value, mono = false }) => {
+  secondLine?: string;
+  onPress?: () => void;
+  testID?: string;
+}> = ({ label, value, mono = false, secondLine, onPress, testID }) => {
   const { theme, isDark } = useTheme();
-  return (
+  const cell = (
     <View
       style={[
         styles.metricCell,
@@ -417,15 +446,44 @@ const MetricCell: React.FC<{
         ]}>
         {label}
       </Text>
-      <Text
-        numberOfLines={1}
-        style={[
-          mono ? theme.typography.codeSm : theme.typography.labelSm,
-          { color: theme.colors.onSurface },
-        ]}>
-        {value}
-      </Text>
+      <View style={styles.metricValueRow}>
+        <Text
+          numberOfLines={1}
+          style={[
+            mono ? theme.typography.codeSm : theme.typography.labelSm,
+            { color: theme.colors.onSurface },
+            styles.metricValue,
+          ]}>
+          {value}
+        </Text>
+        {onPress ? (
+          <Text style={[styles.metricArrow, { color: theme.colors.primary }]}>
+            →
+          </Text>
+        ) : null}
+      </View>
+      {secondLine ? (
+        <Text
+          numberOfLines={1}
+          style={[
+            theme.typography.codeSm,
+            { color: theme.colors.onSurfaceVariant },
+          ]}>
+          {secondLine}
+        </Text>
+      ) : null}
     </View>
+  );
+  if (!onPress) return cell;
+  return (
+    <TouchableOpacity
+      activeOpacity={0.78}
+      accessibilityRole="button"
+      testID={testID}
+      onPress={onPress}
+      style={styles.metricCellTouchable}>
+      {cell}
+    </TouchableOpacity>
   );
 };
 
@@ -532,6 +590,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     gap: 2,
+  },
+  metricCellTouchable: {
+    flex: 1,
+  },
+  metricValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  metricValue: {
+    flexShrink: 1,
+  },
+  metricArrow: {
+    fontSize: 14,
+    fontWeight: '700',
   },
   heroSettingsEntry: {
     marginTop: 4,

@@ -13,7 +13,10 @@ import { StatusChip } from '../shared/StatusChip';
 import { IconBadge, IconName } from '../visual/IconBadge';
 import { useTheme } from '../../theme/useTheme';
 
-const effectiveStatus = (mapping: PortMapping) => {
+// Effective display status: server status first, then wall-clock expiry
+// (the sweeper may not have flipped an elapsed mapping yet). Shared with
+// useProjectPortMappings, which counts "转发中" mappings off this helper.
+export const effectiveStatus = (mapping: PortMapping) => {
   if (mapping.status === 'revoked') return 'revoked' as const;
   if (new Date(mapping.expires_at).getTime() <= Date.now()) {
     return 'expired' as const;

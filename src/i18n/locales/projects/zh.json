@@ -113,6 +113,7 @@
     "emptyHistoryBody": "Start a session from this project to record conversation and Agent events.",
     "metric": {
       "ports": "PORTS",
+      "forwarded": "公网",
       "path": "PATH",
       "device": "DEVICE",
       "lastActive": "LAST ACTIVE",

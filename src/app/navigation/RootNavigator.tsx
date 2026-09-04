@@ -14,6 +14,7 @@ import { PortMappingsScreen } from '../../screens/devices/PortMappingsScreen';
 import { DeviceTerminalScreen } from '../../screens/devices/DeviceTerminalScreen';
 import { ProjectScanScreen } from '../../screens/devices/ProjectScanScreen';
 import { ProjectDetailScreen } from '../../screens/projects/ProjectDetailScreen';
+import { ProjectPortsScreen } from '../../screens/projects/ProjectPortsScreen';
 import { ProjectSettingsScreen } from '../../screens/projects/ProjectSettingsScreen';
 import { FileBrowserScreen } from '../../screens/projects/FileBrowserScreen';
 import { ChangeReviewScreen } from '../../screens/projects/ChangeReviewScreen';
@@ -257,6 +258,7 @@ export const RootNavigator = ({ debugDeviceTerminal }: RootNavigatorProps) => {
           <Stack.Screen name="DeviceTerminal" component={DeviceTerminalScreen} />
           <Stack.Screen name="ProjectScan" component={ProjectScanScreen} />
           <Stack.Screen name="ProjectDetail" component={ProjectDetailScreen} />
+          <Stack.Screen name="ProjectPorts" component={ProjectPortsScreen} />
           <Stack.Screen name="ProjectSettings" component={ProjectSettingsScreen} />
           <Stack.Screen name="FileBrowser" component={FileBrowserScreen} />
           <Stack.Screen name="ChangeReview" component={ChangeReviewScreen} />

@@ -2,10 +2,11 @@ import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { Alert, Text, TouchableOpacity } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { ProjectPortMappingsSection } from '../src/components/projects/ProjectPortMappingsSection';
+import { ProjectPortsScreen } from '../src/screens/projects/ProjectPortsScreen';
 import { GlassPanel } from '../src/components/shared/GlassPanel';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
+import { useControlCenterStore } from '../src/store/controlCenterStore';
 import type { Device, Project } from '../src/data/platformModels';
 import type { PortMapping } from '../src/api/portMappings';
 import {
@@ -23,6 +24,23 @@ jest.mock('../src/api/portMappings', () => ({
 const fetchMock = fetchPortMappings as jest.Mock;
 const createMock = createPortMapping as jest.Mock;
 const revokeMock = revokePortMapping as jest.Mock;
+
+const mockGoBack = jest.fn();
+const mockNavigate = jest.fn();
+// Mutable route params — most tests mount with deviceId set; the no-device
+// case rewrites params before render.
+let mockRouteParams: { projectId: string; deviceId?: string } = {
+  projectId: 'project-1',
+  deviceId: 'device-1',
+};
+
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({
+    goBack: mockGoBack,
+    navigate: mockNavigate,
+  }),
+  useRoute: () => ({ params: mockRouteParams }),
+}));
 
 const allText = (root: ReactTestRenderer.ReactTestInstance): string =>
   root
@@ -107,7 +125,7 @@ function legacyMapping(overrides: Partial<PortMapping> = {}): PortMapping {
   return rest as PortMapping;
 }
 
-describe('ProjectPortMappingsSection', () => {
+describe('ProjectPortsScreen', () => {
   let screen: ReactTestRenderer.ReactTestRenderer | undefined;
   let alertSpy: jest.SpyInstance;
 
@@ -117,6 +135,11 @@ describe('ProjectPortMappingsSection', () => {
     revokeMock.mockReset().mockResolvedValue(
       mapping({ status: 'revoked', revoked_at: new Date().toISOString() }),
     );
+    mockRouteParams = { projectId: 'project-1', deviceId: 'device-1' };
+    useControlCenterStore.setState({
+      devices: [device()],
+      projects: [project()],
+    });
     alertSpy = jest.spyOn(Alert, 'alert');
   });
 
@@ -128,7 +151,7 @@ describe('ProjectPortMappingsSection', () => {
     alertSpy.mockRestore();
   });
 
-  const renderSection = (props: { project: Project; device?: Device }) =>
+  const renderScreen = () =>
     ReactTestRenderer.create(
       <ThemeContext.Provider
         value={{
@@ -142,28 +165,31 @@ describe('ProjectPortMappingsSection', () => {
             frame: { x: 0, y: 0, width: 390, height: 844 },
             insets: { top: 0, right: 0, bottom: 0, left: 0 },
           }}>
-          <ProjectPortMappingsSection {...props} />
+          <ProjectPortsScreen />
         </SafeAreaProvider>
       </ThemeContext.Provider>,
     );
 
-  it('renders project-tagged mappings and loads them by projectId', async () => {
+  it('renders the page title and project-tagged mappings, loaded by projectId', async () => {
     fetchMock.mockResolvedValue([mapping()]);
 
     act(() => {
-      screen = renderSection({ project: project(), device: device() });
+      screen = renderScreen();
     });
     await act(async () => {});
 
+    // TopAppBar title = projects ns portMappings.section (zh: 公网端口).
+    expect(allText(screen!.root)).toContain('公网端口');
     const text = allText(screen!.root);
-    expect(text).toContain('127.0.0.1:3000');
+    // i18n template '{{host}}:{{port}}' with the fixture's host/port.
+    expect(text).toContain(`127.0.0.1:${mapping().target_port}`);
     expect(text).toContain('X');
     expect(fetchMock).toHaveBeenCalledWith({ projectId: 'project-1' });
   });
 
   it('creates a mapping bound to the project', async () => {
     act(() => {
-      screen = renderSection({ project: project(), device: device() });
+      screen = renderScreen();
     });
     await act(async () => {});
 
@@ -183,13 +209,16 @@ describe('ProjectPortMappingsSection', () => {
         projectId: 'project-1',
       }),
     );
+    // Create success → reload() refetches the project list.
+    expect(fetchMock.mock.calls.filter(([args]) => args?.projectId === 'project-1').length)
+      .toBeGreaterThanOrEqual(2);
   });
 
   it('revokes a mapping after the destructive confirmation', async () => {
     fetchMock.mockResolvedValue([mapping()]);
 
     act(() => {
-      screen = renderSection({ project: project(), device: device() });
+      screen = renderScreen();
     });
     await act(async () => {});
 
@@ -223,8 +252,11 @@ describe('ProjectPortMappingsSection', () => {
   });
 
   it('shows a read-only notice and no create form without a device', async () => {
+    mockRouteParams = { projectId: 'project-1' };
+    useControlCenterStore.setState({ devices: [] });
+
     act(() => {
-      screen = renderSection({ project: project() });
+      screen = renderScreen();
     });
     await act(async () => {});
 
@@ -236,7 +268,7 @@ describe('ProjectPortMappingsSection', () => {
 
   it('shows the empty state when no mappings exist', async () => {
     act(() => {
-      screen = renderSection({ project: project(), device: device() });
+      screen = renderScreen();
     });
     await act(async () => {});
 
@@ -244,11 +276,10 @@ describe('ProjectPortMappingsSection', () => {
   });
 
   it('hides the create form while the device is offline', async () => {
+    useControlCenterStore.setState({ devices: [device({ status: 'offline' })] });
+
     act(() => {
-      screen = renderSection({
-        project: project(),
-        device: device({ status: 'offline' }),
-      });
+      screen = renderScreen();
     });
     await act(async () => {});
 
@@ -259,11 +290,12 @@ describe('ProjectPortMappingsSection', () => {
   });
 
   it('blames the server tunnel, not the agent, when caps are present but tunnel is unconfigured', async () => {
+    useControlCenterStore.setState({
+      devices: [device({ tunnelAvailable: false })],
+    });
+
     act(() => {
-      screen = renderSection({
-        project: project(),
-        device: device({ tunnelAvailable: false }),
-      });
+      screen = renderScreen();
     });
     await act(async () => {});
 
@@ -283,13 +315,13 @@ describe('ProjectPortMappingsSection', () => {
     ]);
 
     act(() => {
-      screen = renderSection({ project: project(), device: device() });
+      screen = renderScreen();
     });
     await act(async () => {});
 
     expect(allText(screen!.root)).toContain('服务端版本较旧');
-    // Read-only section semantics: neither the (device-wide) cards nor the
-    // create form may render from an untagged response.
+    // Read-only semantics: neither the (device-wide) cards nor the create
+    // form may render from an untagged response.
     expect(allText(screen!.root)).not.toContain('https://t.example.com/abc123');
     expect(allText(screen!.root)).not.toContain('https://t.example.com/def456');
     expect(
@@ -301,7 +333,7 @@ describe('ProjectPortMappingsSection', () => {
     fetchMock.mockResolvedValue([mapping({ tag: null })]);
 
     act(() => {
-      screen = renderSection({ project: project(), device: device() });
+      screen = renderScreen();
     });
     await act(async () => {});
 

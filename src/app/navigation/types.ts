@@ -21,6 +21,7 @@ export type RootStackParamList = {
   };
   ProjectScan: { deviceId: string };
   ProjectDetail: { projectId: string; deviceId?: string };
+  ProjectPorts: { projectId: string; deviceId?: string };
   ProjectSettings: { projectId: string; deviceId?: string };
   FileBrowser: { projectId: string; deviceId?: string; sessionId?: string };
   ChangeReview: { projectId: string; deviceId?: string };
