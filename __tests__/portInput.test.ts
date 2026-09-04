@@ -1,8 +1,10 @@
 import {
   isAllowedTargetHost,
+  mappingErrorKey,
   parsePort,
   resolveTunnelBlocker,
 } from '../src/utils/portInput';
+import { ApiResponseError } from '../src/api/client';
 import type { Device } from '../src/data/platformModels';
 
 describe('isAllowedTargetHost', () => {
@@ -120,5 +122,32 @@ describe('resolveTunnelBlocker', () => {
         device({ status: 'offline', capabilities: [], tunnelAvailable: false }),
       ),
     ).toBe('offline');
+  });
+});
+
+describe('mappingErrorKey', () => {
+  // Real constructor so `error instanceof ApiResponseError` inside
+  // mappingErrorKey holds — an Object.assign'd plain Error would not.
+  const apiError = (code: string) => new ApiResponseError(code, 503, code);
+
+  it('maps the three tunnel availability codes to serviceUnavailable', () => {
+    for (const code of [
+      'tunnel_service_unavailable',
+      'tunnel_gateway_unavailable',
+      'tunnel_gateway_error',
+    ]) {
+      expect(
+        mappingErrorKey(apiError(code), 'portMappings.createFailed'),
+      ).toBe('portMappings.serviceUnavailable');
+    }
+  });
+
+  it('passes through the fallback for other codes and plain errors', () => {
+    expect(
+      mappingErrorKey(apiError('device_offline'), 'portMappings.createFailed'),
+    ).toBe('portMappings.createFailed');
+    expect(mappingErrorKey(new Error('boom'), 'portMappings.revokeFailed')).toBe(
+      'portMappings.revokeFailed',
+    );
   });
 });
