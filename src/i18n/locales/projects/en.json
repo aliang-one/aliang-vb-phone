@@ -172,6 +172,7 @@
     "createSection": "NEW PUBLIC URL",
     "emptyTitle": "No public ports",
     "emptyBody": "Expose from a vibe session (auto, 24h) or create one below.",
-    "readOnlyNoDevice": "Bind a device to this project to manage public ports."
+    "readOnlyNoDevice": "Bind a device to this project to manage public ports.",
+    "oldServer": "The server needs an upgrade to show project-scoped ports."
   }
 }

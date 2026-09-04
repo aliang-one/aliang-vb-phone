@@ -172,6 +172,7 @@
     "createSection": "新建公网地址",
     "emptyTitle": "暂无公网端口",
     "emptyBody": "可由 vibe 会话自动暴露(24小时有效)，或在下方手动创建。",
-    "readOnlyNoDevice": "给项目绑定设备后即可管理公网端口。"
+    "readOnlyNoDevice": "给项目绑定设备后即可管理公网端口。",
+    "oldServer": "服务端版本较旧，暂不支持项目级端口视图，请升级服务端。"
   }
 }

@@ -101,6 +101,12 @@ function mapping(overrides: Partial<PortMapping> = {}): PortMapping {
   };
 }
 
+/** Old-server response shape: the `tag` key is entirely ABSENT (not null). */
+function legacyMapping(overrides: Partial<PortMapping> = {}): PortMapping {
+  const { tag: _tag, ...rest } = mapping(overrides);
+  return rest as PortMapping;
+}
+
 describe('ProjectPortMappingsSection', () => {
   let screen: ReactTestRenderer.ReactTestRenderer | undefined;
   let alertSpy: jest.SpyInstance;
@@ -268,5 +274,44 @@ describe('ProjectPortMappingsSection', () => {
     // The stale "upgrade the Agent" copy must NOT show in this state — the
     // agent is capable, the server just lacks the tunnel configuration.
     expect(allText(screen!.root)).not.toContain('请升级桌面端 Agent');
+  });
+
+  it('old server (tag field absent on every mapping): upgrade notice instead of the misleading full list', async () => {
+    fetchMock.mockResolvedValue([
+      legacyMapping(),
+      legacyMapping({ id: 'mapping-2', slug: 'def456' }),
+    ]);
+
+    act(() => {
+      screen = renderSection({ project: project(), device: device() });
+    });
+    await act(async () => {});
+
+    expect(allText(screen!.root)).toContain('服务端版本较旧');
+    // Read-only section semantics: neither the (device-wide) cards nor the
+    // create form may render from an untagged response.
+    expect(allText(screen!.root)).not.toContain('https://t.example.com/abc123');
+    expect(allText(screen!.root)).not.toContain('https://t.example.com/def456');
+    expect(
+      screen!.root.findAllByProps({ testID: 'port-input' }),
+    ).toHaveLength(0);
+  });
+
+  it('tag: null (new-server untagged) still renders the card and the create form', async () => {
+    fetchMock.mockResolvedValue([mapping({ tag: null })]);
+
+    act(() => {
+      screen = renderSection({ project: project(), device: device() });
+    });
+    await act(async () => {});
+
+    expect(allText(screen!.root)).not.toContain('服务端版本较旧');
+    expect(allText(screen!.root)).toContain('https://t.example.com/abc123');
+    // RN TextInput renders composite + host nodes that both carry the testID,
+    // so presence is asserted with findByProps (suite convention) rather than
+    // an exact findAllByProps length.
+    expect(() =>
+      screen!.root.findByProps({ testID: 'port-input' }),
+    ).not.toThrow();
   });
 });

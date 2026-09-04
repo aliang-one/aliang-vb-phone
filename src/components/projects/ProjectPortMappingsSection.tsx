@@ -47,6 +47,12 @@ export const ProjectPortMappingsSection: React.FC<
   const { t: td } = useTranslation('devices');
   const [mappings, setMappings] = useState<PortMapping[]>([]);
   const [loading, setLoading] = useState(true);
+  // True while the loaded list came from an old server image that predates
+  // project tagging. Such a server omits `tag` on every mapping AND returns
+  // the device-wide list for a projectId query — rendering it as a
+  // project-scoped list would be misleading, so we show an upgrade notice
+  // instead (read-only section semantics).
+  const [legacyServer, setLegacyServer] = useState(false);
   const [targetPort, setTargetPort] = useState('');
   const [expiresInSeconds, setExpiresInSeconds] = useState(28_800);
   const [creating, setCreating] = useState(false);
@@ -78,6 +84,12 @@ export const ProjectPortMappingsSection: React.FC<
             new Date(right.created_at).getTime() -
             new Date(left.created_at).getTime(),
         ),
+      );
+      // A new server attaches `tag: null | object` to EVERY mapping; an old
+      // server omits the field entirely. Non-empty + all-undefined therefore
+      // identifies the old image (an empty list proves nothing either way).
+      setLegacyServer(
+        result.length > 0 && result.every(item => item.tag === undefined),
       );
     } catch (loadError) {
       if (!mountedRef.current) return;
@@ -205,6 +217,10 @@ export const ProjectPortMappingsSection: React.FC<
             {td('portMappings.loading')}
           </Text>
         </View>
+      ) : legacyServer ? (
+        // Old server image: the list it returns isn't project-scoped, so
+        // neither the cards nor the create form may render here.
+        <Notice text={t('portMappings.oldServer')} />
       ) : mappings.length === 0 ? (
         <GlassPanel style={styles.emptyPanel}>
           <IconBadge name="port" tone="neutral" size={38} iconSize={19} />
@@ -254,7 +270,7 @@ export const ProjectPortMappingsSection: React.FC<
         </Text>
       ) : null}
 
-      {!device ? (
+      {legacyServer ? null : !device ? (
         <Notice text={t('portMappings.readOnlyNoDevice')} />
       ) : blocker === 'offline' ? (
         <Notice text={td('portMappings.offline')} />
