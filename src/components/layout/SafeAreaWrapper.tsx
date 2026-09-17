@@ -26,7 +26,6 @@ export const SafeAreaWrapper: React.FC<SafeAreaWrapperProps> = ({
       ]}>
       <View style={{ height: insets.top }} />
       {children}
-      <View style={{ height: insets.bottom }} />
     </View>
   );
 };

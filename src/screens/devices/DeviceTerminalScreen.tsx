@@ -24,6 +24,7 @@ import Svg, { Path } from 'react-native-svg';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useStableMeasurement } from '../../hooks/useStableMeasurement';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
@@ -167,6 +168,8 @@ export const DeviceTerminalScreen: React.FC = () => {
   const { t } = useTranslation('devices');
   const navigation = useNavigation<Navigation>();
   const route = useRoute<DeviceTerminalRoute>();
+  // 浮动命令条停靠物理底边，键盘收起时要让出 home indicator。
+  const insets = useSafeAreaInsets();
   const initialCommand = route.params.initialCommand;
   const ranInitialRef = useRef(false);
   const terminalBridgeRef = useRef<TerminalEmulatorHandle | null>(null);
@@ -292,8 +295,12 @@ export const DeviceTerminalScreen: React.FC = () => {
       : keyboardProxyFocused
       ? keyboardInsetCacheRef.current || PENDING_KEYBOARD_LIFT_INSET
       : 0;
+  // 键盘收起时浮动命令条停靠物理底边，需让出 home indicator；键盘弹出时
+  // keyboardLiftInset(键盘高度)本身已包含底部安全区，不再叠加。
+  const controlsBottomOffset =
+    keyboardLiftInset > 0 ? keyboardLiftInset : insets.bottom;
   const terminalViewportInset = terminal
-    ? Math.max(floatingControlsHeight + keyboardLiftInset, 104)
+    ? Math.max(floatingControlsHeight + controlsBottomOffset, 104)
     : 0;
   const terminalRendered = Boolean(terminal && renderedTerminalId === terminal.id);
   const terminalRenderErrorMessage =
@@ -1218,7 +1225,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                 onLayout={event =>
                   setFloatingControlsHeight(event.nativeEvent.layout.height)
                 }
-                style={[styles.floatingControls, { bottom: keyboardLiftInset }]}
+                style={[styles.floatingControls, { bottom: controlsBottomOffset }]}
               >
                 <ScrollView
                   testID="terminal-suggestion-row"

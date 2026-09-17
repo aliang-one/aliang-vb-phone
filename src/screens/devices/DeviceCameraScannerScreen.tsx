@@ -11,6 +11,7 @@ import {
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCameraPermission } from 'react-native-vision-camera';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -52,6 +53,8 @@ export const DeviceCameraScannerScreen: React.FC = () => {
   const { t } = useTranslation('devices');
   const navigation = useNavigation<Navigation>();
   const isFocused = useIsFocused();
+  // 扫描框/重扫按钮贴物理底边，重扫按钮要抬到 home indicator 之上。
+  const insets = useSafeAreaInsets();
   const { hasPermission, canRequestPermission, requestPermission, status } =
     useCameraPermission();
   const refreshFromServer = useControlCenterStore(state => state.refreshFromServer);
@@ -185,6 +188,7 @@ export const DeviceCameraScannerScreen: React.FC = () => {
                     {
                       backgroundColor: theme.colors.primary,
                       borderRadius: theme.borderRadius.full,
+                      bottom: insets.bottom + 12,
                     },
                   ]}>
                   <Text style={[theme.typography.labelMd, { color: theme.colors.onPrimary }]}>

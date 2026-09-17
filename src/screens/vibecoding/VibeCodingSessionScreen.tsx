@@ -24,6 +24,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
@@ -339,6 +340,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const { t } = useTranslation('vibecoding');
   const navigation = useNavigation<Navigation>();
   const route = useRoute<SessionRoute>();
+  // 输入面板停靠物理底边，padding 需让出 home indicator。
+  const insets = useSafeAreaInsets();
   // Fine-grained selectors: subscribe only to the specific session/project/
   // device/preview the user is viewing, so streaming deltas on OTHER sessions
   // don't trigger re-renders here.
@@ -3064,6 +3067,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               borderTopColor: isDark
                 ? 'rgba(255, 255, 255, 0.06)'
                 : theme.colors.outlineVariant,
+              paddingBottom: Math.max(12, insets.bottom),
             },
           ]}
         >
