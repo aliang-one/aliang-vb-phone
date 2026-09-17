@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useContext, useState } from 'react';
 import { ActivityIndicator, View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { BottomTabBarHeightContext } from '@react-navigation/bottom-tabs';
 import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
@@ -26,6 +27,10 @@ export const TerminalListScreen: React.FC = () => {
   const { theme } = useTheme();
   const { t } = useTranslation('terminals');
   const navigation = useNavigation<Navigation>();
+  // 浮动 tab 栏：列表滚动到物理底边，末项要避开栏体高度。
+  // 直接读 context（无导航器环境如测试里缺省 0），而非 useBottomTabBarHeight
+  // ——后者在 context 缺失时直接抛错。
+  const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0;
   const devices = useControlCenterStore(state => state.devices);
   const serverMode = useControlCenterStore(state => state.serverMode);
   const lastSyncedAt = useControlCenterStore(state => state.lastSyncedAt);
@@ -105,7 +110,7 @@ export const TerminalListScreen: React.FC = () => {
       </View>
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: 40 + tabBarHeight }]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

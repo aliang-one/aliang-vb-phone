@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import {
   AppState,
   ActivityIndicator,
@@ -12,6 +18,7 @@ import {
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { BottomTabBarHeightContext } from '@react-navigation/bottom-tabs';
 import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
 import { useLocale } from '../../i18n/useLocale';
@@ -58,6 +65,9 @@ export const SettingsScreen: React.FC = () => {
   const { t } = useTranslation('settings');
   const { locale, setLocale } = useLocale();
   const navigation = useNavigation<Navigation>();
+  // 浮动 tab 栏：列表滚动到物理底边，末项要避开栏体高度。
+  // 直接读 context（测试等无导航器环境缺省 0），useBottomTabBarHeight 会抛错。
+  const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0;
   const devices = useControlCenterStore(state => state.devices);
   const vibeRuns = useStableVibeRuns();
   const projects = useControlCenterStore(state => state.projects);
@@ -337,7 +347,7 @@ export const SettingsScreen: React.FC = () => {
   return (
     <SafeAreaWrapper>
       <TopAppBar title={t('appbar.title')} subtitle={t('appbar.subtitle')} />
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={[styles.content, { paddingBottom: 40 + tabBarHeight }]}>
         <View style={styles.profile}>
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={styles.avatar} />

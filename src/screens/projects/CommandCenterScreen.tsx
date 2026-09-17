@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useContext, useMemo } from 'react';
 import {
   ActivityIndicator,
   View,
@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { BottomTabBarHeightContext } from '@react-navigation/bottom-tabs';
 import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
@@ -120,6 +121,9 @@ export const CommandCenterScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const { t } = useTranslation('projects');
   const navigation = useNavigation<Navigation>();
+  // 浮动 tab 栏：内容滚动到物理底边，末项要避开栏体高度。
+  // 直接读 context（测试等无导航器环境缺省 0），useBottomTabBarHeight 会抛错。
+  const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0;
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
   const previewLinks = useControlCenterStore(state => state.previewLinks);
@@ -442,7 +446,7 @@ export const CommandCenterScreen: React.FC = () => {
       />
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: Math.max(92, tabBarHeight + 16) }]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

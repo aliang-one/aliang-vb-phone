@@ -1,5 +1,6 @@
 import React, {
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -28,6 +29,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { BottomTabBarHeightContext } from '@react-navigation/bottom-tabs';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/useTheme';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
@@ -206,6 +208,9 @@ export const VibeCodingListScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<Navigation>();
   const { width } = useWindowDimensions();
+  // 浮动 tab 栏：列表/FAB/设备选择器都要避开栏体高度。
+  // 直接读 context（测试等无导航器环境缺省 0），useBottomTabBarHeight 会抛错。
+  const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0;
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
   const vibeRuns = useSessionListRuns();
@@ -740,7 +745,7 @@ export const VibeCodingListScreen: React.FC = () => {
           <View testID="vibecoding-page" style={{ width }}>
             <ScrollView
               nestedScrollEnabled
-              contentContainerStyle={styles.content}
+              contentContainerStyle={[styles.content, { paddingBottom: 40 + tabBarHeight }]}
               refreshControl={refreshControl}
             >
               <View style={styles.sectionHeader}>
@@ -863,7 +868,7 @@ export const VibeCodingListScreen: React.FC = () => {
             <View style={styles.terminalPage}>
               <ScrollView
                 nestedScrollEnabled
-                contentContainerStyle={styles.content}
+                contentContainerStyle={[styles.content, { paddingBottom: 40 + tabBarHeight }]}
                 refreshControl={refreshControl}
               >
                 <View style={styles.sectionHeader}>
@@ -937,7 +942,7 @@ export const VibeCodingListScreen: React.FC = () => {
           testID="new-term-device-picker"
           style={[
             styles.newTermDevicePicker,
-            { width: devicePickerWidth },
+            { width: devicePickerWidth, bottom: 18 + tabBarHeight },
             {
               backgroundColor: isDark
                 ? theme.colors.surfaceContainerHigh
@@ -1216,6 +1221,7 @@ export const VibeCodingListScreen: React.FC = () => {
         <View
           style={[
             styles.newTermFabShadow,
+            { bottom: 24 + tabBarHeight },
             !newTerminalDevice ? styles.newTermFabDisabled : null,
           ]}
         >

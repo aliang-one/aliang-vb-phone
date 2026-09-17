@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useContext, useEffect } from 'react';
 import { View, StyleSheet, Dimensions, TouchableOpacity } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -9,7 +9,10 @@ import Animated, {
   interpolate,
   interpolateColor,
 } from 'react-native-reanimated';
-import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import {
+  BottomTabBarProps,
+  BottomTabBarHeightCallbackContext,
+} from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/useTheme';
 import { IconBadge, IconName } from '../visual/IconBadge';
@@ -110,6 +113,9 @@ export const BottomNavBar: React.FC<BottomTabBarProps> = ({
 }) => {
   const { theme, isDark } = useTheme();
   const { bottom } = useSafeAreaInsets();
+  // 浮动 tab 栏：绝对定位悬浮在物理底边，列表内容从栏底下穿过。
+  // 把实测高度回报给 bottom-tabs，屏幕内用 useBottomTabBarHeight() 避让。
+  const onTabBarHeightChange = useContext(BottomTabBarHeightCallbackContext);
   const tabCount = state.routes.length;
 
   const layoutWidth = useSharedValue(Dimensions.get('window').width);
@@ -148,14 +154,19 @@ export const BottomNavBar: React.FC<BottomTabBarProps> = ({
     <View
       onLayout={(e) => {
         layoutWidth.value = e.nativeEvent.layout.width;
+        onTabBarHeightChange?.(e.nativeEvent.layout.height);
       }}
       style={[
         styles.container,
         {
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
           backgroundColor: isDark
             ? 'rgba(17, 20, 23, 0.96)'
             : 'rgba(247, 249, 255, 0.96)',
-          paddingBottom: bottom + 8,
+          paddingBottom: bottom + 2,
           ...platformShadow(isDark),
         },
       ]}>
@@ -263,8 +274,9 @@ const styles = StyleSheet.create({
   track: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 60,
-    paddingTop: 8,
+    // 收紧后的图标行：徽标 34 + 间距 4 + 标签 ~12，总栏高 54 + 底部 inset。
+    height: 54,
+    paddingTop: 6,
   },
   tabSlot: {
     flex: 1,
@@ -275,14 +287,14 @@ const styles = StyleSheet.create({
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: 2,
     position: 'relative',
   },
   pill: {
     position: 'absolute',
-    top: 9,
-    height: 42,
-    borderRadius: 21,
+    top: 6,
+    height: 40,
+    borderRadius: 20,
   },
   bar: {
     position: 'absolute',
