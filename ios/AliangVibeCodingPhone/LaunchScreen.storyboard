@@ -20,7 +20,7 @@
                                 <rect key="frame" x="117.5" y="269.5" width="140" height="128"/>
                             </imageView>
                         </subviews>
-                        <color key="backgroundColor" red="0.058823529411764705" green="0.10196078431372549" blue="0.078431372549019607" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <color key="backgroundColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                         <constraints>
                             <constraint firstItem="LOG0-aa-logo" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="logo-cx"/>
                             <constraint firstItem="LOG0-aa-logo" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="logo-cy"/>
@@ -36,6 +36,6 @@
         </scene>
     </scenes>
     <resources>
-        <image name="Logo" width="200" height="182"/>
+        <image name="Logo" width="200" height="200"/>
     </resources>
 </document>
