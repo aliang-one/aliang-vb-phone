@@ -68,6 +68,18 @@ export interface DisplayTranscriptMessage {
 // infrequent, not per-token.
 const segmentCache = new WeakMap<AgentMessage, TranscriptSegment[]>();
 
+// role='system' 的一行式工具状态噪音：旧版 agent 历史解析把 tool_result 摊平成
+// system 消息的残留物（"Updated task #N status"/"[1]+ Done …"/"patched" 等）。
+// 新版 server（入库拦截 + 开机清理）与 agent（reader 不再摊平）已从源头拦住，
+// 这里对仍留在内存热窗 / 旧服务端数据里的残余做显示层兜底。只匹配原始 content
+// 开头且仅限 system 角色——assistant 正文说 "patched" 不受影响。
+const SYSTEM_TOOL_STATUS_NOISE =
+  /^(updated task #\d+ status\b|patched\b|typecheck_exit=\d+|build_exit=\d+|\[\d\]\+\s+done\b|<retrieval_status>|command running in background with id:)/i;
+
+const isSystemToolStatusNoise = (message: AgentMessage): boolean =>
+  message.role === 'system' &&
+  SYSTEM_TOOL_STATUS_NOISE.test((message.content ?? '').replace(/^\s+/, ''));
+
 export const parseTranscriptSegments = (
   message: AgentMessage,
 ): TranscriptSegment[] => {
@@ -134,6 +146,10 @@ export const buildDisplayTranscript = (
   let lastContent = '';
 
   for (const message of messages) {
+    // 兜底丢弃必须发生在 lastRole/lastContent 去重状态更新与 segment 解析之前：
+    // 被丢的行不占去重状态（否则中间夹一条噪音会误吞/漏判相邻重复）、不进
+    // segmentCache（省掉整段 markdown 解析）。
+    if (isSystemToolStatusNoise(message)) continue;
     const role = message.role;
     const normalized = (message.content ?? '').trim();
     if (
