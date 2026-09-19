@@ -90,6 +90,7 @@ import { isSessionSnapshotStale } from '../../utils/sessionSnapshotStale';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { isGoalCommand, parseGoalCommand } from '../../utils/goalComposer';
 import { useNowTick } from '../../hooks/useNowTick';
+import { useIncrementalList } from '../../hooks/useIncrementalList';
 import {
 
   useStableMeasurement,
@@ -1648,6 +1649,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
     orphanActivityMessageIds,
     session,
   ]);
+  // 工具巨兽会话（如 2000+ 次 Bash）的孤儿活动组可以上百，整墙上屏既淹没
+  // 对话又拖垮首帧。默认只渲染最新的几组，更早的按需展开（从尾部保留最新）。
+  const orphanGroupList = useIncrementalList(orphanActivityMessageGroups, {
+    initialCount: 6,
+    step: 12,
+    from: 'end',
+    resetKey: session?.id ?? 'missing',
+  });
   const messageTimelinePositions = useMemo(() => {
     const entries: Array<{ id?: string; hasRail: boolean }> = [];
     for (const item of conversationItems) {
@@ -2609,17 +2618,26 @@ export const VibeCodingSessionScreen: React.FC = () => {
                   {/* Tool-only assistant turns (empty prose, dropped during
                       coalescing) whose structured activity would otherwise vanish.
                       Adjacent anchors are grouped into bounded ActivityBlocks;
-                      user/prose boundaries still split them. */}
+                      user/prose boundaries still split them. 组数按增量列表截尾，
+                      只渲染最新几组，更早的经 LoadMoreRow 展开。 */}
                   {orphanActivityMessageGroups.length > 0 ? (
-                    <TranscriptMessageList
-                      key="orphan-activity-block"
-                      activitySessionId={session.id}
-                      orphanActivityEventsByMessageId={activityEventsByMessageId}
-                      orphanActivityMessageGroups={orphanActivityMessageGroups}
-                      activityDetailCache={session.eventDetailCache}
-                      onCacheActivityDetail={handleCacheActivityDetail}
-                      liveMessageId={liveMessageId}
-                    />
+                    <>
+                      <LoadMoreRow
+                        visibleCount={orphanGroupList.visibleCount}
+                        totalCount={orphanGroupList.totalCount}
+                        onPress={orphanGroupList.showMore}
+                        label="EARLIER ACTIVITY"
+                      />
+                      <TranscriptMessageList
+                        key="orphan-activity-block"
+                        activitySessionId={session.id}
+                        orphanActivityEventsByMessageId={activityEventsByMessageId}
+                        orphanActivityMessageGroups={orphanGroupList.visibleItems}
+                        activityDetailCache={session.eventDetailCache}
+                        onCacheActivityDetail={handleCacheActivityDetail}
+                        liveMessageId={liveMessageId}
+                      />
+                    </>
                   ) : null}
                   {/* 已处理(approved/denied)审批:默认折叠成一行,展开后置灰列出,
                       避免每张占满屏幕。pending 审批仍在上面按时间线完整展示。 */}
