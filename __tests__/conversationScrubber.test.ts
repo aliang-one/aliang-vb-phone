@@ -3,6 +3,9 @@ import {
   deriveScrubberStops,
   deriveTurnScrubberStops,
   pickStopAtFraction,
+  railFractionAt,
+  sampleRailIndices,
+  markPositionForStop,
   tickScale,
 } from '../src/utils/conversationScrubber';
 import { buildDisplayTranscript } from '../src/utils/agentTranscript';
@@ -80,6 +83,25 @@ describe('conversationScrubber', () => {
         message('2', 'assistant', '<thinking>only hidden</thinking>'),
       ]);
       expect(summarizeMessage(assistant)).toBe('');
+    });
+
+    it('shows the folded label instead of hidden content when a long log precedes the question', () => {
+      // 粘贴长报错日志再提问(vibecoding 最高频形态):>900 字符且含 [ERROR]/
+      // Traceback 的段落被 autoFoldMarkdownBlocks 折叠成块级 folded——气泡里
+      // 只显示 label chip,preview 也必须如此,绝不能把隐藏全文倒进 120 字窗口。
+      const log = Array.from(
+        { length: 12 },
+        (_, i) =>
+          `[ERROR] frame #${i} traceback at handler (src/x.ts:${i}) — some long diagnostic line padding padding`,
+      ).join('\n');
+      const [user] = buildDisplayTranscript([
+        message('1', 'user', `${log}\n\n帮我看看这个报错是怎么回事`),
+      ]);
+
+      const summary = summarizeMessage(user);
+      expect(summary).toContain('帮我看看这个报错是怎么回事');
+      expect(summary).toContain('Log output');
+      expect(summary).not.toContain('[ERROR]');
     });
   });
 
@@ -180,6 +202,112 @@ describe('conversationScrubber', () => {
 
     it('returns undefined for an empty stop list', () => {
       expect(pickStopAtFraction([], 0.5)).toBeUndefined();
+    });
+  });
+
+  describe('railFractionAt', () => {
+    const measured = { pageY: 172, height: 210, pageYMeasured: true };
+
+    it('decodes moveY against measured rail geometry, clamped to [0,1]', () => {
+      expect(railFractionAt(172, measured)).toBe(0);
+      expect(railFractionAt(277, measured)).toBeCloseTo(0.5);
+      expect(railFractionAt(382, measured)).toBe(1);
+      expect(railFractionAt(-50, measured)).toBe(0);
+      expect(railFractionAt(9999, measured)).toBe(1);
+    });
+
+    it('returns null while pageY has not been measured (first-gesture poison state)', () => {
+      // railGeom 以 {pageY:0,height:0} 起步:onLayout 先把 height 灌成 ~210,
+      // 而 pageY 仍停在 0。该半初始化态下 moveY/height 对 rail 上任意触点都
+      // ≥1,旧实现会 clamp 成 1 → 无论手指在哪,loupe/提交都钉在最新提问。
+      // 未测量几何必须拒绝解码,而不是给出一个看似合法的错误分数。
+      expect(
+        railFractionAt(400, { pageY: 0, height: 210, pageYMeasured: false }),
+      ).toBeNull();
+    });
+
+    it('returns null when the rail has no height yet', () => {
+      expect(
+        railFractionAt(300, { pageY: 0, height: 0, pageYMeasured: false }),
+      ).toBeNull();
+      expect(
+        railFractionAt(300, { pageY: 172, height: 0, pageYMeasured: true }),
+      ).toBeNull();
+    });
+  });
+
+  describe('sampleRailIndices', () => {
+    it('returns every index when the list fits within maxMarks', () => {
+      expect(sampleRailIndices(5, 16)).toEqual([0, 1, 2, 3, 4]);
+      expect(sampleRailIndices(16, 16)).toHaveLength(16);
+    });
+
+    it('samples a uniform grid when the list exceeds maxMarks', () => {
+      const sampled = sampleRailIndices(100, 16);
+      expect(sampled).toHaveLength(16);
+      expect(sampled[0]).toBe(0);
+      expect(sampled[sampled.length - 1]).toBe(99);
+      // 与既有 layer 内联公式逐点一致(round(i*(n-1)/(slots-1)), slots=maxMarks)
+      expect(sampled).toContain(33); // round(5*99/15)
+      expect(sampled).toContain(46); // round(7*99/15)
+      expect(sampled).toContain(92); // round(14*99/15)=round(92.4)
+      for (let k = 1; k < sampled.length; k += 1) {
+        expect(sampled[k]).toBeGreaterThan(sampled[k - 1]);
+      }
+    });
+
+    it('pins the active index into the sampled set (replacing one grid slot)', () => {
+      const sampled = sampleRailIndices(100, 16, 30);
+      expect(sampled).toHaveLength(16);
+      expect(sampled).toContain(30);
+      expect(sampled[0]).toBe(0);
+      expect(sampled[sampled.length - 1]).toBe(99);
+      // 网格缩为 15 槽: round(i*99/14)
+      expect(sampled).toContain(50); // round(7*99/14)=round(49.5)=50
+      for (let k = 1; k < sampled.length; k += 1) {
+        expect(sampled[k]).toBeGreaterThan(sampled[k - 1]);
+      }
+    });
+
+    it('returns an empty list for an empty conversation', () => {
+      expect(sampleRailIndices(0, 16)).toEqual([]);
+    });
+  });
+
+  describe('markPositionForStop', () => {
+    // 4 个 mark, 分别代表 turn 0/10/20/30(即 markStopIndices=[0,10,20,30])
+    const marks = [0, 10, 20, 30];
+
+    it('lands exactly on a mark when the stop IS a sampled mark', () => {
+      expect(markPositionForStop(marks, 0)).toBe(0);
+      expect(markPositionForStop(marks, 10)).toBe(1);
+      expect(markPositionForStop(marks, 20)).toBe(2);
+      expect(markPositionForStop(marks, 30)).toBe(3);
+    });
+
+    it('interpolates between bracketing marks for unsampled stops', () => {
+      expect(markPositionForStop(marks, 15)).toBeCloseTo(1.5);
+      expect(markPositionForStop(marks, 12)).toBeCloseTo(1.2);
+      expect(markPositionForStop(marks, 27)).toBeCloseTo(2.7);
+    });
+
+    it('clamps to the rail ends for stops beyond the sampled range', () => {
+      expect(markPositionForStop(marks, -5)).toBe(0);
+      expect(markPositionForStop(marks, 40)).toBe(3);
+    });
+
+    it('degenerate mark lists resolve to 0', () => {
+      expect(markPositionForStop([], 5)).toBe(0);
+      expect(markPositionForStop([7], 3)).toBe(0);
+      expect(markPositionForStop([7], 9)).toBe(0);
+    });
+
+    it('keeps the bulge on the mark the loupe names (sampling consistency)', () => {
+      // 全量 100 turn、16 采样 mark:对每个被采样的 stop, bulge 必须正落其 mark 上
+      const stops = sampleRailIndices(100, 16, 30);
+      stops.forEach((turnIndex, markIndex) => {
+        expect(markPositionForStop(stops, turnIndex)).toBeCloseTo(markIndex, 6);
+      });
     });
   });
 

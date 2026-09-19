@@ -50,6 +50,13 @@ const blockToText = (block: TranscriptMarkdownBlock): string => {
   if (block.kind === 'thematicBreak') {
     return '---';
   }
+  if (block.kind === 'folded') {
+    // A folded block is collapsed in the bubble too (label chip only, see
+    // TranscriptMessageList). The preview must match what the reader saw —
+    // dumping the hidden content here would bury the actual prompt that
+    // follows it (e.g. a pasted error log ahead of the real question).
+    return block.label;
+  }
   // code block: keep the raw source — for a user prompt this is rare, for an
   // assistant reply it's often the most informative snippet.
   return block.content;
@@ -119,6 +126,33 @@ export const deriveTurnScrubberStops = (
   }));
 
 /**
+ * Geometry of the scrubber rail in screen coordinates. `pageYMeasured` gates
+ * fraction decoding: until a real `measure()` callback has landed, pageY is a
+ * stale 0, so `(moveY - pageY) / height` would clamp to 1 and point every
+ * gesture at the newest stop (the first-gesture loupe bug).
+ */
+export interface RailGeometry {
+  pageY: number;
+  height: number;
+  pageYMeasured: boolean;
+}
+
+/**
+ * Decode a finger screen-Y into a rail fraction ([0,1]) against the rail's
+ * measured geometry. Returns null while the geometry is unusable (pageY not
+ * measured yet, or zero height) — callers must skip selection instead of
+ * guessing, since any guess from a poisoned geometry pins the loupe/commit to
+ * the wrong stop.
+ */
+export const railFractionAt = (
+  moveY: number,
+  geometry: RailGeometry,
+): number | null => {
+  if (!geometry.pageYMeasured || geometry.height <= 0) return null;
+  return Math.min(1, Math.max(0, (moveY - geometry.pageY) / geometry.height));
+};
+
+/**
  * Map a normalized drag position ([0,1], bottom..top or top..bottom depending
  * on layout) to the nearest stop. Clamps out-of-range fractions and returns
  * undefined for an empty stop list.
@@ -131,6 +165,61 @@ export const pickStopAtFraction = (
   const clamped = Math.min(1, Math.max(0, fraction));
   const index = Math.round(clamped * (stops.length - 1));
   return stops[index];
+};
+
+/**
+ * Uniformly sample up to `maxMarks` turn indices for the idle rail silhouette.
+ * When `activeIndex` is given (≥ 0), it is pinned into the set — the rail must
+ * always show where the user currently is — replacing one grid slot. Behavior
+ * mirrors the original in-screen sampling so idle visuals stay identical.
+ */
+export const sampleRailIndices = (
+  totalCount: number,
+  maxMarks: number,
+  activeIndex?: number,
+): number[] => {
+  if (totalCount <= 0) return [];
+  const indices = new Set<number>();
+  if (totalCount <= maxMarks) {
+    for (let index = 0; index < totalCount; index += 1) indices.add(index);
+  } else {
+    const hasActive = activeIndex != null && activeIndex >= 0;
+    const slots = hasActive ? maxMarks - 1 : maxMarks;
+    const denominator = Math.max(1, slots - 1);
+    for (let index = 0; index < slots; index += 1) {
+      indices.add(Math.round((index * (totalCount - 1)) / denominator));
+    }
+    if (hasActive) indices.add(activeIndex);
+  }
+  return Array.from(indices).sort((left, right) => left - right);
+};
+
+/**
+ * Map a focused stop index to a continuous position in mark space ([0,
+ * marks-1]) so the fisheye bulge centers on the mark that REPRESENTS the stop
+ * the loupe names. Marks are a ≤16-point sample of the stop list, so mark k
+ * generally stands for stop index ≠ k — mapping by raw mark index made the
+ * bulge and the loupe disagree by ±1 once the conversation exceeded the
+ * sample size.
+ */
+export const markPositionForStop = (
+  markStopIndices: number[],
+  stopIndex: number,
+): number => {
+  const count = markStopIndices.length;
+  if (count <= 1) return 0;
+  if (stopIndex <= markStopIndices[0]) return 0;
+  if (stopIndex >= markStopIndices[count - 1]) return count - 1;
+  // Bracketing marks + linear interpolation: the bulge glides with the finger
+  // instead of snapping between sampled slots.
+  for (let k = 1; k < count; k += 1) {
+    if (stopIndex <= markStopIndices[k]) {
+      const prev = markStopIndices[k - 1];
+      const next = markStopIndices[k];
+      return k - 1 + (stopIndex - prev) / (next - prev);
+    }
+  }
+  return count - 1;
 };
 
 /**

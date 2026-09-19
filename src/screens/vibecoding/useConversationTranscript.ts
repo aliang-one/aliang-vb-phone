@@ -46,6 +46,9 @@ export interface ConversationTranscript {
   turnList: ReturnType<typeof useIncrementalList<ConversationTurn>>;
   agentEventList: ReturnType<typeof useIncrementalList<VibeCodingRun['events'][number]>>;
   showMoreTurns: () => void;
+  /** Stable: widen the mounted-turn window to cover a needed visible count
+   *  (scrubber commit jumps to turns outside the window). */
+  revealTurnsThrough: (neededVisibleCount: number) => void;
   showMoreAgentEvents: () => void;
 }
 
@@ -179,6 +182,7 @@ export function useConversationTranscript(
     agentEventList,
     turnListHasMore: turnList.hasMore,
     showMoreTurns: turnList.showMore,
+    revealTurnsThrough: turnList.revealThrough,
     showMoreAgentEvents: agentEventList.showMore,
   };
 }

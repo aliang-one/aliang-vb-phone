@@ -71,7 +71,10 @@ import {
   approvalTimelineItemId,
   buildConversationTimeline,
 } from '../../utils/conversationTimeline';
-import { deriveTurnScrubberStops } from '../../utils/conversationScrubber';
+import {
+  deriveTurnScrubberStops,
+  sampleRailIndices,
+} from '../../utils/conversationScrubber';
 import {
 } from '../../utils/conversationTurns';
 import {
@@ -201,6 +204,11 @@ const formatConversationBoundaryTime = (timestamp?: string) => {
 };
 
 interface ConversationScrubberLayerProps {
+  /** ALL conversation turns — the rail represents the whole conversation, not
+   *  just the mounted window, so positions stay stable as history loads in. */
+  conversationTurns: ConversationTurn[];
+  /** The mounted window (a suffix of conversationTurns) — drives the idle
+   *  highlight and dims marks whose turns aren't mounted yet. */
   visibleTurns: ConversationTurn[];
   messageLayouts: Record<string, { top: number; height: number }>;
   conversationTop: number;
@@ -214,12 +222,18 @@ interface ConversationScrubberLayerProps {
   registerScrollY: (fn: (y: number) => void) => () => void;
 }
 
+const MAX_RAIL_MARKS = 16;
+
+// How long a scrubber jump may wait for a just-revealed turn's layout to flush
+// before giving up (mounts + deferred layout flushes normally land in <100ms).
+const JUMP_LAYOUT_TIMEOUT_MS = 3000;
+
 // Isolates the scrubber's scroll-following focus calculation (the ONLY consumer
 // of scrollY) from the giant session screen, so scrolling no longer re-renders
 // the entire screen — only this small overlay layer. messageLayouts is passed in
 // (it stays screen-level: low-frequency onLayout, shared with preserveFocus).
 const ConversationScrubberLayer: React.FC<ConversationScrubberLayerProps> = React.memo(
-  ({ visibleTurns, messageLayouts, conversationTop, viewportHeight, onCommit, registerScrollY }) => {
+  ({ conversationTurns, visibleTurns, messageLayouts, conversationTop, viewportHeight, onCommit, registerScrollY }) => {
     const [scrollY, setScrollY] = useState(0);
     useEffect(() => registerScrollY(setScrollY), [registerScrollY]);
 
@@ -257,66 +271,31 @@ const ConversationScrubberLayer: React.FC<ConversationScrubberLayerProps> = Reac
       visibleTurns,
       conversationTop,
     ]);
+    // The rail samples the WHOLE conversation (≤16 marks). Unmounted turns
+    // render as dimmer marks; the mounted window only drives the highlight.
     const conversationRailItems = useMemo(() => {
-      if (!visibleTurns.length) return [];
-      const maxMarks = 16;
+      if (!conversationTurns.length) return [];
       const activeIndex = activeRailTurnId
-        ? visibleTurns.findIndex(turn => turn.id === activeRailTurnId)
+        ? conversationTurns.findIndex(turn => turn.id === activeRailTurnId)
         : -1;
-      const indices = new Set<number>();
-
-      if (visibleTurns.length <= maxMarks) {
-        visibleTurns.forEach((_, index) => indices.add(index));
-      } else {
-        const slots = activeIndex >= 0 ? maxMarks - 1 : maxMarks;
-        const denominator = Math.max(1, slots - 1);
-        for (let index = 0; index < slots; index += 1) {
-          indices.add(
-            Math.round((index * (visibleTurns.length - 1)) / denominator),
-          );
-        }
-        if (activeIndex >= 0) indices.add(activeIndex);
-      }
-
-      return Array.from(indices)
-        .sort((left, right) => left - right)
-        .map(index => {
-          const turn = visibleTurns[index];
-          return {
-            turn,
-            active: turn.id === activeRailTurnId,
-            visible: visibleTurnIds.has(turn.id),
-          };
-        });
-    }, [activeRailTurnId, visibleTurns, visibleTurnIds]);
-    const scrubberStops = useMemo(
-      () => deriveTurnScrubberStops(visibleTurns),
-      [visibleTurns],
-    );
-    // The user-turn stop nearest the viewport's focus message — the scrubber's
-    // idle preview position. Falls back to the latest stop when the active
-    // message can't be resolved (e.g. before any layout has landed).
-    const activeScrubberStopId = useMemo(() => {
-      if (!scrubberStops.length) return undefined;
-      const fallbackId = scrubberStops[scrubberStops.length - 1].id;
-      if (!activeRailTurnId) return fallbackId;
-      const activeIndex = visibleTurns.findIndex(
-        turn => turn.id === activeRailTurnId,
-      );
-      if (activeIndex < 0) return fallbackId;
-      const stopIds = new Set(scrubberStops.map(stop => stop.id));
-      let nearestId = fallbackId;
-      let nearestDistance = Number.POSITIVE_INFINITY;
-      visibleTurns.forEach((turn, index) => {
-        if (!stopIds.has(turn.id)) return;
-        const distance = Math.abs(index - activeIndex);
-        if (distance < nearestDistance) {
-          nearestDistance = distance;
-          nearestId = turn.id;
-        }
+      return sampleRailIndices(
+        conversationTurns.length,
+        MAX_RAIL_MARKS,
+        activeIndex >= 0 ? activeIndex : undefined,
+      ).map(index => {
+        const turn = conversationTurns[index];
+        return {
+          turn,
+          stopIndex: index,
+          active: turn.id === activeRailTurnId,
+          visible: visibleTurnIds.has(turn.id),
+        };
       });
-      return nearestId;
-    }, [scrubberStops, activeRailTurnId, visibleTurns]);
+    }, [activeRailTurnId, conversationTurns, visibleTurnIds]);
+    const scrubberStops = useMemo(
+      () => deriveTurnScrubberStops(conversationTurns),
+      [conversationTurns],
+    );
 
     return (
       <ConversationScrubber
@@ -326,8 +305,11 @@ const ConversationScrubberLayer: React.FC<ConversationScrubberLayerProps> = Reac
           active,
           visible,
         }))}
+        markStopIndices={conversationRailItems.map(({ stopIndex }) => stopIndex)}
         stops={scrubberStops}
-        activeStopId={activeScrubberStopId}
+        // Every conversation turn is a stop now, so the idle focus is simply
+        // the mounted turn nearest the viewport.
+        activeStopId={activeRailTurnId}
         onCommit={onCommit}
       />
     );
@@ -595,6 +577,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // Conversation section's y-offset from onLayout — same sub-pixel guard as
   // viewportHeight. Feeds scroll/scrubber math, must stay stable across passes.
   const [conversationTop, setConversationTop] = useStableMeasurement(0);
+  // conversationTimeline's offset within conversationSection. messageLayouts
+  // are measured relative to conversationTimeline, so jump targets need this
+  // bridge term to land exactly (see the scrubber jump effect).
+  const [timelineTop, setTimelineTop] = useStableMeasurement(0);
   // messageLayouts + pendingLayoutsRef + layoutFlushTimerRef now in useConversationScrollController.
   const [timelineExpanded, setTimelineExpanded] = useState(false);
   const [titleExpanded, setTitleExpanded] = useState(false);
@@ -632,6 +618,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     latestAgentEvent,
     hasServerEarlierMessages,
     turnList,
+    revealTurnsThrough,
     agentEventList,
 
 
@@ -804,22 +791,46 @@ export const VibeCodingSessionScreen: React.FC = () => {
     [cacheStructuredDetail, session?.id],
   );
 
-  // User settled on a visible scrubber stop → jump there. The scrubber samples
-  // only mounted turns; older history still comes in via LOAD EARLIER, avoiding
-  // a long-session showAll() that can freeze the JS thread.
-  const handleScrubberCommit = useCallback((stopId: string) => {
-    followTailRef.current = false;
-    setPendingJumpId(stopId);
-  }, [followTailRef, setPendingJumpId]);
+  // When the current jump was requested — deadlines the wait-for-layout loop
+  // below so a dead target can't leave a pending jump hanging forever.
+  const jumpRequestedAtRef = useRef(0);
+
+  // User settled on a scrubber stop → jump there. The rail spans the WHOLE
+  // conversation, so the target turn may sit outside the mounted window: widen
+  // the window just enough to mount it (targeted, not showAll) and let the jump
+  // effect below wait for its layout.
+  const handleScrubberCommit = useCallback(
+    (stopId: string) => {
+      followTailRef.current = false;
+      const turnIndex = conversationTurns.findIndex(
+        turn => turn.id === stopId,
+      );
+      if (turnIndex >= 0) {
+        revealTurnsThrough(conversationTurns.length - turnIndex);
+      }
+      jumpRequestedAtRef.current = Date.now();
+      setPendingJumpId(stopId);
+    },
+    [conversationTurns, followTailRef, revealTurnsThrough, setPendingJumpId],
+  );
 
   useEffect(() => {
     if (!pendingJumpId) return;
     const layout = messageLayouts[pendingJumpId];
     if (!layout) {
-      setPendingJumpId(null);
+      // A just-revealed turn hasn't laid out yet (layouts flush in a deferred
+      // macrotask after mount). Keep waiting — the effect re-runs on the next
+      // layout flush — but give up past the deadline instead of hanging.
+      if (Date.now() - jumpRequestedAtRef.current > JUMP_LAYOUT_TIMEOUT_MS) {
+        setPendingJumpId(null);
+      }
       return;
     }
-    const y = conversationTop + layout.top;
+    // timelineTop bridges the coordinate systems: layout.top is measured
+    // relative to the conversationTimeline container, while conversationTop is
+    // the section's offset in the scroll content. Without the bridge term the
+    // jump landed ~100-200px too high (header/LoadMoreRow/boundary heights).
+    const y = conversationTop + timelineTop + layout.top;
     scrollViewRef.current?.scrollTo({ y: Math.max(0, y), animated: false });
     setPendingJumpId(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- refs/setters are stable
@@ -827,6 +838,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     pendingJumpId,
     messageLayouts,
     conversationTop,
+    timelineTop,
   ]);
 
   // Restore the viewport to the message that was on top before an earlier-page
@@ -2464,7 +2476,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
                     label="LOAD EARLIER TURNS"
                   />
                 ) : null}
-                <View style={styles.conversationTimeline}>
+                <View
+                  style={styles.conversationTimeline}
+                  onLayout={event =>
+                    setTimelineTop(event.nativeEvent.layout.y)
+                  }
+                >
                   <View style={styles.conversationBoundaryRow}>
                     <View
                       style={[
@@ -3049,6 +3066,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
         ) : null}
 
         <ConversationScrubberLayer
+          conversationTurns={conversationTurns}
           visibleTurns={visibleTurns}
           messageLayouts={messageLayouts}
           conversationTop={conversationTop}
