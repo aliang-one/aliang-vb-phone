@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,8 +14,11 @@ import Animated, {
 import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
 import {
+  markPositionForStop,
   pickStopAtFraction,
+  railFractionAt,
   tickScale,
+  type RailGeometry,
   type ScrubberStop,
 } from '../../utils/conversationScrubber';
 
@@ -32,6 +35,13 @@ export interface ScrubberCollapsedMark {
 
 interface ConversationScrubberProps {
   collapsedMarks: ScrubberCollapsedMark[];
+  /**
+   * For each collapsedMark, the index of its stop in `stops` — marks are a
+   * ≤16-point sample of the stop list, so mark k generally stands for stop
+   * index ≠ k. Passing this keeps the fisheye bulge centered on the same stop
+   * the loupe titles; without it the bulge falls back to raw fraction mapping.
+   */
+  markStopIndices?: number[];
   stops: ScrubberStop[];
   /** Idle focus: the user-turn nearest the viewport's center message. */
   activeStopId?: string;
@@ -78,6 +88,7 @@ const RAIL_TOUCH_WIDTH = 48;
  */
 export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
   collapsedMarks,
+  markStopIndices,
   stops,
   activeStopId,
   onCommit,
@@ -87,9 +98,16 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
   const viewportH = Dimensions.get('window').height;
 
   const railRef = useRef<View>(null);
-  // pageY + height of the pill in screen coords (for mapping finger moveY →
-  // fraction). height is mirrored here so move handlers stay synchronous.
-  const railGeom = useRef({ pageY: 0, height: 0 });
+  // Rail geometry in screen coords (for mapping finger moveY → fraction).
+  // pageYMeasured gates decoding: until the first measure() callback lands,
+  // pageY is a stale 0 and every fraction would clamp to 1 — pinning the
+  // loupe/commit to the newest stop no matter where the finger is. height is
+  // mirrored here so move handlers stay synchronous.
+  const railGeom = useRef<RailGeometry>({
+    pageY: 0,
+    height: 0,
+    pageYMeasured: false,
+  });
 
   // Loupe position follows the finger on the UI thread; opacity fades it in.
   const loupeY = useSharedValue(0);
@@ -125,11 +143,28 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
     setDragStopId(id);
   };
 
-  const fractionFromMoveY = (moveY: number) => {
-    const { pageY, height } = railGeom.current;
-    if (height <= 0) return 0;
-    return Math.min(1, Math.max(0, (moveY - pageY) / height));
-  };
+  // Apply fresh on-screen geometry from measure(). `force` marks gesture-time
+  // measures (grant), which must always land — they carry the freshest finger
+  // coordinates and self-heal an earlier poisoned decode. Layout/mount-driven
+  // measures are skipped mid-slide so a queued callback can never clobber the
+  // grown slide height.
+  const applyRailMeasure = useCallback((force: boolean) => {
+    railRef.current?.measure((_x, _y, _w, height, _pageX, pageY) => {
+      if (!force && slidingRef.current) return;
+      railGeom.current = { pageY, height, pageYMeasured: true };
+    });
+  }, []);
+
+  // Prime the geometry as soon as the rail exists so the FIRST gesture never
+  // decodes against the un-measured {pageY:0} state. Grant still re-measures
+  // for the current gesture.
+  const hasRail = collapsedMarks.length > 0;
+  useEffect(() => {
+    if (hasRail) applyRailMeasure(false);
+  }, [applyRailMeasure, hasRail]);
+
+  const fractionFromMoveY = (moveY: number) =>
+    railFractionAt(moveY, railGeom.current);
 
   // Center the box on the finger vertically, clamped so it stays on screen.
   const loupeTopFor = (fingerPageY: number) => {
@@ -178,10 +213,14 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
       onMoveShouldSetPanResponderCapture: () => false,
       onPanResponderGrant: (_evt, gesture) => {
         // Capture geometry up front; the loupe itself only appears on first
-        // move (a bare tap should just jump, not flash the magnifier).
+        // move (a bare tap should just jump, not flash the magnifier). This
+        // gesture-time measure always applies (force) — it carries the
+        // freshest finger coordinates and self-heals any earlier poisoned
+        // decode.
         railRef.current?.measure((_x, _y, _w, h, _pageX, pageY) => {
-          railGeom.current = { pageY, height: h };
+          railGeom.current = { pageY, height: h, pageYMeasured: true };
           const fraction = fractionFromMoveY(gesture.moveY);
+          if (fraction === null) return;
           setDragFraction(fraction);
           // Prime the initial focus so a tap-without-move still commits the
           // right spot.
@@ -196,6 +235,10 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
           loupeY.value = loupeTopFor(gesture.moveY);
         }
         const fraction = fractionFromMoveY(gesture.moveY);
+        // Geometry not measured yet: decoding would clamp to 1 and pin the
+        // loupe/commit to the newest stop. Skip until measure lands (the
+        // grant callback or the mount/onLayout prime fills it in).
+        if (fraction === null) return;
         setDragFraction(fraction); // smooth bulge follows the finger
         const stop = pickStopAtFraction(stopsRef.current, fraction);
         if (stop?.id !== dragStopIdRef.current) {
@@ -204,10 +247,14 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
       },
       onPanResponderRelease: (_evt, gesture) => {
         // A tap (no slide) commits the primed spot; a slide commits the last.
+        // With no measured geometry (and nothing primed) there is no honest
+        // position to commit — skip rather than jump to the wrong stop.
+        const fraction = fractionFromMoveY(gesture.moveY);
         const id =
           dragStopIdRef.current ??
-          pickStopAtFraction(stopsRef.current, fractionFromMoveY(gesture.moveY))
-            ?.id;
+          (fraction === null
+            ? undefined
+            : pickStopAtFraction(stopsRef.current, fraction)?.id);
         endSlide();
         if (id) {
           onCommitRef.current(id);
@@ -228,14 +275,20 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
         : theme.colors.onSurfaceVariant;
 
   // Loupe text focuses on the stop under the finger (discrete, cheap). The
-  // bulge focus is continuous (dragFraction) so it glides with the finger.
+  // bulge focus is continuous so it glides with the finger — but it must land
+  // on the mark that REPRESENTS the focused stop (marks sample the stop list,
+  // so raw drag fraction drifts ±1 once the list exceeds the sample size).
   const focusStopId = dragStopId ?? activeStopId;
   const focusStopIndex = focusStopId
     ? stops.findIndex(stop => stop.id === focusStopId)
     : -1;
   const focusStop = focusStopIndex >= 0 ? stops[focusStopIndex] : undefined;
   const focusMarkPos = sliding
-    ? dragFraction * (collapsedMarks.length - 1)
+    ? markStopIndices &&
+      markStopIndices.length === collapsedMarks.length &&
+      focusStopIndex >= 0
+      ? markPositionForStop(markStopIndices, focusStopIndex)
+      : dragFraction * (collapsedMarks.length - 1)
     : 0;
 
   return (
@@ -268,6 +321,10 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
             ...railGeom.current,
             height: nativeEvent.layout.height,
           };
+          // Height changed → re-measure so pageY/height stay truthful for the
+          // next gesture. Skipped mid-slide by applyRailMeasure, so a queued
+          // callback can't clobber the grown height.
+          applyRailMeasure(false);
         }}
         {...panResponder.panHandlers}
       >
