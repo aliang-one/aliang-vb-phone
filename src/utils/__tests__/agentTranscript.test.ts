@@ -67,3 +67,61 @@ describe('buildDisplayTranscript — 阶段契约(display 合并)', () => {
     expect(out.filter(m => m.role === 'user')).toHaveLength(2);
   });
 });
+
+describe('buildDisplayTranscript — system 工件噪音行显示层兜底', () => {
+  // 旧版 agent 历史解析把 tool_result 摊平成 role='system' 消息，打开会话会
+  // 渲染出一墙 "Updated task #N status"/"[1]+ Done"/"patched" 状态行。新版
+  // server/agent 已从源头拦住，这里对仍在内存/旧服务端数据里的残留兜底丢弃。
+  const noise = (id: string, content: string) => msg({ id, role: 'system', content });
+
+  it.each([
+    ['Updated task #8 status'],
+    ['patched'],
+    ['TYPECHECK_EXIT=0'],
+    ['BUILD_EXIT=0 - Use build.rolldownOptions.output.codeSplitting'],
+    ['[1]+  Done    setsid nohup node server/index.mjs >> /tmp/gw.log'],
+    ['<retrieval_status>success</retrieval_status>\n\n<task_id>bqn95d6yn</task_id>'],
+    ['Command running in background with ID: bqn95d6yn. Output is being written to /tmp/x'],
+    ['\npatched\n Test Files  1 passed (1)'],
+  ])('丢一行式工具状态噪音: %j', content => {
+    const out = buildDisplayTranscript([
+      msg({ id: 'u1', role: 'user', content: 'q' }),
+      noise('n1', content),
+    ]);
+    expect(out.map(m => m.id)).toEqual(['u1']);
+  });
+
+  it('多行有意义内容(Playwright 报告等)不误杀', () => {
+    const out = buildDisplayTranscript([
+      noise('k1', '### Ran Playwright code\n```js\nawait page.goto("/")\n```'),
+    ]);
+    expect(out).toHaveLength(1);
+  });
+
+  it('只对 role=system 生效(assistant 说 patched 要保留)', () => {
+    const out = buildDisplayTranscript([msg({ id: 'a1', role: 'assistant', content: 'patched' })]);
+    expect(out).toHaveLength(1);
+  });
+
+  it('跳过噪音行不污染去重状态(不同的相邻消息都保留)', () => {
+    const out = buildDisplayTranscript([
+      msg({ id: 'a1', role: 'assistant', content: 'A' }),
+      noise('n1', 'Updated task #8 status'),
+      msg({ id: 'a2', role: 'assistant', content: 'B' }),
+      noise('n2', 'patched'),
+      msg({ id: 'u1', role: 'user', content: 'next' }),
+    ]);
+    expect(out.map(m => m.id)).toEqual(['a1', 'a2', 'u1']);
+  });
+
+  it('同内容 assistant 被噪音行隔开 → 过滤后按连续重复合并(双存工件对的期望行为)', () => {
+    // 流式+快照双存的历史形态正是 "文本A + 工件行 + 文本A"：噪音让位后两者
+    // 相邻,既有的连续去重把这对工件合并成一条——这是修复而非回归。
+    const out = buildDisplayTranscript([
+      msg({ id: 'a1', role: 'assistant', content: '门禁跑着。趁机自审完整 diff:' }),
+      noise('n1', '[1]+  Done    setsid nohup node server/index.mjs'),
+      msg({ id: 'a2', role: 'assistant', content: '门禁跑着。趁机自审完整 diff:' }),
+    ]);
+    expect(out.map(m => m.id)).toEqual(['a1']);
+  });
+});
