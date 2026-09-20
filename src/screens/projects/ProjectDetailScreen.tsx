@@ -21,7 +21,10 @@ import { IconBadge } from '../../components/visual/IconBadge';
 import { Logo } from '../../components/visual/Logo';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
 import { RootStackParamList } from '../../app/navigation/types';
-import { useControlCenterStore } from '../../store/controlCenterStore';
+import {
+  useControlCenterStore,
+  useRecentActiveTerminalSessionId,
+} from '../../store/controlCenterStore';
 import { useToastStore } from '../../store/toastStore';
 import { useProjectSessions } from '../../hooks/useProjectSessions';
 import { useProjectPortMappings } from '../../hooks/useProjectPortMappings';
@@ -49,6 +52,8 @@ export const ProjectDetailScreen: React.FC = () => {
     devices.find(item => item.projectIds.includes(route.params.projectId));
   const terminalDirectory =
     project?.path || device?.authorizedDirectories[0] || '~';
+  // attach 优先：带上设备当前 active 终端，进屏即恢复而非另开新会话。
+  const activeTerminalId = useRecentActiveTerminalSessionId(device?.id);
   const refreshFromServer = useControlCenterStore(
     state => state.refreshFromServer,
   );
@@ -360,6 +365,7 @@ export const ProjectDetailScreen: React.FC = () => {
                 navigation.navigate('DeviceTerminal', {
                   deviceId: device.id,
                   directory: terminalDirectory,
+                  terminalId: activeTerminalId,
                 })
               }
             />

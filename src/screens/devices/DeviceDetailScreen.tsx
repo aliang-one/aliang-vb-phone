@@ -148,6 +148,9 @@ export const DeviceDetailScreen: React.FC = () => {
       )
       .sort((a, b) => (b.updatedAt > a.updatedAt ? 1 : -1));
   }, [terminalSessions, device]);
+  // attach 优先：通用入口（Terminal 卡片/目录行/项目工作区）带上设备最近的
+  // active 终端，进屏即恢复同一个 PTY 而不是再开一个。
+  const activeTerminalId = activeTerminals[0]?.id;
   const knownProjectPaths = uniqueStrings(projects.map(project => project.path));
   const toolList = useIncrementalList(device?.tools ?? [], {
     initialCount: 8,
@@ -279,6 +282,7 @@ export const DeviceDetailScreen: React.FC = () => {
               navigation.navigate('DeviceTerminal', {
                 deviceId: device.id,
                 directory: terminalDirectory,
+                terminalId: activeTerminalId,
               })
             }
             disabled={!device.remoteTerminalEnabled}
@@ -391,6 +395,7 @@ export const DeviceDetailScreen: React.FC = () => {
                   navigation.navigate('DeviceTerminal', {
                     deviceId: device.id,
                     directory: scan?.path ?? project.path ?? terminalDirectory,
+                    terminalId: activeTerminalId,
                   })
                 }
               />
@@ -579,6 +584,7 @@ export const DeviceDetailScreen: React.FC = () => {
                         navigation.navigate('DeviceTerminal', {
                           deviceId: device.id,
                           directory,
+                          terminalId: activeTerminalId,
                         })
                       }
                       style={[
@@ -636,6 +642,7 @@ export const DeviceDetailScreen: React.FC = () => {
                         navigation.navigate('DeviceTerminal', {
                           deviceId: device.id,
                           directory: path,
+                          terminalId: activeTerminalId,
                         })
                       }
                       style={[

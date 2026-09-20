@@ -56,5 +56,13 @@
       "llmUnreachable": "无法连接 AI 网关，请检查网络或管理后台的网关地址配置",
       "llmUpstreamError": "AI 网关返回错误，请稍后再试或在管理后台检查配置"
     }
+  },
+  "replay": {
+    "endedBanner": "会话已结束·以下为历史输出",
+    "replayedBadge": "已回放",
+    "sessionEnded": "会话已结束",
+    "historyBelow": "以下为历史输出",
+    "newSession": "新建会话",
+    "resuming": "正在恢复会话…"
   }
 }

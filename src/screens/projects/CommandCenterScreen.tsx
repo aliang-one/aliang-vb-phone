@@ -29,6 +29,7 @@ import { Project, VibeCodingRun } from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useControlCenterStore, useStableVibeRuns } from '../../store/controlCenterStore';
 import { useShallow } from 'zustand/shallow';
+import { findRecentActiveTerminalSession } from '../../utils/terminalInteraction';
 import { useRefreshWithFeedback } from '../../hooks/useRefreshWithFeedback';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
@@ -159,6 +160,21 @@ export const CommandCenterScreen: React.FC = () => {
   const onlineDevices = useMemo(
     () => devices.filter(device => device.status === 'online'),
     [devices],
+  );
+  // 设备 → 最近 active 终端：通用入口 attach 优先（一设备默认一终端）。
+  // useShallow 保证索引内容不变时引用稳定，不触发多余重渲染。
+  const activeTerminalIdByDevice = useControlCenterStore(
+    useShallow(state => {
+      const ids: Record<string, string> = {};
+      state.devices.forEach(device => {
+        const recent = findRecentActiveTerminalSession(
+          state.terminalSessions,
+          device.id,
+        );
+        if (recent) ids[device.id] = recent.id;
+      });
+      return ids;
+    }),
   );
   const deviceStatusIndex = useMemo(
     () => buildDeviceStatusIndex(devices),
@@ -805,6 +821,7 @@ export const CommandCenterScreen: React.FC = () => {
                         scan?.path ??
                         project.path ??
                         device.authorizedDirectories[0],
+                      terminalId: activeTerminalIdByDevice[device.id],
                     })
                   }
                 />
@@ -982,6 +999,7 @@ export const CommandCenterScreen: React.FC = () => {
                     scan?.path ??
                     project.path ??
                     device.authorizedDirectories[0],
+                  terminalId: activeTerminalIdByDevice[device.id],
                 })
               }
             />

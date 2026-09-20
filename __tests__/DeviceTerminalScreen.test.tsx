@@ -140,6 +140,9 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
           },
         ],
       },
+      // P4 attach flow: entering with a terminal id now calls attach on mount —
+      // keep it a resolved no-op so these tests exercise input/keyboard UX only.
+      attachTerminalSession: jest.fn().mockResolvedValue('term-1'),
       loadTerminalCommandHistory: jest.fn().mockResolvedValue(undefined),
     });
     jest.clearAllMocks();
@@ -656,11 +659,15 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(mockTerminalSendText).not.toHaveBeenCalled();
   });
 
-  it('opens a fresh terminal when route directory changes without a terminal id', async () => {
-    const mockCreateTerminalSession = jest.fn().mockResolvedValueOnce('term-2');
+  it('attaches the most recent active session when route changes without a terminal id', async () => {
+    // P4 产品默认（一设备默认一终端）：不带 id 的导航不再必然新建，而是先
+    // attach 该设备最近的 active 会话（这里 updatedAt 较新的 term-2）。
+    const mockAttachTerminalSession = jest.fn().mockResolvedValue('term-2');
+    const mockCreateTerminalSession = jest.fn().mockResolvedValue('term-3');
     useControlCenterStore.setState(state => ({
       ...state,
       createTerminalSession: mockCreateTerminalSession,
+      attachTerminalSession: mockAttachTerminalSession,
       devices: state.devices.map(device =>
         device.id === 'device-1'
           ? {
@@ -683,7 +690,6 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
         },
       ],
     }));
-
     await act(async () => {
       screen = renderScreen();
     });
@@ -717,10 +723,12 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       );
     });
 
-    expect(mockCreateTerminalSession).toHaveBeenCalledWith(
-      'device-1',
-      '~/other',
-    );
+    expect(mockCreateTerminalSession).not.toHaveBeenCalled();
+    expect(mockAttachTerminalSession).toHaveBeenCalledWith('term-2', {
+      deviceId: 'device-1',
+      rows: 24,
+      cols: 80,
+    });
     expect(
       screen!.root.findByProps({ testID: 'terminal-directory-other' }).props
         .style,

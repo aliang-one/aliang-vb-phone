@@ -166,6 +166,7 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
     expect(mockNavigate).toHaveBeenCalledWith('DeviceTerminal', {
       deviceId: 'device-1',
       directory: '~/project',
+      newSession: true,
     });
   });
 });

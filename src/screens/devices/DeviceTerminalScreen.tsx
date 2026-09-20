@@ -42,6 +42,7 @@ import {
   useTerminalSession,
 } from '../../store/controlCenterStore';
 import {
+  findRecentActiveTerminalSession,
   getTerminalInteractionState,
   getTerminalStatusChip,
 } from '../../utils/terminalInteraction';
@@ -166,6 +167,9 @@ const testIdSlug = (value: string) =>
 export const DeviceTerminalScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const { t } = useTranslation('devices');
+  // Replay/attach copy lives in the shared `terminal` namespace (same entries
+  // the emulator's ended banner uses).
+  const { t: tReplay } = useTranslation('terminal');
   const navigation = useNavigation<Navigation>();
   const route = useRoute<DeviceTerminalRoute>();
   // 浮动命令条停靠物理底边，键盘收起时要让出 home indicator。
@@ -183,9 +187,16 @@ export const DeviceTerminalScreen: React.FC = () => {
     terminalId: route.params.terminalId,
     directory: route.params.directory,
   });
+  // Attach-once guard: the open effect re-runs on every device snapshot
+  // refresh; this marks the session id whose attach (or fresh create) already
+  // ran so background churn can't re-attach (and restart the replay) forever.
+  const attachedTerminalIdRef = useRef<string | null>(null);
   const directoryPathRef = useRef<ScrollView>(null);
   const createTerminalSession = useControlCenterStore(
     state => state.createTerminalSession,
+  );
+  const attachTerminalSession = useControlCenterStore(
+    state => state.attachTerminalSession,
   );
   const loadTerminalCommandHistory = useControlCenterStore(
     state => state.loadTerminalCommandHistory,
@@ -307,6 +318,18 @@ export const DeviceTerminalScreen: React.FC = () => {
     terminal && terminalRenderError?.sessionId === terminal.id
       ? terminalRenderError.message
       : '';
+  // 死会话两种形态：
+  //  ① exited —— attach 回放末帧确认会话已退出，但滚动回历史还在：继续渲染
+  //     模拟器（横幅 + 禁输入），只补「新建会话」入口。
+  //  ② closed/failed 且无回放 —— 会话已死又没有可回放的历史：整个模拟器换成
+  //     空态提示 + 「新建会话」（根治「每键报 terminal session not found」）。
+  const terminalEnded = terminal?.replayStatus === 'exited';
+  const terminalDeadWithoutReplay = Boolean(
+    terminal &&
+      !terminalEnded &&
+      (terminal.status === 'completed' || terminal.status === 'failed') &&
+      !terminal.replayChunks?.length,
+  );
   // 建会话阶段的「Agent 不可达」提示：主动（已知离线）+ 响应式（建会话抛错）合一。
   const openErrorMessage = useMemo(() => {
     if (device?.status === 'offline') {
@@ -321,7 +344,14 @@ export const DeviceTerminalScreen: React.FC = () => {
   const terminalInputEnabled =
     terminalInteraction.inputEnabled &&
     terminalRendered &&
-    !terminalRenderErrorMessage;
+    !terminalRenderErrorMessage &&
+    // 回放确认会话已退出后，PTY 已经不在了：再发键只会换来
+    // 「terminal session not found」，直接禁输入。
+    !terminalEnded;
+  const canCreateNewSession =
+    Boolean(device) && device?.status !== 'offline' && !terminalOpening;
+  // attach 进行中（还没拿到会话对象）时占位区显示「正在恢复会话」而非「打开中」。
+  const attachInFlight = terminalOpening && Boolean(terminalId);
 
   const cancelKeyboardProxyFocusRetry = useCallback(() => {
     if (keyboardProxyFocusRetryRef.current) {
@@ -331,26 +361,31 @@ export const DeviceTerminalScreen: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!terminalId && device) {
-      // Agent 已知离线时别发注定失败的请求：占位区会用 openErrorMessage 给出说明，
-      // 且设备重新上线时本 effect 会因依赖 device 而自动重跑。
-      if (device.status === 'offline') {
+    if (!device) {
+      return undefined;
+    }
+
+    // ── Attach path: entering with (or having resolved) a terminal id ──
+    if (terminalId) {
+      if (attachedTerminalIdRef.current === terminalId) {
         return undefined;
       }
+      attachedTerminalIdRef.current = terminalId;
       let cancelled = false;
       setTerminalOpening(true);
-      createTerminalSession(device.id, route.params.directory)
-        .then(sessionId => {
+      attachTerminalSession(terminalId, { deviceId: device.id, rows: 24, cols: 80 })
+        .then(() => {
           if (!cancelled) {
-            setTerminalId(sessionId);
             setTerminalOpenError(null);
           }
         })
         .catch(error => {
-          if (!cancelled) {
-            setTerminalId(undefined);
-            setTerminalOpenError(error);
+          if (cancelled) {
+            return;
           }
+          // Allow an explicit retry to re-attach the same id.
+          attachedTerminalIdRef.current = null;
+          setTerminalOpenError(error);
         })
         .finally(() => {
           if (!cancelled) setTerminalOpening(false);
@@ -359,11 +394,59 @@ export const DeviceTerminalScreen: React.FC = () => {
         cancelled = true;
       };
     }
-    return undefined;
+
+    // ── Resolve path: no id yet ──
+    // Agent 已知离线时别发注定失败的请求：占位区会用 openErrorMessage 给出说明，
+    // 且设备重新上线时本 effect 会因依赖 device 而自动重跑。
+    if (device.status === 'offline') {
+      return undefined;
+    }
+
+    // 产品默认（一设备默认一终端）：不带 id 进屏时优先 attach 该设备最近的
+    // active 会话；没有才新建。显式 newSession 入口（如列表页 NEW TERM）跳过
+    // 解析直接新建。读取走 getState 快照，避免订阅整张 terminalSessions 表
+    // 让本屏被后台终端输出拖着重渲染。
+    if (!route.params.newSession) {
+      const recentActive = findRecentActiveTerminalSession(
+        useControlCenterStore.getState().terminalSessions,
+        device.id,
+      );
+      if (recentActive) {
+        setTerminalId(recentActive.id);
+        return undefined;
+      }
+    }
+
+    let cancelled = false;
+    setTerminalOpening(true);
+    createTerminalSession(device.id, route.params.directory)
+      .then(sessionId => {
+        if (!cancelled) {
+          // Freshly created: mark as "already opened" so the attach effect
+          // doesn't fire a pointless attach (and replay) for it.
+          attachedTerminalIdRef.current = sessionId;
+          setTerminalId(sessionId);
+          setTerminalOpenError(null);
+        }
+      })
+      .catch(error => {
+        if (!cancelled) {
+          setTerminalId(undefined);
+          setTerminalOpenError(error);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTerminalOpening(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [
+    attachTerminalSession,
     createTerminalSession,
     device,
     route.params.directory,
+    route.params.newSession,
     terminalId,
     openRetryToken,
   ]);
@@ -516,6 +599,8 @@ export const DeviceTerminalScreen: React.FC = () => {
     setTerminalRenderError(null);
     try {
       const nextTerminalId = await createTerminalSession(device.id, nextDirectory);
+      // 目录切换 = 显式新建，跳过 attach 效果（见 open effect 的守卫）。
+      attachedTerminalIdRef.current = nextTerminalId;
       setRenderedTerminalId('');
       setTerminalRenderError(null);
       setTerminalId(nextTerminalId);
@@ -537,6 +622,30 @@ export const DeviceTerminalScreen: React.FC = () => {
     }
     await handleDirectoryChange(visibleDirectory);
   };
+
+  // 「新建会话」显式入口：死会话（exited/closed）兜底与占位区共用。总是新建，
+  // 不走 attach 解析 —— 这是用户绕开「一设备默认一终端」收敛的唯一途径。
+  const handleCreateNewSession = useCallback(() => {
+    if (!device || device.status === 'offline' || terminalOpening) {
+      return;
+    }
+    setTerminalOpening(true);
+    setTerminalOpenError(null);
+    createTerminalSession(device.id, route.params.directory)
+      .then(sessionId => {
+        // 同 handleDirectoryChange：显式新建直接接管本屏，不触发 attach。
+        attachedTerminalIdRef.current = sessionId;
+        setTerminalId(sessionId);
+        setRenderedTerminalId('');
+        setTerminalRenderError(null);
+      })
+      .catch(error => {
+        setTerminalOpenError(error);
+      })
+      .finally(() => {
+        setTerminalOpening(false);
+      });
+  }, [createTerminalSession, device, route.params.directory, terminalOpening]);
 
   const sendToTerminal = (
     data: string,
@@ -1094,7 +1203,51 @@ export const DeviceTerminalScreen: React.FC = () => {
               { backgroundColor: theme.colors.surfaceContainerLowest },
             ]}
           >
-            {terminal ? (
+            {terminalEnded ? (
+              <View
+                testID="terminal-ended-bar"
+                style={[
+                  styles.endedBar,
+                  {
+                    backgroundColor: elevatedSurfaceColor,
+                    borderColor: outlineColor,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    theme.typography.codeSm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {tReplay('replay.historyBelow')}
+                </Text>
+                <TouchableOpacity
+                  testID="terminal-new-session"
+                  activeOpacity={0.76}
+                  accessibilityRole="button"
+                  accessibilityLabel="Start a new terminal session"
+                  hitSlop={terminalControlHitSlop}
+                  disabled={!canCreateNewSession}
+                  onPress={handleCreateNewSession}
+                  style={[
+                    styles.endedNewSessionButton,
+                    { borderColor: theme.colors.primary },
+                    !canCreateNewSession && styles.disabledControl,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      theme.typography.codeSm,
+                      { color: theme.colors.primary },
+                    ]}
+                  >
+                    {tReplay('replay.newSession')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+            {terminal && !terminalDeadWithoutReplay ? (
               <View
                 testID="terminal-viewport"
                 style={[
@@ -1111,6 +1264,9 @@ export const DeviceTerminalScreen: React.FC = () => {
                   onRenderError={message =>
                     setTerminalRenderError({ sessionId: terminal.id, message })
                   }
+                  replayChunks={terminal.replayChunks}
+                  replayReady={terminal.replayReady}
+                  replayStatus={terminal.replayStatus}
                 />
                 {!terminalRendered && !terminalRenderErrorMessage ? (
                   <View
@@ -1183,42 +1339,94 @@ export const DeviceTerminalScreen: React.FC = () => {
                     </Text>
                     {/* 离线时设备上线会自动重连，只在非离线错误（如超时）下给手动重试。 */}
                     {device?.status !== 'offline' ? (
-                      <TouchableOpacity
-                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                        onPress={() => {
-                          setTerminalOpenError(null);
-                          setOpenRetryToken(value => value + 1);
-                        }}
-                        style={[
-                          styles.terminalRetryButton,
-                          { borderColor: theme.colors.outline },
-                        ]}>
-                        <Text
+                      <View style={styles.terminalPlaceholderActions}>
+                        <TouchableOpacity
+                          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                          onPress={() => {
+                            setTerminalOpenError(null);
+                            setOpenRetryToken(value => value + 1);
+                          }}
                           style={[
-                            theme.typography.labelSm,
-                            { color: theme.colors.primary },
+                            styles.terminalRetryButton,
+                            { borderColor: theme.colors.outline },
                           ]}>
-                          {t('terminal.retry')}
-                        </Text>
-                      </TouchableOpacity>
+                          <Text
+                            style={[
+                              theme.typography.labelSm,
+                              { color: theme.colors.primary },
+                            ]}>
+                            {t('terminal.retry')}
+                          </Text>
+                        </TouchableOpacity>
+                        {/* attach 404 等失败场景：会话可能已被服务端回收，
+                            重试也救不回来 —— 始终给显式新建出口。 */}
+                        <TouchableOpacity
+                          testID="terminal-new-session"
+                          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                          accessibilityRole="button"
+                          accessibilityLabel="Start a new terminal session"
+                          disabled={!canCreateNewSession}
+                          onPress={handleCreateNewSession}
+                          style={[
+                            styles.terminalRetryButton,
+                            { borderColor: theme.colors.primary },
+                            !canCreateNewSession && styles.disabledControl,
+                          ]}>
+                          <Text
+                            style={[
+                              theme.typography.labelSm,
+                              { color: theme.colors.primary },
+                            ]}>
+                            {tReplay('replay.newSession')}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
                     ) : null}
                   </>
                 ) : (
-                  <Text
-                    style={[
-                      theme.typography.codeSm,
-                      { color: theme.colors.onSurfaceVariant },
-                    ]}
-                  >
-                    {terminalOpening
-                      ? 'Opening terminal session...'
-                      : 'Terminal session unavailable'}
-                  </Text>
+                  <>
+                    <Text
+                      testID="terminal-dead-hint"
+                      style={[
+                        theme.typography.codeSm,
+                        { color: theme.colors.onSurfaceVariant },
+                      ]}
+                    >
+                      {terminalDeadWithoutReplay
+                        ? tReplay('replay.sessionEnded')
+                        : attachInFlight
+                        ? tReplay('replay.resuming')
+                        : terminalOpening
+                        ? 'Opening terminal session...'
+                        : 'Terminal session unavailable'}
+                    </Text>
+                    <TouchableOpacity
+                      testID="terminal-new-session"
+                      activeOpacity={0.76}
+                      accessibilityRole="button"
+                      accessibilityLabel="Start a new terminal session"
+                      hitSlop={terminalControlHitSlop}
+                      disabled={!canCreateNewSession}
+                      onPress={handleCreateNewSession}
+                      style={[
+                        styles.terminalRetryButton,
+                        { borderColor: theme.colors.primary },
+                        !canCreateNewSession && styles.disabledControl,
+                      ]}>
+                      <Text
+                        style={[
+                          theme.typography.labelSm,
+                          { color: theme.colors.primary },
+                        ]}>
+                        {tReplay('replay.newSession')}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
                 )}
               </View>
             )}
 
-            {terminal ? (
+            {terminal && !terminalDeadWithoutReplay ? (
               <View
                 testID="terminal-floating-controls"
                 pointerEvents="box-none"
@@ -1714,6 +1922,27 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingHorizontal: 16,
     paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  terminalPlaceholderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  endedBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderRadius: 8,
+  },
+  endedNewSessionButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
   },

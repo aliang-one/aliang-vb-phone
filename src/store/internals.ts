@@ -14,6 +14,7 @@ import i18n from '../i18n';
 import { normalizeProvider, providerLabel } from '../utils/modelIntensity';
 import { sameRemotePath } from '../utils/remotePath';
 import { normalizeFileStatus } from '../utils/fileStatus';
+import { decodeTerminalData } from '../utils/terminalOutput';
 import {
   platformTransport,
   type PlatformAiSessionSnapshot,
@@ -104,6 +105,11 @@ export const createId = (prefix: string) =>
 // demand (loadAgentSessionDetail / loadEarlierAiMessages). tail() keeps the
 // NEWEST entries (ring-buffer semantics) since that's what the UI shows.
 export const MAX_TERMINAL_LINES = 2000; // per terminal session, ring buffer
+// Per-terminal scrollback replay budget (bytes of UTF-8 across all buffered
+// `terminal.replay` chunks). Independent of session.lines: replay chunks are
+// raw terminal bytes destined for the xterm emulator, which must not pass
+// through the lossy (fragmented + ANSI-stripped) lines path.
+export const MAX_REPLAY_CHUNKS_BYTES = 512 * 1024;
 export const MAX_RUN_EVENTS = 200; // per AI session lifecycle events
 export const MAX_SESSION_DETAIL = 8; // LRU: full transcripts held for at most this many sessions
 export const MAX_VIBE_RUNS = 50; // Maximum number of AI sessions kept in memory
@@ -1069,6 +1075,11 @@ export function serverTerminalSessionToClient(
     updatedAt: session.last_active_at,
     lastCommand: session.last_command,
     lastCommandAt: session.last_command_at,
+    // Replay state is realtime-only (never carried by REST snapshots): every
+    // freshly mapped session starts with an empty buffer.
+    replayChunks: [],
+    replayReady: false,
+    replayTruncated: false,
   };
 }
 
@@ -1081,6 +1092,112 @@ export function mergeTerminalSessionSnapshot(
   return {
     ...incoming,
     lines: existing.lines.length ? existing.lines : incoming.lines,
+    // Replay state is buffered by the realtime stream, not the snapshot: a
+    // rehydration must never drop unconsumed replayChunks.
+    replayChunks: existing.replayChunks ?? incoming.replayChunks,
+    replayReady: existing.replayReady ?? incoming.replayReady,
+    replayStatus: existing.replayStatus ?? incoming.replayStatus,
+    replayTruncated: existing.replayTruncated ?? incoming.replayTruncated,
+  };
+}
+
+// --- Terminal scrollback replay buffering -------------------------------
+// `terminal.replay` frames (attach flow) are buffered per session as
+// display-ready text chunks (base64 frames are decoded at ingest — see
+// appendTerminalReplayChunk) so the emulator can write them into xterm
+// verbatim once the final frame arrives. UTF-8 byte length is computed
+// manually: Hermes (the RN JS runtime) has no TextEncoder.
+// -------------------------------------------------------------------------
+
+/** UTF-8 byte length of a string without TextEncoder (absent on Hermes). */
+export const utf8ByteLength = (value: string): number => {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff) bytes += 4; // surrogate pair head
+    else if (code >= 0xdc00 && code <= 0xdfff) continue; // pair tail, counted with head
+    else bytes += 3;
+  }
+  return bytes;
+};
+
+/**
+ * Start a FRESH replay stream for the session: drop any buffered chunks and
+ * stale flags. Invoked when a new `terminal.replay` stream begins (seq 0, or
+ * a non-final frame landing on an already-finalized buffer) and exposed as
+ * the `resetTerminalReplay` store action for the attach flow — so a re-attach
+ * replaces the previous scrollback instead of duplicating it.
+ */
+export function beginTerminalReplayStream(
+  session: TerminalSession,
+): TerminalSession {
+  return {
+    ...session,
+    replayChunks: [],
+    replayReady: false,
+    replayStatus: undefined,
+    replayTruncated: false,
+  };
+}
+
+/**
+ * Append one `terminal.replay` chunk to the session's independent replay
+ * buffer. When the total exceeds MAX_REPLAY_CHUNKS_BYTES, whole chunks are
+ * dropped from the HEAD (oldest first) and `replayTruncated` is set — chunks
+ * are never split, so no ANSI escape or multibyte char gets corrupted at the
+ * seam. (A lone over-cap chunk is kept whole rather than split; the agent
+ * protocol caps frames at 64KB, far below the budget.) Returns the same
+ * reference for an empty chunk.
+ *
+ * Encoding contract: a stored replay chunk is ALWAYS display-ready text.
+ * `terminal.replay` frames carry the same `encoding` field as
+ * `terminal.output`; base64 frames are decoded HERE at ingest (whole-chunk,
+ * so UTF-8/ANSI boundaries stay intact) because the emulator injects every
+ * chunk with `encoding='text'` — an undecoded base64 frame would paint the
+ * whole scrollback as mojibake while identical live frames render fine.
+ */
+export function appendTerminalReplayChunk(
+  session: TerminalSession,
+  data: string,
+  encoding = 'text',
+): TerminalSession {
+  if (!data) return session;
+
+  const text = decodeTerminalData(data, encoding);
+  const existingChunks = session.replayChunks ?? [];
+  const chunks = [...existingChunks, text];
+  let truncated = session.replayTruncated ?? false;
+
+  // Bytes are tracked incrementally: chunk counts can reach the hundreds.
+  let total = utf8ByteLength(text);
+  for (const chunk of existingChunks) total += utf8ByteLength(chunk);
+  while (chunks.length > 1 && total > MAX_REPLAY_CHUNKS_BYTES) {
+    total -= utf8ByteLength(chunks[0]);
+    chunks.shift();
+    truncated = true;
+  }
+
+  return { ...session, replayChunks: chunks, replayTruncated: truncated };
+}
+
+/**
+ * Mark the replay stream complete after the final `terminal.replay` frame.
+ * `status` maps to replayStatus (anything but "exited" means the session was
+ * live). The agent's `truncated` flag is OR-ed with any locally observed
+ * truncation — either side losing scrollback means the buffer is incomplete.
+ */
+export function finalizeTerminalReplay(
+  session: TerminalSession,
+  frame?: { status?: string; truncated?: boolean },
+): TerminalSession {
+  return {
+    ...session,
+    replayReady: true,
+    replayStatus: frame?.status === 'exited' ? 'exited' : 'live',
+    replayTruncated:
+      frame?.truncated === true || (session.replayTruncated ?? false),
   };
 }
 

@@ -16,6 +16,7 @@ import {
   type ServerProject,
 } from '../api/projects';
 import {
+  attachTerminalSession as apiAttachTerminalSession,
   closeTerminalSession as apiCloseTerminalSession,
   createAiSession as apiCreateAiSession,
   deleteAiSession as apiDeleteAiSession,
@@ -157,6 +158,7 @@ export type PlatformTransportEvent =
   | { type: 'ai.session.deleted'; sessionId: string; raw: Record<string, unknown> }
   | { type: 'ai.sessions.updated'; deviceId?: string; raw: Record<string, unknown> }
   | { type: 'terminal.output'; sessionId: string; data: string; encoding: string; raw: Record<string, unknown> }
+  | { type: 'terminal.replay'; sessionId: string; data: string; encoding: string; seq: number; final: boolean; status?: string; truncated?: boolean; raw: Record<string, unknown> }
   | { type: 'terminal.created'; sessionId: string; raw: Record<string, unknown> }
   | { type: 'terminal.closed'; sessionId: string; raw: Record<string, unknown> }
   | { type: 'terminal.exit'; sessionId: string; failed: boolean; raw: Record<string, unknown> }
@@ -468,6 +470,17 @@ class PlatformTransport {
     return apiCloseTerminalSession(sessionId);
   }
 
+  /**
+   * Attach to an existing terminal session, asking the agent to replay its
+   * scrollback (`terminal.replay` chunk stream) before resuming the live feed.
+   */
+  attachTerminalSession(
+    sessionId: string,
+    input: { rows?: number; cols?: number },
+  ): Promise<ServerTerminalSession> {
+    return apiAttachTerminalSession(sessionId, input);
+  }
+
   async loadTerminalSessionCommands(
     sessionId: string,
     limit = 20,
@@ -692,6 +705,21 @@ class PlatformTransport {
         sessionId: String(message.session_id ?? ''),
         data: String(message.data ?? ''),
         encoding: String(message.encoding ?? 'text'),
+        raw: message,
+      };
+    }
+
+    if (type === 'terminal.replay') {
+      return {
+        type: 'terminal.replay',
+        sessionId: String(message.session_id ?? ''),
+        data: String(message.data ?? ''),
+        encoding: String(message.encoding ?? 'text'),
+        seq: num(message.seq) ?? 0,
+        final: Boolean(message.final),
+        status: asString(message.status),
+        truncated:
+          typeof message.truncated === 'boolean' ? message.truncated : undefined,
         raw: message,
       };
     }

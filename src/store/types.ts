@@ -87,6 +87,23 @@ export interface TerminalSession {
   updatedAt: string;
   lastCommand?: string;
   lastCommandAt?: string;
+  /**
+   * Scrollback replay chunks from `terminal.replay` frames, in arrival order.
+   * Deliberately independent of `lines` (lossy: fragmented + ANSI-stripped) and
+   * of the terminal registry's pending buffer (double-buffering seam), so a
+   * replay renders exactly once into a freshly-mounted emulator.
+   *
+   * Encoding contract: chunks are display-ready text — base64 frames are
+   * decoded at ingest (appendTerminalReplayChunk), so consumers inject them
+   * verbatim without re-checking the frame encoding.
+   */
+  replayChunks?: string[];
+  /** True once the final replay frame arrived — chunks are complete to render. */
+  replayReady?: boolean;
+  /** Status carried by the final replay frame: the session was live or already exited. */
+  replayStatus?: 'live' | 'exited';
+  /** True when part of the scrollback was dropped (agent ring eviction or the client byte cap). */
+  replayTruncated?: boolean;
 }
 
 export interface TerminalCommandHistoryItem {
@@ -320,8 +337,27 @@ export interface ControlCenterState {
     deviceId: string,
     directory?: string,
   ) => Promise<string>;
+  /**
+   * Attach to an existing terminal session (POST /attach): asks the agent to
+   * replay its scrollback (`terminal.replay` frames) before the live feed
+   * resumes. Any buffered replay from a previous attach is reset first so a
+   * re-attach replaces — never duplicates — the previous scrollback. When the
+   * session is unknown locally (cold attach after an app restart) a
+   * placeholder is registered BEFORE the request so early replay frames have
+   * somewhere to buffer; it is dropped again if the attach fails.
+   */
+  attachTerminalSession: (
+    sessionId: string,
+    options?: { deviceId?: string; rows?: number; cols?: number },
+  ) => Promise<string>;
   executeTerminalCommand: (terminalId: string, command: string) => void;
   clearTerminal: (terminalId: string) => void;
+  /**
+   * Drop the target session's buffered replay chunks and flags. The attach
+   * flow calls this before requesting scrollback so a re-attach starts a
+   * fresh stream instead of appending to (and duplicating) the previous one.
+   */
+  resetTerminalReplay: (sessionId: string) => void;
   stopTerminal: (terminalId: string) => Promise<void>;
   interruptTerminal: (terminalId: string) => void;
   loadTerminalCommandHistory: (
