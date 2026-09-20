@@ -1008,7 +1008,13 @@ export const useControlCenterStore = create<ControlCenterState>()(
                   let next = startsNewStream
                     ? beginTerminalReplayStream(ts)
                     : ts;
-                  next = appendTerminalReplayChunk(next, transportEvent.data);
+                  // encoding is normalized to display-ready text at ingest —
+                  // see appendTerminalReplayChunk's encoding contract.
+                  next = appendTerminalReplayChunk(
+                    next,
+                    transportEvent.data,
+                    transportEvent.encoding,
+                  );
                   if (transportEvent.final) {
                     next = finalizeTerminalReplay(next, {
                       status: transportEvent.status,

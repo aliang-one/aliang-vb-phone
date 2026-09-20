@@ -92,6 +92,10 @@ export interface TerminalSession {
    * Deliberately independent of `lines` (lossy: fragmented + ANSI-stripped) and
    * of the terminal registry's pending buffer (double-buffering seam), so a
    * replay renders exactly once into a freshly-mounted emulator.
+   *
+   * Encoding contract: chunks are display-ready text — base64 frames are
+   * decoded at ingest (appendTerminalReplayChunk), so consumers inject them
+   * verbatim without re-checking the frame encoding.
    */
   replayChunks?: string[];
   /** True once the final replay frame arrived — chunks are complete to render. */

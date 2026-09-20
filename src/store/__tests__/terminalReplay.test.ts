@@ -49,6 +49,7 @@ const dispatch = (event: Parameters<Dispatcher>[0]) =>
 const replayFrame = (over: {
   sessionId: string;
   data?: string;
+  encoding?: string;
   seq?: number;
   final?: boolean;
   status?: string;
@@ -57,7 +58,7 @@ const replayFrame = (over: {
   type: 'terminal.replay' as const,
   sessionId: over.sessionId,
   data: over.data ?? '',
-  encoding: 'text',
+  encoding: over.encoding ?? 'text',
   seq: over.seq ?? 0,
   final: over.final ?? false,
   status: over.status,
@@ -222,6 +223,36 @@ describe('terminal.replay buffering (dispatcher)', () => {
     expect(session.replayChunks).toEqual([]);
     expect(session.replayReady).toBe(true);
     expect(session.replayTruncated).toBe(false);
+  });
+
+  it('decodes base64 replay frames at ingest so chunks are display-ready text', () => {
+    // terminal.replay carries the same encoding field as terminal.output. A
+    // base64 scrollback frame must never reach the emulator as raw base64 —
+    // the emulator injects every chunk verbatim, so undecoded bytes would
+    // paint the scrollback as mojibake.
+    const text = '你好 $ ls\r\n';
+    const encoded = Buffer.from(text, 'utf8').toString('base64');
+    dispatch(
+      replayFrame({
+        sessionId: 'term-1',
+        data: encoded,
+        encoding: 'base64',
+        seq: 0,
+      }),
+    );
+    dispatch(
+      replayFrame({
+        sessionId: 'term-1',
+        data: encoded,
+        encoding: 'base64',
+        seq: 1,
+        final: true,
+        status: 'live',
+      }),
+    );
+
+    expect(getTerminal('term-1').replayChunks).toEqual([text, text]);
+    expect(getTerminal('term-1').replayReady).toBe(true);
   });
 
   it('drops the OLDEST chunks past the 512KB cap and flags replayTruncated', () => {
@@ -393,6 +424,20 @@ describe('appendTerminalReplayChunk (pure)', () => {
     const next = appendTerminalReplayChunk(session, 'hello\n');
     expect(next.replayChunks).toEqual(['hello\n']);
     expect(next.replayTruncated).toBe(false);
+  });
+
+  it('decodes base64 chunks to display-ready text (multibyte UTF-8 preserved)', () => {
+    const session = makeSession({ id: 'term-1' });
+    // 你 = E4 BD A0, 好 = E5 A5 BD — proves the UTF-8 re-decode path.
+    const encoded = Buffer.from('你好\n', 'utf8').toString('base64');
+    const next = appendTerminalReplayChunk(session, encoded, 'base64');
+    expect(next.replayChunks).toEqual(['你好\n']);
+  });
+
+  it('passes text chunks through verbatim (no decode round-trip)', () => {
+    const session = makeSession({ id: 'term-1' });
+    const next = appendTerminalReplayChunk(session, '$ \x1b[32mls\x1b[0m\r\n', 'text');
+    expect(next.replayChunks).toEqual(['$ \x1b[32mls\x1b[0m\r\n']);
   });
 });
 

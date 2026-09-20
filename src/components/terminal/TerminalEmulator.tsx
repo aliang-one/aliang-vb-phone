@@ -28,6 +28,11 @@ interface TerminalEmulatorProps {
    * fed by `terminal.replay` frames), in arrival order. Written into xterm
    * verbatim after the WebView is ready and BEFORE the live feed is wired, so
    * history renders exactly once and never interleaves with live output.
+   *
+   * Encoding contract: every chunk is display-ready text — the store decodes
+   * base64 replay frames at ingest (see appendTerminalReplayChunk), so chunks
+   * are injected verbatim with `encoding='text'`, mirroring the live path's
+   * end-to-end fidelity.
    */
   replayChunks?: string[];
   /**
@@ -171,6 +176,9 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
 
     if (streamComplete && chunks.length > 0 && !replayConsumedRef.current) {
       replayConsumedRef.current = true;
+      // 'text' is contractual, not incidental: the store decodes base64
+      // replay frames at ingest (appendTerminalReplayChunk), so every chunk
+      // here is display-ready text.
       chunks.forEach(chunk => {
         injectTerminalData('replay', chunk, 'text', false);
       });

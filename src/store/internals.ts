@@ -14,6 +14,7 @@ import i18n from '../i18n';
 import { normalizeProvider, providerLabel } from '../utils/modelIntensity';
 import { sameRemotePath } from '../utils/remotePath';
 import { normalizeFileStatus } from '../utils/fileStatus';
+import { decodeTerminalData } from '../utils/terminalOutput';
 import {
   platformTransport,
   type PlatformAiSessionSnapshot,
@@ -1101,10 +1102,11 @@ export function mergeTerminalSessionSnapshot(
 }
 
 // --- Terminal scrollback replay buffering -------------------------------
-// `terminal.replay` frames (attach flow) are buffered per session as raw
-// string chunks so the emulator can write them into xterm verbatim once the
-// final frame arrives. UTF-8 byte length is computed manually: Hermes (the RN
-// JS runtime) has no TextEncoder.
+// `terminal.replay` frames (attach flow) are buffered per session as
+// display-ready text chunks (base64 frames are decoded at ingest — see
+// appendTerminalReplayChunk) so the emulator can write them into xterm
+// verbatim once the final frame arrives. UTF-8 byte length is computed
+// manually: Hermes (the RN JS runtime) has no TextEncoder.
 // -------------------------------------------------------------------------
 
 /** UTF-8 byte length of a string without TextEncoder (absent on Hermes). */
@@ -1148,19 +1150,28 @@ export function beginTerminalReplayStream(
  * seam. (A lone over-cap chunk is kept whole rather than split; the agent
  * protocol caps frames at 64KB, far below the budget.) Returns the same
  * reference for an empty chunk.
+ *
+ * Encoding contract: a stored replay chunk is ALWAYS display-ready text.
+ * `terminal.replay` frames carry the same `encoding` field as
+ * `terminal.output`; base64 frames are decoded HERE at ingest (whole-chunk,
+ * so UTF-8/ANSI boundaries stay intact) because the emulator injects every
+ * chunk with `encoding='text'` — an undecoded base64 frame would paint the
+ * whole scrollback as mojibake while identical live frames render fine.
  */
 export function appendTerminalReplayChunk(
   session: TerminalSession,
   data: string,
+  encoding = 'text',
 ): TerminalSession {
   if (!data) return session;
 
+  const text = decodeTerminalData(data, encoding);
   const existingChunks = session.replayChunks ?? [];
-  const chunks = [...existingChunks, data];
+  const chunks = [...existingChunks, text];
   let truncated = session.replayTruncated ?? false;
 
   // Bytes are tracked incrementally: chunk counts can reach the hundreds.
-  let total = utf8ByteLength(data);
+  let total = utf8ByteLength(text);
   for (const chunk of existingChunks) total += utf8ByteLength(chunk);
   while (chunks.length > 1 && total > MAX_REPLAY_CHUNKS_BYTES) {
     total -= utf8ByteLength(chunks[0]);

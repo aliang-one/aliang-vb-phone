@@ -288,6 +288,9 @@ export function getTerminalHtml(isDark: boolean): string {
           } else if (type === 'replay') {
             // Scrollback replay chunk (attach flow): written verbatim, before
             // the live stream resumes — see TerminalEmulator's replay handoff.
+            // Contract: the store decodes base64 replay frames at ingest, so
+            // RN always injects replay with encoding='text'. The base64 arm
+            // below is defense-in-depth only, never exercised by that path.
             var replayChunk = encoding === 'base64'
               ? decodeBase64Utf8(payload)
               : String(payload || '');
