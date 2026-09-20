@@ -1,4 +1,7 @@
-import { groupConsecutiveToolMessageIds } from '../activityGrouping';
+import {
+  countTrailingActiveActivityGroups,
+  groupConsecutiveToolMessageIds,
+} from '../activityGrouping';
 
 const user = (id: string, content: string) => ({ id, role: 'user' as const, content });
 const assistant = (id: string, content = '') => ({
@@ -71,5 +74,76 @@ describe('groupConsecutiveToolMessageIds', () => {
         },
       ),
     ).toEqual([['old-a1', 'old-a2'], ['old-a3']]);
+  });
+});
+
+describe('countTrailingActiveActivityGroups', () => {
+  const command = (messageId: string, status: string) => ({
+    kind: 'command' as const,
+    eventId: `${messageId}:cmd`,
+    messageId,
+    itemId: '',
+    status,
+    command: 'ls',
+  });
+  const thinking = (messageId: string, active: boolean) => ({
+    kind: 'thinking' as const,
+    eventId: `${messageId}:think`,
+    messageId,
+    active,
+    chars: 0,
+  });
+  const usage = (messageId: string) => ({
+    kind: 'usage' as const,
+    eventId: `${messageId}:usage`,
+    messageId,
+    inputTokens: 1,
+    outputTokens: 1,
+  });
+  const eventsFor = (...entries: [string, unknown[]][]) =>
+    new Map(entries as [string, never[]][]);
+
+  it('returns 0 when there are no orphan groups', () => {
+    expect(countTrailingActiveActivityGroups([], new Map())).toBe(0);
+  });
+
+  it('returns 0 when the newest group is fully settled', () => {
+    const events = eventsFor(
+      ['a1', [command('a1', 'completed'), usage('a1')]],
+      ['a2', [command('a2', 'completed'), usage('a2')]],
+    );
+    expect(
+      countTrailingActiveActivityGroups([['a1'], ['a2']], events),
+    ).toBe(0);
+  });
+
+  it('returns 1 when the newest group has an in-flight command', () => {
+    const events = eventsFor(
+      ['a1', [command('a1', 'completed')]],
+      ['a2', [command('a2', 'started')]],
+    );
+    expect(
+      countTrailingActiveActivityGroups([['a1'], ['a2']], events),
+    ).toBe(1);
+  });
+
+  it('returns 1 when the newest group has active thinking', () => {
+    const events = eventsFor(['a9', [thinking('a9', true)]]);
+    expect(countTrailingActiveActivityGroups([['a9']], events)).toBe(1);
+  });
+
+  it('ignores stale in-flight activity in older groups', () => {
+    const events = eventsFor(
+      ['old', [command('old', 'started')]],
+      ['a2', [command('a2', 'completed')]],
+    );
+    expect(
+      countTrailingActiveActivityGroups([['old'], ['a2']], events),
+    ).toBe(0);
+  });
+
+  it('returns 0 when the newest group only carries usage events', () => {
+    const events = eventsFor(['a1', [usage('a1')]]);
+    expect(countTrailingActiveActivityGroups([['a1']], events)).toBe(0);
   });
 });

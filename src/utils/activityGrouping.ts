@@ -1,4 +1,7 @@
-import type { AgentMessage } from '../data/platformModels';
+import type {
+  AgentMessage,
+  StructuredActivityEvent,
+} from '../data/platformModels';
 
 export interface ActivityGroupingOptions {
   /** Do not let a recovered group grow without a visible turn boundary. */
@@ -85,4 +88,28 @@ export const groupConsecutiveToolMessageIds = (
   }
   flush();
   return groups;
+};
+
+/**
+ * 尾部孤儿活动组的默认可见数（供 useIncrementalList initialCount 用）。
+ *
+ * 历史孤儿组默认全收起（只留 LoadMoreRow 计数行），仅当最新一组里仍有
+ * 在飞活动（命令运行中 / 思考中）时保留它——否则 live 工具回合的活动
+ * 会无处显示。只看最后一组：旧组里的陈旧 started 状态（导入会话中断
+ * 的残留）不参与判定，避免把整面历史墙钉回屏幕。
+ */
+export const countTrailingActiveActivityGroups = (
+  groups: readonly string[][],
+  eventsByMessageId: ReadonlyMap<string, StructuredActivityEvent[]>,
+): number => {
+  const last = groups[groups.length - 1];
+  if (!last) return 0;
+  const hasActive = last.some(messageId =>
+    (eventsByMessageId.get(messageId) ?? []).some(
+      event =>
+        (event.kind === 'command' && event.status === 'started') ||
+        (event.kind === 'thinking' && event.active),
+    ),
+  );
+  return hasActive ? 1 : 0;
 };
