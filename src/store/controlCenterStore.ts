@@ -25,10 +25,12 @@ import type {
 } from './types';
 import {
   activityNowMs,
+  appendTerminalReplayChunk,
   attachDeviceRelations,
   createId,
   evictOverflowVibeRuns,
   event,
+  finalizeTerminalReplay,
   formatActivityLabel,
   hasMeaningfulVibeRunUpdate,
   line,
@@ -981,24 +983,88 @@ export const useControlCenterStore = create<ControlCenterState>()(
               return;
             }
 
-            case 'terminal.created':
+            case 'terminal.replay': {
+              // Scrollback frames from the attach flow buffer into the
+              // session's independent replayChunks (never `lines`, which is a
+              // lossy fragmented view, and never the registry pending buffer,
+              // which would double-render at the replay→live seam). Live
+              // terminal.output keeps flowing through its own path — the
+              // agent's outputGate guarantees the live stream starts after the
+              // replay finished. The final frame marks the buffer complete.
               set(state => ({
-                terminalSessions: state.terminalSessions.map(ts =>
-                  ts.id === transportEvent.sessionId
-                    ? { ...ts, status: 'running' as TerminalSessionStatus }
-                    : ts,
-                ),
+                terminalSessions: state.terminalSessions.map(ts => {
+                  if (ts.id !== transportEvent.sessionId) {
+                    return ts;
+                  }
+                  let next = appendTerminalReplayChunk(
+                    ts,
+                    transportEvent.data,
+                  );
+                  if (transportEvent.final) {
+                    next = finalizeTerminalReplay(next, {
+                      status: transportEvent.status,
+                      truncated: transportEvent.truncated,
+                    });
+                  }
+                  return next;
+                }),
               }));
               return;
+            }
+
+            case 'terminal.created': {
+              // Attach outcomes from the agent: `resumed:true` means a live
+              // session was found (scrollback just replayed, stream keeps
+              // running); `exited:true` means only a tombstone existed — the
+              // session is completed and its replayChunks stay for rendering.
+              // A plain created is a brand-new session: drop any stale replay
+              // state so it can't leak into the fresh terminal.
+              const exited = transportEvent.raw.exited === true;
+              const resumed = transportEvent.raw.resumed === true;
+              set(state => ({
+                terminalSessions: state.terminalSessions.map(ts => {
+                  if (ts.id !== transportEvent.sessionId) {
+                    return ts;
+                  }
+                  if (exited) {
+                    return {
+                      ...ts,
+                      status: 'completed' as TerminalSessionStatus,
+                    };
+                  }
+                  if (resumed) {
+                    return { ...ts, status: 'running' as TerminalSessionStatus };
+                  }
+                  return {
+                    ...ts,
+                    status: 'running' as TerminalSessionStatus,
+                    replayChunks: [],
+                    replayReady: false,
+                    replayStatus: undefined,
+                    replayTruncated: false,
+                  };
+                }),
+              }));
+              return;
+            }
 
             // Server-initiated close (idle-timeout reaper, agent disconnect, or
             // an explicit close from another client). Mark the local session
-            // completed so list views drop it; the PTY is already gone.
+            // completed so list views drop it; the PTY is already gone. The
+            // replay buffer is stale now — drop it so a later remount can't
+            // render scrollback that no longer matches the closed session.
             case 'terminal.closed':
               set(state => ({
                 terminalSessions: state.terminalSessions.map(ts =>
                   ts.id === transportEvent.sessionId
-                    ? { ...ts, status: 'completed' as TerminalSessionStatus }
+                    ? {
+                        ...ts,
+                        status: 'completed' as TerminalSessionStatus,
+                        replayChunks: [],
+                        replayReady: false,
+                        replayStatus: undefined,
+                        replayTruncated: false,
+                      }
                     : ts,
                 ),
                 events: [

@@ -87,6 +87,19 @@ export interface TerminalSession {
   updatedAt: string;
   lastCommand?: string;
   lastCommandAt?: string;
+  /**
+   * Scrollback replay chunks from `terminal.replay` frames, in arrival order.
+   * Deliberately independent of `lines` (lossy: fragmented + ANSI-stripped) and
+   * of the terminal registry's pending buffer (double-buffering seam), so a
+   * replay renders exactly once into a freshly-mounted emulator.
+   */
+  replayChunks?: string[];
+  /** True once the final replay frame arrived — chunks are complete to render. */
+  replayReady?: boolean;
+  /** Status carried by the final replay frame: the session was live or already exited. */
+  replayStatus?: 'live' | 'exited';
+  /** True when part of the scrollback was dropped (agent ring eviction or the client byte cap). */
+  replayTruncated?: boolean;
 }
 
 export interface TerminalCommandHistoryItem {
