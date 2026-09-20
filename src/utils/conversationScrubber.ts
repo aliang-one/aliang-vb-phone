@@ -246,6 +246,13 @@ export interface RailMarkVisual {
   height: number;
   width: number;
   opacity: number;
+  /**
+   * Color emphasis for the mark. While engaged, the mark(s) under the finger
+   * get `'focus'` (the component paints the theme accent there); everything
+   * else is `'rest'` (neutral grey) — a spotlight, not a color-splash. Idle
+   * marks are always `'rest'`; the component keeps its role silhouette then.
+   */
+  emphasis: 'focus' | 'rest';
 }
 
 /**
@@ -278,16 +285,25 @@ export const railMarkVisual = (
       height: isActive ? 18 : 8,
       width: 4,
       opacity: isActive ? 1 : isVisible ? 0.66 : 0.28,
+      emphasis: 'rest',
     };
   }
-  const { height, width, opacity } = tickScale(Math.abs(index - focusPos), {
+  const distance = Math.abs(index - focusPos);
+  const { height, width, opacity } = tickScale(distance, {
     radius: 3.2,
     baseHeight: 6,
     peakHeight: 28,
     baseWidth: 4,
     peakWidth: 10,
+    baseOpacity: 0.3,
   });
-  return { topPct, height, width, opacity: Math.max(opacity, 0.4) };
+  return {
+    topPct,
+    height,
+    width,
+    opacity: Math.max(opacity, 0.3),
+    emphasis: distance <= 0.8 ? 'focus' : 'rest',
+  };
 };
 
 /**

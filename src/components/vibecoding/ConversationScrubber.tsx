@@ -398,7 +398,12 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
                     width: visual.width,
                     marginLeft: -visual.width / 2,
                     marginTop: -visual.height / 2,
-                    backgroundColor: roleColor(mark.role),
+                    // Spotlight: the mark under the finger lights up in the
+                    // theme accent; everything else greys out.
+                    backgroundColor:
+                      visual.emphasis === 'focus'
+                        ? theme.colors.primary
+                        : roleColor(mark.role),
                     opacity: visual.opacity,
                   },
                 ]}

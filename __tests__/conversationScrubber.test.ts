@@ -357,12 +357,26 @@ describe('conversationScrubber', () => {
       expect(focus.height).toBeCloseTo(28);
       expect(focus.width).toBeCloseTo(10);
       expect(focus.opacity).toBe(1);
+      expect(focus.emphasis).toBe('focus');
       // 半径 3.2 内是波包(7 刻度全在内), 取距离 6 的远端验证 base
       const far = railMarkVisual(0, 7, 6, true, false, true);
       expect(far.height).toBeCloseTo(6);
       expect(far.width).toBeCloseTo(4);
-      expect(far.opacity).toBeCloseTo(0.45);
+      expect(far.opacity).toBeCloseTo(0.3);
+      expect(far.emphasis).toBe('rest');
       expect(focus.height).toBeGreaterThan(far.height);
+    });
+
+    it('engaged: only the focus zone gets emphasis, the rest greys out', () => {
+      // 焦点波包内(d ≤ 0.8)→ focus; 其余一律 rest(组件据此上主题色/灰)
+      expect(railMarkVisual(2, 7, 2.5, true, false, true).emphasis).toBe('focus');
+      expect(railMarkVisual(3, 7, 2.5, true, false, true).emphasis).toBe('focus');
+      expect(railMarkVisual(0, 7, 2.5, true, false, true).emphasis).toBe('rest');
+      expect(railMarkVisual(6, 7, 2.5, true, false, true).emphasis).toBe('rest');
+    });
+
+    it('idle marks never claim focus emphasis', () => {
+      expect(railMarkVisual(1, 5, 1, false, true, true).emphasis).toBe('rest');
     });
 
     it('engaged focus glides: fractional focus splits magnification between neighbors', () => {
