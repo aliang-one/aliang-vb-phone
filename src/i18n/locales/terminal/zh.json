@@ -63,6 +63,8 @@
     "sessionEnded": "会话已结束",
     "historyBelow": "以下为历史输出",
     "newSession": "新建会话",
-    "resuming": "正在恢复会话…"
+    "resuming": "正在恢复会话…",
+    "oldAgentNotice": "此设备 Agent 版本较旧，断开后无法恢复终端历史输出"
+
   }
 }

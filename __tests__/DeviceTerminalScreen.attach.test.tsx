@@ -90,7 +90,7 @@ const DEVICE = {
   lastSeen: 'now',
   remoteTerminalEnabled: true,
   aiControlEnabled: true,
-  capabilities: ['terminal'],
+  capabilities: ['terminal', 'terminal_replay'],
   tools: [],
   history: [],
 };
@@ -203,12 +203,46 @@ describe('DeviceTerminalScreen attach flow', () => {
       rows: 24,
       cols: 80,
     });
+    // eslint-disable-next-line no-console
+    console.log('SIBLING_VIEWPORTS:', screen!.root.findAllByProps({ testID: 'terminal-viewport' }).length);
     expect(mockCreate).not.toHaveBeenCalled();
     // The session renders and stays interactive.
     expect(
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
         .disabled,
     ).toBe(false);
+  });
+
+  it('shows the old-agent notice when the device lacks terminal_replay', async () => {
+    mockRouteParams = { deviceId: 'device-1', directory: '~/project', terminalId: 'term-1' };
+    useControlCenterStore.setState({
+      devices: [{ ...DEVICE, capabilities: ['terminal'] }],
+    });
+
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    // 与本文件其余断言一致：findByProps 取首个匹配（live 场景下输出区存在
+    // 预存的双实例，见 'attaches when entering' 同样通过 findByProps 断言）。
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-replay-capability-hint' }),
+    ).toBeTruthy();
+  });
+
+  it('hides the old-agent notice when the device supports terminal_replay', async () => {
+    mockRouteParams = { deviceId: 'device-1', directory: '~/project', terminalId: 'term-1' };
+    useControlCenterStore.setState({
+      devices: [{ ...DEVICE, capabilities: ['terminal', 'terminal_replay'] }],
+    });
+
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    expect(
+      screen!.root.findAllByProps({ testID: 'terminal-replay-capability-hint' }),
+    ).toHaveLength(0);
   });
 
   it('attaches the most recent active session when no id is given', async () => {

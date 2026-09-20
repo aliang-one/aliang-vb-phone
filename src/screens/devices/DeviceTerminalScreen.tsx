@@ -242,6 +242,12 @@ export const DeviceTerminalScreen: React.FC = () => {
   // Fine-grained subscriptions: only THIS device/terminal/history slices, so
   // background churn from other terminals/devices no longer re-renders here.
   const device = useDevice(route.params.deviceId);
+  // Older agents can't keep a shell alive across disconnects — surface that
+  // proactively instead of letting the user discover it after the fact.
+  // Unknown (device not loaded yet) defaults to capable so we never nag.
+  const terminalReplayCapable = device
+    ? device.capabilities.includes('terminal_replay')
+    : true;
   const terminal = useTerminalSession(terminalId);
   const sessionHistory = useControlCenterStore(state =>
     terminalId
@@ -1247,6 +1253,24 @@ export const DeviceTerminalScreen: React.FC = () => {
                 </TouchableOpacity>
               </View>
             ) : null}
+            {!terminalReplayCapable ? (
+              <View
+                testID="terminal-replay-capability-hint"
+                style={[
+                  styles.capabilityHintBar,
+                  { borderColor: outlineColor },
+                ]}
+              >
+                <Text
+                  style={[
+                    theme.typography.codeSm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {tReplay('replay.oldAgentNotice')}
+                </Text>
+              </View>
+            ) : null}
             {terminal && !terminalDeadWithoutReplay ? (
               <View
                 testID="terminal-viewport"
@@ -1939,6 +1963,13 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderWidth: 1,
     borderRadius: 8,
+  },
+  capabilityHintBar: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderRadius: 8,
+    marginBottom: 8,
   },
   endedNewSessionButton: {
     paddingHorizontal: 14,
