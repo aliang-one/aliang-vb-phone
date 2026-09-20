@@ -113,7 +113,10 @@ import {
   type ServerGoalSnapshot,
 } from '../../api/goals';
 import { fallbackApprovalStatus } from '../../utils/sessionApprovalFallback';
-import { groupConsecutiveToolMessageIds } from '../../utils/activityGrouping';
+import {
+  countTrailingActiveActivityGroups,
+  groupConsecutiveToolMessageIds,
+} from '../../utils/activityGrouping';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type SessionRoute = RouteProp<RootStackParamList, 'VibeCodingSession'>;
@@ -1653,9 +1656,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
     session,
   ]);
   // 工具巨兽会话（如 2000+ 次 Bash）的孤儿活动组可以上百，整墙上屏既淹没
-  // 对话又拖垮首帧。默认只渲染最新的几组，更早的按需展开（从尾部保留最新）。
+  // 对话又拖垮首帧。历史组默认全收起（只留 EARLIER ACTIVITY 计数行），仅当
+  // 最新一组仍有在飞活动（命令运行中/思考中）时保留那一块，settle 后随之
+  // 收起；更早的经 LoadMoreRow 按需展开。
   const orphanGroupList = useIncrementalList(orphanActivityMessageGroups, {
-    initialCount: 6,
+    initialCount: countTrailingActiveActivityGroups(
+      orphanActivityMessageGroups,
+      activityEventsByMessageId,
+    ),
     step: 12,
     from: 'end',
     resetKey: session?.id ?? 'missing',
