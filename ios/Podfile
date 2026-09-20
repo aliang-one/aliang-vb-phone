@@ -30,5 +30,15 @@ target 'AliangVibeCodingPhone' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+    # Xcode 26 工具链在 Release 全模块优化(WMO)下编译 VisionCamera 即崩
+    # (swift-frontend LLVM verify: "Global is external, but doesn't have
+    # external or weak linkage"),清缓存后必现。只把它改成单文件编译——
+    # 优化等级不变,绕开 WMO 合并阶段才触发的 verifier bug。
+    installer.pods_project.targets.each do |target|
+      next unless target.name == 'VisionCamera'
+      target.build_configurations.each do |bc|
+        bc.build_settings['SWIFT_COMPILATION_MODE'] = 'singlefile'
+      end
+    end
   end
 end
