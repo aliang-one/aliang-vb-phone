@@ -223,7 +223,10 @@ interface ConversationScrubberLayerProps {
   registerScrollY: (fn: (y: number) => void) => () => void;
 }
 
-const MAX_RAIL_MARKS = 16;
+// 20 marks keeps the idle silhouette dense while stretching the pill to
+// ~275px — a target the thumb can actually land on (16 marks ≈ 195px was
+// notoriously hard to tap, per real-device feedback).
+const MAX_RAIL_MARKS = 20;
 
 // How long a scrubber jump may wait for a just-revealed turn's layout to flush
 // before giving up (mounts + deferred layout flushes normally land in <100ms).

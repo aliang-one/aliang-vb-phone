@@ -70,4 +70,28 @@ describe('ConversationScrubber (loupe)', () => {
     // Text should be present until a gesture begins.
     expect(screen.root.findAllByType(Text)).toHaveLength(0);
   });
+
+  it('gives the slim rail a generous touch target so taps actually land', () => {
+    // 胶囊本体只有 16×~200px, 悬在右缘——裸点命中率极低。hitSlop 把可点区
+    // 撑到 ~48px 宽、上下各外扩, 视觉不变。
+    let screen!: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      screen = ReactTestRenderer.create(
+        <ConversationScrubber
+          collapsedMarks={marks}
+          stops={stops}
+          activeStopId="u1"
+          onCommit={jest.fn()}
+        />,
+      );
+    });
+
+    const rail = screen.root.find(node => node.props.testID === 'scrubber-rail');
+    expect(rail.props.hitSlop).toEqual({
+      top: 24,
+      bottom: 36,
+      left: 20,
+      right: 12,
+    });
+  });
 });

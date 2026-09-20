@@ -122,6 +122,9 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
   // boundaries, not every pixel — so heavy text re-renders stay infrequent while
   // the position stays frame-perfect via the shared value.
   const [sliding, setSliding] = useState(false);
+  // The loupe also shows on a bare PRESS (before any move): a tap on the slim
+  // rail must visibly confirm what it will jump to — release still commits.
+  const [loupeShown, setLoupeShown] = useState(false);
   const [dragStopId, setDragStopId] = useState<string | undefined>(undefined);
   // Continuous (per-pixel) drag position as a 0..1 fraction — drives the bulge so
   // it glides smoothly with the finger. The loupe text still snaps per-stop
@@ -176,6 +179,13 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
     return Math.min(Math.max(centered, LOUPE_TOP_PAD), maxTop);
   };
 
+  // Fade the loupe in at the finger. Shared by press (no move yet) and slide.
+  const showLoupe = (fingerPageY: number) => {
+    loupeY.value = loupeTopFor(fingerPageY);
+    loupeOpacity.value = withTiming(1, { duration: 120 });
+    setLoupeShown(true);
+  };
+
   const beginSlide = (moveY: number) => {
     // Elongate the pill a touch (capsule "opens up"). The rail is anchored at a
     // fixed top, so it grows downward; the drag mapping uses this grown height,
@@ -184,14 +194,14 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
     if (idleHeight > 0) {
       railGeom.current = { ...railGeom.current, height: idleHeight + RAIL_GROW };
     }
-    loupeY.value = loupeTopFor(moveY);
-    loupeOpacity.value = withTiming(1, { duration: 120 });
+    showLoupe(moveY);
     setSliding(true);
   };
 
   const endSlide = () => {
     loupeOpacity.value = 0;
     setSliding(false);
+    setLoupeShown(false);
     setDrag(undefined);
   };
 
@@ -212,20 +222,20 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
       onStartShouldSetPanResponderCapture: () => false,
       onMoveShouldSetPanResponderCapture: () => false,
       onPanResponderGrant: (_evt, gesture) => {
-        // Capture geometry up front; the loupe itself only appears on first
-        // move (a bare tap should just jump, not flash the magnifier). This
-        // gesture-time measure always applies (force) — it carries the
-        // freshest finger coordinates and self-heals any earlier poisoned
-        // decode.
+        // Capture geometry up front. This gesture-time measure always applies
+        // (force) — it carries the freshest finger coordinates and self-heals
+        // any earlier poisoned decode.
         railRef.current?.measure((_x, _y, _w, h, _pageX, pageY) => {
           railGeom.current = { pageY, height: h, pageYMeasured: true };
           const fraction = fractionFromMoveY(gesture.moveY);
           if (fraction === null) return;
           setDragFraction(fraction);
           // Prime the initial focus so a tap-without-move still commits the
-          // right spot.
+          // right spot — and show the loupe immediately: on a rail this slim,
+          // a press with zero feedback feels like the tap never landed.
           const stop = pickStopAtFraction(stopsRef.current, fraction);
           setDrag(stop?.id);
+          showLoupe(gesture.moveY);
         });
       },
       onPanResponderMove: (_evt, gesture) => {
@@ -295,6 +305,11 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
     <View style={styles.root} pointerEvents="box-none">
       <View
         ref={railRef}
+        testID="scrubber-rail"
+        // The pill is only 16px wide — hitSlop pads the touch zone (~48px wide,
+        // extra head/foot room) so near-misses still land on the rail. Visuals
+        // unchanged; fraction mapping clamps out-of-band presses to the ends.
+        hitSlop={{ top: 24, bottom: 36, left: 20, right: 12 }}
         style={[
           styles.rail,
           {
@@ -389,7 +404,7 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
         })}
       </View>
 
-      {sliding && (
+      {loupeShown && (
         <Animated.View
           pointerEvents="none"
           style={[
