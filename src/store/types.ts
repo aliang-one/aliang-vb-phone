@@ -335,6 +335,12 @@ export interface ControlCenterState {
   ) => Promise<string>;
   executeTerminalCommand: (terminalId: string, command: string) => void;
   clearTerminal: (terminalId: string) => void;
+  /**
+   * Drop the target session's buffered replay chunks and flags. The attach
+   * flow calls this before requesting scrollback so a re-attach starts a
+   * fresh stream instead of appending to (and duplicating) the previous one.
+   */
+  resetTerminalReplay: (sessionId: string) => void;
   stopTerminal: (terminalId: string) => Promise<void>;
   interruptTerminal: (terminalId: string) => void;
   loadTerminalCommandHistory: (

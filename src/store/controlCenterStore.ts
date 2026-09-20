@@ -27,6 +27,7 @@ import {
   activityNowMs,
   appendTerminalReplayChunk,
   attachDeviceRelations,
+  beginTerminalReplayStream,
   createId,
   evictOverflowVibeRuns,
   event,
@@ -996,10 +997,18 @@ export const useControlCenterStore = create<ControlCenterState>()(
                   if (ts.id !== transportEvent.sessionId) {
                     return ts;
                   }
-                  let next = appendTerminalReplayChunk(
-                    ts,
-                    transportEvent.data,
-                  );
+                  // New-stream detection: seq 0 is the stream-start marker, and
+                  // a non-final frame landing on an already-finalized buffer can
+                  // only be the head of a NEW stream (re-attach). Both reset the
+                  // buffer, so a re-attach REPLACES the previous scrollback —
+                  // never appends a duplicate of it.
+                  const startsNewStream =
+                    transportEvent.seq === 0 ||
+                    (ts.replayReady === true && !transportEvent.final);
+                  let next = startsNewStream
+                    ? beginTerminalReplayStream(ts)
+                    : ts;
+                  next = appendTerminalReplayChunk(next, transportEvent.data);
                   if (transportEvent.final) {
                     next = finalizeTerminalReplay(next, {
                       status: transportEvent.status,

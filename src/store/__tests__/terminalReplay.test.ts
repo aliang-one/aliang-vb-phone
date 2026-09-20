@@ -8,6 +8,7 @@ jest.mock('../../services/platformTransport', () => ({
 
 import {
   appendTerminalReplayChunk,
+  beginTerminalReplayStream,
   emptySessionData,
   finalizeTerminalReplay,
   MAX_REPLAY_CHUNKS_BYTES,
@@ -128,10 +129,11 @@ describe('terminal.replay buffering (dispatcher)', () => {
   });
 
   it('final frame with status "exited" records the exited replay status', () => {
-    dispatch(replayFrame({ sessionId: 'term-1', data: 'crash log\n' }));
+    dispatch(replayFrame({ sessionId: 'term-1', data: 'crash log\n', seq: 0 }));
     dispatch(
       replayFrame({
         sessionId: 'term-1',
+        seq: 1,
         final: true,
         status: 'exited',
         truncated: false,
@@ -139,8 +141,87 @@ describe('terminal.replay buffering (dispatcher)', () => {
     );
 
     const session = getTerminal('term-1');
+    expect(session.replayChunks).toEqual(['crash log\n']);
     expect(session.replayReady).toBe(true);
     expect(session.replayStatus).toBe('exited');
+  });
+
+  it('a re-attach (second replay stream) REPLACES the previous buffer, never duplicates', () => {
+    // Attach #1: replay scrollback, then the agent confirms a live resume.
+    dispatch(replayFrame({ sessionId: 'term-1', data: 'FIRST\r\n', seq: 0 }));
+    dispatch(
+      replayFrame({ sessionId: 'term-1', seq: 1, final: true, status: 'live' }),
+    );
+    dispatch({
+      type: 'terminal.created',
+      sessionId: 'term-1',
+      raw: { resumed: true },
+    });
+
+    // Attach #2 (terminal screen remount): a new stream must start clean —
+    // seq 0 is the stream-start marker, so the old scrollback is dropped.
+    dispatch(replayFrame({ sessionId: 'term-1', data: 'SECOND\r\n', seq: 0 }));
+    dispatch(
+      replayFrame({ sessionId: 'term-1', seq: 1, final: true, status: 'live' }),
+    );
+
+    const session = getTerminal('term-1');
+    expect(session.replayChunks).toEqual(['SECOND\r\n']);
+    expect(session.replayReady).toBe(true);
+    expect(session.replayTruncated).toBe(false);
+  });
+
+  it('a non-final frame on an already-finalized buffer starts a fresh stream even without a seq-0 marker', () => {
+    dispatch(replayFrame({ sessionId: 'term-1', data: 'OLD\r\n', seq: 0 }));
+    dispatch(
+      replayFrame({ sessionId: 'term-1', seq: 1, final: true, status: 'live' }),
+    );
+
+    // A stream that never reports seq 0: the finalized buffer is itself proof
+    // the previous stream ended, so a non-final frame can only be a new head.
+    dispatch(replayFrame({ sessionId: 'term-1', data: 'NEW\r\n', seq: 7 }));
+
+    expect(getTerminal('term-1').replayChunks).toEqual(['NEW\r\n']);
+  });
+
+  it('a fresh stream resets stale truncated/ready/status flags', () => {
+    seedStore([
+      makeSession({
+        id: 'term-1',
+        replayChunks: ['stale\n'],
+        replayReady: true,
+        replayStatus: 'exited',
+        replayTruncated: true,
+      }),
+    ]);
+    dispatch(replayFrame({ sessionId: 'term-1', data: 'fresh\n', seq: 0 }));
+
+    const session = getTerminal('term-1');
+    expect(session.replayChunks).toEqual(['fresh\n']);
+    expect(session.replayReady).toBe(false);
+    expect(session.replayStatus).toBeUndefined();
+    expect(session.replayTruncated).toBe(false);
+  });
+
+  it('an empty re-attach (seq-0 final frame only) clears stale scrollback', () => {
+    // Attach #1 had scrollback; attach #2 finds none — the lone seq-0 final
+    // frame IS the whole fresh stream, so the stale chunks must not survive.
+    seedStore([
+      makeSession({
+        id: 'term-1',
+        replayChunks: ['old\r\n'],
+        replayReady: true,
+        replayStatus: 'live',
+      }),
+    ]);
+    dispatch(
+      replayFrame({ sessionId: 'term-1', seq: 0, final: true, status: 'live' }),
+    );
+
+    const session = getTerminal('term-1');
+    expect(session.replayChunks).toEqual([]);
+    expect(session.replayReady).toBe(true);
+    expect(session.replayTruncated).toBe(false);
   });
 
   it('drops the OLDEST chunks past the 512KB cap and flags replayTruncated', () => {
@@ -183,8 +264,10 @@ describe('terminal.created resumed/exited state machine (dispatcher)', () => {
   });
 
   it('created{resumed:true} keeps the session running with its replay chunks', () => {
-    dispatch(replayFrame({ sessionId: 'term-1', data: '$ ls\r\n' }));
-    dispatch(replayFrame({ sessionId: 'term-1', final: true, status: 'live' }));
+    dispatch(replayFrame({ sessionId: 'term-1', data: '$ ls\r\n', seq: 0 }));
+    dispatch(
+      replayFrame({ sessionId: 'term-1', seq: 1, final: true, status: 'live' }),
+    );
     dispatch({
       type: 'terminal.created',
       sessionId: 'term-1',
@@ -198,9 +281,9 @@ describe('terminal.created resumed/exited state machine (dispatcher)', () => {
   });
 
   it('created{exited:true} completes the session and KEEPS replay chunks', () => {
-    dispatch(replayFrame({ sessionId: 'term-1', data: 'crash log\n' }));
+    dispatch(replayFrame({ sessionId: 'term-1', data: 'crash log\n', seq: 0 }));
     dispatch(
-      replayFrame({ sessionId: 'term-1', final: true, status: 'exited' }),
+      replayFrame({ sessionId: 'term-1', seq: 1, final: true, status: 'exited' }),
     );
     dispatch({
       type: 'terminal.created',
@@ -256,10 +339,53 @@ describe('terminal.closed clears replay state (dispatcher)', () => {
   });
 });
 
+describe('resetTerminalReplay action', () => {
+  it('clears the replay buffer of only the target session (P4 attach hook)', () => {
+    seedStore([
+      makeSession({
+        id: 'term-1',
+        replayChunks: ['old\n'],
+        replayReady: true,
+        replayStatus: 'live',
+        replayTruncated: true,
+      }),
+      makeSession({ id: 'term-2', replayChunks: ['keep\n'] }),
+    ]);
+
+    useControlCenterStore.getState().resetTerminalReplay('term-1');
+
+    const target = getTerminal('term-1');
+    expect(target.replayChunks).toEqual([]);
+    expect(target.replayReady).toBe(false);
+    expect(target.replayStatus).toBeUndefined();
+    expect(target.replayTruncated).toBe(false);
+    // Sibling sessions are untouched.
+    expect(getTerminal('term-2').replayChunks).toEqual(['keep\n']);
+  });
+});
+
 describe('appendTerminalReplayChunk (pure)', () => {
   it('returns the same reference for an empty chunk', () => {
     const session = makeSession({ id: 'term-1' });
     expect(appendTerminalReplayChunk(session, '')).toBe(session);
+  });
+
+  it('beginTerminalReplayStream returns a session with clean replay state', () => {
+    const stale = makeSession({
+      id: 'term-1',
+      replayChunks: ['old\n'],
+      replayReady: true,
+      replayStatus: 'exited',
+      replayTruncated: true,
+    });
+    const fresh = beginTerminalReplayStream(stale);
+    expect(fresh.replayChunks).toEqual([]);
+    expect(fresh.replayReady).toBe(false);
+    expect(fresh.replayStatus).toBeUndefined();
+    expect(fresh.replayTruncated).toBe(false);
+    // Non-replay fields untouched.
+    expect(fresh.lines).toBe(stale.lines);
+    expect(fresh.status).toBe(stale.status);
   });
 
   it('appends to an undefined buffer as if it were empty', () => {

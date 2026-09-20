@@ -7,6 +7,7 @@ import type {
   TerminalSessionStatus,
 } from '../types';
 import {
+  beginTerminalReplayStream,
   event,
   line,
   MAX_TERMINAL_LINES,
@@ -22,6 +23,7 @@ type TerminalSlice = Pick<
   | 'createTerminalSession'
   | 'executeTerminalCommand'
   | 'clearTerminal'
+  | 'resetTerminalReplay'
   | 'stopTerminal'
   | 'interruptTerminal'
   | 'loadTerminalCommandHistory'
@@ -145,6 +147,14 @@ export const createTerminalSlice: StateCreator<
               ],
             }
           : item,
+      ),
+    }));
+  },
+
+  resetTerminalReplay: sessionId => {
+    set(state => ({
+      terminalSessions: state.terminalSessions.map(item =>
+        item.id === sessionId ? beginTerminalReplayStream(item) : item,
       ),
     }));
   },

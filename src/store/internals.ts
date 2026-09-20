@@ -1122,6 +1122,25 @@ export const utf8ByteLength = (value: string): number => {
 };
 
 /**
+ * Start a FRESH replay stream for the session: drop any buffered chunks and
+ * stale flags. Invoked when a new `terminal.replay` stream begins (seq 0, or
+ * a non-final frame landing on an already-finalized buffer) and exposed as
+ * the `resetTerminalReplay` store action for the attach flow — so a re-attach
+ * replaces the previous scrollback instead of duplicating it.
+ */
+export function beginTerminalReplayStream(
+  session: TerminalSession,
+): TerminalSession {
+  return {
+    ...session,
+    replayChunks: [],
+    replayReady: false,
+    replayStatus: undefined,
+    replayTruncated: false,
+  };
+}
+
+/**
  * Append one `terminal.replay` chunk to the session's independent replay
  * buffer. When the total exceeds MAX_REPLAY_CHUNKS_BYTES, whole chunks are
  * dropped from the HEAD (oldest first) and `replayTruncated` is set — chunks
