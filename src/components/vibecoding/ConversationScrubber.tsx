@@ -55,14 +55,18 @@ const LOUPE_WIDTH = 238;
 const LOUPE_HEIGHT = 104;
 const LOUPE_TOP_PAD = 96; // keep the box below the nav/header
 const LOUPE_BOTTOM_PAD = 168; // keep it clear of the input panel
-// During a slide: (1) the pill elongates by RAIL_GROW so the bulge has room and
-// the capsule visibly "opens up"; (2) marks within FISHEYE_RADIUS of the focus
-// MAGNIFY in BOTH height and width and brighten — center-anchored so the
-// located position protrudes symmetrically out of the pill. Marks go absolute
-// while sliding so growing one never reflows the others; the pill keeps
-// overflow visible so the bulge can spill past its edges. At rest the pill is
-// the dense flex column, untouched.
-const RAIL_GROW = 30;
+// Loupe entrance/exit: pop in (fade + slight scale-up), shrink back on release.
+// The bubble stays mounted through the fade so the exit never snaps.
+const LOUPE_HIDDEN_SCALE = 0.94;
+const LOUPE_SHOW_MS = 130;
+const LOUPE_HIDE_MS = 130;
+const LOUPE_UNMOUNT_MS = 170;
+// While the finger is down, marks within FISHEYE_RADIUS of the focus MAGNIFY
+// in BOTH height and width and brighten — center-anchored so the located
+// position protrudes symmetrically out of the pill. Marks go absolute while
+// the finger is down (so magnifying one never reflows the others); the pill
+// keeps overflow visible so the bulge can spill past its edges. At rest the
+// pill is the dense flex column, untouched.
 const FISHEYE_RADIUS = 2.6;
 const FISHEYE_BASE_HEIGHT = 6;
 const FISHEYE_PEAK_HEIGHT = 28;
@@ -74,15 +78,17 @@ const RAIL_TOUCH_WIDTH = 48;
  * Right-edge conversation locator — a dense minimap pill by default, with a
  * magnifier that appears ONLY while sliding.
  *
- * Idle: the original compact silhouette pill (≤16 sampled, role-tinted marks,
- * the active one taller). It looks exactly like the always-there locator — we
- * do not touch its appearance at rest.
+ * Idle: the compact silhouette pill (≤20 sampled, role-tinted marks, the
+ * active one taller). It looks exactly like the always-there locator — we do
+ * not touch its appearance at rest.
  *
- * Slide: press and drag the pill. On the first move a loupe bubble fades in
- * beside the finger, following it on the UI thread (reanimated shared value),
- * showing the user prompt at that position; the marks near the finger brighten
- * (spotlight). Release commits — the chat scrolls to that message — and the
- * magnifier vanishes ("停下→进入"). A bare tap (no slide) just jumps, no loupe.
+ * Press: the whole gesture reads as one continuous motion from the first frame
+ * — marks redistribute to even slots, the fisheye bulges at the pressed stop,
+ * and the loupe pops in showing the prompt there. Dragging glides the bulge
+ * (continuous) while the title snaps per stop (discrete reads better than a
+ * blur of half-titles). Release commits — the chat scrolls to that message —
+ * and the bubble shrinks away ("停下→进入"). A bare tap is just press+release:
+ * preview then jump.
  *
  * No full-screen backdrop, no expand: the conversation stays visible.
  */
@@ -109,12 +115,14 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
     pageYMeasured: false,
   });
 
-  // Loupe position follows the finger on the UI thread; opacity fades it in.
+  // Loupe position follows the finger; opacity + scale give the bubble a soft
+  // pop-in / shrink-out instead of a snap.
   const loupeY = useSharedValue(0);
   const loupeOpacity = useSharedValue(0);
+  const loupeScale = useSharedValue(LOUPE_HIDDEN_SCALE);
   const loupeStyle = useAnimatedStyle(() => ({
     opacity: loupeOpacity.value,
-    transform: [{ translateY: loupeY.value }],
+    transform: [{ translateY: loupeY.value }, { scale: loupeScale.value }],
   }));
 
   // Loupe + spotlight mount only while sliding. dragStopId holds the stop under
@@ -140,6 +148,14 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
   const dragStopIdRef = useRef<string | undefined>(undefined);
   const slidingRef = useRef(false);
   slidingRef.current = sliding;
+  // Keeps the bubble mounted through its fade-out; a fresh press cancels it.
+  const loupeHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (loupeHideTimer.current) clearTimeout(loupeHideTimer.current);
+    },
+    [],
+  );
 
   const setDrag = (id: string | undefined) => {
     dragStopIdRef.current = id;
@@ -149,8 +165,8 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
   // Apply fresh on-screen geometry from measure(). `force` marks gesture-time
   // measures (grant), which must always land — they carry the freshest finger
   // coordinates and self-heal an earlier poisoned decode. Layout/mount-driven
-  // measures are skipped mid-slide so a queued callback can never clobber the
-  // grown slide height.
+  // measures are skipped mid-gesture so a queued callback can never shift the
+  // mapping under the finger.
   const applyRailMeasure = useCallback((force: boolean) => {
     railRef.current?.measure((_x, _y, _w, height, _pageX, pageY) => {
       if (!force && slidingRef.current) return;
@@ -179,30 +195,34 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
     return Math.min(Math.max(centered, LOUPE_TOP_PAD), maxTop);
   };
 
-  // Fade the loupe in at the finger. Shared by press (no move yet) and slide.
+  // Pop the loupe in at the finger (shared by press and slide). Cancels any
+  // pending hide so a quick re-press during the fade-out keeps the bubble up.
   const showLoupe = (fingerPageY: number) => {
+    if (loupeHideTimer.current) {
+      clearTimeout(loupeHideTimer.current);
+      loupeHideTimer.current = null;
+    }
     loupeY.value = loupeTopFor(fingerPageY);
-    loupeOpacity.value = withTiming(1, { duration: 120 });
+    loupeScale.value = LOUPE_HIDDEN_SCALE;
+    loupeScale.value = withTiming(1, { duration: LOUPE_SHOW_MS });
+    loupeOpacity.value = withTiming(1, { duration: LOUPE_SHOW_MS });
     setLoupeShown(true);
   };
 
-  const beginSlide = (moveY: number) => {
-    // Elongate the pill a touch (capsule "opens up"). The rail is anchored at a
-    // fixed top, so it grows downward; the drag mapping uses this grown height,
-    // keeping the finger aligned with the (redistributed) marks from frame one.
-    const idleHeight = railGeom.current.height;
-    if (idleHeight > 0) {
-      railGeom.current = { ...railGeom.current, height: idleHeight + RAIL_GROW };
-    }
-    showLoupe(moveY);
-    setSliding(true);
-  };
-
+  // Soften the exit: fade + shrink, and only unmount after the animation ends
+  // — releasing snaps the chat to the target while the bubble fades over it.
   const endSlide = () => {
-    loupeOpacity.value = 0;
+    loupeOpacity.value = withTiming(0, { duration: LOUPE_HIDE_MS });
+    loupeScale.value = withTiming(LOUPE_HIDDEN_SCALE, {
+      duration: LOUPE_HIDE_MS,
+    });
     setSliding(false);
-    setLoupeShown(false);
     setDrag(undefined);
+    if (loupeHideTimer.current) clearTimeout(loupeHideTimer.current);
+    loupeHideTimer.current = setTimeout(
+      () => setLoupeShown(false),
+      LOUPE_UNMOUNT_MS,
+    );
   };
 
   const panResponder = useRef(
@@ -231,19 +251,19 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
           if (fraction === null) return;
           setDragFraction(fraction);
           // Prime the initial focus so a tap-without-move still commits the
-          // right spot — and show the loupe immediately: on a rail this slim,
-          // a press with zero feedback feels like the tap never landed.
+          // right spot. One coordinated entrance ON PRESS: marks redistribute
+          // to even slots, the fisheye focuses the pressed stop, and the
+          // loupe pops in — slide and tap read as a single continuous gesture
+          // from the first frame (no mid-gesture layout snaps).
           const stop = pickStopAtFraction(stopsRef.current, fraction);
           setDrag(stop?.id);
+          setSliding(true);
           showLoupe(gesture.moveY);
         });
       },
       onPanResponderMove: (_evt, gesture) => {
-        if (!slidingRef.current) {
-          beginSlide(gesture.moveY);
-        } else {
-          loupeY.value = loupeTopFor(gesture.moveY);
-        }
+        if (!slidingRef.current) setSliding(true);
+        loupeY.value = loupeTopFor(gesture.moveY);
         const fraction = fractionFromMoveY(gesture.moveY);
         // Geometry not measured yet: decoding would clamp to 1 and pin the
         // loupe/commit to the newest stop. Skip until measure lands (the
@@ -285,21 +305,21 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
         : theme.colors.onSurfaceVariant;
 
   // Loupe text focuses on the stop under the finger (discrete, cheap). The
-  // bulge focus is continuous so it glides with the finger — but it must land
-  // on the mark that REPRESENTS the focused stop (marks sample the stop list,
-  // so raw drag fraction drifts ±1 once the list exceeds the sample size).
+  // bulge, by contrast, GLIDES: it interpolates the exact fractional stop
+  // position through the mark↔stop mapping (marks sample the stop list, so
+  // raw drag fraction would drift ±1 once the list exceeds the sample size).
+  // Gated on loupeShown so a bare press already bulges at the pressed mark.
   const focusStopId = dragStopId ?? activeStopId;
   const focusStopIndex = focusStopId
     ? stops.findIndex(stop => stop.id === focusStopId)
     : -1;
   const focusStop = focusStopIndex >= 0 ? stops[focusStopIndex] : undefined;
-  const focusMarkPos = sliding
-    ? markStopIndices &&
-      markStopIndices.length === collapsedMarks.length &&
-      focusStopIndex >= 0
-      ? markPositionForStop(markStopIndices, focusStopIndex)
-      : dragFraction * (collapsedMarks.length - 1)
-    : 0;
+  const continuousStopPos = dragFraction * Math.max(0, stops.length - 1);
+  const focusMarkPos = !loupeShown
+    ? 0
+    : markStopIndices && markStopIndices.length === collapsedMarks.length
+      ? markPositionForStop(markStopIndices, continuousStopPos)
+      : dragFraction * (collapsedMarks.length - 1);
 
   return (
     <View style={styles.root} pointerEvents="box-none">
@@ -320,16 +340,6 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
               ? 'rgba(255, 255, 255, 0.08)'
               : theme.colors.outlineVariant,
           },
-          // While sliding the marks are absolutely positioned (out of flow) and
-          // the pill elongates by RAIL_GROW, so pin both height and maxHeight to
-          // the grown size — otherwise maxHeight:210 would clamp the growth and
-          // the percentage-positioned marks would lose their reference.
-          sliding && railGeom.current.height > 0
-            ? {
-                height: railGeom.current.height,
-                maxHeight: railGeom.current.height,
-              }
-            : null,
         ]}
         onLayout={({ nativeEvent }) => {
           railGeom.current = {
@@ -337,8 +347,8 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
             height: nativeEvent.layout.height,
           };
           // Height changed → re-measure so pageY/height stay truthful for the
-          // next gesture. Skipped mid-slide by applyRailMeasure, so a queued
-          // callback can't clobber the grown height.
+          // next gesture. Skipped mid-gesture by applyRailMeasure, so a queued
+          // callback can't shift the mapping under the finger.
           applyRailMeasure(false);
         }}
         {...panResponder.panHandlers}
@@ -512,15 +522,15 @@ const styles = StyleSheet.create({
     right: 38,
     top: 0,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 10,
     gap: 4,
     overflow: 'visible',
     elevation: 10,
     shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.24,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 5 },
   },
   loupeCaret: {
     position: 'absolute',
