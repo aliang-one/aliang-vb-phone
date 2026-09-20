@@ -222,6 +222,56 @@ export const markPositionForStop = (
   return count - 1;
 };
 
+export interface RailMarkVisual {
+  /** Vertical center of the mark, as % of the rail height. */
+  topPct: number;
+  height: number;
+  width: number;
+  opacity: number;
+}
+
+/**
+ * Visual state of ONE rail mark — the single source of truth for the rail's
+ * two states, so their geometry can't drift apart:
+ *
+ * - idle (`engaged: false`): the compact silhouette — active mark tallest,
+ *   mounted turns dimmer, unmounted dimmest.
+ * - engaged (`engaged: true`, finger down): the fisheye bulge — marks near
+ *   `focusPos` (a continuous mark-space position) magnify in height and width
+ *   and brighten, so the located position protrudes out of the pill.
+ *
+ * Marks ALWAYS lay out at an even percentage of the rail height. The rail
+ * itself declares an explicit height (marks render absolutely, out of the
+ * document flow) — without that pairing, pressing the rail collapses the pill
+ * to its padding and every mark stacks into a single dot.
+ */
+export const railMarkVisual = (
+  index: number,
+  markCount: number,
+  focusPos: number,
+  engaged: boolean,
+  isActive: boolean,
+  isVisible: boolean,
+): RailMarkVisual => {
+  const topPct = markCount > 1 ? (index / (markCount - 1)) * 100 : 50;
+  if (!engaged) {
+    return {
+      topPct,
+      height: isActive ? 18 : 8,
+      width: 4,
+      opacity: isActive ? 1 : isVisible ? 0.66 : 0.28,
+    };
+  }
+  const { height, width, opacity } = tickScale(Math.abs(index - focusPos), {
+    radius: 2.6,
+    baseHeight: 6,
+    peakHeight: 28,
+    baseWidth: 4,
+    peakWidth: 9,
+  });
+  return { topPct, height, width, opacity: Math.max(opacity, 0.4) };
+};
+
 /**
  * A fisheye ("magnifier") size for one rail tick, given its distance from the
  * currently focused stop. The focused stop is full size; ticks within `radius`

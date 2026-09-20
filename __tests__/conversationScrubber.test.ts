@@ -4,6 +4,7 @@ import {
   deriveTurnScrubberStops,
   pickStopAtFraction,
   railFractionAt,
+  railMarkVisual,
   sampleRailIndices,
   markPositionForStop,
   tickScale,
@@ -308,6 +309,51 @@ describe('conversationScrubber', () => {
       stops.forEach((turnIndex, markIndex) => {
         expect(markPositionForStop(stops, turnIndex)).toBeCloseTo(markIndex, 6);
       });
+    });
+  });
+
+  describe('railMarkVisual', () => {
+    it('spreads marks evenly by index in both states (topPct contract)', () => {
+      expect(railMarkVisual(0, 5, 0, false, false, true).topPct).toBe(0);
+      expect(railMarkVisual(4, 5, 4, false, false, true).topPct).toBe(100);
+      expect(railMarkVisual(2, 5, 2, true, false, true).topPct).toBe(50);
+    });
+
+    it('centers a single mark at 50%', () => {
+      expect(railMarkVisual(0, 1, 0, true, false, true).topPct).toBe(50);
+    });
+
+    it('idle silhouette: active tallest, mounted dimmer, unseen dimmest', () => {
+      const active = railMarkVisual(1, 5, 0, false, true, true);
+      expect(active.height).toBe(18);
+      expect(active.width).toBe(4);
+      expect(active.opacity).toBe(1);
+      const visible = railMarkVisual(0, 5, 0, false, false, true);
+      expect(visible.height).toBe(8);
+      expect(visible.opacity).toBe(0.66);
+      const hidden = railMarkVisual(0, 5, 0, false, false, false);
+      expect(hidden.height).toBe(8);
+      expect(hidden.opacity).toBe(0.28);
+    });
+
+    it('engaged: focused mark peaks, far marks sit at the fisheye base', () => {
+      const focus = railMarkVisual(3, 7, 3, true, false, true);
+      expect(focus.height).toBeCloseTo(28);
+      expect(focus.width).toBeCloseTo(9);
+      expect(focus.opacity).toBe(1);
+      const far = railMarkVisual(0, 7, 3, true, false, true);
+      expect(far.height).toBeCloseTo(6);
+      expect(far.width).toBeCloseTo(4);
+      expect(far.opacity).toBeCloseTo(0.45);
+      expect(focus.height).toBeGreaterThan(far.height);
+    });
+
+    it('engaged focus glides: fractional focus splits magnification between neighbors', () => {
+      const above = railMarkVisual(2, 7, 2.5, true, false, true);
+      const below = railMarkVisual(3, 7, 2.5, true, false, true);
+      expect(above.height).toBeCloseTo(below.height, 5);
+      expect(above.height).toBeGreaterThan(6);
+      expect(above.height).toBeLessThan(28);
     });
   });
 

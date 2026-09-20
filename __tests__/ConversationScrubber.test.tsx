@@ -94,4 +94,27 @@ describe('ConversationScrubber (loupe)', () => {
       right: 12,
     });
   });
+
+  it('keeps an explicit rail height so absolute marks can never collapse it', () => {
+    // 刻度全程 absolute 定位(脱离文档流)——轨道高度必须显式声明,
+    // 否则按下瞬间胶囊塌缩成一个点("只剩一个点"回归)。
+    let screen!: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      screen = ReactTestRenderer.create(
+        <ConversationScrubber
+          collapsedMarks={marks}
+          stops={stops}
+          activeStopId="u1"
+          onCommit={jest.fn()}
+        />,
+      );
+    });
+
+    const rail = screen.root.find(node => node.props.testID === 'scrubber-rail');
+    const style: Record<string, unknown> = Object.assign(
+      {},
+      ...(Array.isArray(rail.props.style) ? rail.props.style : [rail.props.style]),
+    );
+    expect(style.height).toBe(276);
+  });
 });

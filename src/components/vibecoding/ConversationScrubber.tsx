@@ -17,7 +17,7 @@ import {
   markPositionForStop,
   pickStopAtFraction,
   railFractionAt,
-  tickScale,
+  railMarkVisual,
   type RailGeometry,
   type ScrubberStop,
 } from '../../utils/conversationScrubber';
@@ -61,17 +61,11 @@ const LOUPE_HIDDEN_SCALE = 0.94;
 const LOUPE_SHOW_MS = 130;
 const LOUPE_HIDE_MS = 130;
 const LOUPE_UNMOUNT_MS = 170;
-// While the finger is down, marks within FISHEYE_RADIUS of the focus MAGNIFY
-// in BOTH height and width and brighten — center-anchored so the located
-// position protrudes symmetrically out of the pill. Marks go absolute while
-// the finger is down (so magnifying one never reflows the others); the pill
-// keeps overflow visible so the bulge can spill past its edges. At rest the
-// pill is the dense flex column, untouched.
-const FISHEYE_RADIUS = 2.6;
-const FISHEYE_BASE_HEIGHT = 6;
-const FISHEYE_PEAK_HEIGHT = 28;
-const FISHEYE_BASE_WIDTH = 4;
-const FISHEYE_PEAK_WIDTH = 9;
+// The rail's height is EXPLICIT, never content-driven: marks render absolutely
+// (out of flow) in BOTH states — idle silhouette and fisheye — so the pill
+// cannot collapse when marks leave the flow, and idle/slide share one geometry
+// (the drag fraction's denominator). Sized to breathe at 20 marks.
+const RAIL_HEIGHT = 276;
 const RAIL_TOUCH_WIDTH = 48;
 
 /**
@@ -125,13 +119,10 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
     transform: [{ translateY: loupeY.value }, { scale: loupeScale.value }],
   }));
 
-  // Loupe + spotlight mount only while sliding. dragStopId holds the stop under
-  // the finger (drives loupe content + spotlight focus); it updates on stop
-  // boundaries, not every pixel — so heavy text re-renders stay infrequent while
-  // the position stays frame-perfect via the shared value.
-  const [sliding, setSliding] = useState(false);
-  // The loupe also shows on a bare PRESS (before any move): a tap on the slim
-  // rail must visibly confirm what it will jump to — release still commits.
+  // Finger-down state (press OR drag). dragStopId holds the stop under the
+  // finger (drives loupe content + fisheye focus); it updates on stop
+  // boundaries, not every pixel — so heavy text re-renders stay infrequent
+  // while the position stays frame-perfect via the shared value.
   const [loupeShown, setLoupeShown] = useState(false);
   const [dragStopId, setDragStopId] = useState<string | undefined>(undefined);
   // Continuous (per-pixel) drag position as a 0..1 fraction — drives the bulge so
@@ -146,8 +137,8 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
   const onCommitRef = useRef(onCommit);
   onCommitRef.current = onCommit;
   const dragStopIdRef = useRef<string | undefined>(undefined);
-  const slidingRef = useRef(false);
-  slidingRef.current = sliding;
+  const engagedRef = useRef(false);
+  engagedRef.current = loupeShown;
   // Keeps the bubble mounted through its fade-out; a fresh press cancels it.
   const loupeHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -169,7 +160,7 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
   // mapping under the finger.
   const applyRailMeasure = useCallback((force: boolean) => {
     railRef.current?.measure((_x, _y, _w, height, _pageX, pageY) => {
-      if (!force && slidingRef.current) return;
+      if (!force && engagedRef.current) return;
       railGeom.current = { pageY, height, pageYMeasured: true };
     });
   }, []);
@@ -216,7 +207,6 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
     loupeScale.value = withTiming(LOUPE_HIDDEN_SCALE, {
       duration: LOUPE_HIDE_MS,
     });
-    setSliding(false);
     setDrag(undefined);
     if (loupeHideTimer.current) clearTimeout(loupeHideTimer.current);
     loupeHideTimer.current = setTimeout(
@@ -251,18 +241,15 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
           if (fraction === null) return;
           setDragFraction(fraction);
           // Prime the initial focus so a tap-without-move still commits the
-          // right spot. One coordinated entrance ON PRESS: marks redistribute
-          // to even slots, the fisheye focuses the pressed stop, and the
-          // loupe pops in — slide and tap read as a single continuous gesture
-          // from the first frame (no mid-gesture layout snaps).
+          // right spot. One coordinated entrance ON PRESS: the fisheye
+          // focuses the pressed stop and the loupe pops in — slide and tap
+          // read as a single continuous gesture from the first frame.
           const stop = pickStopAtFraction(stopsRef.current, fraction);
           setDrag(stop?.id);
-          setSliding(true);
           showLoupe(gesture.moveY);
         });
       },
       onPanResponderMove: (_evt, gesture) => {
-        if (!slidingRef.current) setSliding(true);
         loupeY.value = loupeTopFor(gesture.moveY);
         const fraction = fractionFromMoveY(gesture.moveY);
         // Geometry not measured yet: decoding would clamp to 1 and pin the
@@ -354,59 +341,32 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
         {...panResponder.panHandlers}
       >
         {collapsedMarks.map((mark, index) => {
-          const role = roleColor(mark.role);
-          if (sliding) {
-            // Magnifier: marks pin to even fractions (absolute → no reflow) and
-            // bulge in BOTH height and width toward the (continuous) focus,
-            // brightening as they grow. Each mark is center-anchored on its slot
-            // (marginTop/Left = -half) so the bulge protrudes symmetrically — the
-            // located position visibly pops out of the pill (rail overflow is
-            // visible). This is the "magnifying glass over the rail" effect.
-            const topPct =
-              collapsedMarks.length > 1
-                ? (index / (collapsedMarks.length - 1)) * 100
-                : 50;
-            const { height, width, opacity } = tickScale(
-              Math.abs(index - focusMarkPos),
-              {
-                radius: FISHEYE_RADIUS,
-                baseHeight: FISHEYE_BASE_HEIGHT,
-                peakHeight: FISHEYE_PEAK_HEIGHT,
-                baseWidth: FISHEYE_BASE_WIDTH,
-                peakWidth: FISHEYE_PEAK_WIDTH,
-              },
-            );
-            return (
-              <View
-                key={mark.id}
-                style={[
-                  styles.mark,
-                  styles.markAbsolute,
-                  {
-                    top: `${topPct}%`,
-                    height,
-                    width,
-                    marginLeft: -width / 2,
-                    marginTop: -height / 2,
-                    backgroundColor: role,
-                    opacity: Math.max(opacity, 0.4),
-                  },
-                ]}
-              />
-            );
-          }
-          // Idle: the original dense silhouette (active tallest, then visible,
-          // then off-screen).
-          const idleOpacity = mark.active ? 1 : mark.visible ? 0.66 : 0.28;
+          // One layout for both states (see railMarkVisual): marks always pin
+          // to an even fraction of the explicit rail height, center-anchored
+          // so the fisheye bulge protrudes symmetrically (rail overflow is
+          // visible). Idle = compact silhouette; finger down = fisheye.
+          const visual = railMarkVisual(
+            index,
+            collapsedMarks.length,
+            focusMarkPos,
+            loupeShown,
+            mark.active,
+            mark.visible,
+          );
           return (
             <View
               key={mark.id}
               style={[
                 styles.mark,
+                styles.markAbsolute,
                 {
-                  height: mark.active ? 18 : 8,
-                  backgroundColor: role,
-                  opacity: idleOpacity,
+                  top: `${visual.topPct}%`,
+                  height: visual.height,
+                  width: visual.width,
+                  marginLeft: -visual.width / 2,
+                  marginTop: -visual.height / 2,
+                  backgroundColor: roleColor(mark.role),
+                  opacity: visual.opacity,
                 },
               ]}
             />
@@ -495,25 +455,22 @@ const styles = StyleSheet.create({
     right: 7,
     top: 172,
     width: 16,
-    maxHeight: 210,
+    // Explicit height (see RAIL_HEIGHT): marks are absolute in both states, so
+    // content can never size the pill — without this it collapses on press.
+    height: RAIL_HEIGHT,
     borderRadius: 999,
     borderWidth: 1,
-    paddingHorizontal: 4,
-    paddingVertical: 6,
     alignItems: 'center',
-    gap: 5,
     // Visible so the bulging (center-anchored) marks can protrude past the pill
-    // edges during a slide — the "located position pops out" effect.
+    // edges while engaged — the "located position pops out" effect.
     overflow: 'visible',
   },
   mark: {
-    width: 4,
     borderRadius: 999,
   },
   markAbsolute: {
     position: 'absolute',
     left: '50%',
-    marginLeft: -2, // half of width:4 → centers the bar in the pill
   },
   // The rounded-rect preview box. Caret pokes out the right toward the rail, so
   // keep overflow visible (else it's cropped on Android).
