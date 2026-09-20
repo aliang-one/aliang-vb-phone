@@ -95,10 +95,34 @@ describe('ConversationScrubber (loupe)', () => {
     });
   });
 
-  it('keeps an explicit, count-derived rail height (compact pitch, no collapse)', () => {
-    // 刻度全程 absolute 定位(脱离文档流)——轨道高度必须显式声明,
-    // 否则按下瞬间胶囊塌缩成一个点("只剩一个点"回归)。
-    // 高度随刻度数走(3 marks → 56px):间距太大鱼眼波包就散了。
+  it('keeps an explicit, count-derived band height (compact pitch, no collapse)', () => {
+    // 刻度带(band)高度显式且随刻度数走(3 marks → 56px):间距太大鱼眼波包就散。
+    // 刻度全部挂在 band 里(absolute), band 尺寸不依赖内容 → 永不塌缩。
+    let screen!: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      screen = ReactTestRenderer.create(
+        <ConversationScrubber
+          collapsedMarks={marks}
+          stops={stops}
+          activeStopId="u1"
+          onCommit={jest.fn()}
+        />,
+      );
+    });
+
+    const band = screen.root.find(
+      node => node.props.testID === 'scrubber-rail-band',
+    );
+    const style: Record<string, unknown> = Object.assign(
+      {},
+      ...(Array.isArray(band.props.style) ? band.props.style : [band.props.style]),
+    );
+    expect(style.height).toBe(56);
+  });
+
+  it('clips the capsule so marks and border render as one surface', () => {
+    // 鱼眼凸起必须被胶囊吞下(headroom 由按下时的框架伸展提供),
+    // 边框 overflow 回到 hidden——刻度与边框一体渲染, 不再有溢出。
     let screen!: ReactTestRenderer.ReactTestRenderer;
     act(() => {
       screen = ReactTestRenderer.create(
@@ -116,6 +140,6 @@ describe('ConversationScrubber (loupe)', () => {
       {},
       ...(Array.isArray(rail.props.style) ? rail.props.style : [rail.props.style]),
     );
-    expect(style.height).toBe(56);
+    expect(style.overflow).toBe('hidden');
   });
 });

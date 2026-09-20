@@ -68,6 +68,12 @@ const LOUPE_UNMOUNT_MS = 170;
 // share one geometry (the drag fraction's denominator). Height scales with the
 // mark count so the pitch stays compact — the fisheye wave needs close marks.
 const RAIL_TOUCH_WIDTH = 48;
+// Frame headroom that swallows the fisheye bulge while the finger is down:
+// the capsule stretches ±HEADROOM around its idle frame, so every magnified
+// mark stays INSIDE the border — marks and capsule render as one surface
+// (overflow hidden enforces it). Marks hold the same screen position: the
+// capsule grows upward by HEADROOM while the mark band translates down by it.
+const RAIL_HEADROOM = 16;
 
 /**
  * Right-edge conversation locator — a dense minimap pill by default, with a
@@ -118,6 +124,21 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
   const loupeStyle = useAnimatedStyle(() => ({
     opacity: loupeOpacity.value,
     transform: [{ translateY: loupeY.value }, { scale: loupeScale.value }],
+  }));
+
+  // Capsule ↔ marks unity: while engaged the capsule stretches ±RAIL_HEADROOM
+  // (top rises by HEADROOM, height grows by 2×) and the mark band translates
+  // down by HEADROOM — net mark screen position is UNCHANGED (172 - p·H₀ +
+  // p·H₀ + t·H = 172 + t·H), so the drag fraction keeps its exact finger↔mark
+  // alignment while the bulge stays inside the border.
+  const bandHeight = railHeightFor(collapsedMarks.length);
+  const engageAnim = useSharedValue(0);
+  const railFrameStyle = useAnimatedStyle(() => ({
+    top: 172 - RAIL_HEADROOM * engageAnim.value,
+    height: bandHeight + 2 * RAIL_HEADROOM * engageAnim.value,
+  }));
+  const bandStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: RAIL_HEADROOM * engageAnim.value }],
   }));
 
   // Finger-down state (press OR drag). dragStopId holds the stop under the
@@ -198,6 +219,7 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
     loupeScale.value = LOUPE_HIDDEN_SCALE;
     loupeScale.value = withTiming(1, { duration: LOUPE_SHOW_MS });
     loupeOpacity.value = withTiming(1, { duration: LOUPE_SHOW_MS });
+    engageAnim.value = withTiming(1, { duration: LOUPE_SHOW_MS });
     setLoupeShown(true);
   };
 
@@ -208,6 +230,7 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
     loupeScale.value = withTiming(LOUPE_HIDDEN_SCALE, {
       duration: LOUPE_HIDE_MS,
     });
+    engageAnim.value = withTiming(0, { duration: LOUPE_HIDE_MS });
     setDrag(undefined);
     if (loupeHideTimer.current) clearTimeout(loupeHideTimer.current);
     loupeHideTimer.current = setTimeout(
@@ -311,7 +334,7 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
 
   return (
     <View style={styles.root} pointerEvents="box-none">
-      <View
+      <Animated.View
         ref={railRef}
         testID="scrubber-rail"
         // The pill is only 16px wide — hitSlop pads the touch zone (~48px wide,
@@ -321,7 +344,6 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
         style={[
           styles.rail,
           {
-            height: railHeightFor(collapsedMarks.length),
             backgroundColor: isDark
               ? 'rgba(17, 20, 23, 0.7)'
               : 'rgba(255, 255, 255, 0.78)',
@@ -329,6 +351,7 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
               ? 'rgba(255, 255, 255, 0.08)'
               : theme.colors.outlineVariant,
           },
+          railFrameStyle,
         ]}
         onLayout={({ nativeEvent }) => {
           railGeom.current = {
@@ -342,39 +365,48 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
         }}
         {...panResponder.panHandlers}
       >
-        {collapsedMarks.map((mark, index) => {
-          // One layout for both states (see railMarkVisual): marks always pin
-          // to an even fraction of the explicit rail height, center-anchored
-          // so the fisheye bulge protrudes symmetrically (rail overflow is
-          // visible). Idle = compact silhouette; finger down = fisheye.
-          const visual = railMarkVisual(
-            index,
-            collapsedMarks.length,
-            focusMarkPos,
-            loupeShown,
-            mark.active,
-            mark.visible,
-          );
-          return (
-            <View
-              key={mark.id}
-              style={[
-                styles.mark,
-                styles.markAbsolute,
-                {
-                  top: `${visual.topPct}%`,
-                  height: visual.height,
-                  width: visual.width,
-                  marginLeft: -visual.width / 2,
-                  marginTop: -visual.height / 2,
-                  backgroundColor: roleColor(mark.role),
-                  opacity: visual.opacity,
-                },
-              ]}
-            />
-          );
-        })}
-      </View>
+        <Animated.View
+          testID="scrubber-rail-band"
+          style={[
+            styles.railBand,
+            { height: bandHeight },
+            bandStyle,
+          ]}
+        >
+          {collapsedMarks.map((mark, index) => {
+            // One layout for both states (see railMarkVisual): marks always
+            // pin to an even fraction of the band height, center-anchored.
+            // Idle = compact silhouette; finger down = fisheye — contained by
+            // the capsule's headroom, never spilling past the border.
+            const visual = railMarkVisual(
+              index,
+              collapsedMarks.length,
+              focusMarkPos,
+              loupeShown,
+              mark.active,
+              mark.visible,
+            );
+            return (
+              <View
+                key={mark.id}
+                style={[
+                  styles.mark,
+                  styles.markAbsolute,
+                  {
+                    top: `${visual.topPct}%`,
+                    height: visual.height,
+                    width: visual.width,
+                    marginLeft: -visual.width / 2,
+                    marginTop: -visual.height / 2,
+                    backgroundColor: roleColor(mark.role),
+                    opacity: visual.opacity,
+                  },
+                ]}
+              />
+            );
+          })}
+        </Animated.View>
+      </Animated.View>
 
       {loupeShown && (
         <Animated.View
@@ -457,15 +489,19 @@ const styles = StyleSheet.create({
     right: 7,
     top: 172,
     width: 16,
-    // Height comes from railHeightFor(collapsedMarks.length), applied inline:
-    // explicit (marks are absolute in both states — content can never size the
-    // pill) yet count-derived so short conversations keep a compact pill.
+    // Height is driven by railFrameStyle (band + fisheye headroom while
+    // engaged). Hidden overflow guarantees the marks and the capsule render
+    // as ONE surface — the headroom already contains the full bulge.
     borderRadius: 999,
     borderWidth: 1,
+    overflow: 'hidden',
+  },
+  railBand: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
     alignItems: 'center',
-    // Visible so the bulging (center-anchored) marks can protrude past the pill
-    // edges while engaged — the "located position pops out" effect.
-    overflow: 'visible',
   },
   mark: {
     borderRadius: 999,
