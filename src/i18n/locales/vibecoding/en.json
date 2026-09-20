@@ -344,7 +344,8 @@
     "roleAssistant": "ASSISTANT",
     "roleSystem": "SYSTEM",
     "noPreview": "(no text preview)",
-    "hint": "Drag the right rail to locate a conversation"
+    "hint": "Drag the right rail to locate a conversation",
+    "scrollToLatest": "Back to latest"
   },
   "session": {
     "draftTitle": "New conversation",

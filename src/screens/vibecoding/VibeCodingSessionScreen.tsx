@@ -225,6 +225,8 @@ interface ConversationScrubberLayerProps {
    *  setter on mount; the screen calls it from its throttled onScroll. Only this
    *  layer re-renders on scroll — the rest of the screen stays still. */
   registerScrollY: (fn: (y: number) => void) => () => void;
+  /** Rendered just below the locator rail (scroll-to-bottom button). */
+  belowRail?: React.ReactNode;
 }
 
 // 20 marks keeps the idle silhouette dense while stretching the pill to
@@ -241,7 +243,7 @@ const JUMP_LAYOUT_TIMEOUT_MS = 3000;
 // the entire screen — only this small overlay layer. messageLayouts is passed in
 // (it stays screen-level: low-frequency onLayout, shared with preserveFocus).
 const ConversationScrubberLayer: React.FC<ConversationScrubberLayerProps> = React.memo(
-  ({ conversationTurns, visibleTurns, messageLayouts, conversationTop, viewportHeight, onCommit, registerScrollY }) => {
+  ({ conversationTurns, visibleTurns, messageLayouts, conversationTop, viewportHeight, onCommit, registerScrollY, belowRail }) => {
     const [scrollY, setScrollY] = useState(0);
     useEffect(() => registerScrollY(setScrollY), [registerScrollY]);
 
@@ -319,6 +321,7 @@ const ConversationScrubberLayer: React.FC<ConversationScrubberLayerProps> = Reac
         // the mounted turn nearest the viewport.
         activeStopId={activeRailTurnId}
         onCommit={onCommit}
+        belowRail={belowRail}
       />
     );
   },
@@ -515,6 +518,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
     scrollViewRef,
     handleScroll,
     followTail: followTailRef,
+    showScrollToBottom,
+    scrollToBottom,
     scheduleScrollToEnd,
     registerScrollY,
     preserveFocusRef,
@@ -3106,6 +3111,36 @@ export const VibeCodingSessionScreen: React.FC = () => {
           viewportHeight={viewportHeight}
           onCommit={handleScrubberCommit}
           registerScrollY={registerScrollY}
+          belowRail={
+            showScrollToBottom ? (
+              <TouchableOpacity
+                testID="scroll-to-bottom-fab"
+                accessibilityRole="button"
+                accessibilityLabel={t('scrubber.scrollToLatest')}
+                onPress={() => scrollToBottom(true)}
+                style={[
+                  styles.scrollFab,
+                  {
+                    backgroundColor: isDark
+                      ? 'rgba(17, 20, 23, 0.85)'
+                      : 'rgba(255, 255, 255, 0.92)',
+                    borderColor: isDark
+                      ? 'rgba(255, 255, 255, 0.1)'
+                      : theme.colors.outlineVariant,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.scrollFabGlyph,
+                    { color: theme.colors.primary },
+                  ]}
+                >
+                  ↓
+                </Text>
+              </TouchableOpacity>
+            ) : null
+          }
         />
 
         <View
@@ -3273,6 +3308,27 @@ export const VibeCodingSessionScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
+  // Small circular "jump to latest" control; the scrubber layer positions it
+  // under the locator rail (belowRailSlot owns the geometry).
+  scrollFab: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  scrollFabGlyph: {
+    fontSize: 18,
+    lineHeight: 20,
+    fontWeight: '600',
+    marginTop: -2,
+  },
   scrollView: {
     flex: 1,
   },

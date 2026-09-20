@@ -7,6 +7,7 @@
  * these refs directly — it calls these callbacks.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { shouldShowScrollToBottomFab } from '../../utils/conversationScroll';
 import type {
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -35,6 +36,11 @@ export interface ConversationScrollController {
   handleScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   // Whether the user is following the conversation tail (near bottom).
   followTail: React.MutableRefObject<boolean>;
+  // Reactive: user is far enough above the bottom to offer the
+  // scroll-to-bottom button (flips at most twice per scroll gesture).
+  showScrollToBottom: boolean;
+  // Jump back to the tail and re-enable follow (button press).
+  scrollToBottom: (animated?: boolean) => void;
   // Debounced scroll-to-end (coalesces rapid calls).
   scheduleScrollToEnd: (animated?: boolean) => void;
   // Register/unregister the scrubber layer's scroll-Y subscriber.
@@ -79,6 +85,7 @@ export function useConversationScrollController(): ConversationScrollController 
     Record<string, { top: number; height: number }>
   >({});
   const [pendingJumpId, setPendingJumpId] = useState<string | null>(null);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   const registerScrollY = useCallback((fn: (y: number) => void) => {
     scrollYSubscriberRef.current = fn;
@@ -102,6 +109,16 @@ export function useConversationScrollController(): ConversationScrollController 
     }, delay);
   }, []);
 
+  // Button press: restore follow-tail FIRST so subsequent ai.delta flushes
+  // keep autoscrolling, then perform the jump (debounced/coalesced).
+  const scrollToBottom = useCallback(
+    (animated = true) => {
+      followTailRef.current = true;
+      scheduleScrollToEnd(animated);
+    },
+    [scheduleScrollToEnd],
+  );
+
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { contentOffset, contentSize, layoutMeasurement } =
@@ -111,6 +128,13 @@ export function useConversationScrollController(): ConversationScrollController 
         contentSize.height - (y + layoutMeasurement.height) <=
         SCROLL_FOLLOW_THRESHOLD;
       scrollYRef.current = y;
+      setShowScrollToBottom(
+        shouldShowScrollToBottomFab(
+          contentSize.height,
+          y,
+          layoutMeasurement.height,
+        ),
+      );
       const now = Date.now();
       if (now - lastScrollSetRef.current >= SCROLL_THROTTLE_MS) {
         lastScrollSetRef.current = now;
@@ -204,6 +228,7 @@ export function useConversationScrollController(): ConversationScrollController 
     scrollYSubscriberRef.current(0);
     followTailRef.current = true;
     pendingScrollToEndRef.current = false;
+    setShowScrollToBottom(false);
     preserveFocusRef.current = null;
     setMessageLayouts({});
     setPendingJumpId(null);
@@ -215,6 +240,8 @@ export function useConversationScrollController(): ConversationScrollController 
     scrollViewRef,
     handleScroll,
     followTail: followTailRef,
+    showScrollToBottom,
+    scrollToBottom,
     scheduleScrollToEnd,
     registerScrollY,
     preserveFocusRef,

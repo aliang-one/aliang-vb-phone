@@ -344,7 +344,8 @@
     "roleAssistant": "ASSISTANT",
     "roleSystem": "SYSTEM",
     "noPreview": "（无文本预览）",
-    "hint": "拖动右侧轨道定位到某条对话"
+    "hint": "拖动右侧轨道定位到某条对话",
+    "scrollToLatest": "回到最新"
   },
   "session": {
     "draftTitle": "新建对话",

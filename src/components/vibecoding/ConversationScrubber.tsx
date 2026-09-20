@@ -48,6 +48,10 @@ interface ConversationScrubberProps {
   activeStopId?: string;
   /** Fired on release (drag or tap) with the stop under the finger. */
   onCommit: (stopId: string) => void;
+  /** Optional affordance rendered just below the rail (e.g. the
+   *  scroll-to-bottom button) — positioned by THIS component so callers
+   *  never duplicate the rail's geometry. */
+  belowRail?: React.ReactNode;
 }
 
 // Loupe = the rounded-rect "text message" box (role + timestamp + preview) that
@@ -74,6 +78,9 @@ const RAIL_TOUCH_WIDTH = 48;
 // (overflow hidden enforces it). Marks hold the same screen position: the
 // capsule grows upward by HEADROOM while the mark band translates down by it.
 const RAIL_HEADROOM = 16;
+// Rail's fixed top offset (styles.rail). Kept as a constant so the slot below
+// the rail derives from the same number instead of a magic copy.
+const RAIL_TOP = 172;
 
 /**
  * Right-edge conversation locator — a dense minimap pill by default, with a
@@ -99,6 +106,7 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
   stops,
   activeStopId,
   onCommit,
+  belowRail,
 }) => {
   const { theme, isDark } = useTheme();
   const { t } = useTranslation('vibecoding');
@@ -413,6 +421,25 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
         </Animated.View>
       </Animated.View>
 
+      {belowRail ? (
+        <View
+          pointerEvents="box-none"
+          style={[
+            styles.belowRailSlot,
+            {
+              top:
+                RAIL_TOP +
+                railHeightFor(collapsedMarks.length) +
+                // Clear the engaged fisheye: the capsule stretches ±HEADROOM.
+                RAIL_HEADROOM +
+                8,
+            },
+          ]}
+        >
+          {belowRail}
+        </View>
+      ) : null}
+
       {loupeShown && (
         <Animated.View
           pointerEvents="none"
@@ -492,7 +519,7 @@ const styles = StyleSheet.create({
   rail: {
     position: 'absolute',
     right: 7,
-    top: 172,
+    top: RAIL_TOP,
     width: 16,
     // Height is driven by railFrameStyle (band + fisheye headroom while
     // engaged). Hidden overflow guarantees the marks and the capsule render
@@ -500,6 +527,14 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     overflow: 'hidden',
+  },
+  // Centers a ~36px control on the rail's axis (rail center = 15px from the
+  // right edge → right = 15 - width/2).
+  belowRailSlot: {
+    position: 'absolute',
+    right: -3,
+    width: 36,
+    alignItems: 'center',
   },
   railBand: {
     position: 'absolute',
