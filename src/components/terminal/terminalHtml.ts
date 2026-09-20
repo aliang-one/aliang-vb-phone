@@ -285,6 +285,13 @@ export function getTerminalHtml(isDark: boolean): string {
               ? decodeBase64Utf8(payload)
               : String(payload || '');
             term.write(decoded);
+          } else if (type === 'replay') {
+            // Scrollback replay chunk (attach flow): written verbatim, before
+            // the live stream resumes — see TerminalEmulator's replay handoff.
+            var replayChunk = encoding === 'base64'
+              ? decodeBase64Utf8(payload)
+              : String(payload || '');
+            term.write(replayChunk);
           } else if (type === 'setsize') {
             var size = JSON.parse(payload);
             if (size.cols && size.rows) {

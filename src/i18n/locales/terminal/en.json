@@ -56,5 +56,9 @@
       "llmUnreachable": "Cannot reach the AI gateway — check the network or the AI command URL in admin settings",
       "llmUpstreamError": "AI gateway returned an error — try again shortly or check admin settings"
     }
+  },
+  "replay": {
+    "endedBanner": "Session ended · history below",
+    "replayedBadge": "Replayed"
   }
 }

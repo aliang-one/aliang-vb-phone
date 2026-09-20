@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/useTheme';
 import { getTerminalHtml, getTerminalThemePalette } from './terminalHtml';
 import { platformTransport } from '../../services/platformTransport';
@@ -22,6 +23,25 @@ interface TerminalEmulatorProps {
   onRendered?: () => void;
   /** Fires when the WebView reports a terminal resource/runtime load failure. */
   onRenderError?: (message: string) => void;
+  /**
+   * Scrollback replay chunks for the session (the store's `replayChunks`,
+   * fed by `terminal.replay` frames), in arrival order. Written into xterm
+   * verbatim after the WebView is ready and BEFORE the live feed is wired, so
+   * history renders exactly once and never interleaves with live output.
+   */
+  replayChunks?: string[];
+  /**
+   * True once the final `terminal.replay` frame arrived — `replayChunks` are
+   * complete to render. While false with buffered chunks, live wiring waits
+   * (the agent starts the live stream only after the final frame, so nothing
+   * can be lost by waiting).
+   */
+  replayReady?: boolean;
+  /**
+   * Status carried by the final replay frame. `'exited'` renders the
+   * "session ended · history below" banner above the emulator.
+   */
+  replayStatus?: 'live' | 'exited';
 }
 
 export interface TerminalEmulatorHandle {
@@ -44,16 +64,26 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
   onFocusRequest,
   onRendered,
   onRenderError,
+  replayChunks,
+  replayReady,
+  replayStatus,
 }) => {
-  const { isDark } = useTheme();
+  const { isDark, theme } = useTheme();
+  const { t } = useTranslation('terminal');
   const webViewRef = useRef<WebView>(null);
   const readyRef = useRef(false);
   const renderedRef = useRef(false);
-  // Buffer output received while the WebView isn't ready to receive injectJS
-  // yet (distinct from the registry's pre-mount buffer, which covers the case
-  // where no emulator handler is registered at all). Capped to bound memory.
-  const MAX_WEBVIEW_READY_PENDING_OUTPUT = 200;
-  const pendingOutputRef = useRef<Array<{ data: string; encoding: string }>>([]);
+  // Replay → live seam: true once this mount claimed the live output feed.
+  // Until then the registry's pending buffer holds any arriving output, which
+  // keeps live bytes strictly BEHIND the replayed scrollback.
+  const liveWiredRef = useRef(false);
+  // True once this mount wrote the replay chunks into xterm (consumed once).
+  const replayConsumedRef = useRef(false);
+  // WebView announced readiness — gates the replay injection + live wiring.
+  const [webViewReady, setWebViewReady] = useState(false);
+  const [liveWired, setLiveWired] = useState(false);
+  // "已回放" badge bit: this mount rendered a non-empty replay.
+  const [replayed, setReplayed] = useState(false);
   const html = useRef(getTerminalHtml(isDark)).current;
   const terminalTheme = useMemo(() => getTerminalThemePalette(isDark), [isDark]);
   const terminalThemeJson = useMemo(() => JSON.stringify(terminalTheme), [terminalTheme]);
@@ -71,27 +101,12 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
     [],
   );
 
-  const flushPendingOutput = useCallback(() => {
-    if (!readyRef.current || !pendingOutputRef.current.length) {
-      return;
-    }
-    const pending = pendingOutputRef.current;
-    pendingOutputRef.current = [];
-    pending.forEach(item => {
-      injectTerminalData('output', item.data, item.encoding);
-    });
-  }, [injectTerminalData]);
-
-  // Forward output data from WS to xterm.js
+  // Forward output data from WS to xterm.js. Only ever registered after the
+  // WebView is ready (see liveWired), so chunks arrive as direct injections;
+  // everything from before that moment is held by the registry's pending
+  // buffer and drained on wiring.
   const handleOutput = useCallback(
     (data: string, encoding = 'text') => {
-      if (!readyRef.current || !webViewRef.current) {
-        pendingOutputRef.current = [
-          ...pendingOutputRef.current.slice(-(MAX_WEBVIEW_READY_PENDING_OUTPUT - 1)),
-          { data, encoding },
-        ];
-        return;
-      }
       injectTerminalData('output', data, encoding);
     },
     [injectTerminalData],
@@ -117,7 +132,11 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
   useEffect(() => {
     readyRef.current = false;
     renderedRef.current = false;
-    pendingOutputRef.current = [];
+    liveWiredRef.current = false;
+    replayConsumedRef.current = false;
+    setWebViewReady(false);
+    setLiveWired(false);
+    setReplayed(false);
   }, [sessionId]);
 
   useEffect(() => {
@@ -125,10 +144,47 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
     injectTerminalData('theme', terminalThemeJson);
   }, [injectTerminalData, terminalThemeJson]);
 
-  // Register/unregister output handler on the global socket listener.
-  // The registry owns the routing table; the component only (un)registers its
-  // own handler and replays whatever was buffered before it mounted.
+  // Replay → live handoff. Order of operations once the WebView is ready:
+  //   1. While a replay stream is still in flight (chunks buffered, final
+  //      frame not arrived) the live feed is NOT wired yet — the agent's
+  //      output gate guarantees no live bytes flow before the final frame,
+  //      so waiting only ever buffers into the registry, never drops.
+  //   2. A completed, non-empty replay is injected as `replay` chunks (the
+  //      WebView writes them verbatim into xterm) and marks the badge bit.
+  //   3. Only then is the live feed claimed, and the registry's pending
+  //      buffer drained behind the replay (see liveWired effect below).
   useEffect(() => {
+    if (!webViewReady) return;
+
+    const chunks = replayChunks ?? [];
+    const streamComplete = replayReady === true;
+
+    if (!liveWiredRef.current && !streamComplete && chunks.length > 0) {
+      return;
+    }
+
+    if (streamComplete && chunks.length > 0 && !replayConsumedRef.current) {
+      replayConsumedRef.current = true;
+      chunks.forEach(chunk => {
+        injectTerminalData('replay', chunk, 'text', false);
+      });
+      setReplayed(true);
+    }
+
+    if (!liveWiredRef.current) {
+      liveWiredRef.current = true;
+      setLiveWired(true);
+    }
+  }, [webViewReady, replayReady, replayChunks, injectTerminalData]);
+
+  // Register/unregister the live output handler on the global socket
+  // listener — only after replay consumption claimed the feed. The registry
+  // owns the routing table; wiring returns whatever was buffered while no
+  // handler was mounted (pre-mount AND pre-wiring windows) and it is drained
+  // strictly behind the replayed scrollback.
+  useEffect(() => {
+    if (!liveWired) return undefined;
+
     registerTerminalOutputHandler(sessionId, handleOutput).forEach(item => {
       handleOutput(item.data, item.encoding);
     });
@@ -136,7 +192,7 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
     return () => {
       unregisterTerminalOutputHandler(sessionId);
     };
-  }, [sessionId, handleOutput]);
+  }, [liveWired, sessionId, handleOutput]);
 
   // Handle messages from xterm.js WebView
   const onMessage = useCallback(
@@ -185,6 +241,8 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
           readyRef.current = true;
           injectTerminalData('theme', terminalThemeJson);
           if (payload.cols && payload.rows) {
+            // Resize first: the agent re-renders the TUI at the new size, so
+            // the replayed scrollback and live stream land in the right shape.
             platformTransport.send({
               type: 'terminal.resize',
               session_id: sessionId,
@@ -192,7 +250,7 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
               rows: payload.rows,
             });
           }
-          flushPendingOutput();
+          setWebViewReady(true);
           break;
 
         case 'rendered':
@@ -216,7 +274,6 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
     [
       sessionId,
       enabled,
-      flushPendingOutput,
       injectTerminalData,
       onFocusRequest,
       onRenderError,
@@ -232,6 +289,23 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
         injectTerminalData('fit');
       }}
     >
+      {replayStatus === 'exited' ? (
+        <View
+          style={[
+            styles.replayBanner,
+            { backgroundColor: theme.colors.surfaceContainerHigh },
+          ]}
+        >
+          <Text
+            style={[
+              styles.replayBannerText,
+              { color: theme.colors.onSurfaceVariant },
+            ]}
+          >
+            {t('terminal:replay.endedBanner')}
+          </Text>
+        </View>
+      ) : null}
       <WebView
         key={sessionId}
         ref={webViewRef}
@@ -251,6 +325,27 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
         automaticallyAdjustContentInsets={false}
         contentMode="mobile"
       />
+      {replayed ? (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.replayBadge,
+            {
+              backgroundColor: theme.colors.surfaceContainerHigh,
+              borderColor: theme.colors.outlineVariant,
+            },
+          ]}
+        >
+          <Text
+            style={[
+              styles.replayBadgeText,
+              { color: theme.colors.onSurfaceVariant },
+            ]}
+          >
+            {t('terminal:replay.replayedBadge')}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 };
@@ -263,5 +358,24 @@ const styles = StyleSheet.create({
   webview: {
     flex: 1,
     backgroundColor: 'transparent',
+  },
+  replayBanner: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  replayBannerText: {
+    fontSize: 12,
+  },
+  replayBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 8,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  replayBadgeText: {
+    fontSize: 10,
   },
 });

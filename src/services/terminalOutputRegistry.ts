@@ -39,9 +39,10 @@ const pending = new Map<string, TerminalOutputChunk[]>();
 
 /**
  * Route a terminal output chunk to the mounted emulator for `sessionId`. If no
- * emulator is mounted yet, buffer the chunk (capped to `MAX_PENDING_OUTPUT`)
- * so it can be drained once one mounts. Returns true if delivered immediately,
- * false if buffered.
+ * emulator is mounted yet — or one is mounted but has not claimed the live
+ * feed yet (replay-aware wiring, see `registerTerminalOutputHandler`) — buffer
+ * the chunk (capped to `MAX_PENDING_OUTPUT`) so it can be drained once the
+ * feed is claimed. Returns true if delivered immediately, false if buffered.
  */
 export const routeTerminalOutputToEmulator = (
   sessionId: string,
@@ -63,8 +64,12 @@ export const routeTerminalOutputToEmulator = (
 
 /**
  * Register the mounted emulator's output handler for `sessionId` and return any
- * output that arrived before it mounted (so the emulator can replay it). Only
- * one handler per session is expected; re-registering replaces the previous one.
+ * output that arrived before it was registered, so the emulator can render it
+ * in order. In the scrollback-replay flow the emulator registers this handler
+ * only AFTER it wrote the buffered `terminal.replay` chunks into xterm — until
+ * then this module keeps buffering, which is what keeps live output strictly
+ * behind the replayed scrollback at the seam. Only one handler per session is
+ * expected; re-registering replaces the previous one.
  */
 export const registerTerminalOutputHandler = (
   sessionId: string,
