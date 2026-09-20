@@ -7,6 +7,7 @@ import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { VoiceToBashModal } from '../src/components/terminal/VoiceToBashModal';
 import type { DevicePickerEntry } from '../src/components/terminal/DevicePicker';
 import { dispatchCommandGenEvent } from '../src/services/commandGenEvents';
+import { ApiResponseError } from '../src/api/client';
 import type { VoiceSttStatus, UseVoiceSttResult } from '../src/hooks/useVoiceStt';
 
 // --- controllable useVoiceStt + generateCommand mocks -----------------------
@@ -486,6 +487,25 @@ describe('VoiceToBashModal', () => {
     expect(() => el(root, 'v2b-error')).toThrow();
     expect(() => el(root, 'v2b-done')).not.toThrow();
     expect(mockStart.mock.calls.length).toBeGreaterThan(startsBefore);
+  });
+
+  // Upstream commandGen failures arrive as ApiResponseError whose code is the
+  // server's dedicated llm_* error code (server/src/commandGen/llmErrors.ts).
+  // The raw code alone is developer-speak; the modal must show actionable,
+  // localized copy instead (jest locks zh — assert the zh copy).
+  it('upstream llm_* error codes surface localized copy, not the raw code', async () => {
+    mockGenerateCommand.mockRejectedValue(
+      new ApiResponseError('llm_model_not_found', 502, 'llm_model_not_found'),
+    );
+    const props = baseProps();
+    const root = render(props);
+
+    await driveTranscript(root, props, 'anything');
+    await driveReviewToConfirm(root, props);
+
+    const texts = allTexts(root);
+    expect(texts.some(t => t.includes('不支持该模型'))).toBe(true);
+    expect(texts.some(t => t.includes('llm_model_not_found'))).toBe(false);
   });
 
   it('cancel() runs on dismiss (visible → false)', () => {

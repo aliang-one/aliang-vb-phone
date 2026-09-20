@@ -48,7 +48,13 @@
       "fallback": "Voice recognition failed, please retry",
       "cancel": "Cancel",
       "retry": "Retry",
-      "generateFallback": "Failed to generate command, please retry"
+      "generateFallback": "Failed to generate command, please retry",
+      "llmModelNotFound": "Model not found on the AI gateway — check the AI command model in admin settings",
+      "llmAuthFailed": "AI gateway rejected the API key — check the AI command key in admin settings",
+      "llmRateLimited": "AI gateway is rate limiting — try again shortly",
+      "llmTimeout": "AI gateway timed out — try again shortly",
+      "llmUnreachable": "Cannot reach the AI gateway — check the network or the AI command URL in admin settings",
+      "llmUpstreamError": "AI gateway returned an error — try again shortly or check admin settings"
     }
   }
 }
