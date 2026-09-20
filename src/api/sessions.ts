@@ -266,6 +266,10 @@ export interface ServerTerminalSession {
     created_at: string;
     exit_code?: number | null;
   }>;
+  /** Attach endpoint: whether the agent found a live session to resume. */
+  resumed?: boolean;
+  /** Attach endpoint: whether the attached session had already exited (tombstone replay). */
+  exited?: boolean;
 }
 
 export interface ServerTerminalCommand {
@@ -540,6 +544,20 @@ export const createTerminalSession = (input: {
 
 export const closeTerminalSession = (sessionId: string): Promise<ServerTerminalSession> =>
   apiPost(`/api/terminal/sessions/${sessionId}/close`);
+
+/**
+ * Attach to an existing terminal session. Asks the agent to resize to the
+ * given rows/cols and stream the scrollback as `terminal.replay` chunks over
+ * the realtime socket before the live feed continues.
+ */
+export const attachTerminalSession = (
+  sessionId: string,
+  input: { rows?: number; cols?: number },
+): Promise<ServerTerminalSession> =>
+  apiPost<ServerTerminalSession>(
+    `/api/terminal/sessions/${encodeURIComponent(sessionId)}/attach`,
+    input,
+  );
 
 export const fetchTerminalSessionCommands = (
   sessionId: string,
