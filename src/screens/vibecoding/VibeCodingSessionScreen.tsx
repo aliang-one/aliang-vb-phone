@@ -53,6 +53,7 @@ import {
   useApproval,
   useApprovalIds,
   useSessionApprovalEvents,
+  useRecentActiveTerminalSessionId,
 } from '../../store/controlCenterStore';
 import type { ApprovalRequest } from '../../store/controlCenterStore';
 import type { AgentProvider } from '../../store/types';
@@ -383,6 +384,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
   }, [liveSession, createdSessionId]);
   const project = useProject(session?.projectId);
   const device = useDevice(session?.deviceId);
+  // attach 优先：quick action 打开终端时带上设备当前 active 会话，恢复而非新建。
+  const activeTerminalId = useRecentActiveTerminalSessionId(session?.deviceId);
   const preview = useSessionPreview(session?.id);
   const sessionApprovals = useSessionApprovals(session?.id);
   const discoveredSessionCommands = useControlCenterStore(
@@ -2358,6 +2361,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 navigation.navigate('DeviceTerminal', {
                   deviceId: session.deviceId,
                   directory: session.directory,
+                  terminalId: activeTerminalId,
                 })
               }
               style={[

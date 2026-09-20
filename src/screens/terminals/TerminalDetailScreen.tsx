@@ -8,7 +8,10 @@ import { GlassPanel } from '../../components/shared/GlassPanel';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { ResourceMetricsCard } from '../../components/cards/ResourceMetricsCard';
-import { useControlCenterStore } from '../../store/controlCenterStore';
+import {
+  useControlCenterStore,
+  useRecentActiveTerminalSessionId,
+} from '../../store/controlCenterStore';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 
@@ -23,6 +26,8 @@ export const TerminalDetailScreen: React.FC = () => {
   const device = deviceId
     ? devices.find(d => d.id === deviceId)
     : devices.find(d => d.status === 'online');
+  // attach 优先：通用入口带上设备当前 active 终端，进屏即恢复而非另开新会话。
+  const activeTerminalId = useRecentActiveTerminalSessionId(device?.id);
   const directoryList = useIncrementalList(device?.authorizedDirectories ?? [], {
     initialCount: 10,
     step: 12,
@@ -134,6 +139,7 @@ export const TerminalDetailScreen: React.FC = () => {
                   navigation.navigate('DeviceTerminal', {
                     deviceId: device.id,
                     directory: dir,
+                    terminalId: activeTerminalId,
                   })
                 }>
                 <View style={styles.processRow}>
@@ -189,6 +195,7 @@ export const TerminalDetailScreen: React.FC = () => {
               navigation.navigate('DeviceTerminal', {
                 deviceId: device.id,
                 directory: device.authorizedDirectories[0] ?? '~',
+                terminalId: activeTerminalId,
               })
             }
             variant="primary"

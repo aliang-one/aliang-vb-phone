@@ -3,6 +3,7 @@ import { shallow, useShallow } from 'zustand/shallow';
 import type { PreviewLink, VibeCodingRun, VibeStatus } from '../data/platformModels';
 import { routeTerminalOutputToEmulator } from '../services/terminalOutputRegistry';
 import { terminalDisplayUpdate } from '../utils/terminalOutput';
+import { findRecentActiveTerminalSession } from '../utils/terminalInteraction';
 import {
   flushAiStreamEvents,
   isAiStreamTransportEvent,
@@ -309,6 +310,22 @@ export const useTerminalSession = (sessionId: string | undefined) =>
   useControlCenterStore(state =>
     sessionId
       ? state.terminalSessions.find(ts => ts.id === sessionId)
+      : undefined,
+  );
+
+/** The device's most recent ACTIVE terminal session id — what generic
+ *  "open terminal" entries pass so the screen attaches the device's default
+ *  terminal instead of spawning a second one. Selector returns a primitive,
+ *  so screens only re-render when the resolved id actually changes. */
+export const useRecentActiveTerminalSessionId = (
+  deviceId: string | undefined,
+) =>
+  useControlCenterStore(state =>
+    deviceId
+      ? findRecentActiveTerminalSession(
+          state.terminalSessions,
+          deviceId,
+        )?.id
       : undefined,
   );
 

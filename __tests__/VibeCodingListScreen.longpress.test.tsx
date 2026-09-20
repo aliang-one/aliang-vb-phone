@@ -187,6 +187,7 @@ describe('VibeCodingListScreen NEW TERM long-press → voice→bash', () => {
     expect(mockNavigate).toHaveBeenCalledWith('DeviceTerminal', {
       deviceId: 'device-2',
       directory: '/repo',
+      newSession: true,
     });
   });
 
@@ -247,6 +248,7 @@ describe('VibeCodingListScreen NEW TERM long-press → voice→bash', () => {
     expect(mockNavigate).toHaveBeenCalledWith('DeviceTerminal', {
       deviceId: 'device-6',
       directory: '/repo',
+      newSession: true,
     });
   });
 
@@ -289,6 +291,7 @@ describe('VibeCodingListScreen NEW TERM long-press → voice→bash', () => {
       deviceId: 'device-1',
       directory: '/repo',
       initialCommand: 'git status --short',
+      newSession: true,
     });
     // Modal closed → confirm button no longer rendered.
     expect(findByTestId(screen!.root, 'v2b-stub-confirm')).toHaveLength(0);

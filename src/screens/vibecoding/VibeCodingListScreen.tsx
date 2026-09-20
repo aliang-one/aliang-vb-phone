@@ -541,9 +541,12 @@ export const VibeCodingListScreen: React.FC = () => {
       if (!canCreateTerminalOnDevice(device)) return;
       setTerminalDevicePickerOpen(false);
       setTerminalDevicePage(0);
+      // NEW TERM 胶囊 = 显式新建入口：newSession 让终端屏跳过「attach 最近
+      // active 会话」的产品默认，保证这里永远开出一个全新的 pty。
       navigation.navigate('DeviceTerminal', {
         deviceId: device.id,
         directory: device.authorizedDirectories[0] ?? '~',
+        newSession: true,
       });
     },
     [navigation],
@@ -572,10 +575,12 @@ export const VibeCodingListScreen: React.FC = () => {
       const chosenDeviceId = deviceId ?? targetDevice?.id;
       const chosenCwd = cwd ?? targetDevice?.authorizedDirectories?.[0] ?? '~';
       if (!chosenDeviceId) return;
+      // 语音→bash 的 NEW TERM 长按入口同样是显式新建（命令跑在新终端里）。
       navigation.navigate('DeviceTerminal', {
         deviceId: chosenDeviceId,
         directory: chosenCwd,
         initialCommand: command,
+        newSession: true,
       });
     },
     [navigation, voiceTargetDevice],

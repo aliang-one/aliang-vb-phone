@@ -22,6 +22,7 @@ import { useTheme } from '../../theme/useTheme';
 import {
   ProjectFileEntry,
   useControlCenterStore,
+  useRecentActiveTerminalSessionId,
 } from '../../store/controlCenterStore';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { BottomSheet } from '../../components/shared/BottomSheet';
@@ -131,6 +132,8 @@ export const FileBrowserScreen: React.FC = () => {
   );
   const terminalDirectory =
     scanResult?.path ?? project?.path ?? device?.authorizedDirectories[0] ?? '~';
+  // attach 优先：带上设备当前 active 终端，进屏即恢复而非另开新会话。
+  const activeTerminalId = useRecentActiveTerminalSessionId(device?.id);
   const effectivePath = currentPath || terminalDirectory;
   const deviceOnline = device?.status === 'online';
   const openChangeReview = useCallback(() => {
@@ -428,6 +431,7 @@ export const FileBrowserScreen: React.FC = () => {
               navigation.navigate('DeviceTerminal', {
                 deviceId: device.id,
                 directory: parentPathOf(file.path),
+                terminalId: activeTerminalId,
               })
             }
             disabled={!device}
@@ -614,6 +618,7 @@ export const FileBrowserScreen: React.FC = () => {
                 navigation.navigate('DeviceTerminal', {
                   deviceId: device.id,
                   directory: terminalDirectory,
+                  terminalId: activeTerminalId,
                 })
               }
             />
