@@ -63,6 +63,8 @@
     "sessionEnded": "Session ended",
     "historyBelow": "History output below",
     "newSession": "New session",
-    "resuming": "Resuming session…"
+    "resuming": "Resuming session…",
+    "oldAgentNotice": "This device's agent is older — terminal history won't survive disconnects"
+
   }
 }
