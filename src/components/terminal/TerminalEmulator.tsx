@@ -153,8 +153,14 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
   //      WebView writes them verbatim into xterm) and marks the badge bit.
   //   3. Only then is the live feed claimed, and the registry's pending
   //      buffer drained behind the replay (see liveWired effect below).
+  //
+  // The `readyRef.current` check guards the sessionId-change commit: state
+  // (`webViewReady`) is stale-true there while the WebView is already re-keyed
+  // and loading, but the reset effect above has synchronously flipped the ref
+  // to false — without it, the swapped-in session's replay would be injected
+  // into a WebView that cannot receive it yet (and consumed for good).
   useEffect(() => {
-    if (!webViewReady) return;
+    if (!webViewReady || !readyRef.current) return;
 
     const chunks = replayChunks ?? [];
     const streamComplete = replayReady === true;
@@ -182,8 +188,16 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
   // owns the routing table; wiring returns whatever was buffered while no
   // handler was mounted (pre-mount AND pre-wiring windows) and it is drained
   // strictly behind the replayed scrollback.
+  //
+  // The `liveWiredRef.current` check guards the sessionId-change commit, where
+  // `liveWired` state is stale-true for the PREVIOUS session while the reset
+  // effect above has already flipped the ref to false. Without it this effect
+  // re-runs for the NEW sessionId at that commit and drains its registry
+  // pending buffer straight into the freshly-keyed, still-loading WebView —
+  // where `window.injectTerminalData` does not exist yet, so the chunks are
+  // silently lost. Registration must wait for the new WebView's `ready`.
   useEffect(() => {
-    if (!liveWired) return undefined;
+    if (!liveWired || !liveWiredRef.current) return undefined;
 
     registerTerminalOutputHandler(sessionId, handleOutput).forEach(item => {
       handleOutput(item.data, item.encoding);

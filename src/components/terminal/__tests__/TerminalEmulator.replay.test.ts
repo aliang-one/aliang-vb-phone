@@ -87,6 +87,7 @@ const injectPayloads = (type: string) =>
 // The terminal suite lives in a .ts file (no JSX transform) — build elements
 // explicitly instead.
 const emulatorElement = (props: {
+  sessionId?: string;
   replayChunks?: string[];
   replayReady?: boolean;
   replayStatus?: 'live' | 'exited';
@@ -98,6 +99,7 @@ const emulatorElement = (props: {
   });
 
 const renderEmulator = (props: {
+  sessionId?: string;
   replayChunks?: string[];
   replayReady?: boolean;
   replayStatus?: 'live' | 'exited';
@@ -111,8 +113,10 @@ describe('TerminalEmulator replay rendering', () => {
   });
 
   afterEach(() => {
-    unregisterTerminalOutputHandler('term-replay-1');
-    clearPendingTerminalOutput('term-replay-1');
+    for (const id of ['term-replay-1', 'term-replay-2']) {
+      unregisterTerminalOutputHandler(id);
+      clearPendingTerminalOutput(id);
+    }
   });
 
   it('injects the completed replay before wiring the live feed', () => {
@@ -247,5 +251,59 @@ describe('TerminalEmulator replay rendering', () => {
     expect(
       routeTerminalOutputToEmulator('term-replay-1', 'after-empty\n'),
     ).toBe(true);
+  });
+
+  // DeviceTerminalScreen swaps sessionId on a mounted emulator (no key), so
+  // the sessionId-change commit runs while the previous session's wiring state
+  // is still in React state. The reset effect flips the synchronous refs
+  // first; the wiring effects must consult them, or the swapped-in session's
+  // registry pending buffer (up to 200 chunks of a background-running session)
+  // is drained into the freshly-keyed WebView whose `window.injectTerminalData`
+  // does not exist yet — silent loss.
+  it('does not drain the swapped-in session pending buffer before its WebView is ready', () => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = renderEmulator({});
+    });
+    fireWebViewMessage({ type: 'ready', cols: 80, rows: 24 });
+    expect(routeTerminalOutputToEmulator('term-replay-1', 'a-live\n')).toBe(
+      true,
+    );
+
+    // A background-running session B buffers live output while unmounted...
+    expect(routeTerminalOutputToEmulator('term-replay-2', 'b-1\n')).toBe(false);
+    expect(routeTerminalOutputToEmulator('term-replay-2', 'b-2\n')).toBe(false);
+    const injectionCountBeforeSwap = injectTypes().length;
+
+    // ...the screen swaps sessionId (same mounted emulator instance). At this
+    // stale commit nothing may be injected: the new WebView is still loading.
+    act(() => {
+      renderer.update(
+        emulatorElement({
+          sessionId: 'term-replay-2',
+          replayChunks: ['b-history\n'],
+          replayReady: true,
+          replayStatus: 'live',
+        }),
+      );
+    });
+
+    expect(injectTypes()).toHaveLength(injectionCountBeforeSwap);
+    // B's feed is still unclaimed: new chunks keep buffering, nothing lost.
+    expect(routeTerminalOutputToEmulator('term-replay-2', 'b-3\n')).toBe(false);
+
+    // The swapped-in WebView loads: resize → replay → then the buffered live
+    // output is drained strictly behind the replayed scrollback.
+    fireWebViewMessage({ type: 'ready', cols: 80, rows: 24 });
+
+    expect(injectPayloads('replay')).toEqual(['b-history\n']);
+    // `a-live` was injected into the OLD WebView before the swap; B's
+    // buffered output drains behind the replay, in arrival order.
+    expect(injectPayloads('output')).toEqual([
+      'a-live\n',
+      'b-1\n',
+      'b-2\n',
+      'b-3\n',
+    ]);
   });
 });
