@@ -4,6 +4,7 @@ import {
   deriveTurnScrubberStops,
   pickStopAtFraction,
   railFractionAt,
+  railHeightFor,
   railMarkVisual,
   sampleRailIndices,
   markPositionForStop,
@@ -312,6 +313,21 @@ describe('conversationScrubber', () => {
     });
   });
 
+  describe('railHeightFor', () => {
+    it('hugs a few marks (compact pill, ~13px pitch like the old flex layout)', () => {
+      expect(railHeightFor(1)).toBe(44); // 最小可视高度
+      expect(railHeightFor(3)).toBe(56);
+      expect(railHeightFor(5)).toBe(82);
+    });
+
+    it('grows with mark count and caps at the long-conversation height', () => {
+      expect(railHeightFor(12)).toBe(173);
+      expect(railHeightFor(19)).toBe(264);
+      expect(railHeightFor(20)).toBe(276);
+      expect(railHeightFor(40)).toBe(276); // 钳在上限
+    });
+  });
+
   describe('railMarkVisual', () => {
     it('spreads marks evenly by index in both states (topPct contract)', () => {
       expect(railMarkVisual(0, 5, 0, false, false, true).topPct).toBe(0);
@@ -339,9 +355,10 @@ describe('conversationScrubber', () => {
     it('engaged: focused mark peaks, far marks sit at the fisheye base', () => {
       const focus = railMarkVisual(3, 7, 3, true, false, true);
       expect(focus.height).toBeCloseTo(28);
-      expect(focus.width).toBeCloseTo(9);
+      expect(focus.width).toBeCloseTo(10);
       expect(focus.opacity).toBe(1);
-      const far = railMarkVisual(0, 7, 3, true, false, true);
+      // 半径 3.2 内是波包(7 刻度全在内), 取距离 6 的远端验证 base
+      const far = railMarkVisual(0, 7, 6, true, false, true);
       expect(far.height).toBeCloseTo(6);
       expect(far.width).toBeCloseTo(4);
       expect(far.opacity).toBeCloseTo(0.45);

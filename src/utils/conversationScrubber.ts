@@ -222,6 +222,24 @@ export const markPositionForStop = (
   return count - 1;
 };
 
+/** Long-conversation rail height cap (≈20 marks at compact pitch). */
+export const RAIL_MAX_HEIGHT = 276;
+/** Short-conversation floor so a 1-2 mark pill stays tappable/visible. */
+export const RAIL_MIN_HEIGHT = 44;
+
+/**
+ * Rail height for a given mark count — compact pitch (~13-15px between marks)
+ * hugging the old flex look for short conversations, capped for long ones.
+ *
+ * The pitch IS the fisheye: the bulge reads as a wave only when neighboring
+ * marks sit close enough to taper into each other — a fixed tall rail spreads
+ * few marks so far apart that pressing just enlarges one lonely dot.
+ */
+export const railHeightFor = (markCount: number): number => {
+  const raw = 30 + 13 * Math.max(0, markCount - 1);
+  return Math.min(RAIL_MAX_HEIGHT, Math.max(RAIL_MIN_HEIGHT, raw));
+};
+
 export interface RailMarkVisual {
   /** Vertical center of the mark, as % of the rail height. */
   topPct: number;
@@ -263,11 +281,11 @@ export const railMarkVisual = (
     };
   }
   const { height, width, opacity } = tickScale(Math.abs(index - focusPos), {
-    radius: 2.6,
+    radius: 3.2,
     baseHeight: 6,
     peakHeight: 28,
     baseWidth: 4,
-    peakWidth: 9,
+    peakWidth: 10,
   });
   return { topPct, height, width, opacity: Math.max(opacity, 0.4) };
 };

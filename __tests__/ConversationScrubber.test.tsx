@@ -95,9 +95,10 @@ describe('ConversationScrubber (loupe)', () => {
     });
   });
 
-  it('keeps an explicit rail height so absolute marks can never collapse it', () => {
+  it('keeps an explicit, count-derived rail height (compact pitch, no collapse)', () => {
     // 刻度全程 absolute 定位(脱离文档流)——轨道高度必须显式声明,
     // 否则按下瞬间胶囊塌缩成一个点("只剩一个点"回归)。
+    // 高度随刻度数走(3 marks → 56px):间距太大鱼眼波包就散了。
     let screen!: ReactTestRenderer.ReactTestRenderer;
     act(() => {
       screen = ReactTestRenderer.create(
@@ -115,6 +116,6 @@ describe('ConversationScrubber (loupe)', () => {
       {},
       ...(Array.isArray(rail.props.style) ? rail.props.style : [rail.props.style]),
     );
-    expect(style.height).toBe(276);
+    expect(style.height).toBe(56);
   });
 });

@@ -17,6 +17,7 @@ import {
   markPositionForStop,
   pickStopAtFraction,
   railFractionAt,
+  railHeightFor,
   railMarkVisual,
   type RailGeometry,
   type ScrubberStop,
@@ -61,11 +62,11 @@ const LOUPE_HIDDEN_SCALE = 0.94;
 const LOUPE_SHOW_MS = 130;
 const LOUPE_HIDE_MS = 130;
 const LOUPE_UNMOUNT_MS = 170;
-// The rail's height is EXPLICIT, never content-driven: marks render absolutely
-// (out of flow) in BOTH states — idle silhouette and fisheye — so the pill
-// cannot collapse when marks leave the flow, and idle/slide share one geometry
-// (the drag fraction's denominator). Sized to breathe at 20 marks.
-const RAIL_HEIGHT = 276;
+// The rail's height is EXPLICIT (railHeightFor), never content-driven: marks
+// render absolutely (out of flow) in BOTH states — idle silhouette and fisheye
+// — so the pill cannot collapse when marks leave the flow, and idle/slide
+// share one geometry (the drag fraction's denominator). Height scales with the
+// mark count so the pitch stays compact — the fisheye wave needs close marks.
 const RAIL_TOUCH_WIDTH = 48;
 
 /**
@@ -320,6 +321,7 @@ export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
         style={[
           styles.rail,
           {
+            height: railHeightFor(collapsedMarks.length),
             backgroundColor: isDark
               ? 'rgba(17, 20, 23, 0.7)'
               : 'rgba(255, 255, 255, 0.78)',
@@ -455,9 +457,9 @@ const styles = StyleSheet.create({
     right: 7,
     top: 172,
     width: 16,
-    // Explicit height (see RAIL_HEIGHT): marks are absolute in both states, so
-    // content can never size the pill — without this it collapses on press.
-    height: RAIL_HEIGHT,
+    // Height comes from railHeightFor(collapsedMarks.length), applied inline:
+    // explicit (marks are absolute in both states — content can never size the
+    // pill) yet count-derived so short conversations keep a compact pill.
     borderRadius: 999,
     borderWidth: 1,
     alignItems: 'center',
