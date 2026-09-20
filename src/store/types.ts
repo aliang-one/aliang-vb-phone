@@ -337,6 +337,19 @@ export interface ControlCenterState {
     deviceId: string,
     directory?: string,
   ) => Promise<string>;
+  /**
+   * Attach to an existing terminal session (POST /attach): asks the agent to
+   * replay its scrollback (`terminal.replay` frames) before the live feed
+   * resumes. Any buffered replay from a previous attach is reset first so a
+   * re-attach replaces — never duplicates — the previous scrollback. When the
+   * session is unknown locally (cold attach after an app restart) a
+   * placeholder is registered BEFORE the request so early replay frames have
+   * somewhere to buffer; it is dropped again if the attach fails.
+   */
+  attachTerminalSession: (
+    sessionId: string,
+    options?: { deviceId?: string; rows?: number; cols?: number },
+  ) => Promise<string>;
   executeTerminalCommand: (terminalId: string, command: string) => void;
   clearTerminal: (terminalId: string) => void;
   /**

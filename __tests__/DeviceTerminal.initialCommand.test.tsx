@@ -101,6 +101,9 @@ const seedStore = () => {
       },
     ],
     terminalCommandHistory: {},
+    // P4 attach flow: entering with a terminal id now calls attach on mount —
+    // keep it a resolved no-op so these tests exercise input/voice UX only.
+    attachTerminalSession: jest.fn().mockResolvedValue('term-1'),
     loadTerminalCommandHistory: jest.fn().mockResolvedValue(undefined),
   });
 };

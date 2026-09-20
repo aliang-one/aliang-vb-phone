@@ -32,6 +32,39 @@ export const isActiveTerminalSessionStatus = (
   status: TerminalSessionStatus,
 ) => activeTerminalStatuses.has(status);
 
+/**
+ * The device's most recent ACTIVE terminal session — the session an entry
+ * point (or the terminal screen's default) should attach to under the
+ * "one default terminal per device" product rule. Ties on updatedAt fall
+ * back to createdAt, newest first.
+ */
+export const findRecentActiveTerminalSession = <
+  T extends {
+    deviceId: string;
+    status: TerminalSessionStatus;
+    updatedAt: string;
+    createdAt: string;
+  },
+>(
+  sessions: T[],
+  deviceId: string,
+): T | undefined => {
+  let recent: T | undefined;
+  for (const session of sessions) {
+    if (session.deviceId !== deviceId) continue;
+    if (!isActiveTerminalSessionStatus(session.status)) continue;
+    if (
+      !recent ||
+      session.updatedAt > recent.updatedAt ||
+      (session.updatedAt === recent.updatedAt &&
+        session.createdAt > recent.createdAt)
+    ) {
+      recent = session;
+    }
+  }
+  return recent;
+};
+
 export const isTerminalInputAvailable = ({
   terminalStatus,
   deviceStatus,

@@ -18,6 +18,12 @@ export type RootStackParamList = {
     directory?: string;
     terminalId?: string;
     initialCommand?: string;
+    /**
+     * Explicit "brand-new session" entry (e.g. the list screen's NEW TERM
+     * capsule): skips the screen's attach-first resolution and always creates
+     * a fresh pty, even when the device already has an active session.
+     */
+    newSession?: boolean;
   };
   ProjectScan: { deviceId: string };
   ProjectDetail: { projectId: string; deviceId?: string };

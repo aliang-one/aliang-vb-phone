@@ -59,6 +59,10 @@
   },
   "replay": {
     "endedBanner": "Session ended · history below",
-    "replayedBadge": "Replayed"
+    "replayedBadge": "Replayed",
+    "sessionEnded": "Session ended",
+    "historyBelow": "History output below",
+    "newSession": "New session",
+    "resuming": "Resuming session…"
   }
 }

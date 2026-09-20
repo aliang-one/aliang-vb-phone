@@ -11,6 +11,7 @@ import {
   event,
   line,
   MAX_TERMINAL_LINES,
+  mergeTerminalSessionSnapshot,
   nowTime,
   serverTerminalSessionToClient,
   tail,
@@ -21,6 +22,7 @@ type TerminalSlice = Pick<
   | 'terminalSessions'
   | 'terminalCommandHistory'
   | 'createTerminalSession'
+  | 'attachTerminalSession'
   | 'executeTerminalCommand'
   | 'clearTerminal'
   | 'resetTerminalReplay'
@@ -94,6 +96,78 @@ export const createTerminalSlice: StateCreator<
     }));
 
     return terminal.id;
+  },
+
+  attachTerminalSession: async (sessionId, options) => {
+    if (!get().serverMode) {
+      throw new Error(
+        'Platform connection is required before attaching a terminal.',
+      );
+    }
+
+    // Cold attach (session unknown locally — e.g. right after an app restart):
+    // register a placeholder BEFORE the request so `terminal.replay` frames
+    // that race ahead of the REST response still have a buffer to land in.
+    let addedPlaceholder = false;
+    set(state => {
+      if (state.terminalSessions.some(item => item.id === sessionId)) {
+        // Re-attach: start a FRESH replay stream so the new scrollback
+        // replaces — never appends to — the previous one.
+        return {
+          terminalSessions: state.terminalSessions.map(item =>
+            item.id === sessionId ? beginTerminalReplayStream(item) : item,
+          ),
+        };
+      }
+      addedPlaceholder = true;
+      const attachedAt = nowTime();
+      return {
+        terminalSessions: [
+          {
+            id: sessionId,
+            deviceId: options?.deviceId ?? '',
+            directory: '~',
+            shell: 'zsh',
+            status: 'running' as TerminalSessionStatus,
+            lines: [],
+            createdAt: attachedAt,
+            updatedAt: attachedAt,
+            replayChunks: [],
+            replayReady: false,
+            replayTruncated: false,
+          },
+          ...state.terminalSessions,
+        ],
+      };
+    });
+
+    try {
+      const serverSession = await platformTransport.attachTerminalSession(
+        sessionId,
+        { rows: options?.rows ?? 24, cols: options?.cols ?? 80 },
+      );
+      const incoming = serverTerminalSessionToClient(serverSession);
+      set(state => ({
+        terminalSessions: state.terminalSessions.map(item =>
+          item.id === incoming.id
+            ? // Snapshot merge fills the placeholder's real device/cwd/shell
+              // while preserving any replay frames that already arrived.
+              mergeTerminalSessionSnapshot(item, incoming)
+            : item,
+        ),
+      }));
+      return incoming.id;
+    } catch (error) {
+      if (addedPlaceholder) {
+        // Don't leave a bogus (unknown-device) session behind in list views.
+        set(state => ({
+          terminalSessions: state.terminalSessions.filter(
+            item => item.id !== sessionId,
+          ),
+        }));
+      }
+      throw error;
+    }
   },
 
   executeTerminalCommand: (terminalId, command) => {

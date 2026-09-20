@@ -59,6 +59,10 @@
   },
   "replay": {
     "endedBanner": "会话已结束·以下为历史输出",
-    "replayedBadge": "已回放"
+    "replayedBadge": "已回放",
+    "sessionEnded": "会话已结束",
+    "historyBelow": "以下为历史输出",
+    "newSession": "新建会话",
+    "resuming": "正在恢复会话…"
   }
 }
