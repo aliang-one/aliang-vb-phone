@@ -15,7 +15,11 @@ export type CommandGenMode = 'initial' | 'live';
 
 export interface CommandGenResult {
   command: string;
+  /** 1-3 candidate commands (new server). Absent on older servers. */
+  commands?: string[];
   dangerous: boolean;
+  /** Per-command danger aligned with `commands`. Absent on older servers. */
+  dangerousFlags?: boolean[];
   runId: string;
   /** The device the AI chose (defaults to the request's device if it never called select_device). */
   deviceId?: string;
