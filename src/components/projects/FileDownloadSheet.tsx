@@ -38,9 +38,10 @@ interface FileDownloadSheetProps {
  * Confirm / progress / failure sheet for a single file download (Task 16).
  *
  * Visibility: `pendingFile` (confirm hand-off) OR a non-idle store phase — so
- * closing the sheet mid-download merely abandons the UI (the background task
- * keeps running and re-opens the sheet on the next long-press) while the
- * cancel button is the explicit way out of a running download.
+ * a running download keeps the sheet mounted and a close attempt mid-run is
+ * inert (the backdrop/close gesture can't dismiss it; Cancel is the only way
+ * out of a running download). Long-pressing the same file while a run is
+ * live re-opens the sheet with the progress body via phase !== 'idle'.
  *
  * Phase → body mapping:
  *   idle                    confirm (file facts + size gate + destination copy)
@@ -104,8 +105,8 @@ export const FileDownloadSheet: React.FC<FileDownloadSheetProps> = ({
 
   // Terminal-but-not-idle phases have no background task left to preserve:
   // reset so the `open` condition can go false. Running phases keep their
-  // store state — closing then only abandons the UI (the sheet re-opens on
-  // the next long-press while the download continues).
+  // store state — and because `open` includes phase !== 'idle', this close
+  // handler is effectively inert mid-run; Cancel is the running-phase exit.
   const handleClose = () => {
     if (phase === 'done' || phase === 'cancelled' || phase === 'failed') {
       resetFileDownload();
