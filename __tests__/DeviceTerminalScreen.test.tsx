@@ -495,7 +495,7 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
         .accessibilityState,
-    ).toEqual({ disabled: false });
+    ).toEqual({ disabled: false, expanded: true });
   });
 
   it('shows focused keyboard state when the KB control requests soft keyboard focus', async () => {
@@ -564,6 +564,10 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
         }),
       ]),
     );
+    expect(keyboardButton().props.accessibilityState).toEqual({
+      disabled: false,
+      expanded: true,
+    });
 
     keyboardDismissSpy.mockClear();
 
@@ -581,6 +585,15 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
 
     expect(keyboardDismissSpy).toHaveBeenCalledTimes(1);
     expect(mockTerminalSendText).not.toHaveBeenCalled();
+
+    // OS 完成收起回调 → 开关回到 collapsed(颜色之外的第二指示)。
+    act(() => {
+      keyboardListeners.keyboardDidHide?.forEach(listener => listener());
+    });
+    expect(keyboardButton().props.accessibilityState).toEqual({
+      disabled: false,
+      expanded: false,
+    });
   });
 
   it('uses xterm touch focus requests to open the native keyboard proxy', async () => {
@@ -725,7 +738,7 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
         .accessibilityState,
-    ).toEqual({ disabled: true });
+    ).toEqual({ disabled: true, expanded: false });
     expect(mockTerminalSendText).not.toHaveBeenCalled();
   });
 
@@ -820,7 +833,7 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
         .accessibilityState,
-    ).toEqual({ disabled: true });
+    ).toEqual({ disabled: true, expanded: false });
     expect(mockTerminalSendText).not.toHaveBeenCalled();
   });
 
@@ -885,7 +898,7 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
         .accessibilityState,
-    ).toEqual({ disabled: true });
+    ).toEqual({ disabled: true, expanded: false });
     expect(
       screen!.root.findByProps({ testID: 'terminal-directory-other' }).props
         .accessibilityState,
@@ -1169,7 +1182,7 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
         .accessibilityState,
-    ).toEqual({ disabled: true });
+    ).toEqual({ disabled: true, expanded: false });
     expect(
       screen!.root.findByProps({ testID: 'terminal-key-Tab' }).props
         .accessibilityState,

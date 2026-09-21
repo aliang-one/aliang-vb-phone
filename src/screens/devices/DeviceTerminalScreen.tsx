@@ -1581,7 +1581,10 @@ export const DeviceTerminalScreen: React.FC = () => {
                         accessibilityRole="button"
                         accessibilityLabel={tReplay('aiSuggest.keyboardToggleLabel')}
                         hitSlop={terminalControlHitSlop}
-                        accessibilityState={{ disabled: !terminalInputEnabled }}
+                        accessibilityState={{
+                          disabled: !terminalInputEnabled,
+                          expanded: keyboardOpen,
+                        }}
                         onPressIn={toggleKeyboard}
                         disabled={!terminalInputEnabled}
                         style={[
