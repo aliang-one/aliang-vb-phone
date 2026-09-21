@@ -34,7 +34,19 @@
     "agentOfflineHint": "The Agent is not connected. Confirm it is online, then refresh from the toolbar above, or open the terminal / scan the device.",
     "noFilesHint": "Tap REFRESH in the toolbar above to request the file list from the desktop Agent.",
     "download": {
-      "menuItem": "Download"
+      "menuItem": "Download",
+      "confirmAction": "Download",
+      "cancel": "Cancel",
+      "retry": "Retry",
+      "tooLargeDetail": "File exceeds the {{limit}} download limit",
+      "destinationAndroid": "Saves to system Downloads",
+      "destinationIos": "Choose \"Save to Files\" in the share sheet",
+      "uploading": "Uploading from device…",
+      "downloading": "Downloading…",
+      "doneTitle": "Saved",
+      "failedTitle": "Download failed",
+      "inProgressDetail": "Another download is already running",
+      "notConfiguredDetail": "Download is not available for this device"
     },
     "error": {
       "pathMissingTitle": "Project path missing",

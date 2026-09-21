@@ -34,7 +34,19 @@
     "agentOfflineHint": "Agent 未保持连接，请确认 Agent 在线后用上方工具条刷新，或打开终端 / 扫描设备。",
     "noFilesHint": "点击上方工具条的 REFRESH 可向桌面 Agent 请求文件列表。",
     "download": {
-      "menuItem": "下载"
+      "menuItem": "下载",
+      "confirmAction": "确认下载",
+      "cancel": "取消",
+      "retry": "重试",
+      "tooLargeDetail": "文件超过 {{limit}} 的下载上限",
+      "destinationAndroid": "将保存到系统下载目录",
+      "destinationIos": "将在分享面板中选择「存储到文件」",
+      "uploading": "正在从设备上传…",
+      "downloading": "正在下载…",
+      "doneTitle": "已保存",
+      "failedTitle": "下载失败",
+      "inProgressDetail": "已有下载任务进行中",
+      "notConfiguredDetail": "当前设备下载不可用"
     },
     "error": {
       "pathMissingTitle": "项目路径缺失",

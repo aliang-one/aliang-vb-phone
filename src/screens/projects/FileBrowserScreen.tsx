@@ -27,6 +27,7 @@ import {
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { BottomSheet } from '../../components/shared/BottomSheet';
 import { FileLongPressMenu } from '../../components/projects/FileLongPressMenu';
+import { FileDownloadSheet } from '../../components/projects/FileDownloadSheet';
 import { CodeHighlight } from '../../components/shared/CodeHighlight';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { describeDeviceError } from '../../utils/deviceError';
@@ -856,25 +857,34 @@ export const FileBrowserScreen: React.FC = () => {
           {renderSheetBody()}
         </BottomSheet>
 
-        {/* File-row long-press menu — mounted only when the server supports
-            downloads; the sheet itself arrives with Task 16. */}
+        {/* File-row long-press menu + the download confirm/progress sheet —
+            mounted only when the server supports downloads. Closing the sheet
+            mid-download abandons the UI only: the store phase keeps the task
+            alive and re-opens it on the next long-press. */}
         {downloadEnabled && (
-          <FileLongPressMenu
-            visible={!!menuFile}
-            fileName={menuFile?.name ?? ''}
-            onClose={() => setMenuFile(null)}
-            actions={[
-              {
-                label: t('fileBrowser.download.menuItem'),
-                tone: 'primary',
-                onPress: () => {
-                  const file = menuFile;
-                  setMenuFile(null);
-                  if (file) setDownloadFile(file);
+          <>
+            <FileLongPressMenu
+              visible={!!menuFile}
+              fileName={menuFile?.name ?? ''}
+              onClose={() => setMenuFile(null)}
+              actions={[
+                {
+                  label: t('fileBrowser.download.menuItem'),
+                  tone: 'primary',
+                  onPress: () => {
+                    const file = menuFile;
+                    setMenuFile(null);
+                    if (file) setDownloadFile(file);
+                  },
                 },
-              },
-            ]}
-          />
+              ]}
+            />
+            <FileDownloadSheet
+              pendingFile={downloadFile}
+              projectId={route.params.projectId}
+              onClose={() => setDownloadFile(null)}
+            />
+          </>
         )}
         </DeferredMount>
       </ScrollView>
