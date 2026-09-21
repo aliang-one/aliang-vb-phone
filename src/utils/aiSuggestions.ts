@@ -19,7 +19,9 @@ export interface CommandGenResultLike {
 /** Map a commandGen response into chips. Per-command flags when present;
  *  otherwise the aggregate `dangerous` applies to every entry (old-server
  *  compat). The local isUnsafeSuggestion check always ORs in — the phone's
- *  interactive/danger/secret filters catch what the server's filter misses. */
+ *  interactive/danger/secret filters catch what the server's filter misses.
+ *  Commands are trimmed BEFORE that check so the ^-anchored INTERACTIVE_COMMANDS
+ *  regex can't be defeated by a leading space, and chips normalize early. */
 export function chipsFromCommandGenResult(
   result: CommandGenResultLike,
 ): AiSuggestionChip[] {
@@ -29,14 +31,17 @@ export function chipsFromCommandGenResult(
       : result.command
         ? [result.command]
         : [];
-  return commands.map((command, index) => ({
-    command,
-    dangerous:
-      isUnsafeSuggestion(command) ||
-      (result.dangerousFlags
-        ? Boolean(result.dangerousFlags[index])
-        : Boolean(result.dangerous)),
-  }));
+  return commands.map((command, index) => {
+    const trimmed = command.trim();
+    return {
+      command: trimmed,
+      dangerous:
+        isUnsafeSuggestion(trimmed) ||
+        (result.dangerousFlags
+          ? Boolean(result.dangerousFlags[index])
+          : Boolean(result.dangerous)),
+    };
+  });
 }
 
 /** Merge a fresh batch (FIRST in the result) above the existing chips: newest

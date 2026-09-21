@@ -39,6 +39,20 @@ describe('chipsFromCommandGenResult', () => {
     ).toEqual([{ command: 'rm -rf /tmp/vibe-test', dangerous: true }]);
   });
 
+  it('trims BEFORE the anchored ^ safety check and normalizes the output', () => {
+    // A leading space would otherwise defeat the ^-anchored INTERACTIVE_COMMANDS
+    // regex, letting ' vim file' through as a non-dangerous chip.
+    expect(
+      chipsFromCommandGenResult({
+        commands: [' vim file', '  git status  '],
+        dangerous: false,
+      }),
+    ).toEqual([
+      { command: 'vim file', dangerous: true },
+      { command: 'git status', dangerous: false },
+    ]);
+  });
+
   it('returns [] for an empty result', () => {
     expect(chipsFromCommandGenResult({})).toEqual([]);
   });
