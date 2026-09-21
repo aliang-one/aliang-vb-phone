@@ -300,6 +300,13 @@ export interface ControlCenterState {
   eventHistory: UnifiedEvent[];
   eventHistoryPages: Record<string, HistoryPageState>;
   projectFiles: ProjectFileEntry[];
+  /**
+   * File-download capability advertised by the server on the last
+   * GET /files response (`download` field). Undefined when the server has no
+   * download domain or the field is absent. Client-side only; not per-file
+   * metadata, so it deliberately lives outside fileCache.
+   */
+  fileDownloadCapability?: { enabled: boolean; max_bytes: number };
   // Actions
   initializeFromServer: (token?: string) => Promise<void>;
   refreshFromServer: () => Promise<RefreshOutcome>;
