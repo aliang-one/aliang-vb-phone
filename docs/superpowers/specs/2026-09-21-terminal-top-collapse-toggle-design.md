@@ -42,7 +42,7 @@ const topPanelCollapsed =
 
 ### 终端自适应(关键联动)
 
-顶部面板与 `outputPane` 是 flex 列兄弟,面板变矮终端区域自动变高,但 xterm 实例需要重新 fit 才会改变行列数。现有 fit effect 依赖 `[keyboardLiftInset, terminalViewportInset]`,**必须把 `topPanelCollapsed` 加入依赖数组**,否则手动折叠后终端不重排(键盘路径因 keyboardInset 变化天然触发,手动路径不会)。
+顶部面板与 `outputPane` 是 flex 列兄弟,面板变矮终端区域自动变高。`TerminalEmulator` 自身有容器 onLayout 触发的 fit 兜底,但为与键盘路径保持一致的确定性时序,现有 fit effect(`[keyboardLiftInset, terminalViewportInset]` 依赖)**必须把 `topPanelCollapsed` 加入依赖数组**——键盘路径因 keyboardInset 变化天然触发,手动路径只有加依赖才能同样触发(避免依赖 onLayout 兜底时序)。
 
 ### 动画
 
@@ -61,7 +61,8 @@ const topPanelCollapsed =
 1. 点开关 → `terminal-collapsed-summary` 出现、`terminal-top-grid` 消失、toggle 的 accessibilityState.expanded=false
 2. 再点开关 → 恢复展开(grid 回来、摘要消失)
 3. 键盘弹起时 toggle disabled;键盘收起后恢复可用
-4. 回归:现有「键盘弹起折叠 / 收起展开」测试必须零改动通过
+4. 手动折叠后 fit 被调用(fit effect 依赖生效;fit 走 40ms 真实 setTimeout,断言需短真实等待;复用测试文件已有的 `mockTerminalFit`)
+5. 回归:现有「键盘弹起折叠 / 收起展开」测试必须零改动通过
 
 ## 影响面
 
