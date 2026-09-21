@@ -68,6 +68,7 @@
     "voiceFabLabel": "Voice command",
     "keyboardToggleLabel": "Toggle keyboard",
     "errorRetry": "Retry",
+    "errorDismissA11y": "Dismiss error",
     "errorVoice": "Voice recognition failed, please retry",
     "a11yRun": "Run suggested command {{command}}",
     "a11yArm": "Tap again to run {{command}}"

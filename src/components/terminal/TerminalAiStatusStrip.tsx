@@ -137,6 +137,7 @@ export const TerminalAiStatusStrip: React.FC<TerminalAiStatusStripProps> = ({
         <TouchableOpacity
           testID="terminal-ai-error-dismiss"
           accessibilityRole="button"
+          accessibilityLabel={t('aiSuggest.errorDismissA11y')}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           onPress={onDismissError}
           style={styles.dismiss}

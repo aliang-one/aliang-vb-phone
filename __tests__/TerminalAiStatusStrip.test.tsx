@@ -56,6 +56,7 @@ describe('TerminalAiStatusStrip', () => {
   it('recording: shows live caption or the listening fallback', async () => {
     await renderStrip({ phase: 'recording', liveCaption: '看看状态' });
     expect(screen.root.findAllByType(Text).some(n => n.props.children === '看看状态')).toBe(true);
+    act(() => { screen.unmount(); });
     await renderStrip({ phase: 'recording', liveCaption: '' });
     expect(screen.root.findAllByType(Text).some(n => n.props.children === '正在聆听…')).toBe(true);
   });
@@ -63,6 +64,7 @@ describe('TerminalAiStatusStrip', () => {
   it('generating: shows liveStatus or the generating fallback', async () => {
     await renderStrip({ phase: 'generating', liveStatus: 'list_dir' });
     expect(screen.root.findAllByType(Text).some(n => n.props.children === 'list_dir')).toBe(true);
+    act(() => { screen.unmount(); });
     await renderStrip({ phase: 'generating', liveStatus: '' });
     expect(screen.root.findAllByType(Text).some(n => n.props.children === '正在生成建议…')).toBe(true);
   });
@@ -85,6 +87,9 @@ describe('TerminalAiStatusStrip', () => {
     expect(byTestID('terminal-ai-text-send').props.disabled).toBe(false);
     act(() => { byTestID('terminal-ai-text-send').props.onPress(); });
     expect(handlers.onSendText).toHaveBeenCalledWith('看看状态');
+    // 草稿已清空 → 发送钮回到禁用态(空文本不可重复发送)。
+    expect(input!.props.value).toBe('');
+    expect(byTestID('terminal-ai-text-send').props.disabled).toBe(true);
     act(() => { byTestID('terminal-ai-text-cancel').props.onPress(); });
     expect(handlers.onCloseText).toHaveBeenCalledTimes(1);
   });

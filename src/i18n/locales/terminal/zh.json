@@ -68,6 +68,7 @@
     "voiceFabLabel": "语音命令",
     "keyboardToggleLabel": "切换键盘",
     "errorRetry": "重试",
+    "errorDismissA11y": "关闭错误提示",
     "errorVoice": "语音识别失败，请重试",
     "a11yRun": "执行建议命令 {{command}}",
     "a11yArm": "再点一次确认执行 {{command}}"
