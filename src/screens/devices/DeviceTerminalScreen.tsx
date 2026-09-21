@@ -20,7 +20,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Path, Polyline } from 'react-native-svg';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -153,6 +153,22 @@ const TopStatusShape: React.FC<{
   </Svg>
 );
 
+const TopPanelToggleIcon: React.FC<{ color: string; up: boolean }> = ({
+  color,
+  up,
+}) => (
+  <Svg width={14} height={14} viewBox="0 0 14 14">
+    <Polyline
+      points={up ? '3,9 7,5 11,9' : '3,5 7,9 11,5'}
+      fill="none"
+      stroke={color}
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </Svg>
+);
+
 const PENDING_KEYBOARD_LIFT_INSET = 300;
 const terminalControlHitSlop = { top: 6, right: 6, bottom: 6, left: 6 };
 export const getTerminalProxyKeyboardType = (os: typeof Platform.OS) =>
@@ -239,6 +255,8 @@ export const DeviceTerminalScreen: React.FC = () => {
   const [currentQuickDirectory, setCurrentQuickDirectory] = useState(
     route.params.directory ?? '',
   );
+  // 手动折叠开关:用户主动收起顶栏(不持久化,每次进屏默认展开)。
+  const [userCollapsed, setUserCollapsed] = useState(false);
   // Fine-grained subscriptions: only THIS device/terminal/history slices, so
   // background churn from other terminals/devices no longer re-renders here.
   const device = useDevice(route.params.deviceId);
@@ -305,7 +323,8 @@ export const DeviceTerminalScreen: React.FC = () => {
     ? 'rgba(0,209,255,0.12)'
     : 'rgba(0,81,174,0.08)';
   const currentDirectoryDotColor = isDark ? theme.colors.secondary : '#0051AE';
-  const topPanelCollapsed = keyboardInset > 0 || keyboardProxyFocused;
+  const keyboardForcesCollapse = keyboardInset > 0 || keyboardProxyFocused;
+  const topPanelCollapsed = userCollapsed || keyboardForcesCollapse;
   const keyboardLiftInset =
     keyboardInset > 0
       ? keyboardInset
@@ -569,7 +588,7 @@ export const DeviceTerminalScreen: React.FC = () => {
     }, 40);
 
     return () => clearTimeout(timer);
-  }, [keyboardLiftInset, terminalViewportInset]);
+  }, [keyboardLiftInset, terminalViewportInset, topPanelCollapsed]);
 
   // Entry A (long-press NEW TERM → voice→bash): run the routed command exactly
   // once when the pty becomes input-available, then clear the param so a later
@@ -593,6 +612,12 @@ export const DeviceTerminalScreen: React.FC = () => {
     }
     // { state: undefined } = 不指定嵌套 screen,保持「回到当前 tab」的原行为。
     navigation.navigate('MainTabs', { state: undefined });
+  };
+
+  const handleToggleTopPanel = () => {
+    if (keyboardForcesCollapse) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setUserCollapsed(value => !value);
   };
 
   const handleDirectoryChange = async (nextDirectory: string) => {
@@ -863,6 +888,35 @@ export const DeviceTerminalScreen: React.FC = () => {
                     </Text>
                   )}
                 </View>
+                <TouchableOpacity
+                  testID="terminal-top-toggle"
+                  activeOpacity={0.74}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    topPanelCollapsed
+                      ? 'Expand terminal header'
+                      : 'Collapse terminal header'
+                  }
+                  accessibilityState={{
+                    expanded: !topPanelCollapsed,
+                    disabled: keyboardForcesCollapse,
+                  }}
+                  hitSlop={terminalControlHitSlop}
+                  disabled={keyboardForcesCollapse}
+                  onPress={handleToggleTopPanel}
+                  style={[
+                    styles.topToggle,
+                    {
+                      borderColor: strongOutlineColor,
+                      backgroundColor: elevatedSurfaceColor,
+                    },
+                  ]}
+                >
+                  <TopPanelToggleIcon
+                    color={theme.colors.primary}
+                    up={!topPanelCollapsed}
+                  />
+                </TouchableOpacity>
                 <View
                   style={[
                     styles.devicePod,
@@ -1750,6 +1804,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderRadius: 19,
+  },
+  topToggle: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 15,
   },
   backButtonText: {
     fontWeight: '700',
