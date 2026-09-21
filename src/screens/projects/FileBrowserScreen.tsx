@@ -342,6 +342,7 @@ export const FileBrowserScreen: React.FC = () => {
     markSaving();
     saveDownloadedFile({ url, filename })
       .then(() => {
+        if (useControlCenterStore.getState().fileDownloadActive?.requestId !== requestId) return; // 取消/重置后不再惊扰 UI
         markDone();
         // Fire-and-forget ack: /complete frees the server slot (the server
         // best-effort deletes the COS object). Its response is deliberately
@@ -351,6 +352,7 @@ export const FileBrowserScreen: React.FC = () => {
         show(t('fileBrowser.download.doneTitle'));
       })
       .catch((error: unknown) => {
+        if (useControlCenterStore.getState().fileDownloadActive?.requestId !== requestId) return; // 取消/重置后不再惊扰 UI
         handledSaveRequestRef.current = null; // 允许对账翻回 ready 后重试落盘（save 失败≠下载失败，COS url 仍有效）
         markFailed(
           error instanceof Error && error.message
