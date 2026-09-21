@@ -136,6 +136,23 @@ export interface PlatformPreviewSnapshot {
   mappingError?: string;
 }
 
+/**
+ * Normalized `file_download` push payload: the server-side lifecycle of one
+ * download request (agent → COS upload → signed URL). The server's snake_case
+ * fields are camelCased here at the transport boundary — the camelCase twin of
+ * `FileDownloadStatus` in api/projects. `project_id` on the wire is dropped:
+ * the slice already recorded the project when it called startDownload.
+ */
+export interface PlatformFileDownloadStatus {
+  requestId: string;
+  state: 'uploading' | 'ready' | 'failed' | 'cancelled' | 'completed';
+  uploadedBytes?: number;
+  totalBytes?: number;
+  url?: string;
+  expiresAt?: string;
+  reason?: string;
+}
+
 export type PlatformTransportEvent =
   | { type: 'transport.status'; status: WsConnectionState }
   | { type: 'mobile.connected'; user?: unknown; raw: Record<string, unknown> }
@@ -168,6 +185,7 @@ export type PlatformTransportEvent =
   | { type: 'notifications.updated'; readAll: boolean; raw: Record<string, unknown> }
   | { type: 'preview.ready'; preview: PlatformPreviewSnapshot; expiresIn: string; raw: Record<string, unknown> }
   | { type: 'preview.updated'; preview: PlatformPreviewSnapshot; raw: Record<string, unknown> }
+  | { type: 'file_download'; download: PlatformFileDownloadStatus; raw: Record<string, unknown> }
   | { type: 'project.updated'; project: PlatformProjectSnapshot; raw: Record<string, unknown> }
   | { type: 'project.deleted'; projectId: string; raw: Record<string, unknown> }
   | { type: 'projects.updated'; deviceId?: string; raw: Record<string, unknown> }
@@ -802,6 +820,23 @@ class PlatformTransport {
         expiresIn: String(message.expires_in ?? preview.expires_in ?? ''),
         raw: message,
       } as PlatformTransportEvent;
+    }
+
+    if (type === 'file_download' && message.download && typeof message.download === 'object') {
+      const download = message.download as Record<string, unknown>;
+      return {
+        type: 'file_download',
+        download: {
+          requestId: String(download.request_id ?? ''),
+          state: String(download.state ?? 'uploading') as PlatformFileDownloadStatus['state'],
+          uploadedBytes: typeof download.uploaded_bytes === 'number' ? download.uploaded_bytes : undefined,
+          totalBytes: typeof download.total_bytes === 'number' ? download.total_bytes : undefined,
+          url: asString(download.url),
+          expiresAt: asString(download.expires_at),
+          reason: asString(download.reason),
+        },
+        raw: message,
+      };
     }
 
     if (type === 'project.updated' && isServerProject(message.project)) {

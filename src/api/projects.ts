@@ -1,4 +1,4 @@
-import { apiFetch, apiGet, apiPost, apiPatch } from './client';
+import { apiFetch, apiGet, apiPost, apiPatch, apiDelete } from './client';
 import type { ServerAiSession } from './sessions';
 import type { AgentCommandInfo } from '../data/platformModels';
 import type { ProjectProviderModelConfig } from './modelConfig';
@@ -94,7 +94,66 @@ export interface ServerProjectFileList {
   entries: ServerProjectFile[];
   truncated: boolean;
   generated_at: string;
+  /**
+   * Server's file-download capability advertised on GET /files (omitted by
+   * servers without the download domain). Kept out of fileCache — it is a
+   * per-server capability, not per-file metadata.
+   */
+  download?: { enabled: boolean; max_bytes: number };
 }
+
+/**
+ * Lifecycle of one file-download request (server pushes the file to COS and
+ * hands back a signed URL). POST returns 202 with the uploading/failed state;
+ * poll GET until `ready`, then hand `url` to the share sheet and POST
+ * /complete so the server can free the slot.
+ */
+export interface FileDownloadStatus {
+  request_id: string;
+  state: 'uploading' | 'ready' | 'failed' | 'cancelled' | 'completed';
+  uploaded_bytes?: number;
+  total_bytes?: number;
+  url?: string;
+  expires_at?: string;
+  reason?: string;
+}
+
+/** Ask the server to start uploading `path` to COS (202 + initial status). */
+export const startProjectFileDownload = (
+  projectId: string,
+  path: string,
+): Promise<FileDownloadStatus> =>
+  apiPost<FileDownloadStatus>(
+    `/api/projects/${encodeURIComponent(projectId)}/files/download`,
+    { path },
+  );
+
+/** Poll a download request's status; `ready` carries url/expires_at. */
+export const fetchProjectFileDownload = (
+  projectId: string,
+  requestId: string,
+): Promise<FileDownloadStatus> =>
+  apiGet<FileDownloadStatus>(
+    `/api/projects/${encodeURIComponent(projectId)}/files/download/${encodeURIComponent(requestId)}`,
+  );
+
+/** Cancel an in-flight upload (idempotent; returns cancelled/failed status). */
+export const cancelProjectFileDownload = (
+  projectId: string,
+  requestId: string,
+): Promise<FileDownloadStatus> =>
+  apiDelete<FileDownloadStatus>(
+    `/api/projects/${encodeURIComponent(projectId)}/files/download/${encodeURIComponent(requestId)}`,
+  );
+
+/** Acknowledge a ready download so the server can release the slot. */
+export const completeProjectFileDownload = (
+  projectId: string,
+  requestId: string,
+): Promise<FileDownloadStatus> =>
+  apiPost<FileDownloadStatus>(
+    `/api/projects/${encodeURIComponent(projectId)}/files/download/${encodeURIComponent(requestId)}/complete`,
+  );
 
 export interface ServerProjectFileContent {
   project_id: string;

@@ -5,7 +5,10 @@ import type {
   Project,
   VibeCodingRun,
 } from '../data/platformModels';
-import type { PlatformTransportEvent } from '../services/platformTransport';
+import type {
+  PlatformFileDownloadStatus,
+  PlatformTransportEvent,
+} from '../services/platformTransport';
 
 // --- Type definitions ---
 
@@ -217,6 +220,43 @@ export interface UnifiedEvent {
   payload?: Record<string, string | number | boolean | undefined>;
 }
 
+/**
+ * Client-side lifecycle of a single file download (server enforces per-user
+ * concurrency = 1, so one active record is enough):
+ *
+ *   idle        no task
+ *   requesting  POST /files/download in flight (no requestId yet)
+ *   uploading   server is pushing the file to COS (WS-driven progress)
+ *   ready       COS URL signed and stored — waiting for local save
+ *   saving      blob-util writing the file to disk (download sheet owns this)
+ *   done        saved / shared
+ *   failed      request or upload failed (`reason` carries the server code)
+ *   cancelled   user cancelled
+ */
+export type FileDownloadPhase =
+  | 'idle'
+  | 'requesting'
+  | 'uploading'
+  | 'ready'
+  | 'saving'
+  | 'done'
+  | 'failed'
+  | 'cancelled';
+
+/** The one in-flight (or just-finished, pre-reset) download. */
+export interface ActiveDownload {
+  projectId: string;
+  /** '' while the start POST is in flight. */
+  requestId: string;
+  path: string;
+  /** Display name for the sheet/share dialog (from the file list entry). */
+  filename: string;
+  totalBytes: number;
+  uploadedBytes: number;
+  url?: string;
+  reason?: string;
+}
+
 interface StartAgentInput {
   deviceId: string;
   clientRequestId?: string;
@@ -300,6 +340,20 @@ export interface ControlCenterState {
   eventHistory: UnifiedEvent[];
   eventHistoryPages: Record<string, HistoryPageState>;
   projectFiles: ProjectFileEntry[];
+  /**
+   * File-download capability advertised by the server on the last
+   * GET /files response (`download` field). Undefined when the server has no
+   * download domain or the field is absent. Client-side only; not per-file
+   * metadata, so it deliberately lives outside fileCache.
+   */
+  fileDownloadCapability?: { enabled: boolean; max_bytes: number };
+  /**
+   * The single in-flight file download (null = none). Client-side only, never
+   * part of the server snapshot — a fresh app start reconnects via
+   * `refreshStatus` only while a record exists.
+   */
+  fileDownloadActive: ActiveDownload | null;
+  fileDownloadPhase: FileDownloadPhase;
   // Actions
   initializeFromServer: (token?: string) => Promise<void>;
   refreshFromServer: () => Promise<RefreshOutcome>;
@@ -465,4 +519,21 @@ export interface ControlCenterState {
   ) => void;
   resizeTerminal: (sessionId: string, cols: number, rows: number) => void;
   closeTerminalSession: (sessionId: string) => Promise<void>;
+  // --- File download (single in-flight task; see fileDownloadSlice) ---
+  /** POST the download request; failures land in markFailed (never rejects). */
+  startDownload: (
+    projectId: string,
+    path: string,
+    filename: string,
+  ) => Promise<void>;
+  /** Apply one normalized `file_download` push (WS or REST reconcile). */
+  handleFileDownloadEvent: (download: PlatformFileDownloadStatus) => void;
+  /** Reconcile with GET status while a download is active (404 → reset). */
+  refreshStatus: () => Promise<void>;
+  /** Cancel the in-flight upload via DELETE (never rejects). */
+  cancelDownload: () => Promise<void>;
+  markSaving: () => void;
+  markDone: () => void;
+  markFailed: (reason?: string) => void;
+  resetFileDownload: () => void;
 }

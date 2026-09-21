@@ -78,6 +78,29 @@ jest.mock('@react-native-clipboard/clipboard', () => ({
   },
 }));
 
+// The file download save service (Task 17) is wired into FileBrowserScreen
+// (Task 18), so the whole app graph (App.test.tsx → RootNavigator → screen →
+// service) now reaches react-native-blob-util / react-native-share, whose
+// import-time requireNativeModule throws under Jest. Stub them passthrough;
+// suites that exercise the service (fileDownloadSave.test.ts) re-mock it with
+// richer factories that take precedence over these.
+jest.mock('react-native-blob-util', () => ({
+  __esModule: true,
+  default: {
+    config: jest.fn(() => ({
+      fetch: jest.fn(() => Promise.resolve({ path: jest.fn() })),
+    })),
+    fs: { unlink: jest.fn(() => Promise.resolve(undefined)) },
+  },
+}));
+
+jest.mock('react-native-share', () => ({
+  __esModule: true,
+  default: {
+    open: jest.fn(() => Promise.resolve({ success: true })),
+  },
+}));
+
 // Render in Chinese during tests. The app is Chinese-first historically and most
 // component tests assert Chinese strings; pinning the i18n locale to 'zh' means
 // migrating a screen to useTranslation() does NOT break its Chinese-asserting tests

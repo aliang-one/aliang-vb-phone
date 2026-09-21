@@ -17,6 +17,7 @@ import {
 type DeviceProjectSlice = Pick<
   ControlCenterState,
   | 'devices' | 'projects' | 'projectFiles' | 'scanResults'
+  | 'fileDownloadCapability'
   | 'renameDevice' | 'removeDevice' | 'scanDeviceProjects'
   | 'createProject' | 'updateProject' | 'deleteProject'
   | 'loadProjectFiles' | 'loadProjectFileContent' | 'dropFileContent'
@@ -27,6 +28,7 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
   projects: [],
   projectFiles: [],
   scanResults: [],
+  fileDownloadCapability: undefined,
 
   renameDevice: async (deviceId, name) => {
     const trimmed = name.trim();
@@ -228,6 +230,10 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
             ),
             ...mergedEntries,
           ],
+          // Per-server download capability rides on the same response; assign
+          // unconditionally so an older server's field-less response clears a
+          // stale capability instead of sticking forever.
+          fileDownloadCapability: result.download,
           events: [
             event(
               'project.scan.completed',

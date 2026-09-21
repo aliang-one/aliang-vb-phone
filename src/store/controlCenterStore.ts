@@ -59,6 +59,7 @@ import { createTerminalSlice } from './slices/terminalSlice';
 import { createApprovalSlice } from './slices/approvalSlice';
 import { createAiSessionSlice } from './slices/aiSessionSlice';
 import { createDeviceProjectSlice } from './slices/deviceProjectSlice';
+import { createFileDownloadSlice } from './slices/fileDownloadSlice';
 import { reconcileStructured } from './slices/structuredSlice';
 
 const EMPTY_SESSION_APPROVALS: ControlCenterState['approvals'] = [];
@@ -464,6 +465,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
       ...createApprovalSlice(set, get, store),
       ...createAiSessionSlice(set, get, store),
       ...createDeviceProjectSlice(set, get, store),
+      ...createFileDownloadSlice(set, get, store),
 
       // Only the global activity log lives here; all domain data is owned by slices.
       events: [],
@@ -1506,6 +1508,13 @@ export const useControlCenterStore = create<ControlCenterState>()(
                     .catch(() => {}),
                 );
               }
+              return;
+
+            case 'file_download':
+              // WS-driven progress for the single in-flight download. The
+              // slice ignores pushes it cannot attribute (stale/foreign
+              // request ids), so no filtering needed here.
+              get().handleFileDownloadEvent(transportEvent.download);
               return;
 
             case 'client.presence.updated':
