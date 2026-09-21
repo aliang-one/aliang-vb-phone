@@ -67,12 +67,17 @@ export function useAiCommandSuggestions(
   // Bumped on reset() so a response landing after a terminal switch is dropped
   // instead of merging the old terminal's chips into the new one.
   const generationTokenRef = useRef(0);
+  // Single-flight: voice and text funnel into generate(); a second request
+  // must never run while one is in flight (re-entry would race chips/phase).
+  const generatingRef = useRef(false);
 
   const generate = useCallback(
     async (text: string) => {
       const opts = optionsRef.current;
       const trimmed = text.trim();
       if (!trimmed || !opts.deviceId) return;
+      if (generatingRef.current) return;
+      generatingRef.current = true;
       lastTextRef.current = trimmed;
       setTextMode(false);
       setLiveStatus('');
@@ -82,6 +87,7 @@ export function useAiCommandSuggestions(
       // (carrying the runId) can't be missed — same ordering as the modal.
       let activeRunId: string | null = null;
       const unsubscribe = subscribeCommandGenEvents(event => {
+        if (token !== generationTokenRef.current) return;
         if (activeRunId === null) {
           if ('runId' in event && event.runId) activeRunId = event.runId;
           else return;
@@ -113,6 +119,7 @@ export function useAiCommandSuggestions(
         setErrorText(commandGenErrorText(e, t));
         setPhase('error');
       } finally {
+        if (token === generationTokenRef.current) generatingRef.current = false;
         unsubscribe();
       }
     },
@@ -123,6 +130,7 @@ export function useAiCommandSuggestions(
     if (phase === 'recording' || phase === 'generating') return;
     Keyboard.dismiss();
     setErrorText('');
+    setTextMode(false);
     setPhase('recording');
     void voiceStt.start({
       onComplete: text => {
@@ -151,16 +159,22 @@ export function useAiCommandSuggestions(
 
   const submitText = useCallback(
     (text: string) => {
-      if (phase === 'generating') return;
+      if (phase === 'recording' || phase === 'generating') return;
       void generate(text);
     },
     [phase, generate],
   );
 
+  // STT failures land in error phase with empty lastText — retry then falls
+  // back to restart recording instead of dead-ending.
   const retry = useCallback(() => {
-    if (phase === 'generating' || !lastTextRef.current) return;
-    void generate(lastTextRef.current);
-  }, [phase, generate]);
+    if (phase === 'generating') return;
+    if (lastTextRef.current) {
+      void generate(lastTextRef.current);
+    } else {
+      startVoice();
+    }
+  }, [phase, generate, startVoice]);
 
   const clearChips = useCallback(() => setChips([]), []);
   const dismissError = useCallback(() => {
@@ -175,6 +189,7 @@ export function useAiCommandSuggestions(
 
   const reset = useCallback(() => {
     generationTokenRef.current += 1;
+    generatingRef.current = false; // 悬挂中的 POST 不堵死下一个终端
     cancelRef.current();
     lastTextRef.current = '';
     setChips([]);

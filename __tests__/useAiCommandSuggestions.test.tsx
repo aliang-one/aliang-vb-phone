@@ -198,13 +198,56 @@ describe('useAiCommandSuggestions', () => {
     expect(latest.chips).toEqual([]);
     expect(latest.phase).toBe('idle');
     expect(mockCancel).toHaveBeenCalled();
+    const callsBefore = mockGenerateCommand.mock.calls.length;
+    await act(async () => { latest.retry(); });
+    expect(mockGenerateCommand.mock.calls.length).toBe(callsBefore); // lastText 已清空
+  });
+
+  it('startVoice closes the text strip (no hidden recording behind the input)', async () => {
+    await mount();
+    act(() => { latest.openTextInput(); });
+    expect(latest.textMode).toBe(true);
+    act(() => { latest.startVoice(); });
+    expect(latest.textMode).toBe(false);
+    expect(latest.phase).toBe('recording');
+  });
+
+  it('submitText during recording is ignored (single path at a time)', async () => {
+    await mount();
+    act(() => { latest.startVoice(); });
+    await act(async () => { latest.submitText('typed during recording'); });
+    expect(mockGenerateCommand).not.toHaveBeenCalled();
+  });
+
+  it('retry with no lastText (voice-originated error) restarts recording', async () => {
+    await mount();
+    act(() => { latest.startVoice(); });
+    mockVoiceSttState.status = 'error';
+    mockVoiceSttState.errorMessage = '语音识别失败，请重试';
+    await act(async () => { screen!.update(<Probe />); });
+    expect(latest.phase).toBe('error');
+    // STT 错误 effect 依赖 status，若仍为 'error' 会在 retry 翻回 recording 后立刻
+    // 再度置 error——置回 idle 让断言钉住「retry 回退到 startVoice」本身。
+    mockVoiceSttState.status = 'idle';
+    await act(async () => { latest.retry(); });
+    expect(latest.phase).toBe('recording');
+    expect(mockStart).toHaveBeenCalledTimes(2); // 初次 + retry
   });
 
   it('a response landing after reset() is dropped (terminal-switch guard)', async () => {
-    mockGenerateCommand.mockImplementation(() => new Promise(() => undefined));
+    let resolveGen: (v: unknown) => void = () => {};
+    mockGenerateCommand.mockImplementation(
+      () => new Promise(resolve => { resolveGen = resolve; }),
+    );
     await mount();
     await act(async () => { latest.submitText('slow'); });
     await act(async () => { latest.reset(); });
+    expect(latest.phase).toBe('idle');
+    await act(async () => {
+      resolveGen({ command: 'stale', commands: ['stale'], dangerous: false, dangerousFlags: [false] });
+      await Promise.resolve();
+    });
+    expect(latest.chips).toEqual([]); // 陈旧响应绝不落进新终端
     expect(latest.phase).toBe('idle');
   });
 
