@@ -351,6 +351,7 @@ export const FileBrowserScreen: React.FC = () => {
         show(t('fileBrowser.download.doneTitle'));
       })
       .catch((error: unknown) => {
+        handledSaveRequestRef.current = null; // 允许对账翻回 ready 后重试落盘（save 失败≠下载失败，COS url 仍有效）
         markFailed(
           error instanceof Error && error.message
             ? error.message
