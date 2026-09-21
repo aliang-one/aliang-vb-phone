@@ -888,35 +888,6 @@ export const DeviceTerminalScreen: React.FC = () => {
                     </Text>
                   )}
                 </View>
-                <TouchableOpacity
-                  testID="terminal-top-toggle"
-                  activeOpacity={0.74}
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    topPanelCollapsed
-                      ? 'Expand terminal header'
-                      : 'Collapse terminal header'
-                  }
-                  accessibilityState={{
-                    expanded: !topPanelCollapsed,
-                    disabled: keyboardForcesCollapse,
-                  }}
-                  hitSlop={terminalControlHitSlop}
-                  disabled={keyboardForcesCollapse}
-                  onPress={handleToggleTopPanel}
-                  style={[
-                    styles.topToggle,
-                    {
-                      borderColor: strongOutlineColor,
-                      backgroundColor: elevatedSurfaceColor,
-                    },
-                  ]}
-                >
-                  <TopPanelToggleIcon
-                    color={theme.colors.primary}
-                    up={!topPanelCollapsed}
-                  />
-                </TouchableOpacity>
                 <View
                   style={[
                     styles.devicePod,
@@ -937,30 +908,59 @@ export const DeviceTerminalScreen: React.FC = () => {
                   >
                     {device.name}
                   </Text>
-                  {topPanelCollapsed ? (
-                    <View
-                      testID="terminal-collapsed-status"
-                      style={styles.collapsedStatusSlot}
-                    >
+                  <View style={styles.deviceStatusRow}>
+                    {topPanelCollapsed ? (
+                      <View
+                        testID="terminal-collapsed-status"
+                        style={styles.collapsedStatusSlot}
+                      >
+                        <StatusChip
+                          label={terminalStatusChip.label}
+                          type={terminalStatusType}
+                        />
+                      </View>
+                    ) : (
                       <StatusChip
-                        label={terminalStatusChip.label}
-                        type={terminalStatusType}
-                        style={styles.deviceStatusChip}
+                        label={device.status.toUpperCase()}
+                        type={
+                          device.status === 'online'
+                            ? 'success'
+                            : device.status === 'warning'
+                            ? 'warning'
+                            : 'neutral'
+                        }
                       />
-                    </View>
-                  ) : (
-                    <StatusChip
-                      label={device.status.toUpperCase()}
-                      type={
-                        device.status === 'online'
-                          ? 'success'
-                          : device.status === 'warning'
-                          ? 'warning'
-                          : 'neutral'
+                    )}
+                    <TouchableOpacity
+                      testID="terminal-top-toggle"
+                      activeOpacity={0.74}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        topPanelCollapsed
+                          ? 'Expand terminal header'
+                          : 'Collapse terminal header'
                       }
-                      style={styles.deviceStatusChip}
-                    />
-                  )}
+                      accessibilityState={{
+                        expanded: !topPanelCollapsed,
+                        disabled: keyboardForcesCollapse,
+                      }}
+                      hitSlop={terminalControlHitSlop}
+                      disabled={keyboardForcesCollapse}
+                      onPress={handleToggleTopPanel}
+                      style={[
+                        styles.topToggle,
+                        {
+                          borderColor: outlineColor,
+                          backgroundColor: subtleSurfaceColor,
+                        },
+                      ]}
+                    >
+                      <TopPanelToggleIcon
+                        color={theme.colors.primary}
+                        up={!topPanelCollapsed}
+                      />
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
 
@@ -1805,14 +1805,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 19,
   },
-  topToggle: {
-    width: 30,
-    height: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderRadius: 15,
-  },
   backButtonText: {
     fontWeight: '700',
     lineHeight: 20,
@@ -1835,33 +1827,47 @@ const styles = StyleSheet.create({
   },
   devicePod: {
     minWidth: 132,
-    maxWidth: 166,
+    maxWidth: 196,
     minHeight: 54,
     alignItems: 'flex-end',
     justifyContent: 'center',
-    paddingLeft: 16,
+    paddingLeft: 12,
     paddingRight: 10,
     borderRadius: 28,
     borderWidth: 1,
   },
   devicePodCollapsed: {
     minWidth: 118,
-    maxWidth: 146,
+    maxWidth: 176,
     minHeight: 48,
-    paddingLeft: 12,
+    paddingLeft: 10,
     paddingRight: 8,
   },
+  // 设备名溢出防线:numberOfLines={1} + flexShrink(状态行超宽时名字先让位)
+  // + maxWidth 兜底;pod 自身 min/max 双向夹紧,headerCopy(flex:1)先收缩。
   deviceName: {
     fontWeight: '700',
-    maxWidth: 116,
+    flexShrink: 1,
+    maxWidth: 150,
   },
-  deviceStatusChip: {
+  deviceStatusRow: {
     marginTop: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    gap: 6,
+    flexShrink: 1,
   },
   collapsedStatusSlot: {
-    marginTop: 5,
-    alignSelf: 'flex-end',
     transform: [{ scale: 0.86 }],
+  },
+  topToggle: {
+    width: 26,
+    height: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 13,
   },
   topGrid: {
     flexDirection: 'row',
