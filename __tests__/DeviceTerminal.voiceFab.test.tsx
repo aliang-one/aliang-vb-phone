@@ -1,4 +1,5 @@
 import React from 'react';
+import { Text } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { DeviceTerminalScreen } from '../src/screens/devices/DeviceTerminalScreen';
@@ -6,44 +7,35 @@ import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { useControlCenterStore } from '../src/store/controlCenterStore';
 
-// Stub VoiceToBashModal so we don't drag the full STT chain into this test.
-// It renders a button whose press calls onConfirm with a canned command, so we
-// can assert the screen wires onConfirm → sendToTerminal + closes the modal.
-jest.mock('../src/components/terminal/VoiceToBashModal', () => ({
-  VoiceToBashModal: ({
-    visible,
-    onConfirm,
-    onClose,
-  }: {
-    visible: boolean;
-    onConfirm: (command: string) => void;
-    onClose: () => void;
-  }) => {
-    if (!visible) return null;
-    const React = require('react');
-    const { View, Pressable, Text } = require('react-native');
-    return React.createElement(View, { testID: 'v2b-stub' }, [
-      React.createElement(
-        Pressable,
-        {
-          key: 'confirm',
-          testID: 'v2b-stub-confirm',
-          onPress: () => onConfirm('git status --short'),
-        },
-        React.createElement(Text, null, 'confirm'),
-      ),
-      React.createElement(
-        Pressable,
-        {
-          key: 'close',
-          testID: 'v2b-stub-close',
-          onPress: onClose,
-        },
-        React.createElement(Text, null, 'close'),
-      ),
-    ]);
-  },
+// The AI-suggest hook is stubbed with a controllable mock: the screen's job in
+// these tests is the WIRING (FAB → start/stop, chips → pty, terminal switch →
+// reset), not the STT/commandGen machinery (covered by the hook's own tests).
+// Tests mutate `mockAi` then `screen.update(tree())` to re-render.
+const mockAi = {
+  phase: 'idle' as 'idle' | 'recording' | 'generating' | 'error',
+  chips: [] as Array<{ command: string; dangerous: boolean }>,
+  liveCaption: '',
+  liveStatus: '',
+  errorText: '',
+  textMode: false,
+  voiceStatus: 'idle',
+  startVoice: jest.fn(),
+  stopVoice: jest.fn(),
+  submitText: jest.fn(),
+  retry: jest.fn(),
+  clearChips: jest.fn(),
+  dismissError: jest.fn(),
+  openTextInput: jest.fn(),
+  closeTextInput: jest.fn(),
+  reset: jest.fn(),
+};
+jest.mock('../src/hooks/useAiCommandSuggestions', () => ({
+  useAiCommandSuggestions: () => mockAi,
 }));
+
+// TerminalSuggestionRow arms a dangerous chip for 3s before auto-disarm —
+// fake timers keep that window frozen for the two-tap assertions.
+jest.useFakeTimers();
 
 const mockTerminalSendText = jest.fn();
 const mockTerminalFocus = jest.fn();
@@ -171,6 +163,14 @@ describe('DeviceTerminalScreen in-terminal voice FAB', () => {
     mockSetParams.mockImplementation((next: Record<string, unknown>) => {
       mockRouteParams = { ...mockRouteParams, ...next };
     });
+    // Reset the controllable hook mock to a fresh idle state.
+    mockAi.phase = 'idle';
+    mockAi.chips = [];
+    mockAi.liveCaption = '';
+    mockAi.liveStatus = '';
+    mockAi.errorText = '';
+    mockAi.textMode = false;
+    mockAi.voiceStatus = 'idle';
   });
 
   afterEach(() => {
@@ -180,48 +180,65 @@ describe('DeviceTerminalScreen in-terminal voice FAB', () => {
     screen = null;
   });
 
-  const renderScreen = () => {
-    screen = ReactTestRenderer.create(
-      <ThemeContext.Provider
-        value={{
-          theme: utilityMinimalist,
-          mode: 'light',
-          setMode: jest.fn(),
-          isDark: false,
+  const tree = () => (
+    <ThemeContext.Provider
+      value={{
+        theme: utilityMinimalist,
+        mode: 'light',
+        setMode: jest.fn(),
+        isDark: false,
+      }}
+    >
+      <SafeAreaProvider
+        initialMetrics={{
+          frame: { x: 0, y: 0, width: 390, height: 844 },
+          insets: { top: 0, right: 0, bottom: 0, left: 0 },
         }}
       >
-        <SafeAreaProvider
-          initialMetrics={{
-            frame: { x: 0, y: 0, width: 390, height: 844 },
-            insets: { top: 0, right: 0, bottom: 0, left: 0 },
-          }}
-        >
-          <DeviceTerminalScreen />
-        </SafeAreaProvider>
-      </ThemeContext.Provider>,
-    );
+        <DeviceTerminalScreen />
+      </SafeAreaProvider>
+    </ThemeContext.Provider>
+  );
+
+  const renderScreen = async () => {
+    await act(async () => {
+      screen = ReactTestRenderer.create(tree());
+      // Fake timers freeze act's timer-driven flush; settle the attach mock's
+      // promise chain (setTerminalOpening(false)) explicitly inside this act.
+      for (let i = 0; i < 10; i += 1) {
+        await Promise.resolve();
+      }
+    });
     return screen;
+  };
+
+  // Re-render with the current mockAi values (mutate before calling). Async so
+  // a terminal-id change (new attach promise chain) settles inside this act.
+  const updateScreen = async () => {
+    await act(async () => {
+      screen!.update(tree());
+      for (let i = 0; i < 10; i += 1) {
+        await Promise.resolve();
+      }
+    });
   };
 
   const root = () => screen!.root;
   const fab = () => root().findByProps({ testID: 'terminal-voice-fab' });
-  const stubConfirm = () =>
-    root().findByProps({ testID: 'v2b-stub-confirm' });
-  const hasStub = () => {
+  const hasNode = (testID: string) => {
     try {
-      return Boolean(root().findByProps({ testID: 'v2b-stub' }));
+      return Boolean(root().findByProps({ testID }));
     } catch {
       return false;
     }
   };
 
-  it('renders the FAB at the input bar; disabled until input becomes available', async () => {
+  it('renders the FAB; disabled while input unavailable', async () => {
     // Device starts online; the pty reports rendered → terminalInputEnabled true.
-    await act(async () => {
-      renderScreen();
-    });
+    await renderScreen();
 
     expect(fab()).toBeTruthy();
+    expect(fab().props.disabled).toBe(false);
 
     // Toggling the device offline flips terminalInputEnabled false → FAB disabled.
     setDeviceStatus('offline');
@@ -232,59 +249,123 @@ describe('DeviceTerminalScreen in-terminal voice FAB', () => {
     expect(fab().props.disabled).toBe(false);
   });
 
-  it('tap opens the modal when enabled', async () => {
-    await act(async () => {
-      renderScreen();
-    });
-
-    // Modal not yet mounted (stub renders null while !visible).
-    expect(hasStub()).toBe(false);
+  it('tap starts voice from idle', async () => {
+    await renderScreen();
 
     act(() => {
       fab().props.onPress();
     });
 
-    expect(hasStub()).toBe(true);
+    expect(mockAi.startVoice).toHaveBeenCalledTimes(1);
+    expect(mockAi.stopVoice).not.toHaveBeenCalled();
   });
 
-  it('onConfirm injects the command into the pty (with \\r) and closes the modal', async () => {
-    await act(async () => {
-      renderScreen();
-    });
+  it('tap stops voice while recording', async () => {
+    await renderScreen();
+    mockAi.phase = 'recording';
+    await updateScreen();
 
     act(() => {
       fab().props.onPress();
     });
-    expect(hasStub()).toBe(true);
+
+    expect(mockAi.stopVoice).toHaveBeenCalledTimes(1);
+    expect(mockAi.startVoice).not.toHaveBeenCalled();
+  });
+
+  it('long-press opens the text input', async () => {
+    await renderScreen();
 
     act(() => {
-      stubConfirm().props.onPress();
+      fab().props.onLongPress();
     });
 
+    expect(mockAi.openTextInput).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders AI chips and executes on tap', async () => {
+    await renderScreen();
+    mockAi.chips = [{ command: 'git status --short', dangerous: false }];
+    await updateScreen();
+
+    const chip = root().findByProps({
+      testID: 'terminal-suggestion-git-status-short',
+    });
+    expect(chip).toBeTruthy();
+
+    act(() => {
+      chip.props.onPress();
+    });
+
+    // keepKeyboardProxyFocused is consumed inside sendToTerminal — the
+    // emulator only ever sees { focus: false }.
     expect(mockTerminalSendText).toHaveBeenCalledWith('git status --short\r', {
       focus: false,
     });
-    // Modal closed after confirm.
-    expect(hasStub()).toBe(false);
+    // Executed commands land in the persistent voice-command banner.
+    expect(hasNode('terminal-voice-banner')).toBe(true);
   });
 
-  it('a disabled FAB does not open the modal', async () => {
-    await act(async () => {
-      renderScreen();
+  it('dangerous chip requires the second tap', async () => {
+    await renderScreen();
+    mockAi.chips = [{ command: 'rm -rf /tmp/vibe-test', dangerous: true }];
+    await updateScreen();
+
+    const chip = root().findByProps({
+      testID: 'terminal-suggestion-rm-rf-tmp-vibe-test',
     });
 
-    setDeviceStatus('offline');
-    expect(fab().props.disabled).toBe(true);
-
-    // onPress is a no-op for a disabled TouchableOpacity (RN short-circuits),
-    // but if invoked directly it still must not open anything because the
-    // gate is disabled state — we assert the modal stays absent regardless.
+    // First tap only arms the chip (within the 3s fake-timer window).
     act(() => {
-      fab().props.onPress?.();
+      chip.props.onPress();
     });
-    expect(hasStub()).toBe(false);
-
-    // And nothing was sent.
     expect(mockTerminalSendText).not.toHaveBeenCalled();
+
+    // Second tap confirms and executes.
+    act(() => {
+      root()
+        .findByProps({ testID: 'terminal-suggestion-rm-rf-tmp-vibe-test' })
+        .props.onPress();
+    });
+    expect(mockTerminalSendText).toHaveBeenCalledWith('rm -rf /tmp/vibe-test\r', {
+      focus: false,
+    });
+  });
+
+  it('empty chips show the hint chip', async () => {
+    await renderScreen();
+
+    expect(hasNode('terminal-suggestion-empty')).toBe(true);
+  });
+
+  it('resets when the terminal id changes', async () => {
+    await renderScreen();
+
+    // Mount already ran the reset-once effect for term-1.
+    expect(mockAi.reset).toHaveBeenCalledTimes(1);
+
+    mockRouteParams = {
+      deviceId: 'device-1',
+      directory: '~/project',
+      terminalId: 'term-2',
+    };
+    await updateScreen();
+
+    // Mount(1) + terminal switch(2) — a bare "called" would pass trivially.
+    expect(mockAi.reset).toHaveBeenCalledTimes(2);
+  });
+
+  it('status strip shows while generating', async () => {
+    await renderScreen();
+    mockAi.phase = 'generating';
+    mockAi.liveStatus = 'list_dir';
+    await updateScreen();
+
+    expect(hasNode('terminal-ai-strip')).toBe(true);
+    expect(
+      root()
+        .findAllByType(Text)
+        .some(node => node.props.children === 'list_dir'),
+    ).toBe(true);
   });
 });

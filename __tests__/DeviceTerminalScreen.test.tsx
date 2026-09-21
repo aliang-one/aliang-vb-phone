@@ -18,6 +18,30 @@ const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
 let mockAutoRenderTerminal = true;
 
+// The AI-suggest hook is stubbed: these tests own keyboard/proxy/chip EXECUTION
+// wiring, not the STT/commandGen machinery (covered by the hook's own tests).
+const mockAi = {
+  phase: 'idle' as 'idle' | 'recording' | 'generating' | 'error',
+  chips: [] as Array<{ command: string; dangerous: boolean }>,
+  liveCaption: '',
+  liveStatus: '',
+  errorText: '',
+  textMode: false,
+  voiceStatus: 'idle',
+  startVoice: jest.fn(),
+  stopVoice: jest.fn(),
+  submitText: jest.fn(),
+  retry: jest.fn(),
+  clearChips: jest.fn(),
+  dismissError: jest.fn(),
+  openTextInput: jest.fn(),
+  closeTextInput: jest.fn(),
+  reset: jest.fn(),
+};
+jest.mock('../src/hooks/useAiCommandSuggestions', () => ({
+  useAiCommandSuggestions: () => mockAi,
+}));
+
 let mockRouteParams: {
   deviceId: string;
   directory?: string;
@@ -146,6 +170,14 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       loadTerminalCommandHistory: jest.fn().mockResolvedValue(undefined),
     });
     jest.clearAllMocks();
+    // Reset the controllable hook mock to a fresh idle state.
+    mockAi.phase = 'idle';
+    mockAi.chips = [];
+    mockAi.liveCaption = '';
+    mockAi.liveStatus = '';
+    mockAi.errorText = '';
+    mockAi.textMode = false;
+    mockAi.voiceStatus = 'idle';
   });
 
   afterEach(() => {
@@ -459,7 +491,7 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
         .accessibilityLabel,
-    ).toBe('Focus terminal keyboard');
+    ).toBe('切换键盘');
     expect(
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
         .accessibilityState,
@@ -510,6 +542,44 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     ).toEqual(
       expect.arrayContaining([expect.objectContaining({ bottom: 300 })]),
     );
+    expect(mockTerminalSendText).not.toHaveBeenCalled();
+  });
+
+  it('toggles the soft keyboard from the keyboard button', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    const keyboardButton = () =>
+      screen!.root.findByProps({ testID: 'terminal-keyboard-focus' });
+
+    // Closed → open: first press requests proxy focus (focused border).
+    act(() => {
+      keyboardButton().props.onPressIn();
+    });
+    expect(keyboardButton().props.style).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          borderColor: utilityMinimalist.colors.primary,
+        }),
+      ]),
+    );
+
+    keyboardDismissSpy.mockClear();
+
+    // Open (keyboard visible) → second press dismisses the soft keyboard.
+    act(() => {
+      keyboardListeners.keyboardWillShow?.forEach(listener =>
+        listener({
+          endCoordinates: { height: 300 },
+        } as KeyboardEvent),
+      );
+    });
+    act(() => {
+      keyboardButton().props.onPressIn();
+    });
+
+    expect(keyboardDismissSpy).toHaveBeenCalledTimes(1);
     expect(mockTerminalSendText).not.toHaveBeenCalled();
   });
 
@@ -825,6 +895,7 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
   });
 
   it('keeps suggestions and shortcuts floating above the keyboard', async () => {
+    mockAi.chips = [{ command: 'git status --short', dangerous: false }];
     await act(async () => {
       screen = renderScreen();
     });
@@ -842,7 +913,7 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(
       screen!.root.findByProps({ testID: 'terminal-suggestion-git-status-short' })
         .props.accessibilityLabel,
-    ).toBe('Run suggested command git status --short');
+    ).toBe('执行建议命令 git status --short');
     expect(
       screen!.root.findByProps({ testID: 'terminal-suggestion-git-status-short' })
         .props.accessibilityState,
@@ -947,6 +1018,7 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
   });
 
   it('sends suggestion chips without dropping the soft keyboard focus', async () => {
+    mockAi.chips = [{ command: 'git status --short', dangerous: false }];
     await act(async () => {
       screen = renderScreen();
     });

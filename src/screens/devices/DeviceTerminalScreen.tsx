@@ -20,7 +20,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import Svg, { Path, Polyline } from 'react-native-svg';
+import Svg, { Path, Polyline, Rect } from 'react-native-svg';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -59,9 +59,11 @@ import {
   terminalKeyboardProxyKeyAction,
 } from '../../utils/terminalKeyboardProxy';
 import { terminalShortcutGroups } from '../../utils/terminalKeySequences';
-import { buildTerminalSuggestions } from '../../utils/terminalSuggestions';
 import { describeDeviceError } from '../../utils/deviceError';
-import { VoiceToBashModal } from '../../components/terminal/VoiceToBashModal';
+import { useAiCommandSuggestions } from '../../hooks/useAiCommandSuggestions';
+import { TerminalSuggestionRow } from '../../components/terminal/TerminalSuggestionRow';
+import { TerminalVoiceFab } from '../../components/terminal/TerminalVoiceFab';
+import { TerminalAiStatusStrip } from '../../components/terminal/TerminalAiStatusStrip';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DeviceTerminalRoute = RouteProp<RootStackParamList, 'DeviceTerminal'>;
@@ -173,6 +175,19 @@ const TopPanelToggleIcon: React.FC<{
   </Svg>
 );
 
+const KeyboardToggleIcon: React.FC<{ color: string }> = ({ color }) => (
+  <Svg width={20} height={20} viewBox="0 0 20 20">
+    <Rect x={1.5} y={4} width={17} height={12} rx={2} fill="none" stroke={color} strokeWidth={1.5} />
+    <Path
+      d="M5 8h1.5M9 8h1.5M13 8h1.5M5 11h1.5M9 11h1.5M13 11h1.5M6.5 13.8h7"
+      fill="none"
+      stroke={color}
+      strokeWidth={1.4}
+      strokeLinecap="round"
+    />
+  </Svg>
+);
+
 const PENDING_KEYBOARD_LIFT_INSET = 300;
 const terminalControlHitSlop = { top: 6, right: 6, bottom: 6, left: 6 };
 export const getTerminalProxyKeyboardType = (os: typeof Platform.OS) =>
@@ -240,10 +255,9 @@ export const DeviceTerminalScreen: React.FC = () => {
   // sub-pixel jitter, breaking the feedback loop.
   const [floatingControlsHeight, setFloatingControlsHeight] =
     useStableMeasurement(0);
-  // Entry B (in-terminal voice FAB → voice→bash → pty): drives the shared
-  // VoiceToBashModal in live mode; the confirmed command is injected into the
-  // current pty via the same sendToTerminal path the EXECUTE/suggestion chips use.
-  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
+  // Entry B (in-terminal voice FAB → 语音直通 commandGen): the FAB now drives
+  // useAiCommandSuggestions directly (2026-09 spec) — no shared modal in live
+  // mode; confirmed chips still inject into the pty via sendToTerminal.
   // Persistent 语音命令 banner: holds the most recent voice→bash command that
   // executed on this screen (both the routed initialCommand and the live-mode
   // FAB confirmation land here). Kept in its OWN state (NOT derived from the
@@ -271,14 +285,6 @@ export const DeviceTerminalScreen: React.FC = () => {
     ? device.capabilities.includes('terminal_replay')
     : true;
   const terminal = useTerminalSession(terminalId);
-  const sessionHistory = useControlCenterStore(state =>
-    terminalId
-      ? state.terminalCommandHistory[`session:${terminalId}`]
-      : undefined,
-  );
-  const deviceHistory = useControlCenterStore(state =>
-    device ? state.terminalCommandHistory[`device:${device.id}`] : undefined,
-  );
   const directory = terminal?.directory ?? route.params.directory ?? '~';
   const terminalInteraction = getTerminalInteractionState({
     terminalStatus: terminal?.status,
@@ -294,14 +300,6 @@ export const DeviceTerminalScreen: React.FC = () => {
   const visibleDirectory = availableDirectories.includes(focusedDirectory)
     ? focusedDirectory
     : directory;
-  const aiSuggestions = useMemo(() => {
-    const history = [...(sessionHistory ?? []), ...(deviceHistory ?? [])];
-    return buildTerminalSuggestions({
-      directory,
-      history,
-      max: 4,
-    });
-  }, [directory, sessionHistory, deviceHistory]);
   const surfaceColor = isDark
     ? 'rgba(255,255,255,0.04)'
     : theme.colors.surfaceContainerLow;
@@ -381,6 +379,18 @@ export const DeviceTerminalScreen: React.FC = () => {
     Boolean(device) && device?.status !== 'offline' && !terminalOpening;
   // attach 进行中（还没拿到会话对象）时占位区显示「正在恢复会话」而非「打开中」。
   const attachInFlight = terminalOpening && Boolean(terminalId);
+
+  // 终端 AI 建议命令行(2026-09 spec):语音直通 + 长按文本输入 → commandGen 多建议 chips。
+  const aiSuggest = useAiCommandSuggestions({
+    deviceId: terminal?.deviceId ?? '',
+    cwd: terminal?.directory ?? directory,
+    sessionId: terminal?.id,
+  });
+  // 换会话(屏内 setTerminalId 可不卸载)必须清空 chips/复位——旧会话的建议
+  // 绝不能被送进新 pty(spec 审查意见)。reset 是稳定 useCallback,依赖只挂 terminalId。
+  useEffect(() => {
+    aiSuggest.reset();
+  }, [terminalId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cancelKeyboardProxyFocusRetry = useCallback(() => {
     if (keyboardProxyFocusRetryRef.current) {
@@ -711,8 +721,15 @@ export const DeviceTerminalScreen: React.FC = () => {
     }, 40);
   };
 
-  const focusTerminalInput = () => {
-    focusKeyboardProxyInput();
+  // 键盘开关(替代旧 KB 聚焦钮):开→收起,关→唤起。
+  const keyboardOpen = keyboardInset > 0 || keyboardProxyFocused;
+  const toggleKeyboard = () => {
+    if (keyboardOpen) {
+      keyboardProxyRef.current?.blur();
+      Keyboard.dismiss();
+    } else {
+      focusKeyboardProxyInput();
+    }
   };
 
   const handleKeyboardProxyFocus = () => {
@@ -1526,200 +1543,158 @@ export const DeviceTerminalScreen: React.FC = () => {
                 }
                 style={[styles.floatingControls, { bottom: controlsBottomOffset }]}
               >
-                <ScrollView
-                  testID="terminal-suggestion-row"
-                  horizontal
-                  keyboardShouldPersistTaps="handled"
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.suggestionRow}
-                >
-                  {aiSuggestions.map(item => (
-                    <TouchableOpacity
-                      testID={`terminal-suggestion-${testIdSlug(item)}`}
-                      key={item}
-                      activeOpacity={0.76}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Run suggested command ${item}`}
-                      hitSlop={terminalControlHitSlop}
-                      accessibilityState={{ disabled: !terminalInputEnabled }}
+                {aiSuggest.phase !== 'idle' || aiSuggest.textMode ? (
+                  <TerminalAiStatusStrip
+                    phase={aiSuggest.phase}
+                    textMode={aiSuggest.textMode}
+                    liveCaption={aiSuggest.liveCaption}
+                    liveStatus={aiSuggest.liveStatus}
+                    errorText={aiSuggest.errorText}
+                    onRetry={aiSuggest.retry}
+                    onDismissError={aiSuggest.dismissError}
+                    onSendText={aiSuggest.submitText}
+                    onCloseText={aiSuggest.closeTextInput}
+                  />
+                ) : null}
+                <View style={styles.controlsRow} pointerEvents="box-none">
+                  <View style={styles.controlsStack} pointerEvents="box-none">
+                    <TerminalSuggestionRow
+                      chips={aiSuggest.chips}
                       disabled={!terminalInputEnabled}
-                      onPress={() =>
-                        sendToTerminal(`${item}\r`, {
+                      onExecute={command => {
+                        sendToTerminal(`${command}\r`, {
                           focus: false,
                           keepKeyboardProxyFocused: true,
-                        })
-                      }
-                      style={[
-                        styles.aiBubble,
-                        {
-                          backgroundColor: surfaceColor,
-                          borderColor: outlineColor,
-                        },
-                        !terminalInputEnabled && styles.disabledSuggestion,
-                      ]}
+                        });
+                        setVoiceCommandBanner(command);
+                      }}
+                    />
+                    <ScrollView
+                      horizontal
+                      keyboardShouldPersistTaps="handled"
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.keyRow}
                     >
-                      <Text
-                        numberOfLines={1}
+                      <TouchableOpacity
+                        testID="terminal-keyboard-focus"
+                        activeOpacity={0.74}
+                        accessibilityRole="button"
+                        accessibilityLabel={tReplay('aiSuggest.keyboardToggleLabel')}
+                        hitSlop={terminalControlHitSlop}
+                        accessibilityState={{ disabled: !terminalInputEnabled }}
+                        onPressIn={toggleKeyboard}
+                        disabled={!terminalInputEnabled}
                         style={[
-                          theme.typography.codeSm,
-                          styles.aiBubbleText,
-                          { color: theme.colors.onSurfaceVariant },
+                          styles.keyButton,
+                          {
+                            backgroundColor: elevatedSurfaceColor,
+                            borderColor: keyboardProxyFocused
+                              ? theme.colors.primary
+                              : outlineColor,
+                          },
+                          !terminalInputEnabled && styles.disabledControl,
                         ]}
                       >
-                        {item}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-
-                <ScrollView
-                  horizontal
-                  keyboardShouldPersistTaps="handled"
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.keyRow}
-                >
-                  <TouchableOpacity
-                    testID="terminal-keyboard-focus"
-                    activeOpacity={0.74}
-                    accessibilityRole="button"
-                    accessibilityLabel="Focus terminal keyboard"
-                    hitSlop={terminalControlHitSlop}
-                    accessibilityState={{ disabled: !terminalInputEnabled }}
-                    onPressIn={focusTerminalInput}
-                    disabled={!terminalInputEnabled}
-                    style={[
-                      styles.keyButton,
-                      {
-                        backgroundColor: elevatedSurfaceColor,
-                        borderColor: keyboardProxyFocused
-                          ? theme.colors.primary
-                          : outlineColor,
-                      },
-                      !terminalInputEnabled && styles.disabledControl,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        theme.typography.labelCaps,
-                        styles.quickActionText,
-                        {
-                          color: keyboardProxyFocused
-                            ? theme.colors.primary
-                            : theme.colors.onSurfaceVariant,
-                        },
-                      ]}
-                    >
-                      KB
-                    </Text>
-                    <TextInput
-                      ref={keyboardProxyRef}
-                      testID="terminal-keyboard-proxy"
-                      defaultValue={TERMINAL_KEYBOARD_PROXY_VALUE}
-                      onChangeText={handleKeyboardProxyChange}
-                      onKeyPress={handleKeyboardProxyKeyPress}
-                      onFocus={handleKeyboardProxyFocus}
-                      onBlur={handleKeyboardProxyBlur}
-                      selection={TERMINAL_KEYBOARD_PROXY_SELECTION}
-                      editable={terminalInputEnabled}
-                      pointerEvents="none"
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      autoComplete="off"
-                      textContentType="none"
-                      keyboardType={TERMINAL_PROXY_KEYBOARD_TYPE}
-                      showSoftInputOnFocus
-                      disableFullscreenUI
-                      returnKeyType="done"
-                      submitBehavior="newline"
-                      multiline
-                      blurOnSubmit={false}
-                      caretHidden
-                      contextMenuHidden
-                      importantForAutofill="no"
-                      spellCheck={false}
-                      style={styles.keyboardProxy}
-                    />
-                  </TouchableOpacity>
-                  {terminalShortcutGroups.map(group => (
-                    <View key={group.label} style={styles.keyGroup}>
-                      <Text
-                        style={[
-                          theme.typography.labelCaps,
-                          styles.keyGroupLabel,
-                          { color: theme.colors.onSurfaceVariant },
-                        ]}>
-                        {group.label}
-                      </Text>
-                      {group.rows.map(([label, value]) => (
-                        <TouchableOpacity
-                          key={label}
-                          testID={`terminal-key-${label}`}
-                          activeOpacity={0.74}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Send terminal key ${label}`}
-                          hitSlop={terminalControlHitSlop}
-                          accessibilityState={{ disabled: !terminalInputEnabled }}
-                          onPress={() =>
-                            sendToTerminal(value, {
-                              focus: false,
-                              keepKeyboardProxyFocused: true,
-                            })
+                        <KeyboardToggleIcon
+                          color={
+                            keyboardProxyFocused
+                              ? theme.colors.primary
+                              : theme.colors.onSurfaceVariant
                           }
-                          disabled={!terminalInputEnabled}
-                          style={[
-                            styles.keyButton,
-                            {
-                              backgroundColor: elevatedSurfaceColor,
-                              borderColor: outlineColor,
-                            },
-                            !terminalInputEnabled && styles.disabledControl,
-                          ]}
-                        >
+                        />
+                        <TextInput
+                          ref={keyboardProxyRef}
+                          testID="terminal-keyboard-proxy"
+                          defaultValue={TERMINAL_KEYBOARD_PROXY_VALUE}
+                          onChangeText={handleKeyboardProxyChange}
+                          onKeyPress={handleKeyboardProxyKeyPress}
+                          onFocus={handleKeyboardProxyFocus}
+                          onBlur={handleKeyboardProxyBlur}
+                          selection={TERMINAL_KEYBOARD_PROXY_SELECTION}
+                          editable={terminalInputEnabled}
+                          pointerEvents="none"
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          autoComplete="off"
+                          textContentType="none"
+                          keyboardType={TERMINAL_PROXY_KEYBOARD_TYPE}
+                          showSoftInputOnFocus
+                          disableFullscreenUI
+                          returnKeyType="done"
+                          submitBehavior="newline"
+                          multiline
+                          blurOnSubmit={false}
+                          caretHidden
+                          contextMenuHidden
+                          importantForAutofill="no"
+                          spellCheck={false}
+                          style={styles.keyboardProxy}
+                        />
+                      </TouchableOpacity>
+                      {terminalShortcutGroups.map(group => (
+                        <View key={group.label} style={styles.keyGroup}>
                           <Text
                             style={[
                               theme.typography.labelCaps,
-                              styles.quickActionText,
+                              styles.keyGroupLabel,
                               { color: theme.colors.onSurfaceVariant },
-                            ]}
-                          >
-                            {label}
+                            ]}>
+                            {group.label}
                           </Text>
-                        </TouchableOpacity>
+                          {group.rows.map(([label, value]) => (
+                            <TouchableOpacity
+                              key={label}
+                              testID={`terminal-key-${label}`}
+                              activeOpacity={0.74}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Send terminal key ${label}`}
+                              hitSlop={terminalControlHitSlop}
+                              accessibilityState={{ disabled: !terminalInputEnabled }}
+                              onPress={() =>
+                                sendToTerminal(value, {
+                                  focus: false,
+                                  keepKeyboardProxyFocused: true,
+                                })
+                              }
+                              disabled={!terminalInputEnabled}
+                              style={[
+                                styles.keyButton,
+                                {
+                                  backgroundColor: elevatedSurfaceColor,
+                                  borderColor: outlineColor,
+                                },
+                                !terminalInputEnabled && styles.disabledControl,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  theme.typography.labelCaps,
+                                  styles.quickActionText,
+                                  { color: theme.colors.onSurfaceVariant },
+                                ]}
+                              >
+                                {label}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
                       ))}
-                    </View>
-                  ))}
-                  <TouchableOpacity
-                    testID="terminal-voice-fab"
-                    activeOpacity={0.74}
-                    accessibilityRole="button"
-                    accessibilityLabel="Voice to bash"
-                    accessibilityState={{ disabled: !terminalInputEnabled }}
-                    hitSlop={terminalControlHitSlop}
+                    </ScrollView>
+                  </View>
+                  <TerminalVoiceFab
+                    phase={aiSuggest.phase}
                     disabled={!terminalInputEnabled}
                     onPress={() => {
                       if (!terminalInputEnabled) return;
-                      setVoiceModalOpen(true);
+                      if (aiSuggest.phase === 'recording') aiSuggest.stopVoice();
+                      else aiSuggest.startVoice();
                     }}
-                    style={[
-                      styles.voiceFab,
-                      {
-                        backgroundColor: elevatedSurfaceColor,
-                        borderColor: outlineColor,
-                      },
-                      !terminalInputEnabled && styles.disabledControl,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        theme.typography.labelCaps,
-                        styles.quickActionText,
-                        { color: theme.colors.primary },
-                      ]}
-                    >
-                      {t('terminal.voice')}
-                    </Text>
-                  </TouchableOpacity>
-                </ScrollView>
+                    onLongPress={() => {
+                      if (!terminalInputEnabled) return;
+                      aiSuggest.openTextInput();
+                    }}
+                  />
+                </View>
               </View>
             ) : null}
           </View>
@@ -1753,22 +1728,6 @@ export const DeviceTerminalScreen: React.FC = () => {
           ) : null}
         </View>
       </View>
-      {terminal ? (
-        <VoiceToBashModal
-          visible={voiceModalOpen}
-          mode="live"
-          deviceId={terminal.deviceId}
-          cwd={terminal.directory}
-          deviceOs={device.os}
-          sessionId={terminal.id}
-          onClose={() => setVoiceModalOpen(false)}
-          onConfirm={command => {
-            setVoiceModalOpen(false);
-            sendToTerminal(`${command}\r`, { focus: false });
-            setVoiceCommandBanner(command);
-          }}
-        />
-      ) : null}
     </SafeAreaWrapper>
   );
 };
@@ -2056,23 +2015,15 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     gap: 10,
   },
-  suggestionRow: {
+  controlsRow: {
+    flexDirection: 'row',
     gap: 8,
-    paddingRight: 12,
+    alignItems: 'stretch',
   },
-  aiBubble: {
-    maxWidth: 178,
-    minHeight: 40,
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderRadius: 8,
-  },
-  disabledSuggestion: {
-    opacity: 0.48,
-  },
-  aiBubbleText: {
-    letterSpacing: 0,
+  controlsStack: {
+    flex: 1,
+    minWidth: 0,
+    gap: 10,
   },
   quickActionText: {
     fontSize: 10,
@@ -2104,15 +2055,6 @@ const styles = StyleSheet.create({
   },
   disabledControl: {
     opacity: 0.45,
-  },
-  voiceFab: {
-    minWidth: 54,
-    minHeight: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderRadius: 999,
   },
   approvalButton: {
     minHeight: 36,
