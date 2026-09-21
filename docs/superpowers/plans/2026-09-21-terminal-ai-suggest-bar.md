@@ -307,7 +307,7 @@ export type GenResult = {
       }
 ```
 
-③ 不收敛兜底分支（`// Did not converge` 之后）改为：
+③ 不收敛兜底分支：`// Did not converge` 下的 `messages.push({ role: 'user', content: 'Produce the single shell command now. No tools.' })` nudge 行**保留不动**，其后的 `const fin = await callLlm(...)` 起至 `return {...}` 改为：
 
 ```ts
     const fin = await callLlm({ protocol: input.protocol, baseUrl: input.baseUrl, apiKey: input.apiKey, model: input.model, messages, tools: [], timeoutMs: PER_CALL_LLM_TIMEOUT_MS });
@@ -924,6 +924,17 @@ describe('useAiCommandSuggestions', () => {
     expect(latest.chips).toEqual([]);
     expect(latest.phase).toBe('idle');
     expect(mockCancel).toHaveBeenCalled();
+  });
+
+  it('liveStatus tracks commandGen.step tool_call events', async () => {
+    mockGenerateCommand.mockImplementation(() => new Promise(() => undefined));
+    await mount();
+    await act(async () => { latest.submitText('slow'); });
+    expect(mockCommandGenListener).not.toBeNull();
+    act(() => {
+      mockCommandGenListener!({ type: 'commandGen.step', runId: 'r1', seq: 1, kind: 'tool_call', toolName: 'list_dir' });
+    });
+    expect(latest.liveStatus).toBe('list_dir');
   });
 
   it('a response landing after reset() is dropped (terminal-switch guard)', async () => {
@@ -2214,7 +2225,7 @@ jest.mock('../src/hooks/useAiCommandSuggestions', () => ({
 5. `renders AI chips and executes on tap`（mockAi.chips=[{command:'git status --short',dangerous:false}] → 按 `terminal-suggestion-git-status-short` → mockTerminalSendText 收到 `'git status --short\r'` 且 `{focus:false}`；**并断言 `terminal-voice-banner` 出现**（spec §6 的「执行时 banner 更新」））
 6. `dangerous chip requires the second tap`（dangerous chip 首点不发、二点发）
 7. `empty chips show the hint chip`（chips=[] → `terminal-suggestion-empty` 存在）
-8. `resets when the terminal id changes`（terminalId='term-1' 渲染后改 mockRouteParams.terminalId='term-2' + rerender → mockAi.reset 被调）
+8. `resets when the terminal id changes`（terminalId='term-1' 渲染后改 mockRouteParams.terminalId='term-2' + rerender → **`mockAi.reset` 恰好被调 2 次**（首次 mount 的 effect + 切换那一次——只断言"被调"会因 mount 即触发而空洞））
 9. `status strip shows while generating`（phase='generating' → `terminal-ai-strip` 存在）
 
 - [ ] **Step 11.3: 更新 `__tests__/DeviceTerminalScreen.test.tsx`**：

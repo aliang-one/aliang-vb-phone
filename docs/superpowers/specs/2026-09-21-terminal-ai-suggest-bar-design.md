@@ -61,11 +61,11 @@ GenResult = {
 - `startVoice()`：先 `Keyboard.dismiss()` → `voiceStt.start({ onComplete })`；`phase=recording`。`phase=error` 时点按同样进入 `startVoice()`（重试）。
 - `stopVoice()`：`voiceStt.stop()` → onComplete 触发 `generate(text)`（**直通，无转写确认步**——编辑职责由长按文本路径承担）。
 - `submitText(text)`：非空 trim 后直接 `generate(text)`。
-- `retry()`：hook 内记住 `lastText`（generate 成功后清空），错误态重发同文本。
+- `retry()`：hook 内记住 `lastText`（成功后保留——retry 仅在错误态可达，保留无副作用），错误态重发同文本。
 - `generate(text)`：**先订阅 `commandGenEvents`（runId 捕获过滤，同 modal 模式）再 POST** `/api/ai/command-gen`（`mode:'live'` + sessionId/projectId）；期间 step 事件驱动 `liveStatus`。成功→响应 `commands × dangerousFlags` 与本地 `isUnsafeSuggestion` 兜底**取或**→新批 chips 置顶（精确去重、总量上限 6、`phase=idle`）。失败→`commandGenErrorText` 映射（`llm_*` 码）→`phase='error'`。
 - `clearChips()`、`dismissError()`；**换 `terminalId`**（屏内 `setTerminalId` 可不卸载切会话，`DeviceTerminalScreen.tsx:485-498`）与卸载时：cancel STT + 退订事件 + **清空 chips / phase 复位 idle / 清 lastText**（防 A 终端的建议被执行进 B 终端）——对齐 modal 的 cleanup 纪律。
 
-**错误文案模块**：`commandGenErrorText` + `COMMAND_GEN_ERROR_KEYS` 从 `VoiceToBashModal.tsx` 移到独立小模块（`src/components/terminal/commandGenErrorText.ts`），modal 改为 re-export（既有 import 与 modal 测试不受影响）。
+**错误文案模块**：`commandGenErrorText` + `COMMAND_GEN_ERROR_KEYS` 从 `VoiceToBashModal.tsx` 移到独立小模块（`src/utils/commandGenErrorText.ts`——util 层而非组件层，hook 与组件都能干净引用），modal 改为 import + re-export（既有 import 路径与 modal 测试不受影响）。
 
 ## 4. 手机端——底部控制区重构（`DeviceTerminalScreen.tsx`）
 
