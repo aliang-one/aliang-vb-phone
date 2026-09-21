@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
@@ -24,6 +24,13 @@ import {
   useControlCenterStore,
   useRecentActiveTerminalSessionId,
 } from '../../store/controlCenterStore';
+import type {
+  ActiveDownload,
+  FileDownloadPhase,
+} from '../../store/types';
+import { useToastStore } from '../../store/toastStore';
+import { completeProjectFileDownload } from '../../api/projects';
+import { saveDownloadedFile } from '../../services/fileDownloadSave';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { BottomSheet } from '../../components/shared/BottomSheet';
 import { FileLongPressMenu } from '../../components/projects/FileLongPressMenu';
@@ -52,6 +59,43 @@ const parentPathOf = (pathValue: string) => {
   const prefix = normalized.startsWith('/') ? '/' : '';
   return `${prefix}${parts.slice(0, -1).join('/')}`;
 };
+
+/** Focus-reconcile cooldown for the download status (matches the session screen's silent auto-refresh cadence). */
+const DOWNLOAD_RECONCILE_COOLDOWN_MS = 30_000;
+
+/** Everything the ready→save wiring needs from the active download record. */
+export interface AutoSaveTarget {
+  projectId: string;
+  requestId: string;
+  filename: string;
+  url: string;
+}
+
+/**
+ * Phase gate + re-entrancy latch for the local-save wiring (Task 18).
+ * Auto-save fires only when ALL hold:
+ *   - phase === 'ready' — the server pushed a COS presigned GET url;
+ *   - active carries BOTH requestId (needed for the /complete ack) and url
+ *     (needed for the fetch) — requestId is '' while the start POST is in
+ *     flight, and url is absent until ready, so both gates are load-bearing;
+ *   - handledRequestId !== this requestId — the once-only latch. The store
+ *     already freezes saving/done against WS replays (slice holding logic),
+ *     but a React strict-mode double effect invocation re-runs with the SAME
+ *     render closure that still holds 'ready'; the ref is the authoritative
+ *     guard. Keyed by requestId (not a boolean) so a retry — new POST, new
+ *     request_id — auto-saves again.
+ */
+export function resolveAutoSaveTarget(
+  phase: FileDownloadPhase,
+  active: ActiveDownload | null,
+  handledRequestId: string | null,
+): AutoSaveTarget | null {
+  if (phase !== 'ready' || !active) return null;
+  const { projectId, requestId, filename, url } = active;
+  if (!requestId || !url) return null;
+  if (handledRequestId === requestId) return null;
+  return { projectId, requestId, filename, url };
+}
 
 interface FileErrorMessage {
   title: string;
@@ -115,6 +159,14 @@ export const FileBrowserScreen: React.FC = () => {
   const downloadEnabled = useControlCenterStore(
     state => state.fileDownloadCapability?.enabled === true,
   );
+  // Download save wiring (Task 18): the screen owns the ready→save transition
+  // so it survives independent of the sheet's visibility lifecycle.
+  const fileDownloadPhase = useControlCenterStore(state => state.fileDownloadPhase);
+  const fileDownloadActive = useControlCenterStore(state => state.fileDownloadActive);
+  const markSaving = useControlCenterStore(state => state.markSaving);
+  const markDone = useControlCenterStore(state => state.markDone);
+  const markFailed = useControlCenterStore(state => state.markFailed);
+  const show = useToastStore(s => s.show);
   const [filter, setFilter] = useState<FileFilter>('all');
   const [currentPath, setCurrentPath] = useState('');
   const [selectedPath, setSelectedPath] = useState('');
@@ -271,6 +323,70 @@ export const FileBrowserScreen: React.FC = () => {
       cancelled = true;
     };
   }, [canReadDevice, effectivePath, loadProjectFiles, project, t]);
+
+  // --- Download save wiring (Task 18): ready → local save → done/failed ---
+  // The store phase is the primary gate (markSaving flips it off 'ready'
+  // synchronously, so a WS replay re-rendering this effect no-ops); the
+  // handled-request ref is the strict-mode double-invoke defense, where the
+  // effect closure still holds the stale 'ready' from the same render.
+  const handledSaveRequestRef = useRef<string | null>(null);
+  useEffect(() => {
+    const target = resolveAutoSaveTarget(
+      fileDownloadPhase,
+      fileDownloadActive,
+      handledSaveRequestRef.current,
+    );
+    if (!target) return;
+    handledSaveRequestRef.current = target.requestId;
+    const { projectId, requestId, filename, url } = target;
+    markSaving();
+    saveDownloadedFile({ url, filename })
+      .then(() => {
+        markDone();
+        // Fire-and-forget ack: /complete frees the server slot (the server
+        // best-effort deletes the COS object). Its response is deliberately
+        // NOT routed into the store — completed→idle would snap the sheet
+        // shut before the user sees the saved body.
+        completeProjectFileDownload(projectId, requestId).catch(() => {});
+        show(t('fileBrowser.download.doneTitle'));
+      })
+      .catch((error: unknown) => {
+        markFailed(
+          error instanceof Error && error.message
+            ? error.message
+            : t('fileBrowser.download.failedTitle'),
+        );
+        show(t('fileBrowser.download.failedTitle'), 'error');
+      });
+  }, [
+    fileDownloadPhase,
+    fileDownloadActive,
+    markSaving,
+    markDone,
+    markFailed,
+    show,
+    t,
+  ]);
+
+  // Focus reconcile (30s cooldown, the session screen's silent auto-refresh
+  // shape): a WS gap while this screen sat in the background could have
+  // hidden the ready push — pull the authoritative status on re-focus while a
+  // download record exists. refreshStatus swallows its own errors and no-ops
+  // without a requestId, so a bare fire is safe.
+  const lastDownloadReconcileAtRef = useRef(0);
+  useFocusEffect(
+    useCallback(() => {
+      const { fileDownloadActive: active, refreshStatus } =
+        useControlCenterStore.getState();
+      if (!active?.requestId) return;
+      const now = Date.now();
+      if (now - lastDownloadReconcileAtRef.current < DOWNLOAD_RECONCILE_COOLDOWN_MS) {
+        return;
+      }
+      lastDownloadReconcileAtRef.current = now;
+      void refreshStatus();
+    }, []),
+  );
 
   if (!project) {
     return (
@@ -858,9 +974,9 @@ export const FileBrowserScreen: React.FC = () => {
         </BottomSheet>
 
         {/* File-row long-press menu + the download confirm/progress sheet —
-            mounted only when the server supports downloads. Closing the sheet
-            mid-download abandons the UI only: the store phase keeps the task
-            alive and re-opens it on the next long-press. */}
+            mounted only when the server supports downloads. A close attempt
+            mid-download is a dead gesture (the sheet stays mounted while a run
+            is live); Cancel is the only way out of a running download. */}
         {downloadEnabled && (
           <>
             <FileLongPressMenu
