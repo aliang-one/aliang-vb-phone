@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -64,7 +64,32 @@ export const DeviceCameraScannerScreen: React.FC = () => {
   const [message, setMessage] = useState('');
   const [scannerError, setScannerError] = useState('');
 
+  // VisionCamera 的 onObjectsScanned 按帧连续触发(30fps),同一渲染提交前可能
+  // 连发多次;下方 phase 守卫读的是闭包里的旧 state,拦不住并发的第二发。线上
+  // 后果:两次 POST /auth/scan/scan 一中一 409,409 后到把成功 UI 打成错误面板
+  // (scan code 服务端一次性,重试必然继续 409)。用同步 ref 做硬守卫。
+  const scanInFlightRef = useRef(false);
+  const confirmInFlightRef = useRef(false);
+  // 重新扫描(reset)会作废所有在途请求:代际号在 reset 时自增,迟到的
+  // resolve/reject 一看代际不符就直接丢弃,不得改写 UI 或复位 in-flight ref。
+  const genRef = useRef(0);
+  const goBackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearGoBackTimer = () => {
+    if (goBackTimerRef.current) {
+      clearTimeout(goBackTimerRef.current);
+      goBackTimerRef.current = null;
+    }
+  };
+
+  // 卸载时清掉 goBack 定时器,避免 stale goBack 弹掉导航栈里别的页面。
+  useEffect(() => clearGoBackTimer, []);
+
   const reset = () => {
+    genRef.current += 1;
+    scanInFlightRef.current = false;
+    confirmInFlightRef.current = false;
+    clearGoBackTimer();
     setScanCode(undefined);
     setPhase('idle');
     setMessage('');
@@ -85,34 +110,50 @@ export const DeviceCameraScannerScreen: React.FC = () => {
       setMessage(t('scanner.unrecognized'));
       return;
     }
+    if (scanInFlightRef.current) {
+      return; // 同一码的重复帧事件,丢弃
+    }
     if (phase === 'working' || phase === 'confirming') {
       return; // 一次只处理一个码
     }
+    scanInFlightRef.current = true;
+    const myGen = genRef.current;
     setScanCode(code);
     setPhase('working');
     setMessage('');
     setScannerError('');
     try {
       await scanLoginScan(code);
+      if (genRef.current !== myGen) return; // 已重新扫描:本轮作废
       setPhase('confirming');
     } catch (error) {
+      if (genRef.current !== myGen) return;
+      scanInFlightRef.current = false; // 允许用户点「重新扫描」再试
       setPhase('error');
       setMessage(describeScanError(error, t));
     }
   };
 
   const handleConfirm = async () => {
-    if (!scanCode) return;
+    if (!scanCode || confirmInFlightRef.current) return;
+    confirmInFlightRef.current = true;
+    const myGen = genRef.current;
     setPhase('working');
     setMessage('');
     try {
       await scanLoginConfirm(scanCode); // scanned→authorized,桌面 agent 登录并自动注册设备
+      if (genRef.current !== myGen) return;
       setPhase('success');
       setMessage(t('scanner.successMessage'));
       // agent 登录后会自动 register_sync 把设备注册到该用户名下;刷新设备列表。
       void refreshFromServer();
-      setTimeout(() => navigation.goBack(), 1600);
+      clearGoBackTimer();
+      goBackTimerRef.current = setTimeout(() => navigation.goBack(), 1600);
     } catch (error) {
+      if (genRef.current !== myGen) return;
+      // confirm 失败时两个守卫都放开,让用户能直接重扫或重试,不必先 reset。
+      scanInFlightRef.current = false;
+      confirmInFlightRef.current = false;
       setPhase('error');
       setMessage(describeScanError(error, t));
     }
@@ -167,7 +208,9 @@ export const DeviceCameraScannerScreen: React.FC = () => {
           {hasPermission ? (
             <View style={styles.cameraFrame}>
               <DeviceCodeScanner
-                isActive={isFocused && phase !== 'working' && phase !== 'confirming'}
+                // 只在 idle 开相机:working/confirming 不必说;error/success 也必须关——
+                // 否则死码/旧码留在取景框里会被逐帧自动重发(deny 后 409 风暴的根源)。
+                isActive={isFocused && phase === 'idle'}
                 style={StyleSheet.absoluteFill}
                 onCodeScanned={handleScannedValue}
                 onError={error => setScannerError(error.message)}
