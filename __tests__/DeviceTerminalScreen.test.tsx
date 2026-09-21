@@ -1159,6 +1159,103 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     ).toBe(0);
   });
 
+  it('manually collapses the terminal top panel from the toggle button', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-top-toggle' }).props
+        .accessibilityState,
+    ).toEqual({ expanded: true, disabled: false });
+
+    act(() => {
+      screen!.root.findByProps({ testID: 'terminal-top-toggle' }).props.onPress();
+    });
+
+    expect(
+      screen!.root.findAllByProps({ testID: 'terminal-top-grid' }).length,
+    ).toBe(0);
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-collapsed-summary' }),
+    ).toBeTruthy();
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-top-toggle' }).props
+        .accessibilityState,
+    ).toEqual({ expanded: false, disabled: false });
+  });
+
+  it('manually expands the terminal top panel again from the toggle button', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    act(() => {
+      screen!.root.findByProps({ testID: 'terminal-top-toggle' }).props.onPress();
+    });
+    act(() => {
+      screen!.root.findByProps({ testID: 'terminal-top-toggle' }).props.onPress();
+    });
+
+    expect(
+      screen!.root.findAllByProps({ testID: 'terminal-top-grid' }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen!.root.findAllByProps({ testID: 'terminal-collapsed-summary' })
+        .length,
+    ).toBe(0);
+  });
+
+  it('disables the collapse toggle while the keyboard forces the panel collapsed', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    act(() => {
+      keyboardListeners.keyboardWillShow?.forEach(listener =>
+        listener({ endCoordinates: { height: 300 } } as KeyboardEvent),
+      );
+    });
+
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-top-toggle' }).props
+        .accessibilityState,
+    ).toEqual({ expanded: false, disabled: true });
+
+    act(() => {
+      keyboardListeners.keyboardDidHide?.forEach(listener => listener());
+    });
+
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-top-toggle' }).props
+        .accessibilityState,
+    ).toEqual({ expanded: true, disabled: false });
+  });
+
+  it('refits the terminal after a manual collapse toggle', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    // 先等挂载期 fit effect 的 40ms 真实定时器落地并清空调用记录,否则挂载
+    // 定时器会在下方等待窗口内触发,让测试无法区分折叠联动的 fit(本文件
+    // 不用 fake timers)。
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 60));
+    });
+    mockTerminalFit.mockClear();
+
+    act(() => {
+      screen!.root.findByProps({ testID: 'terminal-top-toggle' }).props.onPress();
+    });
+
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 60));
+    });
+
+    expect(mockTerminalFit).toHaveBeenCalled();
+  });
+
   it('collapses and lifts terminal controls from Android keyboard show events', async () => {
     await act(async () => {
       screen = renderScreen();
