@@ -73,7 +73,15 @@ export const TerminalVoiceFab: React.FC<TerminalVoiceFabProps> = ({
       testID="terminal-voice-fab"
       activeOpacity={0.74}
       accessibilityRole="button"
-      accessibilityLabel={t('aiSuggest.voiceFabLabel')}
+      // 颜色/动效不能是唯一指示:无障碍标签随相位播报录音/错误态。
+      accessibilityLabel={
+        recording
+          ? `${t('aiSuggest.voiceFabLabel')}，${t('aiSuggest.listening')}`
+          : phase === 'error'
+            ? `${t('aiSuggest.voiceFabLabel')}，${t('aiSuggest.errorVoice')}`
+            : t('aiSuggest.voiceFabLabel')
+      }
+      accessibilityHint={t('aiSuggest.emptyHint')}
       accessibilityState={{ disabled, busy: phase === 'generating' }}
       hitSlop={{ top: 6, right: 6, bottom: 6, left: 6 }}
       disabled={disabled}

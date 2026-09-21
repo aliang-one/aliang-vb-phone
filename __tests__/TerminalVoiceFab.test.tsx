@@ -56,12 +56,15 @@ describe('TerminalVoiceFab', () => {
     await renderFab('recording');
     expect(hasPulse()).toBe(true);
     expect(JSON.stringify(fab().props.style)).toContain(utilityMinimalist.colors.error);
+    // 颜色/动效不能是唯一指示:录音态由无障碍标签同步播报。
+    expect(fab().props.accessibilityLabel).toContain('正在聆听…');
   });
 
   it('generating: spinner replaces the mic', async () => {
     await renderFab('generating');
     expect(screen.root.findAllByType(ActivityIndicator).length).toBe(1);
     expect(hasPulse()).toBe(false);
+    expect(fab().props.accessibilityState).toEqual({ disabled: false, busy: true });
   });
 
   it('error: still pressable (retry semantics live in the screen)', async () => {
