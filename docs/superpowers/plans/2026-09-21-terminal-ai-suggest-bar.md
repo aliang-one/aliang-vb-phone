@@ -46,7 +46,8 @@ ls -la node_modules/ | head -3   # 应列出包目录
 cd /Users/mac/MyProgram/AiProgram/vibe_on_phone/AliangPhoneServer
 git worktree add ../AliangPhoneServer-ai-suggest-bar -b feat/commandgen-multi-suggestions main
 cd ../AliangPhoneServer-ai-suggest-bar
-ln -s ../node_modules node_modules
+ln -s ../AliangPhoneServer/node_modules node_modules   # ⚠ 必须指向 server 仓的 node_modules（../node_modules 是 vibe_on_phone/ 的，里面没有依赖）
+node -e "require('vitest/package.json'); console.log('deps-OK')"
 git status -sb   # 应显示 ## feat/commandgen-multi-suggestions
 ```
 
@@ -57,7 +58,7 @@ cd "$P" && npx jest --testPathIgnorePatterns="/node_modules/" 2>&1 | tail -15
 cd "$S" && npm run test:server 2>&1 | tail -8
 ```
 
-预期：phone 全量应基本绿（历史基线 ~3 个 terminal flake——**记下当前具体失败清单**，后续回归以「不新增失败」为标准）；server 全绿。基线若有意外失败先停下来报告，不要带病开工。
+预期：phone 全量应基本绿（历史基线 ~3 个 terminal flake——**记下当前具体失败清单**，后续回归以「不新增失败」为标准）。server 侧有**已知预存失败** `issuePikoTunnelTicket`（main 上长期存在，见项目记忆 tunnel-tickets-test-preexisting-failure）——不算回归，除此之外应全绿；若出现**其他**意外失败先停下来报告，不要带病开工。
 
 ---
 
@@ -191,6 +192,7 @@ git commit -m "feat(commandGen): parseFinalCommands 解析 1-3 条建议命令,�
 
 **Files:**
 - Modify: `server/src/commandGen/orchestrator.ts`（GenResult 类型 + 两个收敛分支）
+- Modify: `server/src/commandGen/events.ts`（runFinished 变体加可选字段——**放在本任务**，否则 Task 2 与 Task 3 之间仓库过不了 tsc）
 - Test: `server/test/commandGen/orchestrator.test.ts`（追加 describe）
 
 - [ ] **Step 2.1: 写失败测试**——在 `orchestrator.test.ts` 末尾追加（复用文件里既有 `baseInput()` 工厂）：
@@ -233,7 +235,9 @@ describe('multi-suggestion results', () => {
       kind: 'final',
       text: '{"commands": ["ls -la", "dir"]}',
     });
-    const r = await generateCommand(baseInput({ os: 'win32', mode: 'live', sessionId: 's1' }));
+    // ⚠ 必须给 shell —— validateCommandDialect(text, undefined) 是 no-op（family 'unknown'），
+    //   不给 shell 断言永远不会触发降级（与既有 dialect 用例同款写法）。
+    const r = await generateCommand(baseInput({ os: 'win32', shell: 'cmd.exe', mode: 'live', sessionId: 's1' }));
     // bash-isms 在 cmd 目标上被降级为 echo 提示；dir 是合法 cmd 命令原样保留。
     expect(r.commands[0]).toContain('dialect mismatch');
     expect(r.commands[1]).toBe('dir');
@@ -327,10 +331,17 @@ cd "$S" && npx vitest run test/commandGen/orchestrator.test.ts test/commandGen/p
 ```
 预期：全 PASS（既有用例 `r.command` 断言不受影响）。
 
-- [ ] **Step 2.5: Commit**
+- [ ] **Step 2.5: events.ts 补字段**——打开 `server/src/commandGen/events.ts`，找到 `commandGen.runFinished` 的事件类型定义（union 变体），加两个可选字段（若该文件用宽类型 `Record<string, unknown>` 则无需改动，读后判断）：
+
+```ts
+commands?: string[];
+dangerousFlags?: boolean[];
+```
+
+- [ ] **Step 2.6: Commit**
 
 ```bash
-cd "$S" && git add server/src/commandGen/orchestrator.ts server/test/commandGen/orchestrator.test.ts
+cd "$S" && git add server/src/commandGen/orchestrator.ts server/src/commandGen/events.ts server/test/commandGen/orchestrator.test.ts
 git commit -m "feat(commandGen): orchestrator 返回 1-3 条建议命令(commands/dangerousFlags),final_command 存首条"
 ```
 
@@ -338,9 +349,8 @@ git commit -m "feat(commandGen): orchestrator 返回 1-3 条建议命令(command
 
 **Files:**
 - Modify: `server/skills/terminal-command-composer/SKILL.md`
-- Modify: `server/src/commandGen/events.ts`（runFinished 变体加可选字段）
 
-- [ ] **Step 3.1: SKILL.md 三处修改**
+- [ ] **Step 3.1: SKILL.md 修改**（⚠ 对 spec §2.1「其余章节不动」的一处**必要偏差**：Termination 节的措辞必须跟随输出契约从"单条命令"改为"JSON 输出"，否则模型收到矛盾指令；spec 意图是工具/方言/安全规则不动，本编辑符合意图）
 
 ① frontmatter `description:` 改为：
 ```
@@ -368,26 +378,23 @@ description: Turn a spoken request into 1-3 safe shell command candidates for an
   e.g. {"commands": ["echo \"...\""]}.
 ```
 
-- [ ] **Step 3.2: events.ts 补字段**——打开 `server/src/commandGen/events.ts`，找到 `commandGen.runFinished` 的事件类型定义（union 变体），加两个可选字段（与 orchestrator 的 publish 载荷对齐；若该文件用宽类型 `Record<string, unknown>` 则无需改动，读后判断）：
-
-```ts
-commands?: string[];
-dangerousFlags?: boolean[];
-```
-
-- [ ] **Step 3.3: 全量 server 测试 + typecheck**
+- [ ] **Step 3.2: 全量 server 测试 + typecheck**
 
 ```bash
 cd "$S" && npm run test:server 2>&1 | tail -8
 cd "$S" && npx tsc -p server/tsconfig.json && echo TS-OK
 ```
-预期：全绿。**若 `route.test.ts`/`route.r2/r3.test.ts` 对响应体做严格 `toEqual`**：给期望对象补上 `commands`/`dangerousFlags` 字段（加法字段导致的不匹配是预期改动，不是回归）。若 `skillLoader.test.ts` 断言 SKILL.md 具体文案：同步更新断言到新契约。
+预期：全绿（已知预存失败 `issuePikoTunnelTicket` 除外）。**三处既有可能被 SKILL.md/响应改动波及的断言**：
+- `orchestrator.test.ts:52` 断言 SKILL.md 正文含 `'Return ONLY the raw shell command'` —— 本任务删掉了这句话，**把断言更新为新契约文案**（如 `'Return ONLY a JSON object'`）。
+- `route.test.ts`/`route.r2/r3.test.ts` 若对响应体严格 `toEqual`：给期望对象补 `commands`/`dangerousFlags`（加法字段导致的不匹配是预期改动，不是回归）。
+- `skillLoader.test.ts` 若断言 SKILL.md 其他具体文案：同步更新。
+另注：`modelConfig.ts:181-202` 内嵌的 fallback prompt 仍写着 "exactly ONE"——**有意不动**（admin 未配置 promptTemplate 时经 `parseFinalCommands` 原文回退仍正确），不要去"修"它。
 
-- [ ] **Step 3.4: Commit**
+- [ ] **Step 3.3: Commit**
 
 ```bash
 cd "$S" && git add -A server/skills server/src/commandGen server/test
-git commit -m "feat(commandGen): SKILL.md 输出契约改 1-3 条 JSON 建议;runFinished 事件带 commands/dangerousFlags"
+git commit -m "feat(commandGen): SKILL.md 输出契约改 1-3 条 JSON 建议"
 ```
 
 ---
@@ -401,7 +408,7 @@ git commit -m "feat(commandGen): SKILL.md 输出契约改 1-3 条 JSON 建议;ru
 - Modify: `src/components/terminal/VoiceToBashModal.tsx`（删本地定义，改 re-export）
 - Test: `__tests__/utils/commandGenErrorText.test.ts`（新建）
 
-- [ ] **Step 4.1: 写失败测试**——先看一眼 `src/api/client.ts` 里 `ApiResponseError` 的构造签名（约 `class ApiResponseError extends Error { constructor(code, message?) }`），按实际签名微调下例：
+- [ ] **Step 4.1: 写失败测试**——`ApiResponseError` 构造签名是 `constructor(message, status, code?)`（`src/api/client.ts:16-26`，第三个参才是错误码）：
 
 ```ts
 // __tests__/utils/commandGenErrorText.test.ts
@@ -412,7 +419,7 @@ const t = (key: string) => key;
 
 describe('commandGenErrorText', () => {
   it('maps known llm_* codes to localized keys', () => {
-    expect(commandGenErrorText(new ApiResponseError('llm_timeout', 'x'), t)).toBe(
+    expect(commandGenErrorText(new ApiResponseError('gateway timeout', 504, 'llm_timeout'), t)).toBe(
       'voiceBash.error.llmTimeout',
     );
   });
@@ -460,10 +467,12 @@ export const commandGenErrorText = (
 };
 ```
 
-`VoiceToBashModal.tsx`：删除本地 `COMMAND_GEN_ERROR_KEYS` 常量与 `commandGenErrorText` 函数（99-119 行附近），原位放一行 re-export（保持既有 import 路径可用）：
+`VoiceToBashModal.tsx`：删除本地 `COMMAND_GEN_ERROR_KEYS` 常量与 `commandGenErrorText` 函数（99-119 行附近），原位放 **import + re-export 两行**（⚠ 单行 `export { x } from ...` 不产生本地绑定，而 modal 内部 323 行还在调用它——必须两行）：
 
 ```ts
-export { commandGenErrorText } from '../../utils/commandGenErrorText';
+import { commandGenErrorText } from '../../utils/commandGenErrorText';
+
+export { commandGenErrorText };
 ```
 
 - [ ] **Step 4.4: 跑绿 + modal 回归**
@@ -765,10 +774,10 @@ jest.mock('../src/api/commandGen', () => ({
 }));
 
 const mockUnsubscribe = jest.fn();
-let commandGenListener: ((e: unknown) => void) | null = null;
+let mockCommandGenListener: ((e: unknown) => void) | null = null;
 jest.mock('../src/services/commandGenEvents', () => ({
   subscribeCommandGenEvents: (listener: (e: unknown) => void) => {
-    commandGenListener = listener;
+    mockCommandGenListener = listener;
     return mockUnsubscribe;
   },
 }));
@@ -797,7 +806,7 @@ const opts = () => mockStart.mock.calls.at(-1)?.[0] as
 
 beforeEach(() => {
   screen = null;
-  commandGenListener = null;
+  mockCommandGenListener = null;
   mockVoiceSttState.status = 'idle';
   mockVoiceSttState.liveCaption = '';
   mockVoiceSttState.errorMessage = '';
@@ -873,21 +882,26 @@ describe('useAiCommandSuggestions', () => {
     );
   });
 
-  it('stopVoice only acts while recording; generating ignores re-entry', async () => {
+  it('stopVoice only acts while recording', async () => {
     await mount();
     act(() => { latest.stopVoice(); });
-    expect(mockStop).not.toHaveBeenCalled();
+    expect(mockStop).not.toHaveBeenCalled(); // idle 态 no-op
     act(() => { latest.startVoice(); });
     act(() => { latest.stopVoice(); });
     expect(mockStop).toHaveBeenCalledTimes(1);
-    // 生成中再提交/再录音都被忽略
+  });
+
+  it('generating ignores re-entry (no second POST, no stt.start)', async () => {
     mockGenerateCommand.mockImplementation(() => new Promise(() => undefined)); // 悬挂
-    await act(async () => { latest.submitText('again'); });
+    await mount();
+    await act(async () => { latest.submitText('first'); });
     expect(latest.phase).toBe('generating');
     const callsBefore = mockGenerateCommand.mock.calls.length;
-    act(() => { latest.submitText('ignored'); act(() => { latest.startVoice(); }); });
+    const startCallsBefore = mockStart.mock.calls.length;
+    act(() => { latest.submitText('ignored'); });
+    act(() => { latest.startVoice(); });
     expect(mockGenerateCommand.mock.calls.length).toBe(callsBefore);
-    expect(mockStart).toHaveBeenCalledTimes(2); // recording 期的第二次 start 在 mount+1 次后未再+1
+    expect(mockStart).toHaveBeenCalledTimes(startCallsBefore); // startVoice 在 generating 被忽略
   });
 
   it('voiceStt error during recording surfaces the error phase', async () => {
@@ -1825,7 +1839,7 @@ export const TerminalAiStatusStrip: React.FC<TerminalAiStatusStripProps> = ({
           accessibilityRole="button"
           disabled={!draft.trim()}
           onPress={() => {
-            onSendText(draft);
+            onSendText(draft.trim());
             setDraft('');
           }}
           style={[styles.pillButton, { borderColor: theme.colors.primary }, !draft.trim() && styles.disabled]}
@@ -2197,7 +2211,7 @@ jest.mock('../src/hooks/useAiCommandSuggestions', () => ({
 2. `tap starts voice from idle`（onPress → mockAi.startVoice 调用）
 3. `tap stops voice while recording`（phase='recording' + rerender → onPress → stopVoice）
 4. `long-press opens the text input`（onLongPress → openTextInput）
-5. `renders AI chips and executes on tap`（mockAi.chips=[{command:'git status --short',dangerous:false}] → 按 `terminal-suggestion-git-status-short` → mockTerminalSendText 收到 `'git status --short\r'` 且 `{focus:false}`）
+5. `renders AI chips and executes on tap`（mockAi.chips=[{command:'git status --short',dangerous:false}] → 按 `terminal-suggestion-git-status-short` → mockTerminalSendText 收到 `'git status --short\r'` 且 `{focus:false}`；**并断言 `terminal-voice-banner` 出现**（spec §6 的「执行时 banner 更新」））
 6. `dangerous chip requires the second tap`（dangerous chip 首点不发、二点发）
 7. `empty chips show the hint chip`（chips=[] → `terminal-suggestion-empty` 存在）
 8. `resets when the terminal id changes`（terminalId='term-1' 渲染后改 mockRouteParams.terminalId='term-2' + rerender → mockAi.reset 被调）
