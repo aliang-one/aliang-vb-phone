@@ -57,6 +57,21 @@
       "llmUpstreamError": "AI gateway returned an error — try again shortly or check admin settings"
     }
   },
+  "aiSuggest": {
+    "emptyHint": "Tap the mic and speak a command — long-press to type it instead",
+    "listening": "Listening…",
+    "generating": "Generating suggestions…",
+    "chipArm": "Tap again to run",
+    "textPlaceholder": "Describe the command to run",
+    "textSend": "Send",
+    "textCancel": "Cancel",
+    "voiceFabLabel": "Voice command",
+    "keyboardToggleLabel": "Toggle keyboard",
+    "errorRetry": "Retry",
+    "errorVoice": "Voice recognition failed, please retry",
+    "a11yRun": "Run suggested command {{command}}",
+    "a11yArm": "Tap again to run {{command}}"
+  },
   "replay": {
     "endedBanner": "Session ended · history below",
     "replayedBadge": "Replayed",
