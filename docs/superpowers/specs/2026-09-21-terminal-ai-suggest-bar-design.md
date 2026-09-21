@@ -58,11 +58,12 @@ GenResult = {
 **状态**：`phase: 'idle' | 'recording' | 'generating' | 'error'`；`chips: Array<{ command: string; dangerous: boolean }>`；`liveStatus: string`（生成中最近一步 tool 名）；`errorText: string`；透传 `useVoiceStt` 的 `liveCaption`。
 
 **行为**：
-- `startVoice()`：先 `Keyboard.dismiss()` → `voiceStt.start({ onComplete })`；`phase=recording`。
+- `startVoice()`：先 `Keyboard.dismiss()` → `voiceStt.start({ onComplete })`；`phase=recording`。`phase=error` 时点按同样进入 `startVoice()`（重试）。
 - `stopVoice()`：`voiceStt.stop()` → onComplete 触发 `generate(text)`（**直通，无转写确认步**——编辑职责由长按文本路径承担）。
 - `submitText(text)`：非空 trim 后直接 `generate(text)`。
+- `retry()`：hook 内记住 `lastText`（generate 成功后清空），错误态重发同文本。
 - `generate(text)`：**先订阅 `commandGenEvents`（runId 捕获过滤，同 modal 模式）再 POST** `/api/ai/command-gen`（`mode:'live'` + sessionId/projectId）；期间 step 事件驱动 `liveStatus`。成功→响应 `commands × dangerousFlags` 与本地 `isUnsafeSuggestion` 兜底**取或**→新批 chips 置顶（精确去重、总量上限 6、`phase=idle`）。失败→`commandGenErrorText` 映射（`llm_*` 码）→`phase='error'`。
-- `clearChips()`、`dismissError()`；卸载 / 换 terminalId 时 cancel STT + 退订事件（对齐 modal 的 cleanup 纪律）。
+- `clearChips()`、`dismissError()`；**换 `terminalId`**（屏内 `setTerminalId` 可不卸载切会话，`DeviceTerminalScreen.tsx:485-498`）与卸载时：cancel STT + 退订事件 + **清空 chips / phase 复位 idle / 清 lastText**（防 A 终端的建议被执行进 B 终端）——对齐 modal 的 cleanup 纪律。
 
 **错误文案模块**：`commandGenErrorText` + `COMMAND_GEN_ERROR_KEYS` 从 `VoiceToBashModal.tsx` 移到独立小模块（`src/components/terminal/commandGenErrorText.ts`），modal 改为 re-export（既有 import 与 modal 测试不受影响）。
 
@@ -83,7 +84,7 @@ GenResult = {
 
 **悬浮语音钮**（沿用 testID `terminal-voice-fab`）
 - 内联 SVG `MicIcon`（同屏内 `TopPanelToggleIcon` 风格）；`!terminalInputEnabled` 时禁用。
-- 点按：`idle→startVoice()`；`recording→stopVoice()`；`generating` 忽略。
+- 点按：`idle→startVoice()`；`recording→stopVoice()`；`generating` 忽略；`error→startVoice()`（重试）。
 - `recording` 态：红色调 + 脉冲动画（`Animated.loop`，尊重 `useReduceMotion` 既有约定）；字幕条（建议行上方/替代空态位）显示 `liveCaption`。
 - `generating` 态：spinner 图标；字幕条位置显示 `liveStatus`。
 - **长按**：`idle` 态 → 字幕条位置变为**可编辑 TextInput + 发送 / 取消**（发送=`submitText`）——即「输入支持编辑」路径。recording/generating 中长按无效。
@@ -93,7 +94,7 @@ GenResult = {
 - `open = keyboardInset > 0 || keyboardProxyFocused`；open → `keyboardProxyRef.blur()` + `Keyboard.dismiss()`；closed → `focusKeyboardProxyInput()`。
 - 键盘收起链路复用既有 `keyboardWillHide/DidHide → clearKeyboardInset`（顺带 `setKeyboardProxyFocused(false)`），顶栏展开/浮动条回位逻辑零改。
 
-**i18n**：`terminal` namespace（en+zh）新增：空态提示、录音中、生成中、危险确认、文本输入占位/发送/取消、键盘开关 a11y、错误前缀等；删除仅旧语音 chip 使用的 `terminal.voice`（确认无他处引用后）。
+**i18n**：新键放 `terminal` namespace（en+zh）——屏上已有第二个 `useTranslation('terminal')` 惯例（`tReplay`，`DeviceTerminalScreen.tsx:192`），照此挂；键含：空态提示、录音中、生成中、危险确认、文本输入占位/发送/取消、键盘开关 a11y、错误前缀等。旧键清理：语音 chip 用的 `terminal.voice` 实际在 **`devices` namespace**（`devices:terminal.voice`，全仓仅被待删的 chip 引用一次），删 chip 时一并删键。
 
 ## 5. 错误处理
 
@@ -115,7 +116,7 @@ GenResult = {
 - route/集成（如有既有测试）：响应含 `commands`；旧字段不变。
 
 **Phone（jest）**
-- hook `useAiCommandSuggestions`：成功落 chips（mock api）、置顶+去重+上限 6、danger 取或、`llm_*` 错误映射、`startVoice` 先 dismiss 键盘、卸载 cancel、generating 中幂等忽略。
+- hook `useAiCommandSuggestions`：成功落 chips（mock api）、置顶+去重+上限 6、danger 取或、`llm_*` 错误映射、`startVoice` 先 dismiss 键盘、卸载 cancel、generating 中幂等忽略、`retry()` 重发 lastText、**换 terminalId 清空 chips/复位**。
 - 建议行（抽表现组件便于测试）：空态提示、安全 chip 单点执行、危险 chip 两段式 + 3s 复位、执行时 banner 更新。
 - 悬浮钮：idle 点按开始、recording 点按停止、长按出文本输入、发送走 `submitText`、禁用态。
 - 键盘钮：开→dismiss+blur；关→focus proxy。
