@@ -33,6 +33,9 @@
     "taskNoDeviceHint": "Go back to the devices page, bind a device, and assign it to this project.",
     "agentOfflineHint": "The Agent is not connected. Confirm it is online, then refresh from the toolbar above, or open the terminal / scan the device.",
     "noFilesHint": "Tap REFRESH in the toolbar above to request the file list from the desktop Agent.",
+    "download": {
+      "menuItem": "Download"
+    },
     "error": {
       "pathMissingTitle": "Project path missing",
       "pathMissingDetail": "This project has not reported a path yet. Run \"Scan project\" on the devices page, or go back and reselect the project.",

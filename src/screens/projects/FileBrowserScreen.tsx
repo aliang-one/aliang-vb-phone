@@ -26,6 +26,7 @@ import {
 } from '../../store/controlCenterStore';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { BottomSheet } from '../../components/shared/BottomSheet';
+import { FileLongPressMenu } from '../../components/projects/FileLongPressMenu';
 import { CodeHighlight } from '../../components/shared/CodeHighlight';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { describeDeviceError } from '../../utils/deviceError';
@@ -108,6 +109,11 @@ export const FileBrowserScreen: React.FC = () => {
   const scanResults = useControlCenterStore(state => state.scanResults);
   const loadProjectFiles = useControlCenterStore(state => state.loadProjectFiles);
   const loadProjectFileContent = useControlCenterStore(state => state.loadProjectFileContent);
+  // Server capability gate (Task 13): the long-press download menu only
+  // exists when the server reports file download as configured.
+  const downloadEnabled = useControlCenterStore(
+    state => state.fileDownloadCapability?.enabled === true,
+  );
   const [filter, setFilter] = useState<FileFilter>('all');
   const [currentPath, setCurrentPath] = useState('');
   const [selectedPath, setSelectedPath] = useState('');
@@ -120,6 +126,10 @@ export const FileBrowserScreen: React.FC = () => {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
   const [loadedDirs, setLoadedDirs] = useState<Set<string>>(new Set());
+  // Long-press menu on file rows → download flow. `downloadFile` is the
+  // hand-off slot the download sheet (Task 16) consumes to start the download.
+  const [menuFile, setMenuFile] = useState<ProjectFileEntry | null>(null);
+  const [downloadFile, setDownloadFile] = useState<ProjectFileEntry | null>(null);
   const project = projects.find(item => item.id === route.params.projectId);
   const device =
     (project?.deviceId ? devices.find(item => item.id === project.deviceId) : undefined) ??
@@ -809,6 +819,11 @@ export const FileBrowserScreen: React.FC = () => {
                       expanding={loadingDirs.has(row.file.path)}
                       onPress={() => handleOpenFile(row.file)}
                       onToggleExpand={() => toggleExpand(row.file)}
+                      onLongPress={
+                        row.file.kind === 'file'
+                          ? () => setMenuFile(row.file)
+                          : undefined
+                      }
                       isLast={index === flatRows.length - 1}
                     />
                   ),
@@ -840,6 +855,27 @@ export const FileBrowserScreen: React.FC = () => {
           }>
           {renderSheetBody()}
         </BottomSheet>
+
+        {/* File-row long-press menu — mounted only when the server supports
+            downloads; the sheet itself arrives with Task 16. */}
+        {downloadEnabled && (
+          <FileLongPressMenu
+            visible={!!menuFile}
+            fileName={menuFile?.name ?? ''}
+            onClose={() => setMenuFile(null)}
+            actions={[
+              {
+                label: t('fileBrowser.download.menuItem'),
+                tone: 'primary',
+                onPress: () => {
+                  const file = menuFile;
+                  setMenuFile(null);
+                  if (file) setDownloadFile(file);
+                },
+              },
+            ]}
+          />
+        )}
         </DeferredMount>
       </ScrollView>
     </SafeAreaWrapper>
@@ -930,6 +966,13 @@ interface FileRowProps {
   expanded?: boolean;
   expanding?: boolean;
   onToggleExpand?: () => void;
+  /**
+   * Long-press on the row's name area (files only at the call sites). Wired to
+   * the name-area pressable in BOTH branches — the folder row's name and
+   * chevron are sibling pressables, and the long-press belongs to the name
+   * one, never the chevron. Undefined for folders today.
+   */
+  onLongPress?: () => void;
 }
 
 const FileRow: React.FC<FileRowProps> = ({
@@ -941,6 +984,7 @@ const FileRow: React.FC<FileRowProps> = ({
   expanded = false,
   expanding = false,
   onToggleExpand,
+  onLongPress,
 }) => {
   const { theme, isDark } = useTheme();
   const isFolder = file.kind === 'folder';
@@ -989,6 +1033,8 @@ const FileRow: React.FC<FileRowProps> = ({
         <TouchableOpacity
           activeOpacity={0.65}
           onPress={onPress}
+          onLongPress={onLongPress}
+          delayLongPress={350}
           style={styles.rowMain}>
           <IconBadge name="project" tone={tone} size={30} iconSize={15} />
           <View style={styles.fileRowCopy}>
@@ -1027,7 +1073,12 @@ const FileRow: React.FC<FileRowProps> = ({
 
   // File: the whole row is a single pressable that opens the file preview.
   return (
-    <TouchableOpacity activeOpacity={0.65} onPress={onPress} style={baseStyle}>
+    <TouchableOpacity
+      activeOpacity={0.65}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={350}
+      style={baseStyle}>
       <IconBadge name="code" tone={tone} size={28} iconSize={14} />
       <View style={styles.fileRowCopy}>
         <Text

@@ -33,6 +33,9 @@
     "taskNoDeviceHint": "请返回设备页，先绑定设备并为该项目选择设备。",
     "agentOfflineHint": "Agent 未保持连接，请确认 Agent 在线后用上方工具条刷新，或打开终端 / 扫描设备。",
     "noFilesHint": "点击上方工具条的 REFRESH 可向桌面 Agent 请求文件列表。",
+    "download": {
+      "menuItem": "下载"
+    },
     "error": {
       "pathMissingTitle": "项目路径缺失",
       "pathMissingDetail": "该项目尚未上报路径。请在设备页执行「扫描项目」，或返回后重新选择项目。",

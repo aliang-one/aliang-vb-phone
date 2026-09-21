@@ -95,6 +95,13 @@ export const createFileDownloadSlice: StateCreator<
           fileDownloadPhase: phaseFromStatus(status.state),
         };
       });
+      // Reconcile once the 202 lands: every WS push that raced the POST was
+      // dropped by the attribution guard above (requestId still ''), so pull
+      // the authoritative status — a download that finished inside that
+      // window shows up as ready immediately instead of waiting for the next
+      // push. Safe to await: refreshStatus swallows its own errors and
+      // no-ops when the record was retired (reset/cancel) mid-flight.
+      await get().refreshStatus();
     } catch (error) {
       // Server error codes (429 download_in_progress / 503
       // download_not_configured) surface as the reason on the sheet.
@@ -116,22 +123,30 @@ export const createFileDownloadSlice: StateCreator<
       return;
     }
     const nextPhase = phaseFromStatus(download.state);
-    // A duplicate ready/uploading push arriving while the sheet is already
-    // saving (or done) must not drag the phase backwards — fields still merge.
+    // A duplicate ready/uploading push arriving after the download already
+    // reached ready (or the sheet is saving / done) must not drag the phase
+    // or the byte counter backwards — a stale snapshot (WS replay or a
+    // lagging REST replica) reporting mid-upload progress is noise. Fields
+    // that only move forward (url/reason) still merge.
     const current = get().fileDownloadPhase;
-    const frozen = current === 'saving' || current === 'done';
+    const frozen =
+      current === 'ready' || current === 'saving' || current === 'done';
+    const holding =
+      frozen && (nextPhase === 'ready' || nextPhase === 'uploading');
     set({
       fileDownloadActive: {
         ...active,
-        uploadedBytes: download.uploadedBytes ?? active.uploadedBytes,
+        uploadedBytes: holding
+          ? Math.max(
+              active.uploadedBytes,
+              download.uploadedBytes ?? active.uploadedBytes,
+            )
+          : download.uploadedBytes ?? active.uploadedBytes,
         totalBytes: download.totalBytes ?? active.totalBytes,
         url: download.url ?? active.url,
         reason: download.reason ?? active.reason,
       },
-      fileDownloadPhase:
-        frozen && (nextPhase === 'ready' || nextPhase === 'uploading')
-          ? current
-          : nextPhase,
+      fileDownloadPhase: holding ? current : nextPhase,
     });
   },
 

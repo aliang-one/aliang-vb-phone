@@ -119,6 +119,34 @@ describe('startDownload', () => {
     });
   });
 
+  it('re-pulls status once the 202 lands — pushes dropped while the POST was in flight are recovered', async () => {
+    // The attribution guard drops every WS push that races the start POST
+    // (requestId still ''). Once the 202 assigns the id, a single REST
+    // reconcile must recover anything lost in that window.
+    mockedStart.mockResolvedValue({
+      request_id: 'rq-late',
+      state: 'uploading',
+      uploaded_bytes: 0,
+      total_bytes: 4096,
+    });
+    mockedFetch.mockResolvedValue({
+      request_id: 'rq-late',
+      state: 'ready',
+      uploaded_bytes: 4096,
+      total_bytes: 4096,
+      url: 'https://cos.example.com/late.ts',
+    });
+
+    await state().startDownload('proj-1', 'src/late.ts', 'late.ts');
+
+    expect(mockedFetch).toHaveBeenCalledWith('proj-1', 'rq-late');
+    expect(state().fileDownloadPhase).toBe('ready');
+    expect(state().fileDownloadActive).toMatchObject({
+      url: 'https://cos.example.com/late.ts',
+      uploadedBytes: 4096,
+    });
+  });
+
   it('captures ApiError into markFailed so server error codes reach the sheet as reason', async () => {
     mockedStart.mockRejectedValue(
       new ApiResponseError(
@@ -225,6 +253,24 @@ describe('handleFileDownloadEvent', () => {
     expect(state().fileDownloadPhase).toBe('saving');
     expect(state().fileDownloadActive?.url).toBe('https://cos/main.ts');
   });
+
+  it('does not regress a ready phase on a late uploading push — ready is frozen too', async () => {
+    await seedActive();
+    state().handleFileDownloadEvent({
+      requestId: 'rq-1',
+      state: 'ready',
+      uploadedBytes: 2048,
+      totalBytes: 2048,
+      url: 'https://cos/main.ts',
+    });
+
+    // A stale WS push (snapshot taken before the upload finished) reports the
+    // old mid-upload phase and byte counter.
+    state().handleFileDownloadEvent({ requestId: 'rq-1', state: 'uploading', uploadedBytes: 512, totalBytes: 2048 });
+
+    expect(state().fileDownloadPhase).toBe('ready');
+    expect(state().fileDownloadActive?.uploadedBytes).toBe(2048);
+  });
 });
 
 describe('cancelDownload', () => {
@@ -282,6 +328,29 @@ describe('refreshStatus (REST reconcile)', () => {
     await state().refreshStatus();
 
     expect(mockedFetch).not.toHaveBeenCalled();
+  });
+
+  it('does not regress ready on a stale REST snapshot either — the reconcile shares the frozen guard', async () => {
+    await seedActive();
+    state().handleFileDownloadEvent({
+      requestId: 'rq-1',
+      state: 'ready',
+      uploadedBytes: 2048,
+      totalBytes: 2048,
+      url: 'https://cos/main.ts',
+    });
+    // REST GET answered from a lagging replica: still says uploading at 100B.
+    mockedFetch.mockResolvedValue({
+      request_id: 'rq-1',
+      state: 'uploading',
+      uploaded_bytes: 100,
+      total_bytes: 2048,
+    });
+
+    await state().refreshStatus();
+
+    expect(state().fileDownloadPhase).toBe('ready');
+    expect(state().fileDownloadActive?.uploadedBytes).toBe(2048);
   });
 });
 
