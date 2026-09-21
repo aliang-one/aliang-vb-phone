@@ -29,8 +29,7 @@
   },
   "terminal": {
     "voiceCommand": "语音命令: {{command}}",
-    "retry": "重试",
-    "voice": "语音"
+    "retry": "重试"
   },
   "detail": {
     "emptyTerminal": "暂无进行中的终端。点击上方 Terminal 开启一个远程 shell。"

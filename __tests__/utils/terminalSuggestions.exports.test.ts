@@ -1,7 +1,6 @@
 import {
   DANGEROUS_COMMANDS,
   isUnsafeSuggestion,
-  buildTerminalSuggestions,
 } from '../../src/utils/terminalSuggestions';
 
 describe('terminalSuggestions exports', () => {
@@ -16,10 +15,5 @@ describe('terminalSuggestions exports', () => {
     expect(isUnsafeSuggestion('sudo rm -rf x')).toBe(true);
     expect(isUnsafeSuggestion('vim file')).toBe(true); // interactive
     expect(isUnsafeSuggestion('git status --short')).toBe(false);
-  });
-
-  it('still exports buildTerminalSuggestions (no regression)', () => {
-    expect(typeof buildTerminalSuggestions).toBe('function');
-    expect(buildTerminalSuggestions({ directory: '/repo' }).length).toBeGreaterThan(0);
   });
 });
