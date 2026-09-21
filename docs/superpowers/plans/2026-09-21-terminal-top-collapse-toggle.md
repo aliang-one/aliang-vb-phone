@@ -103,13 +103,19 @@
     await act(async () => {
       screen = renderScreen();
     });
+
+    // 先等挂载期 fit effect 的 40ms 真实定时器落地并清空调用记录,否则挂载
+    // 定时器会在下方等待窗口内触发,让测试无法区分折叠联动的 fit(本文件
+    // 不用 fake timers)。
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 60));
+    });
     mockTerminalFit.mockClear();
 
     act(() => {
       screen!.root.findByProps({ testID: 'terminal-top-toggle' }).props.onPress();
     });
 
-    // fit effect 走 40ms 真实 setTimeout,等它落地(本测试文件不用 fake timers)。
     await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 60));
     });
