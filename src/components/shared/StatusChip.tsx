@@ -17,6 +17,9 @@ interface StatusChipProps {
    *  色相与完成态同为蓝,靠动效 + 文案区分(非仅靠颜色,符合无障碍)。reduceMotion
    *  开启时退静态。会话卡片/详情页状态头按 phase==='running' 传入。 */
   pulse?: boolean;
+  /** 尾部图标(如折叠 chevron)——渲染在 label 右侧同一行,参与 chip 的 gap。
+   *  调用方用 getStatusChipColors(...).text 给图标染上与文字一致的颜色。 */
+  trailingIcon?: React.ReactNode;
 }
 
 /** #RRGGBB → rgba(r,g,b,alpha)。3 位短色(#RGB)自动展开。用于 accent 的低透 bg。 */
@@ -36,12 +39,47 @@ const statusColorMap: Record<StatusType, { bg: string; text: string }> = {
   info: { bg: 'rgba(86, 156, 214, 0.18)', text: '#569CD6' },       // VSCode keyword blue
 };
 
+/** chip 配色(accent 优先;暗色走 statusColorMap,亮色走 GitHub Light 系映射)。
+ *  导出供「把外部图标染成与 chip 文字同色」的调用方(如终端折叠开关)复用。 */
+export const getStatusChipColors = (
+  type: StatusType,
+  isDark: boolean,
+  accent?: string,
+): { bg: string; text: string } =>
+  accent
+    ? { bg: hexToRgba(accent, isDark ? 0.18 : 0.12), text: accent }
+    : isDark
+    ? statusColorMap[type]
+    : {
+        bg:
+          type === 'success'
+            ? 'rgba(9, 105, 218, 0.1)'
+            : type === 'warning'
+            ? 'rgba(254, 177, 39, 0.15)'
+            : type === 'error'
+            ? 'rgba(186, 26, 26, 0.1)'
+            : type === 'info'
+            ? 'rgba(0, 81, 174, 0.1)'
+            : 'rgba(0, 0, 0, 0.05)',
+        text:
+          type === 'success'
+            ? '#0969DA'
+            : type === 'warning'
+            ? '#B8860B'
+            : type === 'error'
+            ? '#BA1A1A'
+            : type === 'info'
+            ? '#0051AE'
+            : '#424753',
+      };
+
 export const StatusChip: React.FC<StatusChipProps> = ({
   label,
   type,
   style,
   accent,
   pulse = false,
+  trailingIcon,
 }) => {
   const { theme, isDark } = useTheme();
   const reduceMotion = useReduceMotion();
@@ -80,32 +118,7 @@ export const StatusChip: React.FC<StatusChipProps> = ({
     // typingDots 是稳定 ref,不进 deps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pulse, reduceMotion]);
-  const colors = accent
-    ? { bg: hexToRgba(accent, isDark ? 0.18 : 0.12), text: accent }
-    : isDark
-    ? statusColorMap[type]
-    : {
-        bg:
-          type === 'success'
-            ? 'rgba(9, 105, 218, 0.1)'
-            : type === 'warning'
-            ? 'rgba(254, 177, 39, 0.15)'
-            : type === 'error'
-            ? 'rgba(186, 26, 26, 0.1)'
-            : type === 'info'
-            ? 'rgba(0, 81, 174, 0.1)'
-            : 'rgba(0, 0, 0, 0.05)',
-        text:
-          type === 'success'
-            ? '#0969DA'
-            : type === 'warning'
-            ? '#B8860B'
-            : type === 'error'
-            ? '#BA1A1A'
-            : type === 'info'
-            ? '#0051AE'
-            : '#424753',
-      };
+  const colors = getStatusChipColors(type, isDark, accent);
 
   return (
     <View
@@ -155,6 +168,7 @@ export const StatusChip: React.FC<StatusChipProps> = ({
         ]}>
         {label}
       </Text>
+      {trailingIcon}
     </View>
   );
 };

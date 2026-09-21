@@ -28,7 +28,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useStableMeasurement } from '../../hooks/useStableMeasurement';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
 import { TopAppBar } from '../../components/layout/TopAppBar';
-import { StatusChip } from '../../components/shared/StatusChip';
+import {
+  StatusChip,
+  getStatusChipColors,
+} from '../../components/shared/StatusChip';
 import {
   TerminalEmulator,
   TerminalEmulatorHandle,
@@ -153,11 +156,12 @@ const TopStatusShape: React.FC<{
   </Svg>
 );
 
-const TopPanelToggleIcon: React.FC<{ color: string; up: boolean }> = ({
-  color,
-  up,
-}) => (
-  <Svg width={14} height={14} viewBox="0 0 14 14">
+const TopPanelToggleIcon: React.FC<{
+  color: string;
+  up: boolean;
+  size?: number;
+}> = ({ color, up, size = 14 }) => (
+  <Svg width={size} height={size} viewBox="0 0 14 14">
     <Polyline
       points={up ? '3,9 7,5 11,9' : '3,5 7,9 11,5'}
       fill="none"
@@ -785,6 +789,12 @@ export const DeviceTerminalScreen: React.FC = () => {
       : device.status === 'warning'
       ? 'warning'
       : 'neutral';
+  const deviceStatusType =
+    device.status === 'online'
+      ? 'success'
+      : device.status === 'warning'
+      ? 'warning'
+      : 'neutral';
 
   return (
     <SafeAreaWrapper
@@ -908,7 +918,26 @@ export const DeviceTerminalScreen: React.FC = () => {
                   >
                     {device.name}
                   </Text>
-                  <View style={styles.deviceStatusRow}>
+                  {/* 整个状态气泡就是折叠开关:chevron 嵌在气泡内部,与
+                      ONLINE/OFFLINE 文字同色(染 chip 文字色)。 */}
+                  <TouchableOpacity
+                    testID="terminal-top-toggle"
+                    activeOpacity={0.74}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      topPanelCollapsed
+                        ? 'Expand terminal header'
+                        : 'Collapse terminal header'
+                    }
+                    accessibilityState={{
+                      expanded: !topPanelCollapsed,
+                      disabled: keyboardForcesCollapse,
+                    }}
+                    hitSlop={terminalControlHitSlop}
+                    disabled={keyboardForcesCollapse}
+                    onPress={handleToggleTopPanel}
+                    style={styles.deviceStatusRow}
+                  >
                     {topPanelCollapsed ? (
                       <View
                         testID="terminal-collapsed-status"
@@ -917,50 +946,34 @@ export const DeviceTerminalScreen: React.FC = () => {
                         <StatusChip
                           label={terminalStatusChip.label}
                           type={terminalStatusType}
+                          trailingIcon={
+                            <TopPanelToggleIcon
+                              size={10}
+                              up={!topPanelCollapsed}
+                              color={
+                                getStatusChipColors(
+                                  terminalStatusType,
+                                  isDark,
+                                ).text
+                              }
+                            />
+                          }
                         />
                       </View>
                     ) : (
                       <StatusChip
                         label={device.status.toUpperCase()}
-                        type={
-                          device.status === 'online'
-                            ? 'success'
-                            : device.status === 'warning'
-                            ? 'warning'
-                            : 'neutral'
+                        type={deviceStatusType}
+                        trailingIcon={
+                          <TopPanelToggleIcon
+                            size={10}
+                            up={!topPanelCollapsed}
+                            color={getStatusChipColors(deviceStatusType, isDark).text}
+                          />
                         }
                       />
                     )}
-                    <TouchableOpacity
-                      testID="terminal-top-toggle"
-                      activeOpacity={0.74}
-                      accessibilityRole="button"
-                      accessibilityLabel={
-                        topPanelCollapsed
-                          ? 'Expand terminal header'
-                          : 'Collapse terminal header'
-                      }
-                      accessibilityState={{
-                        expanded: !topPanelCollapsed,
-                        disabled: keyboardForcesCollapse,
-                      }}
-                      hitSlop={terminalControlHitSlop}
-                      disabled={keyboardForcesCollapse}
-                      onPress={handleToggleTopPanel}
-                      style={[
-                        styles.topToggle,
-                        {
-                          borderColor: outlineColor,
-                          backgroundColor: subtleSurfaceColor,
-                        },
-                      ]}
-                    >
-                      <TopPanelToggleIcon
-                        color={theme.colors.primary}
-                        up={!topPanelCollapsed}
-                      />
-                    </TouchableOpacity>
-                  </View>
+                  </TouchableOpacity>
                 </View>
               </View>
 
@@ -1852,22 +1865,10 @@ const styles = StyleSheet.create({
   },
   deviceStatusRow: {
     marginTop: 5,
-    flexDirection: 'row',
-    alignItems: 'center',
     alignSelf: 'flex-end',
-    gap: 6,
-    flexShrink: 1,
   },
   collapsedStatusSlot: {
     transform: [{ scale: 0.86 }],
-  },
-  topToggle: {
-    width: 26,
-    height: 26,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderRadius: 13,
   },
   topGrid: {
     flexDirection: 'row',
