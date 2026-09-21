@@ -82,9 +82,35 @@ describe('TerminalSuggestionRow', () => {
     expect(onExecute).not.toHaveBeenCalled();
   });
 
+  it('armed on dangerous A: tapping safe B executes B immediately and disarms', async () => {
+    await renderRow({ chips: [chip('rm -rf /tmp/a', true), chip('git status --short')] });
+    press('terminal-suggestion-rm-rf-tmp-a');
+    expect(onExecute).not.toHaveBeenCalled();
+    press('terminal-suggestion-git-status-short');
+    expect(onExecute).toHaveBeenCalledWith('git status --short');
+    expect(
+      screen.root.findAllByType(Text).some(n => n.props.children === '再点确认执行'),
+    ).toBe(false); // A 已解除武装
+  });
+
+  it('armed on dangerous A: tapping dangerous C transfers the arm without executing', async () => {
+    await renderRow({ chips: [chip('rm -rf /tmp/a', true), chip('sudo rm /tmp/b', true)] });
+    press('terminal-suggestion-rm-rf-tmp-a');
+    press('terminal-suggestion-sudo-rm-tmp-b');
+    expect(onExecute).not.toHaveBeenCalled();
+    // 武装转移到 C:现在点 C 才执行
+    press('terminal-suggestion-sudo-rm-tmp-b');
+    expect(onExecute).toHaveBeenCalledWith('sudo rm /tmp/b');
+  });
+
   it('disabled chips never execute', async () => {
     await renderRow({ chips: [chip('pwd')], disabled: true });
     press('terminal-suggestion-pwd');
     expect(onExecute).not.toHaveBeenCalled();
+  });
+
+  it('disabled chips are visually dimmed', async () => {
+    await renderRow({ chips: [chip('pwd')], disabled: true });
+    expect(JSON.stringify(byTestID('terminal-suggestion-pwd').props.style)).toContain('0.48');
   });
 });

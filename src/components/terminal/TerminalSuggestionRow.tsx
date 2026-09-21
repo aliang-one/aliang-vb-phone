@@ -105,10 +105,12 @@ export const TerminalSuggestionRow: React.FC<TerminalSuggestionRowProps> = ({
             }
             accessibilityState={{ disabled }}
             disabled={disabled}
+            hitSlop={{ top: 6, right: 6, bottom: 6, left: 6 }}
             onPress={() => handlePress(chip)}
             style={[
               styles.chip,
               chipSurface(isDark, theme),
+              disabled && styles.disabledChip,
               chip.dangerous && {
                 borderColor: theme.colors.error,
                 ...(armed ? { backgroundColor: theme.colors.errorContainer } : {}),
@@ -144,4 +146,5 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   emptyChip: { alignSelf: 'flex-start', maxWidth: 280 },
+  disabledChip: { opacity: 0.48 },
 });
