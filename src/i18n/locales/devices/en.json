@@ -29,8 +29,7 @@
   },
   "terminal": {
     "voiceCommand": "Voice command: {{command}}",
-    "retry": "Retry",
-    "voice": "Voice"
+    "retry": "Retry"
   },
   "detail": {
     "emptyTerminal": "No active terminals. Tap Terminal above to open a remote shell."

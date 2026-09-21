@@ -57,6 +57,22 @@
       "llmUpstreamError": "AI 网关返回错误，请稍后再试或在管理后台检查配置"
     }
   },
+  "aiSuggest": {
+    "emptyHint": "点右侧麦克风说出命令，长按可输入文字",
+    "listening": "正在聆听…",
+    "generating": "正在生成建议…",
+    "chipArm": "再点确认执行",
+    "textPlaceholder": "描述你想执行的命令",
+    "textSend": "发送",
+    "textCancel": "取消",
+    "voiceFabLabel": "语音命令",
+    "keyboardToggleLabel": "切换键盘",
+    "errorRetry": "重试",
+    "errorDismissA11y": "关闭错误提示",
+    "errorVoice": "语音识别失败，请重试",
+    "a11yRun": "执行建议命令 {{command}}",
+    "a11yArm": "再点一次确认执行 {{command}}"
+  },
   "replay": {
     "endedBanner": "会话已结束·以下为历史输出",
     "replayedBadge": "已回放",
