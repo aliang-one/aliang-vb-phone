@@ -1,12 +1,18 @@
 // 文案守卫(spec 2026-09-22 §4):aiSuggest 命名空间不得再出现「麦克风」/
 // mic——图标已是 logo,提示词里的「麦克风」是残留误导。匹配规则:CJK
 // 「麦克风」按子串;en 的 mic 大小写不敏感 + 词边界(\bmic\b,不误伤
-// command 一类词)。只扫 aiSuggest,不波及 voiceBash 等合法使用处。
+// dynamic/atomic 一类词)。只扫 aiSuggest,不波及 voiceBash 等合法使用处。
 import zh from '../../../i18n/locales/terminal/zh.json';
 import en from '../../../i18n/locales/terminal/en.json';
 
 const valuesOf = (ns: Record<string, unknown>): string[] =>
-  Object.values(ns).filter((v): v is string => typeof v === 'string');
+  Object.values(ns).flatMap(v =>
+    typeof v === 'string'
+      ? [v]
+      : v !== null && typeof v === 'object'
+        ? valuesOf(v as Record<string, unknown>)
+        : [],
+  );
 
 describe('terminal aiSuggest 文案守卫:不提麦克风', () => {
   it.each([
@@ -18,9 +24,9 @@ describe('terminal aiSuggest 文案守卫:不提麦克风', () => {
     }
   });
 
-  it('en 命名空间不含独立的 mic 一词', () => {
+  it('en 命名空间不含 mic/microphone 一词', () => {
     for (const value of valuesOf(en.aiSuggest as Record<string, unknown>)) {
-      expect(/\bmic\b/i.test(value)).toBe(false);
+      expect(/\bmic\b|microphone/i.test(value)).toBe(false);
     }
   });
 
