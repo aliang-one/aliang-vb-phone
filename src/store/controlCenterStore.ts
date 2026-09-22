@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { shallow, useShallow } from 'zustand/shallow';
 import type { PreviewLink, VibeCodingRun, VibeStatus } from '../data/platformModels';
+import i18n from '../i18n';
+import { classifySessionBusyError } from '../utils/sessionBusyError';
 import { routeTerminalOutputToEmulator } from '../services/terminalOutputRegistry';
 import { terminalDisplayUpdate } from '../utils/terminalOutput';
 import { findRecentActiveTerminalSession } from '../utils/terminalInteraction';
@@ -712,7 +714,17 @@ export const useControlCenterStore = create<ControlCenterState>()(
                 return;
               }
 
-            case 'ai.error':
+            case 'ai.error': {
+              // Busy-class refusals (server 409 ai_session_busy / agent spawn
+              // precheck tui_busy) get the localized friendly copy; anything
+              // else keeps the raw agent error text.
+              const busyKind = classifySessionBusyError(transportEvent.error);
+              const friendlyError =
+                busyKind === 'tui_busy'
+                  ? i18n.t('vibecoding:session.error.sessionBusyTui')
+                  : busyKind === 'session_busy'
+                    ? i18n.t('vibecoding:session.error.sessionBusy')
+                    : transportEvent.error;
               set(state => {
                 const run = state.vibeRuns.find(
                   item => item.id === transportEvent.sessionId,
@@ -727,7 +739,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
                             item.runStateVersion !== undefined
                               ? item.status
                               : ('failed' as VibeStatus),
-                          currentStep: transportEvent.error,
+                          currentStep: friendlyError,
                           lastActivityMs: activityNowMs(),
                           updatedAt: formatActivityLabel(activityNowMs()),
                         }
@@ -747,7 +759,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
                         event(
                           'agent.session.failed',
                           'VibeCoding failed',
-                          transportEvent.error,
+                          friendlyError,
                           'failed',
                           {
                             deviceId: run?.deviceId,
@@ -760,6 +772,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
                 };
               });
               return;
+            }
 
             case 'ai.status': {
               // ai.status carries turn-HALT signals from the agent: "stopped" /

@@ -90,6 +90,7 @@ import {
 import { isSessionSnapshotStale } from '../../utils/sessionSnapshotStale';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { isGoalCommand, parseGoalCommand } from '../../utils/goalComposer';
+import { sessionBusyErrorText } from '../../utils/sessionBusyError';
 import { useNowTick } from '../../hooks/useNowTick';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import {
@@ -1255,6 +1256,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
         }
       })
       .catch(error => {
+        // 与文本路径同口径：忙类拒绝走既有横幅给友好提示，其余静默（failed 气泡）。
+        const busyText = sessionBusyErrorText(error, t);
+        if (busyText) setDetailError(busyText);
         console.warn('[vibecoding] failed to send voice prompt', error);
       });
   };
@@ -1353,6 +1357,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
         if (isGoalSend) {
           setDetailError(goalRequestErrorMessage(error));
           setInput(current => current || nextInput);
+        } else {
+          // 发送被「会话忙」拒绝（服务端 409 ai_session_busy / agent tui_busy）：
+          // 用既有 detailError 横幅给友好双语提示；其他失败维持既有 failed 气泡
+          // 机制，不额外打扰。
+          const busyText = sessionBusyErrorText(error, t);
+          if (busyText) setDetailError(busyText);
         }
         console.warn('[vibecoding] failed to send text prompt', error);
       });
@@ -1594,10 +1604,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
     void interruptAgentSession(session.id)
       .catch(error => {
         console.warn('[vibecoding] failed to interrupt turn', error);
+        // 「会话忙」类拒绝（服务端 409 ai_session_busy / agent tui_busy）给友好
+        // 提示（TUI 会话在终端里跑回合：稍后再试，或去终端按 Esc）；其余错误
+        // 维持既有「停止失败 + 原始信息」横幅。
+        const busyText = sessionBusyErrorText(error, t);
         setDetailError(
-          error instanceof Error
-            ? t('session.error.interruptFailedPrefix', { message: error.message })
-            : t('session.error.interruptFailed'),
+          busyText ??
+            (error instanceof Error
+              ? t('session.error.interruptFailedPrefix', { message: error.message })
+              : t('session.error.interruptFailed')),
         );
       })
       .finally(() => setInterruptingTurn(false));
