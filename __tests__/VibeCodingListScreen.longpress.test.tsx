@@ -193,6 +193,43 @@ describe('VibeCodingListScreen NEW TERM long-press → voice→bash', () => {
     });
   });
 
+  it('guards the device row against double-tap duplicate terminal creation', () => {
+    act(() => {
+      screen = renderScreen();
+    });
+    switchToTerminals(screen!.root);
+
+    const fab = findByTestId(screen!.root, 'new-term-fab')[0];
+    act(() => {
+      fab.props.onPressIn();
+      fab.props.onPressOut();
+      fab.props.onPress();
+    });
+
+    const row = findByTestId(screen!.root, 'new-term-device-device-2')[0];
+    // 生产事故即同一行 handler 在面板收起前被快速点了两次：先捕获 closure，
+    // 避免 act 内首按卸载行节点后 props 读取抛错。
+    const rowOnPress = row.props.onPress;
+    act(() => {
+      rowOnPress();
+    });
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
+
+    // 119ms 的快速二次点按（生产事故场景）必须被吞掉
+    act(() => {
+      jest.advanceTimersByTime(119);
+      rowOnPress();
+    });
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
+
+    // 节流窗口（800ms）过后允许再次创建
+    act(() => {
+      jest.advanceTimersByTime(900);
+      rowOnPress();
+    });
+    expect(mockNavigate).toHaveBeenCalledTimes(2);
+  });
+
   it('paginates terminal targets only when more than five online devices are ready', () => {
     useControlCenterStore.setState({
       devices: [

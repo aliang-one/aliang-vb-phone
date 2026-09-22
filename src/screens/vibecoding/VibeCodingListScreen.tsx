@@ -259,6 +259,8 @@ export const VibeCodingListScreen: React.FC = () => {
   const holdTimerRef = useRef<HoldTimer | null>(null);
   const holdPreviewTimerRef = useRef<HoldTimer | null>(null);
   const holdTriggeredRef = useRef(false);
+  // 防双击：NEW TERM 面板行上次创建导航的时间戳（见 handleCreateTerminal 节流）。
+  const lastPanelCreateAtRef = useRef(0);
 
   useEffect(() => {
     if (serverMode && !historyPage.initialized) {
@@ -577,6 +579,10 @@ export const VibeCodingListScreen: React.FC = () => {
   const handleCreateTerminal = useCallback(
     (device: Device) => {
       if (!canCreateTerminalOnDevice(device)) return;
+      // 防双击：快速二次点按曾触发两次导航→两个 pty 会话（生产 119ms 成对孤儿）。
+      const now = Date.now();
+      if (now - lastPanelCreateAtRef.current < 800) return;
+      lastPanelCreateAtRef.current = now;
       setTerminalDevicePickerOpen(false);
       setTerminalDevicePage(0);
       // NEW TERM 胶囊 = 显式新建入口：newSession 让终端屏跳过「attach 最近
