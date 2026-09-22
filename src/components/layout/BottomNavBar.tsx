@@ -43,38 +43,43 @@ const PRESS_SPRING = { damping: 16, stiffness: 320, mass: 0.6 };
 
 // —— 液态凸起几何 ——
 // 凸起带计入布局高度:触摸可达(命中测试以布局边界为界)+ 屏幕避让自动跟随。
-const BULGE_BAND = 24; // 栏体顶线上方的凸起带高度
+const BULGE_BAND = 22; // 栏体顶线上方的凸起带高度(含图标出头余量)
 const BODY_HEIGHT = 54; // 栏体高度(原 track 高)
-const BUBBLE_RX = 25; // 凸起气泡静止半宽
-const BUBBLE_RY = 20; // 凸起气泡静止半高
-const ICON_RISE = 26; // 聚焦图标升入气泡的位移
+const DOME_RX = 32; // 凸起钟形静止半宽
+const DOME_RY = 12; // 凸起钟形静止半高(低弧,避免半圆机械感)
+const ICON_RISE = 24; // 聚焦图标升入钟形的位移
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 interface BarGeometry {
   width: number;
+  height: number;
   cx: number;
   rx: number;
   ry: number;
 }
 
-// 栏体轮廓:矩形主体 + 顶线上的上凸半椭圆气泡(发丝线共用同一凸起几何)。
-function buildBubblePath({ width, cx, rx, ry }: BarGeometry): string {
+// 栏体轮廓:矩形主体 + 顶线上的低弧钟形凸起。
+// 两侧用三次贝塞尔,基线端与顶端切线均水平,过渡圆润无半圆的竖直切线死角。
+function buildBubblePath({ width, height, cx, rx, ry }: BarGeometry): string {
   'worklet';
   const y0 = BULGE_BAND;
-  const h = BULGE_BAND + BODY_HEIGHT;
+  const top = y0 - ry;
   const x1 = clamp(cx - rx, 0, width);
   const x2 = clamp(cx + rx, 0, width);
-  return `M 0 ${h} L 0 ${y0} L ${x1} ${y0} A ${rx} ${ry} 0 0 1 ${x2} ${y0} L ${width} ${y0} L ${width} ${h} Z`;
+  const k = rx * 0.5;
+  return `M 0 ${height} L 0 ${y0} L ${x1} ${y0} C ${x1 + k} ${y0} ${cx - k} ${top} ${cx} ${top} C ${cx + k} ${top} ${x2 - k} ${y0} ${x2} ${y0} L ${width} ${y0} L ${width} ${height} Z`;
 }
 
 // 顶缘发丝线:与栏体同一凸起几何,只描顶线。
 function buildHairlinePath({ width, cx, rx, ry }: BarGeometry): string {
   'worklet';
   const y0 = BULGE_BAND;
+  const top = y0 - ry;
   const x1 = clamp(cx - rx, 0, width);
   const x2 = clamp(cx + rx, 0, width);
-  return `M 0 ${y0} L ${x1} ${y0} A ${rx} ${ry} 0 0 1 ${x2} ${y0} L ${width} ${y0}`;
+  const k = rx * 0.5;
+  return `M 0 ${y0} L ${x1} ${y0} C ${x1 + k} ${y0} ${cx - k} ${top} ${cx} ${top} C ${cx + k} ${top} ${x2 - k} ${y0} ${x2} ${y0} L ${width} ${y0}`;
 }
 
 interface TabItemProps {
@@ -88,7 +93,8 @@ const TabItem: React.FC<TabItemProps> = ({ isFocused, label, icon, onPress }) =>
   const { theme, isDark } = useTheme();
   const reduceMotion = useReduceMotion();
   const focus = useSharedValue(isFocused ? 1 : 0);
-  const scale = useSharedValue(isFocused ? 1.1 : 0.86);
+  // 激活放大对比:未聚焦收小(0.82),聚焦明显放大(1.25),尺寸差一眼可辨
+  const scale = useSharedValue(isFocused ? 1.25 : 0.82);
   const lift = useSharedValue(isFocused ? 1 : 0);
   const press = useSharedValue(1);
 
@@ -96,8 +102,8 @@ const TabItem: React.FC<TabItemProps> = ({ isFocused, label, icon, onPress }) =>
     focus.value = withTiming(isFocused ? 1 : 0, { duration: 240 });
     const pop = isFocused ? 1 : 0;
     scale.value = reduceMotion
-      ? withTiming(isFocused ? 1.1 : 0.86, { duration: 200 })
-      : withSpring(isFocused ? 1.12 : 0.88, ICON_SPRING);
+      ? withTiming(isFocused ? 1.25 : 0.82, { duration: 200 })
+      : withSpring(isFocused ? 1.25 : 0.82, ICON_SPRING);
     lift.value = reduceMotion
       ? withTiming(pop, { duration: 200 })
       : withSpring(pop, ICON_SPRING);
@@ -148,7 +154,7 @@ const TabItem: React.FC<TabItemProps> = ({ isFocused, label, icon, onPress }) =>
               name={icon}
               tone={isFocused ? 'primary' : 'neutral'}
               size={34}
-              iconSize={17}
+              iconSize={18}
               filled={isFocused}
             />
           </View>
@@ -175,7 +181,10 @@ export const BottomNavBar: React.FC<BottomTabBarProps> = ({
   const tabCount = state.routes.length;
 
   const initialWidth = Dimensions.get('window').width;
+  // 下巴(底部安全区 inset)必须由同一 SVG 填充,否则栏体下方透出内容
+  const initHeight = BULGE_BAND + BODY_HEIGHT + bottom + 2;
   const layoutWidth = useSharedValue(initialWidth);
+  const layoutHeight = useSharedValue(initHeight);
   const index = useSharedValue(state.index);
   const indexTarget = useSharedValue(state.index);
   // 传给 worklet 的「关闭液态形变」开关(reduce motion 时凸起不拉伸)
@@ -192,7 +201,7 @@ export const BottomNavBar: React.FC<BottomTabBarProps> = ({
     motionless.value = reduceMotion ? 1 : 0;
   }, [reduceMotion, motionless]);
 
-  // 液态 squash-stretch:气泡离目标 tab 越远被拉得越宽越扁,落位回弹归位。
+  // 液态 squash-stretch:钟形离目标 tab 越远被拉得越宽越扁,落位回弹归位。
   const movingOf = () => {
     'worklet';
     return clamp(Math.abs(index.value - indexTarget.value) / 0.55, 0, 1);
@@ -200,22 +209,24 @@ export const BottomNavBar: React.FC<BottomTabBarProps> = ({
 
   const barAnimatedProps = useAnimatedProps(() => {
     const width = layoutWidth.value || initialWidth;
+    const height = layoutHeight.value || initHeight;
     const tabW = width / tabCount;
     const cx = index.value * tabW + tabW / 2;
     const moving = motionless.value ? 0 : movingOf();
-    const rx = Math.min(BUBBLE_RX * (1 + 0.35 * moving), tabW * 0.85);
-    const ry = BUBBLE_RY * (1 - 0.22 * moving);
-    return { d: buildBubblePath({ width, cx, rx, ry }) };
+    const rx = Math.min(DOME_RX * (1 + 0.3 * moving), tabW * 0.85);
+    const ry = DOME_RY * (1 - 0.25 * moving);
+    return { d: buildBubblePath({ width, height, cx, rx, ry }) };
   });
 
   const hairAnimatedProps = useAnimatedProps(() => {
     const width = layoutWidth.value || initialWidth;
+    const height = layoutHeight.value || initHeight;
     const tabW = width / tabCount;
     const cx = index.value * tabW + tabW / 2;
     const moving = motionless.value ? 0 : movingOf();
-    const rx = Math.min(BUBBLE_RX * (1 + 0.35 * moving), tabW * 0.85);
-    const ry = BUBBLE_RY * (1 - 0.22 * moving);
-    return { d: buildHairlinePath({ width, cx, rx, ry }) };
+    const rx = Math.min(DOME_RX * (1 + 0.3 * moving), tabW * 0.85);
+    const ry = DOME_RY * (1 - 0.25 * moving);
+    return { d: buildHairlinePath({ width, height, cx, rx, ry }) };
   });
 
   // 首帧静态兜底(SVG 初始 d,与 worklet 同一几何函数)
@@ -223,15 +234,17 @@ export const BottomNavBar: React.FC<BottomTabBarProps> = ({
     state.index * (initialWidth / tabCount) + initialWidth / tabCount / 2;
   const initBarD = buildBubblePath({
     width: initialWidth,
+    height: initHeight,
     cx: initCx,
-    rx: BUBBLE_RX,
-    ry: BUBBLE_RY,
+    rx: DOME_RX,
+    ry: DOME_RY,
   });
   const initHairD = buildHairlinePath({
     width: initialWidth,
+    height: initHeight,
     cx: initCx,
-    rx: BUBBLE_RX,
-    ry: BUBBLE_RY,
+    rx: DOME_RX,
+    ry: DOME_RY,
   });
 
   const barColor = isDark
@@ -245,28 +258,29 @@ export const BottomNavBar: React.FC<BottomTabBarProps> = ({
     <View
       onLayout={(e) => {
         layoutWidth.value = e.nativeEvent.layout.width;
+        layoutHeight.value = e.nativeEvent.layout.height;
         onTabBarHeightChange?.(e.nativeEvent.layout.height);
       }}
       style={[styles.container, { paddingBottom: bottom + 2 }]}>
-      <View style={styles.track}>
-        {/* SVG 栏体:填充轮廓 + 跟随顶缘的发丝线 */}
-        <Animated.View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          <Svg width="100%" height="100%">
-            <AnimatedPath
-              animatedProps={barAnimatedProps}
-              d={initBarD}
-              fill={barColor}
-            />
-            <AnimatedPath
-              animatedProps={hairAnimatedProps}
-              d={initHairD}
-              fill="none"
-              stroke={hairColor}
-              strokeWidth={1}
-            />
-          </Svg>
-        </Animated.View>
+      {/* SVG 栏体铺满容器全高(含下巴 inset):填充轮廓 + 跟随顶缘的发丝线 */}
+      <Animated.View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <Svg width="100%" height="100%">
+          <AnimatedPath
+            animatedProps={barAnimatedProps}
+            d={initBarD}
+            fill={barColor}
+          />
+          <AnimatedPath
+            animatedProps={hairAnimatedProps}
+            d={initHairD}
+            fill="none"
+            stroke={hairColor}
+            strokeWidth={1}
+          />
+        </Svg>
+      </Animated.View>
 
+      <View style={styles.track}>
         {state.routes.map((route, i) => {
           const isFocused = state.index === i;
           const label = tabLabels[route.name] || route.name;
@@ -310,9 +324,9 @@ const styles = StyleSheet.create({
   },
   track: {
     flexDirection: 'row',
-    // 凸起带(气泡区)在前,栏体在后;内容从凸起带底部开始排
+    // 凸起带(钟形区)在前,栏体在后;内容从凸起带底部开始排
     height: BULGE_BAND + BODY_HEIGHT,
-    paddingTop: BULGE_BAND + 6,
+    paddingTop: BULGE_BAND + 4,
   },
   tabSlot: {
     flex: 1,
