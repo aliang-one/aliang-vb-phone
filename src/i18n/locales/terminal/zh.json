@@ -58,7 +58,7 @@
     }
   },
   "aiSuggest": {
-    "emptyHint": "点右侧麦克风说出命令，长按可输入文字",
+    "emptyHint": "轻点输入命令，长按说出命令",
     "listening": "正在聆听…",
     "generating": "正在生成建议…",
     "chipArm": "再点确认执行",

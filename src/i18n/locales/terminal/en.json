@@ -58,7 +58,7 @@
     }
   },
   "aiSuggest": {
-    "emptyHint": "Tap the mic and speak a command — long-press to type it instead",
+    "emptyHint": "Tap to type a command — hold to speak it",
     "listening": "Listening…",
     "generating": "Generating suggestions…",
     "chipArm": "Tap again to run",
