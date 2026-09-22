@@ -44,13 +44,14 @@ interface DevicePinState {
 - `handleVoiceConfirm` 无需改：modal 锁定时回传的就是 pinned 设备 id/cwd。
 
 ### 4.3 `VoiceToBashModal`
-- 新 prop `lockedDevice?: DevicePickerEntry`。
+- 新 prop `lockedDevice?: DevicePickerEntry`。**打开 modal 时的一次性快照**（screen 传入当时值，modal 内不随 store 后续变化）——生成中途 pinned 设备掉线/自动 unpin 不会把锁定翻转为解锁，中途掉线由既有错误态兜底（§5）。
 - confirm 步：`lockedDevice` 存在 → **不渲染 DevicePicker**，渲染锁定 chip（图钉 SVG + 设备名 + platform，`testID="v2b-locked-device"`，旁注「已锁定」文案）。
 - 生成完成后的设备裁决：`lockedDevice` 存在 → `chosenDeviceId/chosenCwd` 强制取 `lockedDevice.id/cwd`，**忽略 result.deviceId/deviceName/cwd（即 AI select_device 的换设备被丢弃）**。
 - `onConfirm` 调用不变（回传的就是锁定值）。
 
 ### 4.4 i18n（`vibecoding` namespace，en+zh）
 `devicePin.locked`（Locked/已锁定）、`devicePin.panelHint`（Voice locked to {{name}} / 语音已锁定到 {{name}}）、`devicePin.pinHint`（Long-press a device to lock voice to it / 长按设备可将语音固定到该设备）——面板 subhead 未 pinned 时的引导替换现有英文写死的 "Pick a live machine for the new shell"（顺带 i18n 化，保持向后兼容文案 en 不变）。
+⚠ 命名空间接线：`devicePin.locked` 渲染在 `VoiceToBashModal` 内，而该 modal 用的是 `useTranslation('terminal')`——modal 侧必须显式跨命名空间 `t('vibecoding:devicePin.locked')`（或该处挂第二个 hook），否则原样吐 key。
 
 ### 4.5 布局与动效
 - FAB 角标不改变 FAB 本体尺寸（绝对定位于胶囊上缘），复用 `useReduceMotion` 无动画约定（纯静态 chip）。
@@ -70,7 +71,7 @@ interface DevicePinState {
 
 - `devicePinStore` 单测：pin/unpin/换绑（覆盖旧 pin）。
 - `VibeCodingListScreen` 面板交互：长按行 → pin + 面板关 + voice modal 开（mock hook/断言既有 voiceModal 态）；pinned 行高亮与图钉存在；点图钉 → unpin；tap 行为不变（仍建终端）；tap + 仍弹面板；FAB 角标出现/消失；pinned 设备从 choices 消失 → 自动 unpin + 角标消失。
-- `VoiceToBashModal`：`lockedDevice` 时 confirm 步无 DevicePicker、有锁定 chip；AI 结果换设备被忽略（mock generateCommand 返回不同 deviceId，onConfirm 收到 lockedDevice.id/cwd）；无 `lockedDevice` 时行为与现状完全一致（回归）。
+- `VoiceToBashModal`：`lockedDevice` 时 confirm 步无 DevicePicker、有锁定 chip；AI 结果换设备被忽略（mock generateCommand 返回不同 deviceId，onConfirm 收到 lockedDevice.id/cwd）；无 `lockedDevice` 时行为与现状完全一致（回归）。⚠ 仓库坑：不要用 `jest.requireActual('react-native')` 去 mock Modal（DevMenu TurboModule 会崩）；本仓 jest preset 已让可见 Modal 渲染 children，直接断言即可。
 - i18n：新键 en/zh 齐平。
 
 ## 7. 部署
