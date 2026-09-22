@@ -393,7 +393,8 @@
     },
     "composer": {
       "claudeRunning": "Claude Code is running; stop it to continue typing.",
-      "userDefault": "user default"
+      "userDefault": "user default",
+      "tuiStopGreyed": "A turn is running in the terminal TUI — press Esc once there to stop it."
     },
     "approval": {
       "requestLabel": "APPROVAL REQUEST",

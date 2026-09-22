@@ -635,6 +635,16 @@ export const VibeCodingSessionScreen: React.FC = () => {
       session.runState,
       session.status,
     );
+  // TUI 驱动的运行:扫描上报的 running(无 v2 runStateVersion)且会话与终端
+  // 共享(sourceSessionId 在)。这种运行手机停止不了——停止走的是 agent 取消
+  // 自己 spawn 进程的通道,外部 TUI 进程不在这条通道上——停止按钮置灰并告知
+  // 去处,避免「点了没用还闪回运行中」的假动作。(手机自己发起的运行
+  // runStateVersion 必有值,停止真实有效,不受此影响。)
+  const tuiDrivenRunning =
+    !isDraft &&
+    session?.sourceSessionId != null &&
+    session?.status === 'running' &&
+    session?.runStateVersion === undefined;
   // ── Conversation transcript projection (extracted hook) ──
   const {
 
@@ -3335,6 +3345,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
             sendingMessage={sendingMessage}
             interruptingTurn={interruptingTurn}
             canInterruptTurn={canInterruptTurn}
+            interruptGreyed={tuiDrivenRunning}
+            interruptGreyedHint={t('session.composer.tuiStopGreyed')}
             deviceOffline={deviceOffline}
             readOnlyReason={composerReadOnlyReason}
             autoFocusText={autoFocusText}

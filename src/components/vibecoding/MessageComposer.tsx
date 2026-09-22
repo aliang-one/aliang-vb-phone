@@ -47,6 +47,11 @@ export interface MessageComposerProps {
   sendingMessage: boolean;
   interruptingTurn?: boolean;
   canInterruptTurn?: boolean;
+  /** Turn is driven by the terminal TUI (scan-reported running, no v2 run):
+      the stop button renders greyed-out — the phone cannot stop an external
+      TUI process, and tapping it would do nothing. */
+  interruptGreyed?: boolean;
+  interruptGreyedHint?: string;
   deviceOffline: boolean;
   readOnlyReason?: string;
   /** One-shot: focus the text input on mount/prop-true. Used to pop the keyboard
@@ -270,6 +275,8 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
   sendingMessage,
   interruptingTurn = false,
   canInterruptTurn = false,
+  interruptGreyed = false,
+  interruptGreyedHint,
   deviceOffline,
   readOnlyReason,
   autoFocusText,
@@ -431,6 +438,43 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
     // and showing one signals a different (tap-to-stop) model, which confused
     // the interaction. During a voice recording the slot falls through to the
     // non-interactive placeholder, unless a turn is streaming (then interrupt).
+    if (canInterruptTurn && interruptGreyed && onInterruptTurn && !isGoalCommandInput && !goalDraft) {
+      // TUI-driven turn (scan-reported running, no v2 run): the phone cannot
+      // stop an external terminal process — render the stop control greyed
+      // with the reason, so the user learns where the stop actually lives.
+      return (
+        <View style={styles.ctrlGroup}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={interruptGreyedHint}
+            accessibilityState={{ disabled: true }}
+            disabled
+            testID="composer-interrupt"
+            style={[
+              styles.ctrlBtn,
+              {
+                borderRadius: theme.borderRadius.full,
+                backgroundColor: theme.colors.onSurfaceVariant,
+                opacity: 0.45,
+              },
+            ]}
+          >
+            <ComposerIcon name="stop" size={20} color={theme.colors.onPrimary} />
+          </TouchableOpacity>
+          {interruptGreyedHint ? (
+            <Text
+              style={[
+                theme.typography.labelSm,
+                { color: theme.colors.onSurfaceVariant, flex: 1 },
+              ]}
+              numberOfLines={2}
+            >
+              {interruptGreyedHint}
+            </Text>
+          ) : null}
+        </View>
+      );
+    }
     if (canInterruptTurn && onInterruptTurn && !isGoalCommandInput && !goalDraft) {
       return (
         <TouchableOpacity
@@ -788,6 +832,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  ctrlGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
   },
   ctrlBtn: {
     width: BTN,

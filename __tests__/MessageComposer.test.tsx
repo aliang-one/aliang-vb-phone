@@ -202,6 +202,48 @@ describe('MessageComposer', () => {
     expect(() => findByTestID(root, 'composer-interrupt')).toThrow();
   });
 
+  it('greys the stop control with the terminal hint for TUI-driven turns', () => {
+    // TUI 驱动的 running(无 v2 runStateVersion):手机停止不了外部终端进程
+    // ——按钮置灰+给出去处,而不是可点却无效的假动作。
+    const onInterruptTurn = jest.fn();
+    const hint = '终端 TUI 正在运行对话——请在终端里按一次 Esc 停止本轮。';
+    const root = wrap(
+      <MessageComposer
+        {...defaultProps({
+          canInterruptTurn: true,
+          interruptGreyed: true,
+          interruptGreyedHint: hint,
+          onInterruptTurn,
+        })}
+      />,
+    );
+    const stop = findByTestID(root, 'composer-interrupt');
+    expect(stop.props.disabled).toBe(true);
+    // 置灰态不挂 onPress:结构上就不可能触发回调(而非点了没效果)。
+    expect(stop.props.onPress).toBeUndefined();
+    expect(onInterruptTurn).not.toHaveBeenCalled();
+    expect(allTexts(root).some(t => t === hint)).toBe(true);
+  });
+
+  it('keeps the stop control active for phone-driven runs (no greyed prop)', () => {
+    const onInterruptTurn = jest.fn();
+    const root = wrap(
+      <MessageComposer
+        {...defaultProps({
+          canInterruptTurn: true,
+          interruptGreyed: false,
+          onInterruptTurn,
+        })}
+      />,
+    );
+    const stop = findByTestID(root, 'composer-interrupt');
+    expect(stop.props.disabled).toBe(false);
+    act(() => {
+      stop.props.onPress();
+    });
+    expect(onInterruptTurn).toHaveBeenCalled();
+  });
+
   it('surfaces the /goal hint in the ordinary text composer', () => {
     const root = wrap(
       <MessageComposer {...defaultProps({ showGoalHint: true })} />,
