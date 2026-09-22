@@ -350,6 +350,14 @@ describe('VibeCodingListScreen NEW TERM long-press → voice→bash', () => {
       fab.props.onPress();
     });
 
+    // 固定行本身呈主题 primary 描边高亮（非 pressed 状态下）。
+    const rowStyle = StyleSheet.flatten(
+      findByTestId(screen!.root, 'new-term-device-device-2')[0].props.style({
+        pressed: false,
+      }),
+    );
+    expect(rowStyle.borderColor).toBe(utilityMinimalist.colors.primary);
+
     const pinBtn = findByTestId(
       screen!.root,
       'new-term-device-pin-device-2',
@@ -388,6 +396,72 @@ describe('VibeCodingListScreen NEW TERM long-press → voice→bash', () => {
         .findAllByType(Text)
         .some(n => n.props.children === '语音已锁定到 Studio'),
     ).toBe(true);
+  });
+
+  it('hold uses the pinned device as the voice target', () => {
+    useDevicePinStore.getState().pin({ id: 'device-2', name: 'Studio' });
+    act(() => {
+      screen = renderScreen();
+    });
+    switchToTerminals(screen!.root);
+
+    const fab = findByTestId(screen!.root, 'new-term-fab')[0];
+    act(() => {
+      fab.props.onPressIn();
+      jest.advanceTimersByTime(900);
+    });
+
+    const confirm = findByTestId(screen!.root, 'v2b-stub-confirm')[0];
+    act(() => {
+      confirm.props.onPress();
+    });
+    // 锁定到 device-2，而不是默认的 choices[0] = device-1
+    expect(mockNavigate).toHaveBeenCalledWith('DeviceTerminal', {
+      deviceId: 'device-2',
+      directory: '/repo',
+      initialCommand: 'git status --short',
+      newSession: true,
+    });
+  });
+
+  it('shows a pin badge on the FAB while pinned, gone after unpin', () => {
+    useDevicePinStore.getState().pin({ id: 'device-2', name: 'Studio' });
+    act(() => {
+      screen = renderScreen();
+    });
+    switchToTerminals(screen!.root);
+    expect(
+      findByTestId(screen!.root, 'new-term-fab-pin-badge'),
+    ).not.toHaveLength(0);
+
+    act(() => {
+      useDevicePinStore.getState().unpin();
+    });
+    expect(findByTestId(screen!.root, 'new-term-fab-pin-badge')).toHaveLength(
+      0,
+    );
+  });
+
+  it('auto-unpins when the pinned device drops out of the online choices', () => {
+    useDevicePinStore.getState().pin({ id: 'device-2', name: 'Studio' });
+    act(() => {
+      screen = renderScreen();
+    });
+    switchToTerminals(screen!.root);
+    expect(useDevicePinStore.getState().pinned).toEqual({
+      id: 'device-2',
+      name: 'Studio',
+    });
+
+    act(() => {
+      useControlCenterStore.setState({
+        devices: [
+          device('device-1', 'MacBook', 'online'),
+          device('device-3', 'Offline Box', 'offline'),
+        ],
+      });
+    });
+    expect(useDevicePinStore.getState().pinned).toBeNull();
   });
 });
 

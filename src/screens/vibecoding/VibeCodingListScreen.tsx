@@ -457,8 +457,7 @@ export const VibeCodingListScreen: React.FC = () => {
   }, [pinPinned, pinnedDevice, unpinDevice]);
   // pinned 设备的完整 Device（含 authorizedDirectories 等）——hold 语音目标与
   // modal lockedDevice 都从这里取；store 快照只有 {id,name} 不够用。
-  // `_` 前缀：本任务(面板 pin)暂不消费，Task 4/5(FAB 锁定传递/modal 锁定)接入。
-  const _pinnedChoice = pinnedDevice
+  const pinnedChoice = pinnedDevice
     ? terminalDeviceChoices.find(d => d.id === pinnedDevice.id)
     : undefined;
   // Entries for the voice→bash confirm-step device picker (online + terminal-enabled).
@@ -654,10 +653,12 @@ export const VibeCodingListScreen: React.FC = () => {
       cancelAnimation(newTermHoldVisual);
       newTermHoldProgress.value = 0;
       newTermHoldVisual.value = 0;
-      openVoiceModal(newTerminalDevice);
+      // 固定设备优先：长按语音直接落到 pinned 设备，未固定才用默认目标。
+      openVoiceModal(pinnedChoice ?? newTerminalDevice);
     }, NEW_TERM_HOLD_MS);
   }, [
     newTerminalDevice,
+    pinnedChoice,
     newTermHoldProgress,
     newTermHoldVisual,
     openVoiceModal,
@@ -1379,6 +1380,34 @@ export const VibeCodingListScreen: React.FC = () => {
               </Text>
             </View>
           </Pressable>
+          {pinnedChoice ? (
+            <View
+              testID="new-term-fab-pin-badge"
+              pointerEvents="none"
+              accessibilityLabel={t('devicePin.panelHint', {
+                name: pinnedChoice.name,
+              })}
+              style={[
+                styles.newTermFabPinBadge,
+                {
+                  backgroundColor: theme.colors.primary,
+                  borderColor: theme.colors.onPrimary + '55',
+                },
+              ]}
+            >
+              <PinIcon color={theme.colors.onPrimary} size={9} />
+              <Text
+                numberOfLines={1}
+                style={[
+                  theme.typography.codeSm,
+                  styles.newTermFabPinBadgeText,
+                  { color: theme.colors.onPrimary },
+                ]}
+              >
+                {pinnedChoice.name}
+              </Text>
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -1696,6 +1725,27 @@ const styles = StyleSheet.create({
   newTermFabLabel: {
     letterSpacing: 0,
     lineHeight: 16,
+  },
+  // FAB 顶部的「已固定设备」胶囊角标：图钉 + 设备名，盖在 FAB 上缘。
+  newTermFabPinBadge: {
+    position: 'absolute',
+    top: -9,
+    alignSelf: 'center',
+    maxWidth: NEW_TERM_FAB_WIDTH + 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 7,
+    height: 17,
+    borderRadius: 9,
+    borderWidth: 1,
+    zIndex: 10,
+    elevation: 2,
+  },
+  newTermFabPinBadgeText: {
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '600',
   },
   deferredPlaceholder: {
     flex: 1,
