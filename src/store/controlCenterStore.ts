@@ -910,12 +910,20 @@ export const useControlCenterStore = create<ControlCenterState>()(
                         : run,
                     )
                   : [reconciled, ...state.vibeRuns];
-                // Apply memory bounds: limit total sessions and trim transcripts
+                // Apply memory bounds: limit total sessions and trim
+                // transcripts. The trim pass must stay identity-stable (see
+                // the useVibeRun contract comment above): tail() returns the
+                // same array reference when nothing is trimmed, so reuse the
+                // run object in that case — an unconditional spread would flip
+                // the identity of EVERY resident run on each broadcast and
+                // re-render every chat screen subscribed via useVibeRun.
                 const vibeRuns = evictOverflowVibeRuns(
-                  rawVibeRuns.map(run => ({
-                    ...run,
-                    transcript: trimTranscript(run.transcript),
-                  })),
+                  rawVibeRuns.map(run => {
+                    const transcript = trimTranscript(run.transcript);
+                    return transcript === run.transcript
+                      ? run
+                      : { ...run, transcript };
+                  }),
                 );
                 return {
                   vibeRuns,

@@ -33,7 +33,10 @@ import { StatusChip } from '../../components/shared/StatusChip';
 import { ToolsMenu } from '../../components/vibecoding/ToolsMenu';
 import { SessionPreviewCard } from './SessionPreviewCard';
 import { revokePortMapping } from '../../api/portMappings';
-import { MessageComposer } from '../../components/vibecoding/MessageComposer';
+import {
+  MessageComposer,
+  type ComposerMode,
+} from '../../components/vibecoding/MessageComposer';
 import { GoalDraftBar, GoalStatusBar } from '../../components/vibecoding/GoalStatusBar';
 import { GoalDeletedFold } from '../../components/vibecoding/GoalDeletedFold';
 import { mergeCommands } from '../../utils/agentCommands';
@@ -45,7 +48,6 @@ import { ApprovalCustomReply } from '../../components/vibecoding/ApprovalCustomR
 import { RootStackParamList } from '../../app/navigation/types';
 import {
   useControlCenterStore,
-  useVibeRun,
   useProject,
   useDevice,
   useSessionPreview,
@@ -106,6 +108,7 @@ import { createId } from '../../store/internals';
 import { useSessionDetailLoader } from './useSessionDetailLoader';
 import { useConversationScrollController } from './useConversationScrollController';
 import { useConversationTranscript } from './useConversationTranscript';
+import { usePublishedVibeRun } from './usePublishedVibeRun';
 import { useGoalControl, goalRequestErrorMessage } from './useGoalControl';
 import { useSessionHeader } from './useSessionHeader';
 import type { ConversationTurn } from '../../utils/conversationTurns';
@@ -374,7 +377,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
         : null,
     [isDraft, draftConfig, t],
   );
-  const liveSession = useVibeRun(createdSessionId);
+  // 发布节流门:流式期间新 run 身份至多 5Hz 发布(settle/失败/waiting_approval
+  // 立即),屏幕组件体不再以 10Hz 随每个 stream batch 全量重跑。见 usePublishedVibeRun。
+  const liveSession = usePublishedVibeRun(createdSessionId);
   const cachedSessionRef = useRef<VibeCodingRun | null>(null);
   const session =
     liveSession ??
@@ -554,6 +559,19 @@ export const VibeCodingSessionScreen: React.FC = () => {
 
   const [interruptingTurn, setInterruptingTurn] = useState(false);
   const [toolsMenuVisible, setToolsMenuVisible] = useState(false);
+  // Composer 回调稳定化:MessageComposer 已 React.memo,渲染点内联箭头会
+  // 每次生成新引用击穿 memo(流式 ≤5Hz 屏幕重渲染时 composer 白陪跑)。
+  const handleComposerModeChange = useCallback((nextMode: ComposerMode) => {
+    setMode(nextMode);
+  }, []);
+  const handleToggleTools = useCallback(() => {
+    setToolsMenuVisible(value => !value);
+  }, []);
+  const handleComposerTextInputFocus = useCallback(() => {
+    setAutoFocusText(false);
+    pendingScrollToEndRef.current = true;
+    scheduleScrollToEnd(true);
+  }, [scheduleScrollToEnd]);
   const [resolvingApproval, setResolvingApproval] = useState<{
     id: string;
     decision: 'approved' | 'denied';
@@ -1643,7 +1661,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // when possible, then append events whose paged transcript anchor is not
   // loaded; the next grouping step applies hard/soft boundaries.
   const orphanActivityMessageIds = useMemo(() => {
-    if (!session) return [];
+    if (!session?.transcript) return [];
     if (activityEventsByMessageId.size === 0) return [];
     // Assistant message ids that DID render (covered by a display bubble).
     const covered = new Set(
@@ -1672,7 +1690,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
       orphans.push(messageId);
     }
     return orphans;
-  }, [activityEventsByMessageId, session, transcript]);
+    // 依赖收窄到 session.transcript:status/updatedAt/currentStep 翻面
+    // (每次 structured/thinking/usage flush 都会换 run 对象)不重扫全量
+    // transcript——扫描只读 transcript 与事件映射。
+  }, [activityEventsByMessageId, session?.transcript, transcript]);
   const orphanActivityMessageGroups = useMemo(() => {
     return groupConsecutiveToolMessageIds(
       session?.transcript ?? [],
@@ -1684,7 +1705,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
   }, [
     activityEventCountsByMessageId,
     orphanActivityMessageIds,
-    session,
+    // 只读 transcript,不依赖整个 run 对象(同上,避免 per-flush 重分组)。
+    session?.transcript,
   ]);
   // 工具巨兽会话（如 2000+ 次 Bash）的孤儿活动组可以上百，整墙上屏既淹没
   // 对话又拖垮首帧。历史组默认全收起（只留 EARLIER ACTIVITY 计数行），仅当
@@ -3303,7 +3325,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
           ) : null}
           <MessageComposer
             mode={mode}
-            onModeChange={nextMode => setMode(nextMode)}
+            onModeChange={handleComposerModeChange}
             input={input}
             onInputChange={handleComposerInputChange}
             voiceDraft={voiceDraft}
@@ -3318,15 +3340,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
             autoFocusText={autoFocusText}
             toolsMenuVisible={toolsMenuVisible}
             toolsDisabled={goalDraftActive && goalCreating}
-            onToggleTools={() => setToolsMenuVisible(value => !value)}
+            onToggleTools={handleToggleTools}
             goalDraft={goalDraftActive}
             goalSession={session?.purpose === 'goal'}
             showGoalHint={session?.purpose !== 'goal'}
-            onTextInputFocus={() => {
-              setAutoFocusText(false);
-              pendingScrollToEndRef.current = true;
-              scheduleScrollToEnd(true);
-            }}
+            onTextInputFocus={handleComposerTextInputFocus}
             onVoiceCapture={handleVoiceCapture}
             onVoiceCaptureStart={handleVoiceCaptureStart}
             onVoiceCaptureEnd={handleVoiceCaptureEnd}

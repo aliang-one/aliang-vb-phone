@@ -8,7 +8,7 @@
 //
 // Kept as a self-contained hook so the screen only toggles start/stop and reads
 // `status` / `liveCaption`; all transport + provider detail lives here.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApiAuthToken } from '../api/client';
 import { SttSocket } from '../api/sttSocket';
 import type { SttControlOut } from '../api/sttTypes';
@@ -445,5 +445,11 @@ export function useVoiceStt(): UseVoiceSttResult {
     setLiveCaptionNow('');
   }, [cleanup, setLiveCaptionNow]);
 
-  return { status, liveCaption, errorMessage, start, stop, cancel };
+  // 引用稳定:聊天屏把整个对象作为 prop 传给 React.memo 的 MessageComposer,
+  // 裸 return 每次渲染都产生新对象会击穿 memo。六个成员本身都已稳定
+  // (useState 值 + useCallback),只在真变化时才换引用。
+  return useMemo(
+    () => ({ status, liveCaption, errorMessage, start, stop, cancel }),
+    [status, liveCaption, errorMessage, start, stop, cancel],
+  );
 }

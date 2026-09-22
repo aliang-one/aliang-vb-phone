@@ -874,10 +874,16 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
           return (
             <View
               key={message.id}
-              onLayout={event => {
-                const { y, height } = event.nativeEvent.layout;
-                onMessageLayout?.(message.id, y, height);
-              }}
+              // 只在有消费者时挂布局监听:当前所有调用方都不传 onMessageLayout,
+              // 无条件挂载会让每行 mounted 消息白付一次 native→JS 布局事件。
+              onLayout={
+                onMessageLayout
+                  ? event => {
+                      const { y, height } = event.nativeEvent.layout;
+                      onMessageLayout(message.id, y, height);
+                    }
+                  : undefined
+              }
               style={[styles.messageRow, styles.userMessageRow]}
             >
               <View style={styles.userMessageStack}>
@@ -1007,10 +1013,15 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
         return (
           <View
             key={message.id}
-            onLayout={event => {
-              const { y, height } = event.nativeEvent.layout;
-              onMessageLayout?.(message.id, y, height);
-            }}
+            // 同上:无消费者时不挂布局监听,省掉每行一次的 native→JS 事件。
+            onLayout={
+              onMessageLayout
+                ? event => {
+                    const { y, height } = event.nativeEvent.layout;
+                    onMessageLayout(message.id, y, height);
+                  }
+                : undefined
+            }
             style={styles.messageRow}
           >
             {renderTimelineNode(

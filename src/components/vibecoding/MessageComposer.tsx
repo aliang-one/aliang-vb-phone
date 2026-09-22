@@ -259,7 +259,7 @@ const ACTIVE_STATUSES: Array<UseVoiceSttResult['status']> = [
   'stopping',
 ];
 
-export const MessageComposer: React.FC<MessageComposerProps> = ({
+const MessageComposerBase: React.FC<MessageComposerProps> = ({
   mode,
   onModeChange,
   input,
@@ -867,3 +867,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+
+// memo:与消息内容无关的输入区。流式期间聊天屏以 ≤5Hz 重渲染
+// (usePublishedVibeRun),props 引用稳定(父级 useCallback/useMemo 化 +
+// useVoiceStt 返回对象 memo 化)时整块跳过,不再陪跑。
+export const MessageComposer = React.memo(MessageComposerBase);
