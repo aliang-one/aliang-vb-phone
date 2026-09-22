@@ -91,7 +91,9 @@ Expected: PASS(全部用例绿)。
 
 ```bash
 git add src/i18n/locales/terminal/zh.json src/i18n/locales/terminal/en.json src/components/terminal/__tests__/aiSuggestCopy.test.ts
-git commit -m "终端:aiSuggest 文案去「麦克风」——轻点输入/长按说话新交互 + 守卫测试"
+git commit -m "终端:aiSuggest 文案去「麦克风」——轻点输入/长按说话新交互 + 守卫测试
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
 ---
@@ -426,7 +428,9 @@ Expected: PASS(手势 7 例 + 渲染 3 例全绿)。
 
 ```bash
 git add src/components/terminal/TerminalVoiceFab.tsx src/components/terminal/__tests__/TerminalVoiceFab.test.tsx
-git commit -m "终端:AI 悬浮钮换 aliang logo + 短按打字/长按说话(松开结束)手势反转"
+git commit -m "终端:AI 悬浮钮换 aliang logo + 短按打字/长按说话(松开结束)手势反转
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
 ---
@@ -486,7 +490,9 @@ Expected: 0 error(旧 `onPress`/`onLongPress` props 已不存在,漏改的调用
 
 ```bash
 git add src/screens/devices/DeviceTerminalScreen.tsx
-git commit -m "终端:FAB 接线改为短按开文字输入/长按录音/松开结束——相位路由留在 screen"
+git commit -m "终端:FAB 接线改为短按开文字输入/长按录音/松开结束——相位路由留在 screen
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
 ---
