@@ -1577,6 +1577,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
     : session?.purpose !== 'goal' && shouldDisableComposerForProvider
       ? t('session.composer.claudeRunning')
       : undefined;
+  // TUI 共享提示(低成本方案):导入/已绑定的 CLI 会话与桌面终端共用同一份
+  // 会话文件——手机上发送的内容不会出现在已打开的 TUI 界面里(独立进程、
+  // 内存上下文),TUI 端需重启 resume 才能同步。按次进入会话展示一次,
+  // 可手动关闭。措辞为机制描述,不依赖 TUI 当前是否真的开着(避免状态误报)。
+  const [tuiSharedNoticeDismissed, setTuiSharedNoticeDismissed] =
+    useState(false);
+  const showTuiSharedNotice =
+    Boolean(session?.sourceSessionId) && !tuiSharedNoticeDismissed;
   // 停止按钮显隐:与顶部相位 / composer 锁同源(看 isSessionLive),不裸读 session.status。
   // 旧版用 `serviceThinksRunning`(裸 status)会在回合答完后 status 卡陈旧 running 时,
   // 让停止按钮常驻显示——顶部已「已完成」、输入框已解锁,唯独停止按钮还在(脱节 bug)。
@@ -3267,6 +3275,32 @@ export const VibeCodingSessionScreen: React.FC = () => {
           ) : goalDraftActive ? (
             <GoalDraftBar creating={goalCreating} onExit={exitGoalDraft} />
           ) : null}
+          {showTuiSharedNotice ? (
+            <View style={styles.tuiSharedNoticeRow}>
+              <Text
+                style={[
+                  theme.typography.bodySm,
+                  styles.tuiSharedNoticeText,
+                ]}
+                numberOfLines={3}
+              >
+                {t('session.tuiSharedNotice')}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setTuiSharedNoticeDismissed(true)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text
+                  style={[
+                    theme.typography.bodySm,
+                    styles.tuiSharedNoticeDismiss,
+                  ]}
+                >
+                  {t('session.tuiSharedNoticeDismiss')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
           <MessageComposer
             mode={mode}
             onModeChange={nextMode => setMode(nextMode)}
@@ -3323,6 +3357,26 @@ export const VibeCodingSessionScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
+  // TUI 共享提示条:机制说明(见 showTuiSharedNotice),中性底色不抢注意力。
+  tuiSharedNoticeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginHorizontal: 12,
+    marginBottom: 4,
+    borderRadius: 10,
+    backgroundColor: 'rgba(128,128,128,0.14)',
+  },
+  tuiSharedNoticeText: {
+    flex: 1,
+    opacity: 0.85,
+  },
+  tuiSharedNoticeDismiss: {
+    opacity: 0.7,
+    paddingHorizontal: 4,
+  },
   // Small circular "jump to latest" control; the scrubber layer positions it
   // under the locator rail (belowRailSlot owns the geometry).
   scrollFab: {

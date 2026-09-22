@@ -456,6 +456,8 @@
       "terminalLabel": "Terminal",
       "terminalSubtitle": "Open terminal",
       "refreshLatest": "Refresh latest conversation"
-    }
+    },
+    "tuiSharedNotice": "Shared with a terminal TUI — messages sent from the phone won't appear in an already-open terminal. Restart it with `claude --resume` in the terminal to sync the context.",
+    "tuiSharedNoticeDismiss": "Got it"
   }
 }
