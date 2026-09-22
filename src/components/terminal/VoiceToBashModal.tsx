@@ -195,7 +195,9 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   const [dangerous, setDangerous] = useState(false);
   const [error, setError] = useState('');
   // AI/user-chosen target device (initial mode). Captured from the generateCommand
-  // result, then possibly overridden via the DevicePicker in the confirm step.
+  // result — or FORCED to the locked device when lockedDevice is set (AI
+  // select_device discarded, no picker override) — then possibly overridden via
+  // the DevicePicker in the confirm step.
   const [chosenDeviceId, setChosenDeviceId] = useState<string | undefined>(undefined);
   const [chosenCwd, setChosenCwd] = useState<string | undefined>(undefined);
   const [_chosenDeviceName, setChosenDeviceName] = useState<string | undefined>(undefined);
