@@ -33,7 +33,10 @@ import { StatusChip } from '../../components/shared/StatusChip';
 import { ToolsMenu } from '../../components/vibecoding/ToolsMenu';
 import { SessionPreviewCard } from './SessionPreviewCard';
 import { revokePortMapping } from '../../api/portMappings';
-import { MessageComposer } from '../../components/vibecoding/MessageComposer';
+import {
+  MessageComposer,
+  type ComposerMode,
+} from '../../components/vibecoding/MessageComposer';
 import { GoalDraftBar, GoalStatusBar } from '../../components/vibecoding/GoalStatusBar';
 import { GoalDeletedFold } from '../../components/vibecoding/GoalDeletedFold';
 import { mergeCommands } from '../../utils/agentCommands';
@@ -556,6 +559,19 @@ export const VibeCodingSessionScreen: React.FC = () => {
 
   const [interruptingTurn, setInterruptingTurn] = useState(false);
   const [toolsMenuVisible, setToolsMenuVisible] = useState(false);
+  // Composer 回调稳定化:MessageComposer 已 React.memo,渲染点内联箭头会
+  // 每次生成新引用击穿 memo(流式 ≤5Hz 屏幕重渲染时 composer 白陪跑)。
+  const handleComposerModeChange = useCallback((nextMode: ComposerMode) => {
+    setMode(nextMode);
+  }, []);
+  const handleToggleTools = useCallback(() => {
+    setToolsMenuVisible(value => !value);
+  }, []);
+  const handleComposerTextInputFocus = useCallback(() => {
+    setAutoFocusText(false);
+    pendingScrollToEndRef.current = true;
+    scheduleScrollToEnd(true);
+  }, [scheduleScrollToEnd]);
   const [resolvingApproval, setResolvingApproval] = useState<{
     id: string;
     decision: 'approved' | 'denied';
@@ -3309,7 +3325,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
           ) : null}
           <MessageComposer
             mode={mode}
-            onModeChange={nextMode => setMode(nextMode)}
+            onModeChange={handleComposerModeChange}
             input={input}
             onInputChange={handleComposerInputChange}
             voiceDraft={voiceDraft}
@@ -3324,15 +3340,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
             autoFocusText={autoFocusText}
             toolsMenuVisible={toolsMenuVisible}
             toolsDisabled={goalDraftActive && goalCreating}
-            onToggleTools={() => setToolsMenuVisible(value => !value)}
+            onToggleTools={handleToggleTools}
             goalDraft={goalDraftActive}
             goalSession={session?.purpose === 'goal'}
             showGoalHint={session?.purpose !== 'goal'}
-            onTextInputFocus={() => {
-              setAutoFocusText(false);
-              pendingScrollToEndRef.current = true;
-              scheduleScrollToEnd(true);
-            }}
+            onTextInputFocus={handleComposerTextInputFocus}
             onVoiceCapture={handleVoiceCapture}
             onVoiceCaptureStart={handleVoiceCaptureStart}
             onVoiceCaptureEnd={handleVoiceCaptureEnd}
