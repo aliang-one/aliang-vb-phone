@@ -15,6 +15,7 @@ import type {
 import { buildDisplayTranscript } from '../../utils/agentTranscript';
 import { buildConversationTurns, type ConversationTurn } from '../../utils/conversationTurns';
 import { buildGoalFolds, type GoalFoldGroup } from '../../utils/goalFolds';
+import { isDeviceLinkReleaseNotice } from '../../utils/conversationTimeline';
 import { useThrottledValue } from '../../hooks/useThrottledValue';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 
@@ -133,7 +134,13 @@ export function useConversationTranscript(
   const visibleSessionEvents = useMemo(
     () =>
       (session?.events ?? []).filter(
-        event => event.title !== 'Imported local vibe session',
+        event =>
+          event.title !== 'Imported local vibe session' &&
+          // Server disconnect-release notices are device-link history, not
+          // conversation events — see isDeviceLinkReleaseNotice. Filtering
+          // them here also keeps a stale one from painting the collapsed
+          // timeline badge (latestAgentEvent) red next to the refresh key.
+          !isDeviceLinkReleaseNotice(event),
       ),
     [session?.events],
   );
