@@ -80,3 +80,27 @@ export const buildConversationTimeline = (
     })
     .map(({ order: _order, timestampMs: _timestampMs, ...item }) => item);
 };
+
+/**
+ * The server's disconnect-release notice ("Agent disconnected" / "AI run
+ * state was released because the desktop Agent disconnected…"): a device-link
+ * status row pushed into session.events when the agent socket dropped while a
+ * run looked active. It documents the server↔agent transport, not the
+ * conversation — the external CLI usually survives the blip and the agent
+ * re-asserts real status within 60s of reconnect. The server no longer writes
+ * it for data-only imports (fix/imported-session-disconnect-release), so any
+ * surviving rows are legacy false alarms that would otherwise sit in the
+ * agent timeline — and in the collapsed timeline badge — looking like a
+ * current failure on every refresh. Same carve-out spirit as the
+ * 'Imported local vibe session' filter in useConversationTranscript.
+ * Deliberately NOT matched: other failed status events ("Session timed out",
+ * "Run overrun") are real history and stay visible.
+ */
+export const isDeviceLinkReleaseNotice = (event: {
+  type: string;
+  title: string;
+  status: string;
+}): boolean =>
+  event.type === 'status' &&
+  event.status === 'failed' &&
+  event.title === 'Agent disconnected';

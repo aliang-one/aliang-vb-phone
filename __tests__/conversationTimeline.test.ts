@@ -1,6 +1,7 @@
 import {
   approvalTimelineItemId,
   buildConversationTimeline,
+  isDeviceLinkReleaseNotice,
 } from '../src/utils/conversationTimeline';
 import type { DisplayTranscriptMessage } from '../src/utils/agentTranscript';
 import { buildConversationTurns } from '../src/utils/conversationTurns';
@@ -70,5 +71,39 @@ describe('buildConversationTimeline', () => {
       'turn:legacy-message',
       approvalTimelineItemId('legacy-approval'),
     ]);
+  });
+});
+
+describe('isDeviceLinkReleaseNotice', () => {
+  const releaseNotice = {
+    id: 'evt_legacy1',
+    type: 'status' as const,
+    title: 'Agent disconnected',
+    detail:
+      'AI run state was released because the desktop Agent disconnected (disconnected).',
+    status: 'failed' as const,
+    timestamp: '2026-09-22T03:09:08.960Z',
+  };
+
+  it('matches the server disconnect-release status notice', () => {
+    expect(isDeviceLinkReleaseNotice(releaseNotice)).toBe(true);
+  });
+
+  it('ignores other failed status events (real timeout/overrun history)', () => {
+    const timedOut = {
+      ...releaseNotice,
+      title: 'Session timed out',
+      detail: 'No agent activity for 10 min — marked idle',
+    };
+    expect(isDeviceLinkReleaseNotice(timedOut)).toBe(false);
+  });
+
+  it('ignores non-failed or non-status events', () => {
+    const doneNotice = { ...releaseNotice, status: 'done' as const };
+    const commandEvent = { ...releaseNotice, type: 'command' as const };
+    const interrupted = { ...releaseNotice, title: 'Turn interrupted' };
+    expect(isDeviceLinkReleaseNotice(doneNotice)).toBe(false);
+    expect(isDeviceLinkReleaseNotice(commandEvent)).toBe(false);
+    expect(isDeviceLinkReleaseNotice(interrupted)).toBe(false);
   });
 });
