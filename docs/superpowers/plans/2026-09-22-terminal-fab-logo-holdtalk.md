@@ -435,10 +435,14 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
-### Task 3: DeviceTerminalScreen 接线
+### Task 3: DeviceTerminalScreen 接线 + 既有测试契约改写
+
+> 2026-09-22 执行期扩充(Task 2 评审发现):根目录 `__tests__/` 是主测试目录;`__tests__/DeviceTerminal.voiceFab.test.tsx` 有 3 例断言旧手势契约,必须随接线改写;Task 2 删除的旧组件测试的 a11y/视觉断言须移植进新组件测试。
 
 **Files:**
 - Modify: `src/screens/devices/DeviceTerminalScreen.tsx:1687-1698`(FAB JSX)
+- Modify: `__tests__/DeviceTerminal.voiceFab.test.tsx`(3 个旧契约用例改写)
+- Modify: `src/components/terminal/__tests__/TerminalVoiceFab.test.tsx`(移植 4 条断言)
 
 - [ ] **Step 1: 替换 FAB 接线**
 
@@ -481,16 +485,110 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
                   />
 ```
 
-- [ ] **Step 2: 类型检查**
+- [ ] **Step 2: 改写 `__tests__/DeviceTerminal.voiceFab.test.tsx` 的 3 个旧契约用例**
+
+该文件 mock 了 `useAiCommandSuggestions`(mockAi)并渲染整屏,通过 `fab().props.*` 驱动 FAB。把以下 3 个用例整体替换(其余用例一律不动):
+
+删除:
+- `it('tap starts voice from idle', ...)`(断言 `onPress → startVoice`)
+- `it('tap stops voice while recording', ...)`(断言 `onPress → stopVoice`)
+- `it('long-press opens the text input', ...)`(断言 `onLongPress → openTextInput`)
+
+替换为(沿用文件既有 harness:`renderScreen()` / `updateScreen()` / `mockAi` / `fab()`):
+
+```tsx
+  it('short-press opens the text input', async () => {
+    await renderScreen();
+
+    act(() => {
+      fab().props.onShortPress();
+    });
+
+    expect(mockAi.openTextInput).toHaveBeenCalledTimes(1);
+    expect(mockAi.startVoice).not.toHaveBeenCalled();
+  });
+
+  it('hold starts voice from idle', async () => {
+    await renderScreen();
+
+    act(() => {
+      fab().props.onHoldStart();
+    });
+
+    expect(mockAi.startVoice).toHaveBeenCalledTimes(1);
+    expect(mockAi.stopVoice).not.toHaveBeenCalled();
+  });
+
+  it('release while recording stops voice', async () => {
+    await renderScreen();
+    mockAi.phase = 'recording';
+    await updateScreen();
+
+    act(() => {
+      fab().props.onHoldEnd();
+    });
+
+    expect(mockAi.stopVoice).toHaveBeenCalledTimes(1);
+    expect(mockAi.startVoice).not.toHaveBeenCalled();
+  });
+```
+
+- [ ] **Step 3: 向新组件测试移植旧测试的 a11y/视觉断言**
+
+在 `src/components/terminal/__tests__/TerminalVoiceFab.test.tsx` 的「渲染:logo 恒定」describe 内追加(顶部补一行 `import { darkTheme } from '../../../theme/themes/darkTheme';`,与既有 import 排在一起):
+
+```tsx
+  // 以下四条移植自被删除的旧根级测试(2026-09-22 评审):颜色/动效不能是
+  // 唯一指示,相位还要有 a11y 播报;红边红底与 busy 态是主相位视觉。
+  it('recording/error 相位无障碍标签随相位播报', () => {
+    const rec = renderFab({ phase: 'recording' });
+    const recNode = rec.renderer.root.findByProps({ testID: 'terminal-voice-fab' });
+    expect(recNode.props.accessibilityLabel).toContain('正在聆听…');
+    const err = renderFab({ phase: 'error' });
+    const errNode = err.renderer.root.findByProps({ testID: 'terminal-voice-fab' });
+    expect(errNode.props.accessibilityLabel).toContain('语音识别失败');
+  });
+
+  it('recording 样式含主题 error 色(红边红底)', () => {
+    const rec = renderFab({ phase: 'recording' });
+    const recNode = rec.renderer.root.findByProps({ testID: 'terminal-voice-fab' });
+    expect(JSON.stringify(recNode.props.style)).toContain(darkTheme.colors.error);
+  });
+
+  it('generating 相位 accessibilityState.busy=true,其余相位 false', () => {
+    const gen = renderFab({ phase: 'generating' });
+    expect(
+      gen.renderer.root.findByProps({ testID: 'terminal-voice-fab' }).props.accessibilityState,
+    ).toEqual({ disabled: false, busy: true });
+    const idle = renderFab({ phase: 'idle' });
+    expect(
+      idle.renderer.root.findByProps({ testID: 'terminal-voice-fab' }).props.accessibilityState,
+    ).toEqual({ disabled: false, busy: false });
+  });
+
+  it('generating 无脉冲叠层', () => {
+    const gen = renderFab({ phase: 'generating' });
+    expect(gen.renderer.root.findAllByProps({ testID: 'terminal-voice-fab-pulse' })).toHaveLength(0);
+  });
+```
+
+- [ ] **Step 4: 跑相关测试**
+
+Run: `npx jest TerminalVoiceFab --testPathIgnorePatterns="/node_modules/"` → 手势 7 例 + 渲染 7 例全绿;
+Run: `npx jest DeviceTerminal.voiceFab --testPathIgnorePatterns="/node_modules/"` → 全绿(改写后 9 例或等量);
+Run: `npx jest useAiCommandSuggestions --testPathIgnorePatterns="/node_modules/"` → 全绿(hook 未动,零回归);
+Run: `npx jest aiSuggestCopy --testPathIgnorePatterns="/node_modules/"` → 4/4 绿。
+
+- [ ] **Step 5: 类型检查**
 
 Run: `npx tsc --noEmit`
 Expected: 0 error(旧 `onPress`/`onLongPress` props 已不存在,漏改的调用点会在此暴露)。
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/screens/devices/DeviceTerminalScreen.tsx
-git commit -m "终端:FAB 接线改为短按开文字输入/长按录音/松开结束——相位路由留在 screen
+git add src/screens/devices/DeviceTerminalScreen.tsx __tests__/DeviceTerminal.voiceFab.test.tsx src/components/terminal/__tests__/TerminalVoiceFab.test.tsx
+git commit -m "终端:FAB 接线改短按输入/长按录音/松开结束 + 既有接线测试契约改写 + a11y 断言移植
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```

@@ -71,13 +71,14 @@ pressOut ──→ 清除计时器
 |---|---|
 | `src/components/terminal/TerminalVoiceFab.tsx` | `TouchableOpacity`→`Pressable`；`MicIcon`→`Logo`；pressIn/pressOut + 计时器手势状态机；props `{phase, disabled, onShortPress, onHoldStart, onHoldEnd, holdThresholdMs?}`（替换 `onPress`/`onLongPress`）；生成态小 spinner 叠加 |
 | `src/screens/devices/DeviceTerminalScreen.tsx` | FAB 接线三行：`onShortPress → openTextInput`、`onHoldStart → startVoice`、`onHoldEnd → stopVoice`（分流判 phase 的逻辑从原 onPress 里平移过来） |
+| `__tests__/DeviceTerminal.voiceFab.test.tsx` | 3 个旧手势契约用例改写为新契约（短按→openTextInput；按住→startVoice；录音中松开→stopVoice），其余用例（chips 执行/disabled/终端切换 reset 等）不动 |
 | `src/i18n/locales/terminal/zh.json` `en.json` | `aiSuggest.emptyHint` 各一行 |
 
 `useAiCommandSuggestions.ts`、`TerminalAiStatusStrip.tsx`、`TerminalSuggestionRow.tsx`、server、agent：**零改动**。
 
 ## 6. 测试（TDD）
 
-新增（jest，遵守 worktree 内 `--testPathIgnorePatterns="/node_modules/"` 调用惯例）。前置事实：当前仓库**没有任何**引用 `VoiceFab` / `useAiCommandSuggestions` 的既有测试，本节工作为纯新增，无需改写旧契约测试：
+新增（jest，遵守 worktree 内 `--testPathIgnorePatterns="/node_modules/"` 调用惯例）。前置事实（2026-09-22 执行期修正）：仓库主测试目录是**根目录 `__tests__/`**。既有相关测试与处置：`__tests__/DeviceTerminal.voiceFab.test.tsx`（screen 接线测试）中断言旧手势契约的 3 例（tap=开录音/tap=停录音/long-press=开输入）**必须随本设计改写为新契约**（短按=openTextInput、按住=startVoice、录音中松开=stopVoice）；`__tests__/useAiCommandSuggestions.test.tsx` 为 hook 自身测试，本设计零改 hook，应保持全绿。旧根级 `__tests__/TerminalVoiceFab.test.tsx`（旧接口 5 例）随组件重写删除，其录音态 a11y 标签/错误红边等断言移植进新组件测试：
 
 1. **手势状态机**（`TerminalVoiceFab.test.tsx`）
    - 短按（pressIn→pressOut，未到阈值）→ `onShortPress` 恰一次，`onHoldStart/onHoldEnd` 不触发；
