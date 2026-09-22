@@ -260,6 +260,11 @@ git add src/i18n/locales/vibecoding && git commit -m "feat(终端): i18n 新增 
       unpinDevice();
     }
   }, [pinPinned, pinnedDevice, unpinDevice]);
+  // pinned 设备的完整 Device（含 authorizedDirectories 等）——hold 语音目标与
+  // modal lockedDevice 都从这里取；store 快照只有 {id,name} 不够用。
+  const pinnedChoice = pinnedDevice
+    ? terminalDeviceChoices.find(d => d.id === pinnedDevice.id)
+    : undefined;
 ```
 
 ③ `PinIcon` 内联组件（文件内其他小型内联 SVG/组件附近）：
@@ -330,7 +335,7 @@ const PinIcon: React.FC<{ color: string; size?: number }> = ({
   },
 ```
 
-- [ ] **Step 3.4: 跑绿**（4 个新用例 + 既有 5 个用例全绿）+ **Commit**
+- [ ] **Step 3.4: 跑绿**（新增用例 + 既有 6 个用例全绿）+ **Commit**
 
 ```bash
 cd "$P" && npx jest VibeCodingListScreen --testPathIgnorePatterns="/node_modules/" 2>&1 | tail -3
@@ -421,9 +426,9 @@ git commit -m "feat(终端): 设备面板长按固定语音设备——pinned �
 ① `handleNewTermPressIn` 的 setTimeout 回调（line ~618）改：
 
 ```tsx
-      openVoiceModal(pinnedDevice ?? newTerminalDevice);
+      openVoiceModal(pinnedChoice ?? newTerminalDevice);
 ```
-依赖数组（line 620-625）加 `pinnedDevice`。
+依赖数组（line 620-625）加 `pinnedChoice`。⚠ `pinnedDevice`（store 快照，仅 `{id,name}`）**不能**直接传给 `openVoiceModal`——它要完整 `Device`（~20 个必填字段，`authorizedDirectories` 等被 `handleVoiceConfirm` 使用）。`pinnedChoice` 是从在线列表解析出的完整 Device（见 ③）。
 
 ② FAB 角标——在 FAB 外层 `styles.newTermFabShadow` 的 View 内、`Pressable` 之后追加：
 
@@ -483,13 +488,33 @@ git commit -m "feat(终端): 设备面板长按固定语音设备——pinned �
   },
 ```
 
-- [ ] **Step 4.4: 跑绿 + Commit**
+- [ ] **Step 4.4: 把 lockedDevice 传给 VoiceToBashModal（强制锁定的端到端闭环）**
+
+`<VoiceToBashModal>` 调用点（line ~1315-1324，`visible={voiceModal}`）加 prop：
+
+```tsx
+            lockedDevice={
+              pinnedChoice
+                ? {
+                    id: pinnedChoice.id,
+                    name: pinnedChoice.name,
+                    platform: pinnedChoice.os,
+                    online: true,
+                    cwd: pinnedChoice.authorizedDirectories[0] ?? '~',
+                  }
+                : undefined
+            }
+```
+（⚠ store 快照 `{id,name}` 不满足 `DevicePickerEntry`——必须带 `online`+`cwd`（DevicePicker.tsx:7-13），所以从 `pinnedChoice` 映射，照 `voiceSelectableDevices`（line 426-436）的既有映射。没有这一步，Task 5 的强制锁定是端到端死代码。）
+
+- [ ] **Step 4.5: 跑绿 + Commit**
 
 ```bash
 cd "$P" && npx jest VibeCodingListScreen --testPathIgnorePatterns="/node_modules/" 2>&1 | tail -3
 git add src/screens/vibecoding/VibeCodingListScreen.tsx __tests__/VibeCodingListScreen.longpress.test.tsx
-git commit -m "feat(终端): FAB 长按语音目标用 pinned 设备+固定角标,设备掉线自动解固定"
+git commit -m "feat(终端): FAB 长按语音目标用 pinned 设备+固定角标+lockedDevice 传递,设备掉线自动解固定"
 ```
+⚠ 注意：`lockedDevice` prop 加入后，stub 掉的 VoiceToBashModal 测试不感知它；其行为验证在 Task 5 的 modal 测试里。
 
 ## Task 5: `VoiceToBashModal` 的 `lockedDevice` 强制锁定（TDD）
 
@@ -557,7 +582,7 @@ git commit -m "feat(终端): FAB 长按语音目标用 pinned 设备+固定角�
   });
 ```
 
-（⚠ 助手名以**既有文件实际导出/定义**为准：该文件已有 `driveTranscript`/`driveReviewToConfirm`/`el`/`setState`/`rerender` 等助手——「drive 到 confirming 相」的等价调用可能是 `driveTranscript(...)` + `driveReviewToConfirm(...)` 两步。实现者先读既有测试文件头部与用例，按既有习惯拼装，不新造重复助手。`findAllById` 若无定义用 `root.findAllByProps({testID:id})`。）
+（⚠ ① 既有测试文件的本地 `PropsLike` 接口（lines ~49-60）必须加 `lockedDevice?: DevicePickerEntry;`——否则 `baseProps({…lockedDevice})` 是 TS 多余属性错误（typecheck 覆盖 `__tests__`）。⚠② 助手名以**既有文件实际导出/定义**为准：该文件已有 `driveTranscript`/`driveReviewToConfirm`/`el`/`setState`/`rerender` 等助手——「drive 到 confirming 相」的等价调用可能是 `driveTranscript(...)` + `driveReviewToConfirm(...)` 两步。实现者先读既有测试文件头部与用例，按既有习惯拼装，不新造重复助手。`findAllById` 若无定义用 `root.findAllByProps({testID:id})`。）
 
 - [ ] **Step 5.2: 跑红** `cd "$P" && npx jest VoiceToBashModal --testPathIgnorePatterns="/node_modules/" 2>&1 | tail -4` → 新用例 FAIL（无 lockedDevice prop / picker 仍在）。
 
@@ -620,11 +645,18 @@ git commit -m "feat(终端): FAB 长按语音目标用 pinned 设备+固定角�
                     <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
                       {tVibe('devicePin.locked')}
                     </Text>
-                  </View>
+                    {locked.platform ? (
+                      <Text
+                        numberOfLines={1}
+                        style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}
+                      >
+                        {locked.platform}
+                      </Text>
+                    ) : null}
                 </View>
               ) : null}
 ```
-（`tVibe` = 该文件新增 `const { t: tVibe } = useTranslation('vibecoding');`——⚠ modal 的 t 是 `terminal` ns，pin 文案在 `vibecoding` ns，必须跨 ns。`PinInline` = 文件内新增 12x12 图钉内联 SVG（同 Task 3 造型）。）
+（`tVibe` = 该文件新增 `const { t: tVibe } = useTranslation('vibecoding');`——⚠ modal 的 t 是 `terminal` ns，pin 文案在 `vibecoding` ns，必须跨 ns。`PinInline` = 文件内新增 12x12 图钉内联 SVG（同 Task 3 造型）；该文件当前**没有** svg import——需加 `import Svg, { Circle, Path } from 'react-native-svg';`。）
 
 ④ 生成结果覆盖（line 295-307 的 `.then((result) => {`）改为：
 
