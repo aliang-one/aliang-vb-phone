@@ -1,8 +1,10 @@
 // COS → phone system save (Task 17). Android hands the presigned GET to the
 // system DownloadManager (no storage permission needed, system notification,
 // lands in Downloads); iOS has no shared Downloads folder, so the file is
-// cached to tmp and offered through the system share sheet (the user picks
-// "Save to Files"). The tmp file is removed once the sheet settles.
+// downloaded into the app cache under the ORIGINAL filename and offered
+// through the system share sheet (the user picks "Save to Files") — the
+// explicit path keeps the share sheet and "Save to Files" from seeing a
+// random tmp name. The cache file is removed once the sheet settles.
 //
 // v1 deliberately registers no `.progress()` on the fetch: the sheet shows
 // indeterminate copy for the local save phase (upload leg owns the progress
@@ -40,21 +42,26 @@ export async function saveDownloadedFile({
     }).fetch('GET', url);
     return;
   }
-  const res = await ReactNativeBlobUtil.config({
-    fileCache: true,
-    appendExt: filename.includes('.') ? filename.split('.').pop() : undefined,
+  // Explicit path (not fileCache): the tmp file is named after the source
+  // file, so the share sheet and "Save to Files" both keep the original
+  // filename instead of a random blob-util tmp name. `path` already carries
+  // the full filename — no appendExt. Separators are flattened defensively
+  // (upstream sanitizeDownloadFilename already strips them).
+  const safeFilename = filename.replace(/[/\\]/g, '_');
+  const target = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/${safeFilename}`;
+  await ReactNativeBlobUtil.config({
+    path: target,
   }).fetch('GET', url);
-  const path = res.path();
   try {
     // failOnCancel:false — the user closing the share sheet resolves (dismissedAction)
     // instead of rejecting; only real failures throw.
     await Share.open({
-      url: `file://${path}`,
+      url: `file://${target}`,
       type: mimeOrFallback,
       subject: filename,
       failOnCancel: false,
     });
   } finally {
-    await ReactNativeBlobUtil.fs.unlink(path).catch(() => {});
+    await ReactNativeBlobUtil.fs.unlink(target).catch(() => {});
   }
 }
