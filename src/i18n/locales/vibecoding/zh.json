@@ -376,6 +376,8 @@
     "error": {
       "interruptFailedPrefix": "停止失败：{{message}}",
       "interruptFailed": "停止失败，请检查服务端连接。",
+      "sessionBusy": "终端会话正在运行一个回合，请稍后再试。",
+      "sessionBusyTui": "该会话由桌面终端（TUI）驱动，终端里正在运行一个回合。请稍后再试，或在终端中按一次 Esc 停止本轮。",
       "sessionFailed": "会话失败",
       "sessionFailedGateway": "会话失败 · 网关 {{status}}",
       "sessionFailedGatewayRetry": "会话失败 · 网关 {{status}}（重试 {{attempt}}/{{max}}）",
