@@ -33,6 +33,8 @@ import { RootStackParamList } from '../../app/navigation/types';
 import {
   EXPIRY_OPTIONS,
   mappingErrorKey,
+  mappingLifetimeSeconds,
+  nearestExpiryOption,
   parsePort,
   resolveTunnelBlocker,
 } from '../../utils/portInput';
@@ -79,6 +81,7 @@ export const ProjectPortsScreen: React.FC = () => {
   const [actionError, setActionError] = useState<string | null>(null);
   const mountedRef = useRef(true);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
 
   // Unmount guard in its own empty-dep effect (never re-armed when the load
   // callback identity changes) — same pattern as PortMappingsScreen.
@@ -180,6 +183,19 @@ export const ProjectPortsScreen: React.FC = () => {
     }, 1800);
   };
 
+  // Expired-card tap: prefill the create form with the mapping's port and
+  // original expiry preset, then bring the form (bottom of the scroll) into
+  // view — re-creating the same public URL becomes tap + one button press.
+  // The optional call guards host instances (test mocks) without the method.
+  const handleRecreate = (mapping: PortMapping) => {
+    setActionError(null);
+    setTargetPort(`${mapping.target_port}`);
+    setExpiresInSeconds(
+      nearestExpiryOption(mappingLifetimeSeconds(mapping)).seconds,
+    );
+    scrollRef.current?.scrollToEnd?.({ animated: true });
+  };
+
   const displayedError =
     actionError ??
     (loadError ? td(mappingErrorKey(loadError, 'portMappings.loadFailed')) : null);
@@ -214,6 +230,7 @@ export const ProjectPortsScreen: React.FC = () => {
         onBack={navigation.goBack}
       />
       <ScrollView
+        ref={scrollRef}
         style={styles.scrollView}
         contentContainerStyle={styles.content}>
         {loading ? (
@@ -264,6 +281,13 @@ export const ProjectPortsScreen: React.FC = () => {
                 });
               }}
               onRevoke={() => confirmRevoke(mapping)}
+              // Only wired when the create form is actually rendered below
+              // (same branch: not a legacy server, device online + tunnel up).
+              onRecreate={
+                !legacyServer && blocker === null
+                  ? () => handleRecreate(mapping)
+                  : undefined
+              }
             />
           ))
         )}

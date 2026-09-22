@@ -181,4 +181,37 @@ describe('PortMappingsScreen tunnel gate', () => {
     });
     expect(createButton()?.props.disabled).toBe(false);
   });
+
+  it('expired card tap prefills host/port/expiry in the form above', async () => {
+    mockDevices.push(device());
+    // 8h lifetime, expired 8h ago → recreate restores the 8h chip.
+    fetchMock.mockResolvedValue([
+      {
+        id: 'mapping-exp',
+        slug: 'expired1',
+        user_id: 'user-1',
+        device_id: 'device-1',
+        target_host: '127.0.0.1',
+        target_port: 5173,
+        upstream_scheme: 'http',
+        status: 'active',
+        created_at: new Date(Date.now() - 16 * 3_600_000).toISOString(),
+        expires_at: new Date(Date.now() - 8 * 3_600_000).toISOString(),
+        short_url: 'https://t.example.com/expired1',
+      },
+    ]);
+    await renderScreen();
+
+    expect(allText(screen!.root)).toContain('重建网址');
+    act(() => {
+      screen!.root
+        .findByProps({ accessibilityLabel: '点击按原端口重新生成公网网址' })
+        .props.onPress();
+    });
+
+    const inputs = screen!.root.findAllByType(TextInput);
+    const host = inputs.find(node => node.props.keyboardType !== 'number-pad');
+    expect(host!.props.value).toBe('127.0.0.1');
+    expect(portInput()!.props.value).toBe('5173');
+  });
 });

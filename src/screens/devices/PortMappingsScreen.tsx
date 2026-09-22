@@ -38,6 +38,8 @@ import {
   EXPIRY_OPTIONS,
   isAllowedTargetHost,
   mappingErrorKey,
+  mappingLifetimeSeconds,
+  nearestExpiryOption,
   parsePort,
   resolveTunnelBlocker,
 } from '../../utils/portInput';
@@ -156,6 +158,19 @@ export const PortMappingsScreen: React.FC = () => {
     copiedTimerRef.current = setTimeout(() => {
       if (mountedRef.current) setCopiedId(null);
     }, 1800);
+  };
+
+  // Expired-card tap: prefill host/port/expiry in the form above. Mirrors
+  // ProjectPortsScreen.handleRecreate (no scrolling — the form is at the top
+  // of this screen). The create form always renders here, so the affordance
+  // is always wired.
+  const handleRecreate = (mapping: PortMapping) => {
+    setError(null);
+    setTargetHost(mapping.target_host);
+    setTargetPort(`${mapping.target_port}`);
+    setExpiresInSeconds(
+      nearestExpiryOption(mappingLifetimeSeconds(mapping)).seconds,
+    );
   };
 
   const handleOpen = async (mapping: PortMapping) => {
@@ -383,6 +398,7 @@ export const PortMappingsScreen: React.FC = () => {
                   handleOpen(mapping);
                 }}
                 onRevoke={() => confirmRevoke(mapping)}
+                onRecreate={() => handleRecreate(mapping)}
               />
             ))
           )}

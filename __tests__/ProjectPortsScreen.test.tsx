@@ -251,6 +251,56 @@ describe('ProjectPortsScreen', () => {
     expect(revokeMock).toHaveBeenCalledWith('mapping-1');
   });
 
+  it('tapping an expired card prefills port + original expiry for a one-tap recreate', async () => {
+    // 8h lifetime, expired 8h ago → recreate restores the 8h chip.
+    fetchMock.mockResolvedValue([
+      mapping({
+        id: 'mapping-exp',
+        slug: 'expired1',
+        target_port: 5173,
+        created_at: new Date(Date.now() - 16 * 3_600_000).toISOString(),
+        expires_at: new Date(Date.now() - 8 * 3_600_000).toISOString(),
+      }),
+    ]);
+
+    act(() => {
+      screen = renderScreen();
+    });
+    await act(async () => {});
+
+    expect(allText(screen!.root)).toContain('已过期');
+    expect(allText(screen!.root)).toContain('重建网址');
+
+    act(() => {
+      screen!.root
+        .findByProps({ accessibilityLabel: '点击按原端口重新生成公网网址' })
+        .props.onPress();
+    });
+
+    // Port prefilled into the top-of-form input.
+    expect(
+      screen!.root.findByProps({ testID: 'port-input' }).props.value,
+    ).toBe('5173');
+
+    // Create fires with the restored 8h preset — same port, same duration.
+    act(() => {
+      screen!.root
+        .findByProps({ testID: 'project-port-create' })
+        .props.onPress();
+    });
+    await act(async () => {});
+
+    expect(createMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deviceId: 'device-1',
+        targetHost: '127.0.0.1',
+        targetPort: 5173,
+        expiresInSeconds: 28_800,
+        projectId: 'project-1',
+      }),
+    );
+  });
+
   it('shows a read-only notice and no create form without a device', async () => {
     mockRouteParams = { projectId: 'project-1' };
     useControlCenterStore.setState({ devices: [] });

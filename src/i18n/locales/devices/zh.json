@@ -64,6 +64,8 @@
     "active": "使用中",
     "revoked": "已撤销",
     "expired": "已过期",
+    "recreateAction": "重建网址",
+    "recreateHint": "点击按原端口重新生成公网网址",
     "connected": "已连接",
     "tunnelPrefix": "隧道",
     "tunnelConnected": "已连接",

@@ -1,6 +1,8 @@
 import {
   isAllowedTargetHost,
   mappingErrorKey,
+  mappingLifetimeSeconds,
+  nearestExpiryOption,
   parsePort,
   resolveTunnelBlocker,
 } from '../src/utils/portInput';
@@ -122,6 +124,50 @@ describe('resolveTunnelBlocker', () => {
         device({ status: 'offline', capabilities: [], tunnelAvailable: false }),
       ),
     ).toBe('offline');
+  });
+});
+
+describe('mappingLifetimeSeconds + nearestExpiryOption', () => {
+  // lifetime = expires_at − created_at, in seconds. Both stamps derive from ONE
+  // captured now — two separate Date.now() calls drift by real milliseconds and
+  // break the exact-preset assertions (28800.001 ≠ 28800).
+  const lifetime = (createdMsAgo: number, expiresMsAhead: number) => {
+    const now = Date.now();
+    return mappingLifetimeSeconds({
+      created_at: new Date(now - createdMsAgo).toISOString(),
+      expires_at: new Date(now + expiresMsAhead).toISOString(),
+    });
+  };
+
+  it('recovers the requested preset from the two stamps', () => {
+    // Created 16h ago with an 8h preset → expired 8h ago.
+    expect(lifetime(16 * 3_600_000, -8 * 3_600_000)).toBe(28_800);
+    // Created 60s ago, expires in 3540s → exactly 1h of lifetime.
+    expect(lifetime(60_000, 3_540_000)).toBe(3_600);
+  });
+
+  it('resolves exact presets to themselves', () => {
+    for (const seconds of [3_600, 28_800, 86_400, 604_800]) {
+      expect(nearestExpiryOption(seconds).seconds).toBe(seconds);
+    }
+  });
+
+  it('picks the closest preset for in-between lifetimes', () => {
+    expect(nearestExpiryOption(5_400).seconds).toBe(3_600); // 1.5h → 1h
+    expect(nearestExpiryOption(21_600).seconds).toBe(28_800); // 6h → 8h
+    expect(nearestExpiryOption(43_200).seconds).toBe(28_800); // 12h → 8h
+    expect(nearestExpiryOption(172_800).seconds).toBe(86_400); // 48h → 24h
+    expect(nearestExpiryOption(432_000).seconds).toBe(604_800); // 5d → 7d
+  });
+
+  it('breaks exact-midpoint ties toward the longer preset', () => {
+    expect(nearestExpiryOption(16_200).seconds).toBe(28_800); // 4.5h: 1h | 8h
+  });
+
+  it('clamps non-finite and non-positive inputs to the shortest preset', () => {
+    expect(nearestExpiryOption(NaN).seconds).toBe(3_600);
+    expect(nearestExpiryOption(0).seconds).toBe(3_600);
+    expect(nearestExpiryOption(-5).seconds).toBe(3_600);
   });
 });
 

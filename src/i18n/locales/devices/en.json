@@ -64,6 +64,8 @@
     "active": "ACTIVE",
     "revoked": "REVOKED",
     "expired": "EXPIRED",
+    "recreateAction": "Recreate URL",
+    "recreateHint": "Tap to recreate the public URL with the same port",
     "connected": "CONNECTED",
     "tunnelPrefix": "Tunnel",
     "tunnelConnected": "Connected",

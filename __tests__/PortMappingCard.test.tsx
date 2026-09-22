@@ -65,6 +65,21 @@ const noopProps = {
   onRevoke: jest.fn(),
 };
 
+// status stays 'active' server-side; the card flips to 'expired' by wall
+// clock. Lifetime = 8h (created 16h before an expires 8h ago stamp).
+function expiredMapping(
+  overrides: Partial<PortMapping> = {},
+): PortMapping {
+  const expires = new Date(Date.now() - 3_600_000);
+  const created = new Date(expires.getTime() - 28_800_000);
+  return mapping({
+    status: 'active',
+    created_at: created.toISOString(),
+    expires_at: expires.toISOString(),
+    ...overrides,
+  });
+}
+
 describe('PortMappingCard', () => {
   let screen: ReactTestRenderer.ReactTestRenderer | undefined;
 
@@ -140,5 +155,61 @@ describe('PortMappingCard', () => {
       buttons[2].props.onPress();
     });
     expect(noopProps.onRevoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the URL on a single line with middle ellipsis', () => {
+    act(() => {
+      screen = renderCard({ ...noopProps, mapping: mapping() });
+    });
+
+    const urlNode = screen!.root.findByProps({
+      children: 'https://t.example.com/abc123',
+    });
+    expect(urlNode.props.numberOfLines).toBe(1);
+    expect(urlNode.props.ellipsizeMode).toBe('middle');
+  });
+
+  it('expired card with onRecreate: whole body is one tap target firing onRecreate', () => {
+    const onRecreate = jest.fn();
+    act(() => {
+      screen = renderCard({
+        ...noopProps,
+        mapping: expiredMapping(),
+        onRecreate,
+      });
+    });
+
+    expect(allText(screen!.root)).toContain('重建网址');
+    const tapTarget = screen!.root.findByProps({
+      accessibilityLabel: '点击按原端口重新生成公网网址',
+    });
+    act(() => {
+      tapTarget.props.onPress();
+    });
+    expect(onRecreate).toHaveBeenCalledTimes(1);
+    // The three action buttons still exist inside the tappable body.
+    expect(screen!.root.findAllByType(TouchableOpacity)).toHaveLength(4);
+  });
+
+  it('expired card WITHOUT onRecreate: no hint, no extra tap target', () => {
+    act(() => {
+      screen = renderCard({ ...noopProps, mapping: expiredMapping() });
+    });
+
+    expect(allText(screen!.root)).not.toContain('重建网址');
+    expect(screen!.root.findAllByType(TouchableOpacity)).toHaveLength(3);
+  });
+
+  it('active card never shows the recreate affordance even when wired', () => {
+    act(() => {
+      screen = renderCard({
+        ...noopProps,
+        mapping: mapping(),
+        onRecreate: jest.fn(),
+      });
+    });
+
+    expect(allText(screen!.root)).not.toContain('重建网址');
+    expect(screen!.root.findAllByType(TouchableOpacity)).toHaveLength(3);
   });
 });

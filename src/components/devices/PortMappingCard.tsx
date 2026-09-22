@@ -31,6 +31,13 @@ export interface PortMappingCardProps {
   onCopy: () => void;
   onOpen: () => void;
   onRevoke: () => void;
+  /**
+   * When provided, an EXPIRED card's body becomes one big tap target that
+   * asks the host screen to prefill its create form with this mapping's
+   * values (re-create the same public URL). Active/revoked cards never
+   * trigger it; screens without a create form simply don't pass it.
+   */
+  onRecreate?: () => void;
 }
 
 export const PortMappingCard = ({
@@ -40,12 +47,14 @@ export const PortMappingCard = ({
   onCopy,
   onOpen,
   onRevoke,
+  onRecreate,
 }: PortMappingCardProps) => {
   const { theme, isDark } = useTheme();
   const { t } = useTranslation('devices');
   const status = effectiveStatus(mapping);
   const active = status === 'active';
   const statusType = active ? 'success' : 'neutral';
+  const recreatable = status === 'expired' && onRecreate != null;
   const urlSurfaceStyle = {
     backgroundColor: isDark
       ? 'rgba(0,0,0,0.20)'
@@ -53,8 +62,8 @@ export const PortMappingCard = ({
     borderRadius: theme.borderRadius.sm,
   };
 
-  return (
-    <GlassPanel style={styles.mappingCard} glowColor={active ? 'primary' : 'none'}>
+  const cardBody = (
+    <>
       <View style={styles.mappingHeader}>
         <View style={styles.mappingTarget}>
           <IconBadge
@@ -107,7 +116,10 @@ export const PortMappingCard = ({
       <View style={[styles.urlRow, urlSurfaceStyle]}>
         <Text
           selectable
-          numberOfLines={2}
+          // One line, middle-ellipsis: the full URL always lands in the
+          // clipboard on copy, so the card stays a compact single row.
+          numberOfLines={1}
+          ellipsizeMode="middle"
           style={[
             theme.typography.codeSm,
             styles.url,
@@ -119,7 +131,26 @@ export const PortMappingCard = ({
           <Text style={[theme.typography.labelCaps, { color: theme.colors.success }]}>
             {t('portMappings.copied')}
           </Text>
-        ) : null}
+        ) : (
+          recreatable && (
+            <View style={styles.recreateHintRow}>
+              <IconBadge
+                name="refresh"
+                tone="primary"
+                size={22}
+                iconSize={12}
+                style={styles.iconBadgeBorderless}
+              />
+              <Text
+                style={[
+                  theme.typography.labelSm,
+                  { color: theme.colors.primary },
+                ]}>
+                {t('portMappings.recreateAction')}
+              </Text>
+            </View>
+          )
+        )}
       </View>
 
       <View style={styles.mappingActions}>
@@ -145,6 +176,23 @@ export const PortMappingCard = ({
           onPress={onRevoke}
         />
       </View>
+    </>
+  );
+
+  return (
+    <GlassPanel style={styles.mappingCard} glowColor={active ? 'primary' : 'none'}>
+      {recreatable ? (
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={t('portMappings.recreateHint')}
+          activeOpacity={0.8}
+          onPress={onRecreate}
+          style={styles.cardBody}>
+          {cardBody}
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.cardBody}>{cardBody}</View>
+      )}
     </GlassPanel>
   );
 };
@@ -203,8 +251,12 @@ const IconAction = ({
 const styles = StyleSheet.create({
   mappingCard: {
     padding: 12,
-    gap: 11,
     marginBottom: 10,
+  },
+  // Single child of the GlassPanel (plain View, or TouchableOpacity when the
+  // card is recreatable) — carries the row gap the panel used to hold.
+  cardBody: {
+    gap: 11,
   },
   mappingHeader: {
     flexDirection: 'row',
@@ -240,6 +292,11 @@ const styles = StyleSheet.create({
   url: {
     flex: 1,
     minWidth: 0,
+  },
+  recreateHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   mappingActions: {
     minHeight: 40,

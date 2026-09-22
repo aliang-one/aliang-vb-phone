@@ -22,6 +22,8 @@ DerivedData
 *.xcuserstate
 **/.xcode.env.local
 
+# ai
+.agents/*
 
 # Android/IntelliJ
 #
