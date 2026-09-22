@@ -63,7 +63,7 @@ pressOut ──→ 清除计时器
 
 其余 `aiSuggest.*` 键（`voiceFabLabel`「语音命令」/ `listening` 等）不含麦克风字样，不动。无障碍标签随相位播报的逻辑（录音/错误态后缀）保留。
 
-**守卫测试**：断言 zh+en 两份 locale 的 `aiSuggest` 命名空间内任何值不含「麦克风」/「mic」（大小写不敏感、词边界），防止回潮。
+**守卫测试**：断言 zh+en 两份 locale 的 `aiSuggest` 命名空间内任何值不含「麦克风」/「mic」，防止回潮。匹配规则：zh 的「麦克风」按**子串**匹配（CJK 无词边界概念）；en 的 `mic` 大小写不敏感 + **词边界**（`\bmic\b`，避免误伤 `command` 一类词）。
 
 ## 5. 改动面
 
@@ -77,7 +77,7 @@ pressOut ──→ 清除计时器
 
 ## 6. 测试（TDD）
 
-新增（jest，遵守 worktree 内 `--testPathIgnorePatterns="/node_modules/"` 调用惯例）：
+新增（jest，遵守 worktree 内 `--testPathIgnorePatterns="/node_modules/"` 调用惯例）。前置事实：当前仓库**没有任何**引用 `VoiceFab` / `useAiCommandSuggestions` 的既有测试，本节工作为纯新增，无需改写旧契约测试：
 
 1. **手势状态机**（`TerminalVoiceFab.test.tsx`）
    - 短按（pressIn→pressOut，未到阈值）→ `onShortPress` 恰一次，`onHoldStart/onHoldEnd` 不触发；
