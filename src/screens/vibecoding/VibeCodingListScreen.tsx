@@ -1303,7 +1303,11 @@ export const VibeCodingListScreen: React.FC = () => {
         >
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="New terminal"
+            accessibilityLabel={
+              pinnedChoice
+                ? `New terminal, voice locked to ${pinnedChoice.name}`
+                : 'New terminal'
+            }
             testID="new-term-fab"
             disabled={!newTerminalDevice}
             onPressIn={handleNewTermPressIn}
@@ -1384,9 +1388,6 @@ export const VibeCodingListScreen: React.FC = () => {
             <View
               testID="new-term-fab-pin-badge"
               pointerEvents="none"
-              accessibilityLabel={t('devicePin.panelHint', {
-                name: pinnedChoice.name,
-              })}
               style={[
                 styles.newTermFabPinBadge,
                 {
@@ -1418,6 +1419,17 @@ export const VibeCodingListScreen: React.FC = () => {
         cwd={voiceTargetDevice?.authorizedDirectories?.[0] ?? '~'}
         deviceOs={voiceTargetDevice?.os}
         selectableDevices={voiceSelectableDevices}
+        lockedDevice={
+          pinnedChoice
+            ? {
+                id: pinnedChoice.id,
+                name: pinnedChoice.name,
+                platform: pinnedChoice.os,
+                online: true,
+                cwd: pinnedChoice.authorizedDirectories[0] ?? '~',
+              }
+            : undefined
+        }
         onClose={closeVoiceModal}
         onConfirm={handleVoiceConfirm}
       />

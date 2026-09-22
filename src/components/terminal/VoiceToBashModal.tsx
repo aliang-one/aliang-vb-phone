@@ -32,6 +32,7 @@ import {
 import { isUnsafeSuggestion } from '../../utils/terminalSuggestions';
 import { GlassPanel } from '../shared/GlassPanel';
 import { DevicePicker, type DevicePickerEntry } from './DevicePicker';
+import Svg, { Circle, Path } from 'react-native-svg';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
@@ -55,6 +56,8 @@ export interface VoiceToBashModalProps {
   onConfirm: (command: string, deviceId?: string, cwd?: string) => void;
   /** Online+enabled devices for the initial-mode confirm picker. Omitted in live mode. */
   selectableDevices?: DevicePickerEntry[];
+  /** Initial 模式：语音设备已固定——confirm 步设备锁死为此设备，忽略 AI select_device。 */
+  lockedDevice?: DevicePickerEntry;
 }
 
 // --- commandGen step timeline rendering -------------------------------------
@@ -99,6 +102,21 @@ const stepHeader = (e: CommandGenLiveEvent, t: TFunction): StepHeader | null => 
 // commandGenErrorText moved to ../../utils/commandGenErrorText so the terminal
 // AI-suggest bar can reuse it; re-exported here for existing importers.
 export { commandGenErrorText };
+
+// 12x12 inline pin glyph for the locked-device chip — same shape family as the
+// list-screen pin icon (stroke outline + solid hub) so the "locked" metaphor
+// reads identically wherever it appears.
+const PinInline: React.FC<{ color: string; size?: number }> = ({ color, size = 12 }) => (
+  <Svg width={size} height={size} viewBox="0 0 12 12">
+    <Path
+      d="M6 1.2a3.2 3.2 0 0 1 3.2 3.2c0 2.2-3.2 6.1-3.2 6.1s-3.2-3.9-3.2-6.1A3.2 3.2 0 0 1 6 1.2Z"
+      fill="none"
+      stroke={color}
+      strokeWidth={1.3}
+    />
+    <Circle cx={6} cy={4.4} r={1.1} fill={color} stroke="none" />
+  </Svg>
+);
 
 // One timeline row. A tool_call is a plain header (no result yet); a tool_result
 // always shows a 2-line snippet preview (so content is visible without tapping)
@@ -164,9 +182,11 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   onClose,
   onConfirm,
   selectableDevices,
+  lockedDevice,
 }) => {
   const { theme, isDark } = useTheme();
   const { t } = useTranslation('terminal');
+  const { t: tVibe } = useTranslation('vibecoding');
   const voiceStt = useVoiceStt();
 
   const [phase, setPhase] = useState<VoiceToBashPhase>('recording');
@@ -212,6 +232,18 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
   cancelRef.current = voiceStt.cancel;
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+
+  // lockedDevice 在每次 modal 打开时快照一次——打开期间 screen 侧的 pin 变化
+  // （如设备掉线自动解固定）不得把锁定翻转为解锁；中途掉线由生成错误态兜底。
+  const lockedDeviceRef = useRef<DevicePickerEntry | undefined>(undefined);
+  const wasVisibleRef = useRef(false);
+  useEffect(() => {
+    if (visible && !wasVisibleRef.current) {
+      lockedDeviceRef.current = lockedDevice;
+    }
+    wasVisibleRef.current = visible;
+  }, [visible, lockedDevice]);
+  const locked = lockedDeviceRef.current;
 
   // Begin (or re-begin) a recording: cancel any in-flight STT first so a late
   // onComplete from the previous attempt can't land in the new review phase,
@@ -295,9 +327,16 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
         .then((result) => {
           setCommand(result.command);
           setDangerous(Boolean(result.dangerous));
-          setChosenDeviceId(result.deviceId);
-          setChosenCwd(result.cwd);
-          setChosenDeviceName(result.deviceName);
+          if (lockedDeviceRef.current) {
+            // 设备已固定：丢弃 AI select_device 的换设备结果，强制锁定设备。
+            setChosenDeviceId(lockedDeviceRef.current.id);
+            setChosenCwd(lockedDeviceRef.current.cwd);
+            setChosenDeviceName(lockedDeviceRef.current.name);
+          } else {
+            setChosenDeviceId(result.deviceId);
+            setChosenCwd(result.cwd);
+            setChosenDeviceName(result.deviceName);
+          }
           armConfirmDanger(false);
           setPhase('confirming');
         })
@@ -627,7 +666,7 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
                 ]}
               />
 
-              {mode === 'initial' && selectableDevices && selectableDevices.length >= 1 && (
+              {mode === 'initial' && selectableDevices && selectableDevices.length >= 1 && !locked && (
                 <View testID="v2b-device-picker" style={styles.pickerWrap}>
                   <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
                     {t('voiceBash.confirm.runOnLabel')}
@@ -643,6 +682,44 @@ export const VoiceToBashModal: React.FC<VoiceToBashModalProps> = ({
                   />
                 </View>
               )}
+
+              {mode === 'initial' && locked ? (
+                <View testID="v2b-locked-device" style={styles.pickerWrap}>
+                  <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+                    {t('voiceBash.confirm.runOnLabel')}
+                  </Text>
+                  <View
+                    style={[
+                      styles.lockedDeviceChip,
+                      {
+                        borderColor: theme.colors.primary,
+                        backgroundColor: isDark
+                          ? 'rgba(255,255,255,0.045)'
+                          : theme.colors.surfaceContainerLow,
+                      },
+                    ]}
+                  >
+                    <PinInline color={theme.colors.primary} />
+                    <Text
+                      numberOfLines={1}
+                      style={[theme.typography.labelMd, { color: theme.colors.onSurface }]}
+                    >
+                      {locked.name}
+                    </Text>
+                    <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+                      {tVibe('devicePin.locked')}
+                    </Text>
+                    {locked.platform ? (
+                      <Text
+                        numberOfLines={1}
+                        style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}
+                      >
+                        {locked.platform}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              ) : null}
 
               <View style={styles.footerRow}>
                 <Pressable testID="v2b-cancel" onPress={handleClose} style={styles.textBtn}>
@@ -778,6 +855,15 @@ const styles = StyleSheet.create({
   },
   pickerWrap: {
     gap: 4,
+  },
+  lockedDeviceChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 44,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderRadius: 12,
   },
   warning: {
     borderWidth: 1,

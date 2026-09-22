@@ -57,6 +57,7 @@ interface PropsLike {
   onClose: () => void;
   onConfirm: (command: string, deviceId?: string, cwd?: string) => void;
   selectableDevices?: DevicePickerEntry[];
+  lockedDevice?: DevicePickerEntry;
 }
 
 const baseProps = (overrides: Partial<PropsLike> = {}): PropsLike => ({
@@ -664,5 +665,76 @@ describe('VoiceToBashModal', () => {
 
     expect(() => commandInputOf(root)).not.toThrow();
     expect(commandInputOf(root).props.value).toBe('ls -la');
+  });
+
+  // lockedDevice (VP5): when the screen pins the voice target, the confirm step
+  // must NOT offer a device picker — a locked chip renders instead so the user
+  // sees the run target without being able to switch it.
+  it('lockedDevice: no DevicePicker, locked chip instead', async () => {
+    mockGenerateCommand.mockResolvedValue({ command: 'ls', dangerous: false });
+    const locked: DevicePickerEntry = {
+      id: 'device-1',
+      name: 'MacBook',
+      platform: 'darwin',
+      online: true,
+      cwd: '/repo',
+    };
+    const props = baseProps({ mode: 'initial', selectableDevices: [locked], lockedDevice: locked });
+    const root = render(props);
+
+    await driveTranscript(root, props, 'list files');
+    await driveReviewToConfirm(root, props);
+
+    // The switchable picker is gone; the locked chip is present.
+    expect(root.root.findAllByProps({ testID: 'v2b-device-picker' })).toHaveLength(0);
+    expect(root.root.findAllByProps({ testID: 'v2b-locked-device' })).not.toHaveLength(0);
+    // The chip names the device and shows the locked copy (jest locks zh).
+    expect(allTexts(root).some(t => t.includes('MacBook'))).toBe(true);
+    expect(allTexts(root).some(t => t.includes('已锁定'))).toBe(true);
+  });
+
+  it('lockedDevice: AI-chosen device is discarded, onConfirm gets the locked device', async () => {
+    // The AI's select_device picked a DIFFERENT device than the pinned one —
+    // the pin must win: the override is discarded and confirm carries the lock.
+    mockGenerateCommand.mockResolvedValueOnce({
+      command: 'ls -la',
+      dangerous: false,
+      deviceId: 'device-9',
+      cwd: '/other',
+    });
+    const locked: DevicePickerEntry = {
+      id: 'device-1',
+      name: 'MacBook',
+      platform: 'darwin',
+      online: true,
+      cwd: '/repo',
+    };
+    const props = baseProps({ mode: 'initial', selectableDevices: [locked], lockedDevice: locked });
+    const root = render(props);
+
+    await driveTranscript(root, props, 'list files');
+    await driveReviewToConfirm(root, props);
+
+    act(() => {
+      confirmOf(root).props.onPress();
+    });
+    expect(props.onConfirm).toHaveBeenCalledWith('ls -la', 'device-1', '/repo');
+  });
+
+  it('without lockedDevice the confirm picker still renders (regression)', async () => {
+    mockGenerateCommand.mockResolvedValue({ command: 'ls', dangerous: false });
+    const props = baseProps({
+      mode: 'initial',
+      selectableDevices: [
+        { id: 'device-1', name: 'MacBook', platform: 'darwin', online: true, cwd: '/repo' },
+      ],
+    });
+    const root = render(props);
+
+    await driveTranscript(root, props, 'list files');
+    await driveReviewToConfirm(root, props);
+
+    expect(() => el(root, 'v2b-device-picker')).not.toThrow();
+    expect(root.root.findAllByProps({ testID: 'v2b-locked-device' })).toHaveLength(0);
   });
 });
