@@ -27,6 +27,7 @@ import Animated, {
   interpolateColor,
   SharedValue,
 } from 'react-native-reanimated';
+import Svg, { Circle, Path } from 'react-native-svg';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { BottomTabBarHeightContext } from '@react-navigation/bottom-tabs';
@@ -48,6 +49,7 @@ import {
   useControlCenterStore,
   useSessionListRuns,
 } from '../../store/controlCenterStore';
+import { useDevicePinStore } from '../../store/devicePinStore';
 import { isConnectionFailed } from '../../store/internals';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
@@ -202,6 +204,22 @@ const SegmentedTab: React.FC<SegmentedTabProps> = ({
     </TouchableOpacity>
   );
 };
+
+// 图钉图标：pinned 设备行尾的解除按钮（spec 2026-09-22 §4.2）。
+const PinIcon: React.FC<{ color: string; size?: number }> = ({
+  color,
+  size = 12,
+}) => (
+  <Svg width={size} height={size} viewBox="0 0 12 12">
+    <Path
+      d="M6 1.2a3.2 3.2 0 0 1 3.2 3.2c0 2.2-3.2 6.1-3.2 6.1s-3.2-3.9-3.2-6.1A3.2 3.2 0 0 1 6 1.2Z"
+      fill="none"
+      stroke={color}
+      strokeWidth={1.3}
+    />
+    <Circle cx={6} cy={4.4} r={1.1} fill={color} stroke="none" />
+  </Svg>
+);
 
 export const VibeCodingListScreen: React.FC = () => {
   const { t } = useTranslation('vibecoding');
@@ -422,6 +440,26 @@ export const VibeCodingListScreen: React.FC = () => {
     [devices],
   );
   const newTerminalDevice = terminalDeviceChoices[0];
+  // 语音设备固定（spec 2026-09-22）：面板长按固定，语音→命令强制落该设备，
+  // 直到解除/换绑/App 退出。只存 id+name 快照，实时状态从 choices 派生。
+  const pinPinned = useDevicePinStore(s => s.pinned);
+  const pinDevice = useDevicePinStore(s => s.pin);
+  const unpinDevice = useDevicePinStore(s => s.unpin);
+  const pinnedDevice =
+    pinPinned && terminalDeviceChoices.some(d => d.id === pinPinned.id)
+      ? pinPinned
+      : null;
+  useEffect(() => {
+    // pinned 设备掉出在线列表（离线/解绑）→ 自动清除，语音回退默认目标。
+    if (pinPinned && !pinnedDevice) {
+      unpinDevice();
+    }
+  }, [pinPinned, pinnedDevice, unpinDevice]);
+  // pinned 设备的完整 Device（含 authorizedDirectories 等）——hold 语音目标与
+  // modal lockedDevice 都从这里取；store 快照只有 {id,name} 不够用。
+  const pinnedChoice = pinnedDevice
+    ? terminalDeviceChoices.find(d => d.id === pinnedDevice.id)
+    : undefined;
   // Entries for the voice→bash confirm-step device picker (online + terminal-enabled).
   const voiceSelectableDevices: DevicePickerEntry[] = useMemo(
     () =>
@@ -615,10 +653,12 @@ export const VibeCodingListScreen: React.FC = () => {
       cancelAnimation(newTermHoldVisual);
       newTermHoldProgress.value = 0;
       newTermHoldVisual.value = 0;
-      openVoiceModal(newTerminalDevice);
+      // 固定设备优先：长按语音直接落到 pinned 设备，未固定才用默认目标。
+      openVoiceModal(pinnedChoice ?? newTerminalDevice);
     }, NEW_TERM_HOLD_MS);
   }, [
     newTerminalDevice,
+    pinnedChoice,
     newTermHoldProgress,
     newTermHoldVisual,
     openVoiceModal,
@@ -1002,7 +1042,9 @@ export const VibeCodingListScreen: React.FC = () => {
                 { color: theme.colors.onSurfaceVariant },
               ]}
             >
-              Pick a live machine for the new shell
+              {pinnedDevice
+                ? t('devicePin.panelHint', { name: pinnedDevice.name })
+                : t('devicePin.pinHint')}
             </Text>
           </View>
           <View style={styles.devicePickerList}>
@@ -1010,6 +1052,7 @@ export const VibeCodingListScreen: React.FC = () => {
               pagedTerminalDeviceChoices.map((device, index) => {
                 const displayIndex =
                   terminalDevicePage * TERMINAL_DEVICE_PAGE_SIZE + index + 1;
+                const isPinnedRow = pinnedDevice?.id === device.id;
                 return (
                   <Pressable
                     key={device.id}
@@ -1017,6 +1060,12 @@ export const VibeCodingListScreen: React.FC = () => {
                     accessibilityRole="button"
                     accessibilityLabel={`Create terminal on ${device.name}`}
                     onPress={() => handleCreateTerminal(device)}
+                    onLongPress={() => {
+                      pinDevice({ id: device.id, name: device.name });
+                      setTerminalDevicePickerOpen(false);
+                      setTerminalDevicePage(0);
+                      openVoiceModal(device);
+                    }}
                     style={({ pressed }) => [
                       styles.deviceChoice,
                       {
@@ -1029,6 +1078,10 @@ export const VibeCodingListScreen: React.FC = () => {
                         borderColor: pressed
                           ? theme.colors.primary
                           : `${theme.colors.primary}44`,
+                      },
+                      isPinnedRow && {
+                        borderColor: theme.colors.primary,
+                        backgroundColor: getActiveChipBackground(isDark),
                       },
                     ]}
                   >
@@ -1081,6 +1134,24 @@ export const VibeCodingListScreen: React.FC = () => {
                           device.id}
                       </Text>
                     </View>
+                    {isPinnedRow ? (
+                      <TouchableOpacity
+                        testID={`new-term-device-pin-${device.id}`}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('devicePin.locked')}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        onPress={() => unpinDevice()}
+                        style={[
+                          styles.deviceChoicePin,
+                          {
+                            borderColor: theme.colors.primary,
+                            backgroundColor: getActiveChipBackground(isDark),
+                          },
+                        ]}
+                      >
+                        <PinIcon color={theme.colors.primary} />
+                      </TouchableOpacity>
+                    ) : null}
                     <View
                       style={[
                         styles.deviceChoiceLaunch,
@@ -1232,7 +1303,11 @@ export const VibeCodingListScreen: React.FC = () => {
         >
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="New terminal"
+            accessibilityLabel={
+              pinnedChoice
+                ? `New terminal, voice locked to ${pinnedChoice.name}`
+                : 'New terminal'
+            }
             testID="new-term-fab"
             disabled={!newTerminalDevice}
             onPressIn={handleNewTermPressIn}
@@ -1309,6 +1384,31 @@ export const VibeCodingListScreen: React.FC = () => {
               </Text>
             </View>
           </Pressable>
+          {pinnedChoice ? (
+            <View
+              testID="new-term-fab-pin-badge"
+              pointerEvents="none"
+              style={[
+                styles.newTermFabPinBadge,
+                {
+                  backgroundColor: theme.colors.primary,
+                  borderColor: theme.colors.onPrimary + '55',
+                },
+              ]}
+            >
+              <PinIcon color={theme.colors.onPrimary} size={9} />
+              <Text
+                numberOfLines={1}
+                style={[
+                  theme.typography.codeSm,
+                  styles.newTermFabPinBadgeText,
+                  { color: theme.colors.onPrimary },
+                ]}
+              >
+                {pinnedChoice.name}
+              </Text>
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -1319,6 +1419,17 @@ export const VibeCodingListScreen: React.FC = () => {
         cwd={voiceTargetDevice?.authorizedDirectories?.[0] ?? '~'}
         deviceOs={voiceTargetDevice?.os}
         selectableDevices={voiceSelectableDevices}
+        lockedDevice={
+          pinnedChoice
+            ? {
+                id: pinnedChoice.id,
+                name: pinnedChoice.name,
+                platform: pinnedChoice.os,
+                online: true,
+                cwd: pinnedChoice.authorizedDirectories[0] ?? '~',
+              }
+            : undefined
+        }
         onClose={closeVoiceModal}
         onConfirm={handleVoiceConfirm}
       />
@@ -1479,6 +1590,14 @@ const styles = StyleSheet.create({
   deviceChoiceMeta: {
     lineHeight: 15,
   },
+  deviceChoicePin: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   deviceChoiceLaunch: {
     width: 28,
     height: 28,
@@ -1618,6 +1737,27 @@ const styles = StyleSheet.create({
   newTermFabLabel: {
     letterSpacing: 0,
     lineHeight: 16,
+  },
+  // FAB 顶部的「已固定设备」胶囊角标：图钉 + 设备名，盖在 FAB 上缘。
+  newTermFabPinBadge: {
+    position: 'absolute',
+    top: -9,
+    alignSelf: 'center',
+    maxWidth: NEW_TERM_FAB_WIDTH + 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 7,
+    height: 17,
+    borderRadius: 9,
+    borderWidth: 1,
+    zIndex: 10,
+    elevation: 2,
+  },
+  newTermFabPinBadgeText: {
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '600',
   },
   deferredPlaceholder: {
     flex: 1,

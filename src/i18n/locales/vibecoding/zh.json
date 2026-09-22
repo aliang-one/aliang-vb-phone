@@ -8,6 +8,11 @@
     "processing": "处理中…",
     "awaitingInput": "等待你的输入"
   },
+  "devicePin": {
+    "locked": "已锁定",
+    "panelHint": "语音已锁定到 {{name}}",
+    "pinHint": "长按设备可将语音固定到该设备"
+  },
   "command": {
     "goal": {
       "description": "创建 Goal；Goal 会话中用于更换目标并重新规划",

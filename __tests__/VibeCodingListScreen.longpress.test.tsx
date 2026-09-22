@@ -8,6 +8,7 @@ import { VibeCodingListScreen } from '../src/screens/vibecoding/VibeCodingListSc
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { useControlCenterStore } from '../src/store/controlCenterStore';
+import { useDevicePinStore } from '../src/store/devicePinStore';
 import type { Device } from '../src/data/platformModels';
 
 const mockNavigate = jest.fn();
@@ -81,6 +82,7 @@ describe('VibeCodingListScreen NEW TERM long-press → voice→bash', () => {
       stopTerminal: jest.fn().mockResolvedValue(undefined),
       refreshFromServer: jest.fn().mockResolvedValue(undefined),
     });
+    useDevicePinStore.setState({ pinned: null });
     jest.clearAllMocks();
   });
 
@@ -302,6 +304,164 @@ describe('VibeCodingListScreen NEW TERM long-press → voice→bash', () => {
       screen = renderScreen();
     });
     expect(findByTestId(screen!.root, 'new-term-fab')).toHaveLength(0);
+  });
+
+  it('long-pressing a device row pins it, closes the panel and opens the voice modal', () => {
+    act(() => {
+      screen = renderScreen();
+    });
+    switchToTerminals(screen!.root);
+
+    const fab = findByTestId(screen!.root, 'new-term-fab')[0];
+    act(() => {
+      fab.props.onPressIn();
+      fab.props.onPressOut();
+      fab.props.onPress();
+    });
+    expect(findByTestId(screen!.root, 'new-term-device-picker')).not.toHaveLength(0);
+
+    const row = findByTestId(screen!.root, 'new-term-device-device-2')[0];
+    act(() => {
+      row.props.onLongPress();
+    });
+
+    expect(useDevicePinStore.getState().pinned).toEqual({
+      id: 'device-2',
+      name: 'Studio',
+    });
+    // 面板关闭、语音 modal 直接打开
+    expect(findByTestId(screen!.root, 'new-term-device-picker')).toHaveLength(0);
+    expect(findByTestId(screen!.root, 'v2b-stub-confirm')).not.toHaveLength(0);
+  });
+
+  it('pinned row renders highlighted with a pin button that unpins', () => {
+    useDevicePinStore
+      .getState()
+      .pin({ id: 'device-2', name: 'Studio' });
+    act(() => {
+      screen = renderScreen();
+    });
+    switchToTerminals(screen!.root);
+
+    const fab = findByTestId(screen!.root, 'new-term-fab')[0];
+    act(() => {
+      fab.props.onPressIn();
+      fab.props.onPressOut();
+      fab.props.onPress();
+    });
+
+    // 固定行本身呈主题 primary 描边高亮（非 pressed 状态下）。
+    const rowStyle = StyleSheet.flatten(
+      findByTestId(screen!.root, 'new-term-device-device-2')[0].props.style({
+        pressed: false,
+      }),
+    );
+    expect(rowStyle.borderColor).toBe(utilityMinimalist.colors.primary);
+
+    const pinBtn = findByTestId(
+      screen!.root,
+      'new-term-device-pin-device-2',
+    )[0];
+    expect(pinBtn).toBeTruthy();
+    act(() => {
+      pinBtn.props.onPress();
+    });
+    expect(useDevicePinStore.getState().pinned).toBeNull();
+    // tap 行为不变：仍然建终端
+    const row = findByTestId(screen!.root, 'new-term-device-device-2')[0];
+    act(() => {
+      row.props.onPress();
+    });
+    expect(mockNavigate).toHaveBeenCalledWith('DeviceTerminal', {
+      deviceId: 'device-2',
+      directory: '/repo',
+      newSession: true,
+    });
+  });
+
+  it('panel subhead shows the lock hint when pinned', () => {
+    useDevicePinStore.getState().pin({ id: 'device-2', name: 'Studio' });
+    act(() => {
+      screen = renderScreen();
+    });
+    switchToTerminals(screen!.root);
+    const fab = findByTestId(screen!.root, 'new-term-fab')[0];
+    act(() => {
+      fab.props.onPressIn();
+      fab.props.onPressOut();
+      fab.props.onPress();
+    });
+    expect(
+      screen!.root
+        .findAllByType(Text)
+        .some(n => n.props.children === '语音已锁定到 Studio'),
+    ).toBe(true);
+  });
+
+  it('hold uses the pinned device as the voice target', () => {
+    useDevicePinStore.getState().pin({ id: 'device-2', name: 'Studio' });
+    act(() => {
+      screen = renderScreen();
+    });
+    switchToTerminals(screen!.root);
+
+    const fab = findByTestId(screen!.root, 'new-term-fab')[0];
+    act(() => {
+      fab.props.onPressIn();
+      jest.advanceTimersByTime(900);
+    });
+
+    const confirm = findByTestId(screen!.root, 'v2b-stub-confirm')[0];
+    act(() => {
+      confirm.props.onPress();
+    });
+    // 锁定到 device-2，而不是默认的 choices[0] = device-1
+    expect(mockNavigate).toHaveBeenCalledWith('DeviceTerminal', {
+      deviceId: 'device-2',
+      directory: '/repo',
+      initialCommand: 'git status --short',
+      newSession: true,
+    });
+  });
+
+  it('shows a pin badge on the FAB while pinned, gone after unpin', () => {
+    useDevicePinStore.getState().pin({ id: 'device-2', name: 'Studio' });
+    act(() => {
+      screen = renderScreen();
+    });
+    switchToTerminals(screen!.root);
+    expect(
+      findByTestId(screen!.root, 'new-term-fab-pin-badge'),
+    ).not.toHaveLength(0);
+
+    act(() => {
+      useDevicePinStore.getState().unpin();
+    });
+    expect(findByTestId(screen!.root, 'new-term-fab-pin-badge')).toHaveLength(
+      0,
+    );
+  });
+
+  it('auto-unpins when the pinned device drops out of the online choices', () => {
+    useDevicePinStore.getState().pin({ id: 'device-2', name: 'Studio' });
+    act(() => {
+      screen = renderScreen();
+    });
+    switchToTerminals(screen!.root);
+    expect(useDevicePinStore.getState().pinned).toEqual({
+      id: 'device-2',
+      name: 'Studio',
+    });
+
+    act(() => {
+      useControlCenterStore.setState({
+        devices: [
+          device('device-1', 'MacBook', 'online'),
+          device('device-3', 'Offline Box', 'offline'),
+        ],
+      });
+    });
+    expect(useDevicePinStore.getState().pinned).toBeNull();
   });
 });
 
