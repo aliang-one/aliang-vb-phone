@@ -10,7 +10,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import Svg, { Circle, Path } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import {
   BottomTabBarProps,
   BottomTabBarHeightCallbackContext,
@@ -47,15 +47,17 @@ const BULGE_BAND = 22; // 栏体顶线上方的凸起带高度(含图标出头�
 const BODY_HEIGHT = 54; // 栏体高度(原 track 高)
 const TRACK_PADDING_TOP = BULGE_BAND + 4; // track 顶部内边距(与图标静止中心共用推导)
 const DOME_RX = 32; // 凸起钟形静止半宽
-const DOME_RY = 12; // 凸起钟形静止半高(低弧,避免半圆机械感)
+const DOME_RY = 14; // 凸起钟形静止半高(低弧,避免半圆机械感)
 
-// 聚焦图标升起量由波浪几何推导:图标中心落在「顶线 + 0.2×钟形高」(嵌在波峰内)。
-// 波浪(DOME_RY)变化时升起量自动跟随,不再独立拍参数。
+// 聚焦图标升起量由波浪几何推导:图标顶部与波峰齐平
+// (中心 = 波峰y + 聚焦视觉半径),波浪变化时升起量自动跟随。
 const REST_ICON_CENTER = TRACK_PADDING_TOP + 17; // 图标静止中心(paddingTop + badge 半高)
-const ICON_RISE = Math.round(REST_ICON_CENTER - (BULGE_BAND + DOME_RY * 0.2)); // ≈19
+const FOCUSED_ICON_RADIUS = 17 * 1.25; // badge 半高 × 聚焦缩放
+const ICON_RISE = Math.round(
+  REST_ICON_CENTER - (BULGE_BAND - DOME_RY + FOCUSED_ICON_RADIUS),
+); // ≈14
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 interface BarGeometry {
   width: number;
@@ -245,24 +247,6 @@ export const BottomNavBar: React.FC<BottomTabBarProps> = ({
     return { d: buildHairlinePath({ width, height, cx, rx, ry }) };
   });
 
-  // 钟形两侧的静态装饰点(如音符尾点):与钟形同一弹簧落位,静止时零运动。
-  const dotLeftAnimatedProps = useAnimatedProps(() => {
-    const width = layoutWidth.value || initialWidth;
-    const tabW = width / tabCount;
-    const cx = index.value * tabW + tabW / 2;
-    const moving = motionless.value ? 0 : movingOf();
-    const rx = Math.min(DOME_RX * (1 + 0.3 * moving), tabW * 0.85);
-    return { cx: clamp(cx - rx - 10, 4, width - 4), cy: BULGE_BAND - 3 };
-  });
-  const dotRightAnimatedProps = useAnimatedProps(() => {
-    const width = layoutWidth.value || initialWidth;
-    const tabW = width / tabCount;
-    const cx = index.value * tabW + tabW / 2;
-    const moving = motionless.value ? 0 : movingOf();
-    const rx = Math.min(DOME_RX * (1 + 0.3 * moving), tabW * 0.85);
-    return { cx: clamp(cx + rx + 10, 4, width - 4), cy: BULGE_BAND - 3 };
-  });
-
   // 首帧静态兜底(SVG 初始 d,与 worklet 同一几何函数)
   const initCx =
     state.index * (initialWidth / tabCount) + initialWidth / tabCount / 2;
@@ -287,9 +271,6 @@ export const BottomNavBar: React.FC<BottomTabBarProps> = ({
   const hairColor = isDark
     ? 'rgba(255, 255, 255, 0.06)'
     : theme.colors.outlineVariant;
-  const dotColor = `${theme.colors.primary}55`; // ~33% alpha,低存在感
-  const initDotL = clamp(initCx - DOME_RX - 10, 4, initialWidth - 4);
-  const initDotR = clamp(initCx + DOME_RX + 10, 4, initialWidth - 4);
 
   return (
     <View
@@ -313,21 +294,6 @@ export const BottomNavBar: React.FC<BottomTabBarProps> = ({
             fill="none"
             stroke={hairColor}
             strokeWidth={1}
-          />
-          {/* 钟形两侧装饰点:静止态点缀,无独立动画 */}
-          <AnimatedCircle
-            animatedProps={dotLeftAnimatedProps}
-            cx={initDotL}
-            cy={BULGE_BAND - 3}
-            r={2.2}
-            fill={dotColor}
-          />
-          <AnimatedCircle
-            animatedProps={dotRightAnimatedProps}
-            cx={initDotR}
-            cy={BULGE_BAND - 3}
-            r={2.2}
-            fill={dotColor}
           />
         </Svg>
       </Animated.View>
