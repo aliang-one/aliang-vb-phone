@@ -1687,14 +1687,17 @@ export const DeviceTerminalScreen: React.FC = () => {
                   <TerminalVoiceFab
                     phase={aiSuggest.phase}
                     disabled={!terminalInputEnabled}
-                    onPress={() => {
-                      if (!terminalInputEnabled) return;
-                      if (aiSuggest.phase === 'recording') aiSuggest.stopVoice();
-                      else aiSuggest.startVoice();
-                    }}
-                    onLongPress={() => {
+                    onShortPress={() => {
                       if (!terminalInputEnabled) return;
                       aiSuggest.openTextInput();
+                    }}
+                    onHoldStart={() => {
+                      if (!terminalInputEnabled) return;
+                      aiSuggest.startVoice();
+                    }}
+                    onHoldEnd={() => {
+                      if (!terminalInputEnabled) return;
+                      if (aiSuggest.phase === 'recording') aiSuggest.stopVoice();
                     }}
                   />
                 </View>

@@ -13,6 +13,7 @@ import TestRenderer, { act } from 'react-test-renderer';
 import { ActivityIndicator } from 'react-native';
 import { TerminalVoiceFab } from '../TerminalVoiceFab';
 import { Logo } from '../../visual/Logo';
+import { darkTheme } from '../../../theme/themes/darkTheme';
 
 type FabProps = React.ComponentProps<typeof TerminalVoiceFab>;
 
@@ -151,5 +152,39 @@ describe('TerminalVoiceFab 渲染:logo 恒定', () => {
     const rec = renderTrackedFab({ phase: 'recording' });
     // Animated.View 扇出 3 个带同 testID 的节点(见文件头注释),断存在性。
     expect(rec.renderer.root.findAllByProps({ testID: 'terminal-voice-fab-pulse' }).length).toBeGreaterThan(0);
+  });
+
+  // 以下四条移植自被删除的旧根级测试(2026-09-22 评审):颜色/动效不能是
+  // 唯一指示,相位还要有 a11y 播报;红边红底与 busy 态是主相位视觉。
+  // 渲染走 renderTrackedFab(非裸 renderFab):recording 的 Animated.loop
+  // 只有卸载才 stop,不跟踪卸载会让 jest 挂着退不出(见本 describe 头注释)。
+  it('recording/error 相位无障碍标签随相位播报', () => {
+    const rec = renderTrackedFab({ phase: 'recording' });
+    expect(pressableOf(rec.renderer).props.accessibilityLabel).toContain('正在聆听…');
+    const err = renderTrackedFab({ phase: 'error' });
+    expect(pressableOf(err.renderer).props.accessibilityLabel).toContain('语音识别失败');
+  });
+
+  it('recording 样式含主题 error 色(红边红底)', () => {
+    const rec = renderTrackedFab({ phase: 'recording' });
+    expect(JSON.stringify(pressableOf(rec.renderer).props.style)).toContain(darkTheme.colors.error);
+  });
+
+  it('generating 相位 accessibilityState.busy=true,其余相位 false', () => {
+    const gen = renderTrackedFab({ phase: 'generating' });
+    expect(pressableOf(gen.renderer).props.accessibilityState).toEqual({
+      disabled: false,
+      busy: true,
+    });
+    const idle = renderTrackedFab({ phase: 'idle' });
+    expect(pressableOf(idle.renderer).props.accessibilityState).toEqual({
+      disabled: false,
+      busy: false,
+    });
+  });
+
+  it('generating 无脉冲叠层', () => {
+    const gen = renderTrackedFab({ phase: 'generating' });
+    expect(gen.renderer.root.findAllByProps({ testID: 'terminal-voice-fab-pulse' })).toHaveLength(0);
   });
 });
