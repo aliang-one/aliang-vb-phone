@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { Keyboard, Text } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { DeviceTerminalScreen } from '../src/screens/devices/DeviceTerminalScreen';
@@ -288,6 +288,62 @@ describe('DeviceTerminalScreen in-terminal voice FAB', () => {
 
     expect(mockAi.stopVoice).toHaveBeenCalledTimes(1);
     expect(mockAi.startVoice).not.toHaveBeenCalled();
+  });
+
+  it('recording 期间键盘收落不移动浮动栏(按住式录音防 FAB 逃逸)', async () => {
+    // 2026-09-22 根因:startVoice 的 Keyboard.dismiss() 触发 keyboardWillHide,
+    // controlsBottomOffset 从键盘高度跳回安全区,整条浮动栏带着指下的 FAB
+    // 下坠 → 触摸被判滑出 → pressOut 提前触发 onHoldEnd(「没松手就自己停」)。
+    // 录音期间 bottom 偏移必须冻结在按下瞬间的高度,松开(离开 recording)后放行。
+    const listeners: Array<{ type: string; handler: (event: unknown) => void }> = [];
+    const addListenerSpy = jest.spyOn(Keyboard, 'addListener');
+    addListenerSpy.mockImplementation(
+      ((type: string, handler: (event: unknown) => void) => {
+        listeners.push({ type, handler });
+        return { remove: () => undefined };
+      }) as unknown as typeof Keyboard.addListener,
+    );
+    const fireKeyboard = (type: string, event: unknown) => {
+      act(() => {
+        listeners.filter(l => l.type === type).forEach(l => l.handler(event));
+      });
+    };
+
+    try {
+      await renderScreen();
+
+      // 生效的 bottom 是 style 数组里最后一个 bottom 键(基础样式 bottom:0 被
+      // 覆盖项压住——读第一个会永远拿到 0)。
+      const bottomOfBar = (): unknown => {
+        const node = root().findByProps({ testID: 'terminal-floating-controls' });
+        const style = Array.isArray(node.props.style)
+          ? node.props.style
+          : [node.props.style];
+        const bottoms = style
+          .filter(s => s && 'bottom' in s)
+          .map(s => (s as { bottom: unknown }).bottom);
+        return bottoms[bottoms.length - 1];
+      };
+
+      // 键盘弹出(打字态)→ 浮动栏被抬到键盘高度。
+      fireKeyboard('keyboardWillShow', { endCoordinates: { height: 300 } });
+      expect(bottomOfBar()).toBe(300);
+
+      // 长按进入录音(模拟按住中)。
+      mockAi.phase = 'recording';
+      await updateScreen();
+
+      // startVoice 的 Keyboard.dismiss() → keyboardWillHide:录音中栏不许动。
+      fireKeyboard('keyboardWillHide', {});
+      expect(bottomOfBar()).toBe(300);
+
+      // 松开、离开 recording → 放行回落到安全区偏移(测试环境 insets.bottom=0)。
+      mockAi.phase = 'idle';
+      await updateScreen();
+      expect(bottomOfBar()).toBe(0);
+    } finally {
+      addListenerSpy.mockRestore();
+    }
   });
 
   it('renders AI chips and executes on tap', async () => {

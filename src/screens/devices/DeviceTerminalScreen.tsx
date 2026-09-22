@@ -386,6 +386,20 @@ export const DeviceTerminalScreen: React.FC = () => {
     cwd: terminal?.directory ?? directory,
     sessionId: terminal?.id,
   });
+  // 2026-09-22 手势反转配套:录音是按住式,按住期间浮动栏(含 FAB)必须钉在
+  // 原地。startVoice 会 Keyboard.dismiss(),keyboardWillHide 把
+  // controlsBottomOffset 从键盘高度跳回安全区,整条栏带着指下的 FAB 下坠 →
+  // 触摸被判滑出 → pressOut 提前触发 onHoldEnd(「没松手就自己停」)。故
+  // recording 期间冻结 bottom 偏移在按下瞬间的值,离开 recording 后放行回落。
+  // latest-ref 写法与本文件既有惯例一致;ref 写在渲染分支,不触发额外渲染。
+  const recordingBottomOffsetRef = useRef(controlsBottomOffset);
+  if (aiSuggest.phase !== 'recording') {
+    recordingBottomOffsetRef.current = controlsBottomOffset;
+  }
+  const stableControlsBottomOffset =
+    aiSuggest.phase === 'recording'
+      ? recordingBottomOffsetRef.current
+      : controlsBottomOffset;
   // 换会话(屏内 setTerminalId 可不卸载)必须清空 chips/复位——旧会话的建议
   // 绝不能被送进新 pty(spec 审查意见)。reset 是稳定 useCallback,依赖只挂 terminalId。
   useEffect(() => {
@@ -1541,7 +1555,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                 onLayout={event =>
                   setFloatingControlsHeight(event.nativeEvent.layout.height)
                 }
-                style={[styles.floatingControls, { bottom: controlsBottomOffset }]}
+                style={[styles.floatingControls, { bottom: stableControlsBottomOffset }]}
               >
                 {aiSuggest.phase !== 'idle' || aiSuggest.textMode ? (
                   <TerminalAiStatusStrip
