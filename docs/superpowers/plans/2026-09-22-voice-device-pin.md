@@ -518,6 +518,8 @@ git commit -m "feat(终端): FAB 长按语音目标用 pinned 设备+固定角�
 
 ## Task 5: `VoiceToBashModal` 的 `lockedDevice` 强制锁定（TDD）
 
+> ⚠ Task 4 的 Step 4.4 传入 `lockedDevice` 后、Task 5 把 prop 加进 `VoiceToBashModalProps` 前，存在一个**刻意的类型不干净窗口**：Task 4 的 commit 单独 tsc 会报未知 prop——这是有意的步骤顺序（jest 不做类型检查，Step 5.4 才跑 typecheck）。Task 4→5 之间不要单独跑 typecheck。
+
 **Files:**
 - Modify: `src/components/terminal/VoiceToBashModal.tsx`
 - Test: `__tests__/VoiceToBashModal.test.tsx`（扩展既有文件）
@@ -611,6 +613,7 @@ git commit -m "feat(终端): FAB 长按语音目标用 pinned 设备+固定角�
   }, [visible, lockedDevice]);
   const locked = lockedDeviceRef.current;
 ```
+（首帧 ref 在 effect 里赋值、不触发重渲染——首帧 `locked===undefined` 无碍：芯片只在 confirming 相渲染，而 confirming 由 setPhase 的重渲染到达，此时 ref 已就位。不要因此"改回"直接用 prop 渲染。）
 
 ③ confirm 步 picker 条件（line 630）改为：
 
@@ -653,6 +656,7 @@ git commit -m "feat(终端): FAB 长按语音目标用 pinned 设备+固定角�
                         {locked.platform}
                       </Text>
                     ) : null}
+                  </View>
                 </View>
               ) : null}
 ```
