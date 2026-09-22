@@ -146,12 +146,12 @@ describe('BottomNavBar', () => {
     expect(stroked[0].props.strokeWidth).toBe(1);
     expect(paths.some(p => p.props.fill != null)).toBe(true);
 
-    // 凸起带必须计入布局高度(触摸可达 + 屏幕避让):24 凸起带 + 54 栏体
+    // 凸起带必须计入布局高度(触摸可达 + 屏幕避让):22 凸起带 + 54 栏体
     const track = screen.root
       .findAllByType(View)
       .find(node => {
         const style = StyleSheet.flatten(node.props.style);
-        return style?.flexDirection === 'row' && style?.height === 78;
+        return style?.flexDirection === 'row' && style?.height === 76;
       });
     expect(track).toBeTruthy();
 
