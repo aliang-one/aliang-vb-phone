@@ -1,45 +1,39 @@
-// Always-visible voice FAB pinned to the right edge of the terminal bottom
-// bar (spec 2026-09-21). Tap = start/stop STT (the screen routes by phase);
-// long-press (idle only) = open the editable text input. Purely presentational:
-// the phase and handlers come from useAiCommandSuggestions via the screen.
+// Terminal AI FAB(spec 2026-09-22):短按=文字输入,长按(≥450ms)=STT
+// push-to-talk,松开=结束。图标恒为 aliang Logo,任何相位不换图标——相位
+// 由表面色/描边(录音红)、脉冲叠层与生成期角标 spinner 表达。纯展示手势
+// 分类器:onShortPress/onHoldStart/onHoldEnd 由 screen 接线,并按
+// AiSuggestPhase 路由到 useAiCommandSuggestions(hook 自带相位守卫,
+// 陈旧闭包最多是被 hook 短路,不会产生错误行为)。
 import React, { useEffect, useRef } from 'react';
-import { Animated, ActivityIndicator, StyleSheet, TouchableOpacity } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import { ActivityIndicator, Animated, Pressable, StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/useTheme';
 import { useReduceMotion } from '../../hooks/useReduceMotion';
+import { Logo } from '../visual/Logo';
 import type { AiSuggestPhase } from '../../hooks/useAiCommandSuggestions';
 
-const MicIcon: React.FC<{ color: string; size?: number }> = ({ color, size = 20 }) => (
-  <Svg width={size} height={size} viewBox="0 0 20 20">
-    <Path
-      d="M10 2.5a3 3 0 0 1 3 3v4a3 3 0 0 1-6 0v-4a3 3 0 0 1 3-3Z"
-      fill="none"
-      stroke={color}
-      strokeWidth={1.6}
-    />
-    <Path
-      d="M5.5 9.5a4.5 4.5 0 0 0 9 0M10 14v3M7.5 17h5"
-      fill="none"
-      stroke={color}
-      strokeWidth={1.6}
-      strokeLinecap="round"
-    />
-  </Svg>
-);
+export const HOLD_THRESHOLD_MS = 450;
 
 export interface TerminalVoiceFabProps {
   phase: AiSuggestPhase;
   disabled: boolean;
-  onPress: () => void;
-  onLongPress: () => void;
+  /** 短按(未到阈值松开)→ screen 调 openTextInput()。 */
+  onShortPress: () => void;
+  /** 按住到阈值 → screen 调 startVoice()。 */
+  onHoldStart: () => void;
+  /** 长按后松开 → screen 按 phase 调 stopVoice()。 */
+  onHoldEnd: () => void;
+  /** 长按阈值;测试注入短值用,默认 450ms(spec §2)。 */
+  holdThresholdMs?: number;
 }
 
 export const TerminalVoiceFab: React.FC<TerminalVoiceFabProps> = ({
   phase,
   disabled,
-  onPress,
-  onLongPress,
+  onShortPress,
+  onHoldStart,
+  onHoldEnd,
+  holdThresholdMs = HOLD_THRESHOLD_MS,
 }) => {
   const { theme, isDark } = useTheme();
   const { t } = useTranslation('terminal');
@@ -61,17 +55,51 @@ export const TerminalVoiceFab: React.FC<TerminalVoiceFabProps> = ({
     return () => animation.stop();
   }, [phase, reduceMotion, pulse]);
 
+  // 手势状态机:pressActiveRef 保证 pressOut 与 pressIn 配对(滑出/被抢占
+  // 触发的 pressOut 也走这里);holdFiredRef 区分短按与长按松开。
+  const pressActiveRef = useRef(false);
+  const holdFiredRef = useRef(false);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearHoldTimer = () => {
+    if (holdTimerRef.current !== null) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  };
+
+  // 按压中卸载:清计时器(录音由 hook 的 unmount cancel 兜底)。
+  useEffect(() => () => clearHoldTimer(), []);
+
+  const handlePressIn = () => {
+    if (disabled) return;
+    pressActiveRef.current = true;
+    holdFiredRef.current = false;
+    clearHoldTimer();
+    holdTimerRef.current = setTimeout(() => {
+      holdTimerRef.current = null;
+      holdFiredRef.current = true;
+      onHoldStart();
+    }, holdThresholdMs);
+  };
+
+  const handlePressOut = () => {
+    if (!pressActiveRef.current) return;
+    pressActiveRef.current = false;
+    clearHoldTimer();
+    if (holdFiredRef.current) onHoldEnd();
+    else onShortPress();
+  };
+
   const recording = phase === 'recording';
   // 表面色沿用 DeviceTerminalScreen 底栏 FAB 的 elevatedSurface/outline 惯用
   // (dark 用半透明白叠层,light 用主题 token),录音/错误态红边红底盖过默认。
   const restingSurface = isDark ? 'rgba(255,255,255,0.06)' : theme.colors.surfaceContainerLowest;
   const restingOutline = isDark ? 'rgba(255,255,255,0.08)' : theme.colors.outlineVariant;
-  const accentColor = recording || phase === 'error' ? theme.colors.error : theme.colors.primary;
 
   return (
-    <TouchableOpacity
+    <Pressable
       testID="terminal-voice-fab"
-      activeOpacity={0.74}
       accessibilityRole="button"
       // 颜色/动效不能是唯一指示:无障碍标签随相位播报录音/错误态。
       accessibilityLabel={
@@ -85,8 +113,8 @@ export const TerminalVoiceFab: React.FC<TerminalVoiceFabProps> = ({
       accessibilityState={{ disabled, busy: phase === 'generating' }}
       hitSlop={{ top: 6, right: 6, bottom: 6, left: 6 }}
       disabled={disabled}
-      onPress={onPress}
-      onLongPress={onLongPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
       style={[
         styles.fab,
         {
@@ -110,12 +138,11 @@ export const TerminalVoiceFab: React.FC<TerminalVoiceFabProps> = ({
           ]}
         />
       ) : null}
+      <Logo size={24} />
       {phase === 'generating' ? (
-        <ActivityIndicator size="small" color={theme.colors.primary} />
-      ) : (
-        <MicIcon color={accentColor} />
-      )}
-    </TouchableOpacity>
+        <ActivityIndicator size={12} color={theme.colors.primary} style={styles.spinner} />
+      ) : null}
+    </Pressable>
   );
 };
 
@@ -130,5 +157,6 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   pulse: { borderRadius: 27 },
+  spinner: { position: 'absolute', right: 6, bottom: 6 },
   disabled: { opacity: 0.45 },
 });

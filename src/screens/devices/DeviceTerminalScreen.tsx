@@ -380,7 +380,7 @@ export const DeviceTerminalScreen: React.FC = () => {
   // attach 进行中（还没拿到会话对象）时占位区显示「正在恢复会话」而非「打开中」。
   const attachInFlight = terminalOpening && Boolean(terminalId);
 
-  // 终端 AI 建议命令行(2026-09 spec):语音直通 + 长按文本输入 → commandGen 多建议 chips。
+  // 终端 AI 建议命令行(2026-09 spec;2026-09-22 手势反转:短按文字输入 / 长按说话松开结束)→ commandGen 多建议 chips。
   const aiSuggest = useAiCommandSuggestions({
     deviceId: terminal?.deviceId ?? '',
     cwd: terminal?.directory ?? directory,
@@ -1687,14 +1687,17 @@ export const DeviceTerminalScreen: React.FC = () => {
                   <TerminalVoiceFab
                     phase={aiSuggest.phase}
                     disabled={!terminalInputEnabled}
-                    onPress={() => {
-                      if (!terminalInputEnabled) return;
-                      if (aiSuggest.phase === 'recording') aiSuggest.stopVoice();
-                      else aiSuggest.startVoice();
-                    }}
-                    onLongPress={() => {
+                    onShortPress={() => {
                       if (!terminalInputEnabled) return;
                       aiSuggest.openTextInput();
+                    }}
+                    onHoldStart={() => {
+                      if (!terminalInputEnabled) return;
+                      aiSuggest.startVoice();
+                    }}
+                    onHoldEnd={() => {
+                      if (!terminalInputEnabled) return;
+                      if (aiSuggest.phase === 'recording') aiSuggest.stopVoice();
                     }}
                   />
                 </View>

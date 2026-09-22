@@ -48,7 +48,7 @@ describe('TerminalSuggestionRow', () => {
     await renderRow({ chips: [] });
     expect(byTestID('terminal-suggestion-empty')).toBeTruthy();
     expect(
-      screen.root.findAllByType(Text).some(n => n.props.children === '点右侧麦克风说出命令，长按可输入文字'),
+      screen.root.findAllByType(Text).some(n => n.props.children === '轻点输入命令，长按说出命令'),
     ).toBe(true);
   });
 

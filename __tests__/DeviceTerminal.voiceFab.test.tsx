@@ -3,6 +3,7 @@ import { Text } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { DeviceTerminalScreen } from '../src/screens/devices/DeviceTerminalScreen';
+import { TerminalVoiceFab } from '../src/components/terminal/TerminalVoiceFab';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { useControlCenterStore } from '../src/store/controlCenterStore';
@@ -225,6 +226,11 @@ describe('DeviceTerminalScreen in-terminal voice FAB', () => {
 
   const root = () => screen!.root;
   const fab = () => root().findByProps({ testID: 'terminal-voice-fab' });
+  // 新手势契约(2026-09-22):onShortPress/onHoldStart/onHoldEnd 是 screen 接到
+  // TerminalVoiceFab 组件节点上的 props;testID 节点是内层 Pressable,只透传
+  // onPressIn/onPressOut/disabled(组件内部消费手势分类)。故接线断言用
+  // findByType(TerminalVoiceFab) 直呼组件 props,assertion 语义不变。
+  const fabHandlers = () => root().findByType(TerminalVoiceFab).props;
   const hasNode = (testID: string) => {
     try {
       return Boolean(root().findByProps({ testID }));
@@ -249,38 +255,39 @@ describe('DeviceTerminalScreen in-terminal voice FAB', () => {
     expect(fab().props.disabled).toBe(false);
   });
 
-  it('tap starts voice from idle', async () => {
+  it('short-press opens the text input', async () => {
     await renderScreen();
 
     act(() => {
-      fab().props.onPress();
+      fabHandlers().onShortPress();
+    });
+
+    expect(mockAi.openTextInput).toHaveBeenCalledTimes(1);
+    expect(mockAi.startVoice).not.toHaveBeenCalled();
+  });
+
+  it('hold starts voice from idle', async () => {
+    await renderScreen();
+
+    act(() => {
+      fabHandlers().onHoldStart();
     });
 
     expect(mockAi.startVoice).toHaveBeenCalledTimes(1);
     expect(mockAi.stopVoice).not.toHaveBeenCalled();
   });
 
-  it('tap stops voice while recording', async () => {
+  it('release while recording stops voice', async () => {
     await renderScreen();
     mockAi.phase = 'recording';
     await updateScreen();
 
     act(() => {
-      fab().props.onPress();
+      fabHandlers().onHoldEnd();
     });
 
     expect(mockAi.stopVoice).toHaveBeenCalledTimes(1);
     expect(mockAi.startVoice).not.toHaveBeenCalled();
-  });
-
-  it('long-press opens the text input', async () => {
-    await renderScreen();
-
-    act(() => {
-      fab().props.onLongPress();
-    });
-
-    expect(mockAi.openTextInput).toHaveBeenCalledTimes(1);
   });
 
   it('renders AI chips and executes on tap', async () => {
