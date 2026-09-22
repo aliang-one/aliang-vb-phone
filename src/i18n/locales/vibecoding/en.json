@@ -8,6 +8,11 @@
     "processing": "Processing…",
     "awaitingInput": "Awaiting your input"
   },
+  "devicePin": {
+    "locked": "Locked",
+    "panelHint": "Voice locked to {{name}}",
+    "pinHint": "Long-press a device to lock voice to it"
+  },
   "command": {
     "goal": {
       "description": "Create a Goal; replace and replan it inside a Goal session",
