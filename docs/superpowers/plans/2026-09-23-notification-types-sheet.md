@@ -111,7 +111,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 
 **Files:**
 - Test: `__tests__/backgroundNotifications.nativeId.test.ts`（新建）
-- Modify: `src/utils/backgroundNotifications.ts:7,44-46`
+- Modify: `src/utils/backgroundNotifications.ts:7,53-55`
 
 - [ ] **Step 1: 写失败测试**
 
@@ -396,7 +396,7 @@ import { Switch, Text, TouchableOpacity } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
-import { useSessionStore } from '../../stores/useSettingsStore';
+import { useSessionStore } from '../stores/useSettingsStore';
 import { NotificationTypesSheet } from '../src/components/settings/NotificationTypesSheet';
 
 const renderSheet = () =>
@@ -549,7 +549,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 ### Task 8: 设置页入口行替换内联开关（手机）
 
 **Files:**
-- Modify: `src/screens/settings/SettingsScreen.tsx:56-60,82-96 区域,582-607`
+- Modify: `src/screens/settings/SettingsScreen.tsx:56-60,82-96 区域,592-617`
 - Test: `__tests__/settingsNotifications.test.tsx`（追加用例）
 
 - [ ] **Step 1: 写失败测试**（追加进现有 describe）
@@ -588,9 +588,11 @@ Expected: 新用例 FAIL（找不到「通知类型」行），**既有 4 个用
 
 - [ ] **Step 3: 改 SettingsScreen**
 
-1. import 区加 `Pressable`（react-native，若无）与 `NotificationTypesSheet`。
-2. 组件 state 区（`~line 91` 附近）加 `const [typesSheetOpen, setTypesSheetOpen] = useState(false);`
-3. 删除 `SettingsScreen.tsx:582-607` 的 `NOTIFIABLE_EVENT_TYPES.map` 内联开关块，
+1. `NOTIFIABLE_EVENT_TYPES`（`SettingsScreen.tsx:56-60`）加 `'device_online'`——
+   不加的话摘要永远显示「4/5」，Task Step 1 的断言会红。
+2. import 区加 `TouchableOpacity`（应已有）与 `NotificationTypesSheet`。
+3. 组件 state 区（`~line 91` 附近）加 `const [typesSheetOpen, setTypesSheetOpen] = useState(false);`
+4. 删除 `SettingsScreen.tsx:592-617` 的 `NOTIFIABLE_EVENT_TYPES.map` 内联开关块，
    原位替换为：
 
 ```tsx
@@ -608,15 +610,15 @@ Expected: 新用例 FAIL（找不到「通知类型」行），**既有 4 个用
                     })}
                   </Text>
                 </View>
-                <Pressable
+                <TouchableOpacity
                   onPress={() => setTypesSheetOpen(true)}
                   accessibilityLabel={t('notifications.typesTitle')}
                   hitSlop={8}
                 >
                   <Text style={[theme.typography.labelMd, { color: theme.colors.primary }]}>
-                    {t('common:notification.edit') ?? '›'}
+                    ›
                   </Text>
-                </Pressable>
+                </TouchableOpacity>
               </View>
               <NotificationTypesSheet
                 open={typesSheetOpen}
@@ -624,14 +626,16 @@ Expected: 新用例 FAIL（找不到「通知类型」行），**既有 4 个用
               />
 ```
 
-（`common:notification.edit` 若不存在则直接用 `'›'` 字面量——执行时以
-`src/i18n/locales/common/zh.json` 的 `notification` 键组实况为准，不要发明新键。
-右侧文案只做视觉提示，整行 Pressable 才是点击目标；`findButtonByText` 匹配的是
-行内 Text，与 Pressable/TTouchableOpacity 包装兼容。）
+（行包装必须是 `TouchableOpacity`——`findButtonByText` 只搜
+`findAllByType(TouchableOpacity)`，用 Pressable 会让测试找不到入口行。
+`›` 用字面量：`common:notification.edit` 键不存在，i18next 对缺失键返回键名
+字符串，`??` 兜底永远不会触发。）
 
-4. `isEventTypeEnabled` 加入 settingsDeliveryPolicy import（该文件已从
-   `../utils/notificationDeliveryPolicy` 导入 `NotifiableEventType`，扩展即可）。
-5. 「通知类型」行放在权限按钮 GlassPanel 内、测试通知 GlassPanel 之前（即原开关块位置）。
+5. `isEventTypeEnabled` 加入该文件既有的
+   `../utils/notificationDeliveryPolicy` import（已导入 `NotifiableEventType`，扩展即可）。
+6. 「通知类型」行原位替换开关块——注意原开关块与「发送测试通知」按钮在**同一个
+   GlassPanel 内**（面板尾部的 `serviceActionsInset` 之后），替换后弹窗组件挂在该
+   GlassPanel 内部末尾。
 
 - [ ] **Step 4: 跑绿**
 
@@ -649,22 +653,167 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 
 ---
 
-### Task 9: 手机端全量验证门
+### Task 9: 后台 hook 开关矩阵——「关掉绝不弹、打开必弹」（手机，特性测试）
+
+这是 spec §5 第 1/2 项（开关矩阵 + 补发）的自动化收口：过滤行为本身已存在
+（`useBackgroundNotifications.ts:84`），本任务**只加测试不加产品代码**——测试应当
+一次通过（characterization test），不过即说明对行为理解有误，停下排查而非改产品码。
+
+**Files:**
+- Test: `__tests__/useBackgroundNotifications.typeSwitch.test.tsx`（新建）
+
+- [ ] **Step 1: 写矩阵测试**（harness 复用 settingsNotifications 的 AppState 机器）
+
+```tsx
+// __tests__/useBackgroundNotifications.typeSwitch.test.tsx
+import React from 'react';
+import ReactTestRenderer, { act } from 'react-test-renderer';
+import { AppState } from 'react-native';
+import { useControlCenterStore } from '../src/store/controlCenterStore';
+import { useSessionStore } from '../stores/useSettingsStore';
+import {
+  displayManagedNotification,
+  getNotificationPermissionStatus,
+  requestPermission,
+} from '../src/services/localNotifications';
+import { useBackgroundNotifications } from '../src/hooks/useBackgroundNotifications';
+import type { NotifiableEventType, NotificationPrefs } from '../src/utils/notificationDeliveryPolicy';
+
+jest.mock('../src/services/localNotifications', () => ({
+  requestPermission: jest.fn(),
+  getNotificationPermissionStatus: jest.fn(),
+  displayManagedNotification: jest.fn(),
+}));
+
+function Probe(): null {
+  useBackgroundNotifications({ enabled: true, userId: 'u1' });
+  return null;
+}
+
+type Handler = (state: string) => void;
+let handlers: Handler[] = [];
+const flush = () =>
+  act(async () => {
+    await new Promise<void>(r => setTimeout(() => r(), 0));
+    await new Promise<void>(r => setImmediate(() => r()));
+  });
+
+const ALL_TYPES: NotifiableEventType[] = [
+  'approval', 'session_done', 'session_failed', 'device_offline', 'device_online',
+];
+
+const serverItem = (id: string, type: NotifiableEventType) => ({
+  id,
+  type: type === 'session_done' ? 'completed' : type === 'session_failed' ? 'error' : type,
+  title: 't', body: 'b', read: false, createdAt: '2026-09-23T00:00:00Z',
+  deviceId: type === 'device_offline' || type === 'device_online' ? 'd1' : undefined,
+  sessionId: type === 'session_done' || type === 'session_failed' ? 's1' : undefined,
+  approvalId: type === 'approval' ? 'a1' : undefined,
+});
+
+async function scenario(type: NotifiableEventType, enabled: boolean): Promise<number> {
+  jest.clearAllMocks();
+  handlers = [];
+  jest
+    .spyOn(AppState, 'addEventListener')
+    .mockImplementation((((event: string, handler: Handler) => {
+      if (event === 'change') handlers.push(handler);
+      return { remove: jest.fn() };
+    }) as unknown) as typeof AppState.addEventListener);
+  (requestPermission as jest.Mock).mockResolvedValue(true);
+  (getNotificationPermissionStatus as jest.Mock).mockResolvedValue('authorized');
+  (displayManagedNotification as jest.Mock).mockResolvedValue(true);
+  const prefs = Object.fromEntries(ALL_TYPES.map(t => [t, true])) as NotificationPrefs;
+  useSessionStore.setState({ notificationPrefs: { ...prefs, [type]: enabled } });
+  useControlCenterStore.setState({ notifications: [] });
+
+  let r!: ReactTestRenderer.ReactTestRenderer;
+  await act(async () => { r = ReactTestRenderer.create(<Probe />); });
+  await flush();
+  for (const h of handlers) h('background');   // 进入后台 → snapshot + 权限检查
+  await flush();
+  await act(async () => {                       // 新通知到达 → store subscribe 触发 check
+    useControlCenterStore.setState({
+      notifications: [serverItem('n1', type) as never],
+    });
+  });
+  await flush();
+  r.unmount();
+  return (displayManagedNotification as jest.Mock).mock.calls.length;
+}
+
+describe('background delivery honours per-type switches', () => {
+  test.each(ALL_TYPES)('%s: on → delivered, off → suppressed', async type => {
+    expect(await scenario(type, true)).toBe(1);
+    expect(await scenario(type, false)).toBe(0);
+  });
+
+  test('re-enabling mid-window: suppressed type never books dedupe, so a later event still delivers', async () => {
+    // 关闭时被跳过的通知不进 alreadyNotified（过滤在记账之前）——重新打开后
+    // 同一 id 的后续事件仍可正常投递（spec §4.4）。
+    jest.clearAllMocks(); handlers = [];
+    jest
+      .spyOn(AppState, 'addEventListener')
+      .mockImplementation((((event: string, handler: Handler) => {
+        if (event === 'change') handlers.push(handler);
+        return { remove: jest.fn() };
+      }) as unknown) as typeof AppState.addEventListener);
+    (requestPermission as jest.Mock).mockResolvedValue(true);
+    (getNotificationPermissionStatus as jest.Mock).mockResolvedValue('authorized');
+    (displayManagedNotification as jest.Mock).mockResolvedValue(true);
+    const prefs = Object.fromEntries(ALL_TYPES.map(t => [t, true])) as NotificationPrefs;
+    useSessionStore.setState({ notificationPrefs: { ...prefs, session_done: false } });
+    useControlCenterStore.setState({ notifications: [] });
+
+    let r!: ReactTestRenderer.ReactTestRenderer;
+    await act(async () => { r = ReactTestRenderer.create(<Probe />); });
+    await flush();
+    for (const h of handlers) h('background');
+    await flush();
+    useSessionStore.setState({ notificationPrefs: { ...prefs, session_done: true } });
+    await act(async () => {
+      useControlCenterStore.setState({ notifications: [serverItem('n2', 'session_done') as never] });
+    });
+    await flush();
+    expect((displayManagedNotification as jest.Mock).mock.calls.length).toBe(1);
+    r.unmount();
+  });
+});
+```
+
+- [ ] **Step 2: 跑（预期直接绿——行为已存在，此为特性测试）**
+
+Run: `cd "$PHONE" && npx jest "$PWD/__tests__/useBackgroundNotifications.typeSwitch.test.tsx"`
+Expected: PASS (6 tests)。**若红**：先怀疑测试对快照/dedupe 时序的理解
+（baseline 在 snapshot 时建立、`item.read` 为 false 才投递），而不是产品码。
+
+- [ ] **Step 3: 提交**
+
+```bash
+cd "$PHONE" && git add __tests__/useBackgroundNotifications.typeSwitch.test.tsx
+git commit -m "test(通知): 后台投递按类型开关的矩阵特性测试(关绝不弹/开必弹/重开可补发)
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>"
+```
+
+---
+
+### Task 10: 手机端全量验证门
 
 - [ ] **Step 1: 全量测试 + 类型 + lint**
 
 Run:
 ```bash
-cd "$PHONE" && npx jest "$PWD/__tests__" && npx tsc --noEmit && npx eslint src/utils/notificationDeliveryPolicy.ts src/utils/backgroundNotifications.ts src/utils/notificationTap.ts src/screens/operations/NotificationCenterScreen.tsx src/screens/settings/SettingsScreen.tsx src/components/settings/NotificationTypesSheet.tsx __tests__/notificationDeliveryPolicy.test.ts __tests__/backgroundNotifications.nativeId.test.ts __tests__/notificationTap.deviceOnline.test.ts __tests__/NotificationTypesSheet.test.tsx
+cd "$PHONE" && npx jest "$PWD/__tests__" && npx tsc --noEmit && npx eslint src/utils/notificationDeliveryPolicy.ts src/utils/backgroundNotifications.ts src/utils/notificationTap.ts src/screens/operations/NotificationCenterScreen.tsx src/screens/settings/SettingsScreen.tsx src/components/settings/NotificationTypesSheet.tsx __tests__/notificationDeliveryPolicy.test.ts __tests__/backgroundNotifications.nativeId.test.ts __tests__/notificationTap.deviceOnline.test.ts __tests__/useBackgroundNotifications.typeSwitch.test.tsx __tests__/NotificationTypesSheet.test.tsx
 ```
-Expected: 全绿（本仓库基线 123 套件 + 新增 3 个纯函数测试文件 + 2 个组件测试）。
+Expected: 全绿（本仓库基线 123 套件 + 新增 4 个测试文件 + 1 个组件测试文件）。
 ESLint warning 预算是 0，不许引入新 warning。
 
 - [ ] **Step 2: 如有残留未提交文件属本计划范围 → 补提交；否则进入 server 任务**
 
 ---
 
-### Task 10: server `device_online` 守卫直发（SERVER 仓库）
+### Task 11: server `device_online` 守卫直发（SERVER 仓库）
 
 **Files:**
 - Modify: `SERVER/server/src/types.ts:785`（type 联合加 `'device_online'`）
@@ -725,9 +874,8 @@ describe('notifyDeviceBackOnline', () => {
 });
 ```
 
-（`notifications` 若未从 `store.js` 导出则以实际导出为准——它由
-`NotificationRepository.values()` 暴露，测试可改用
-`NotificationRepository`；执行时先 `rg "export .*notifications" store.js` 确认。）
+（`notifications` 由 `store.js` 直接导出为 `Map`，`[...notifications.values()]`
+断言可直接使用。）
 
 - [ ] **Step 2: 跑红**
 
@@ -789,7 +937,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 
 ---
 
-### Task 11: server hello 路径接线（SERVER 仓库）
+### Task 12: server hello 路径接线（SERVER 仓库）
 
 **Files:**
 - Modify: `SERVER/server/src/modules/agent/handler.ts`（hello 路径两处）
@@ -829,7 +977,7 @@ import 行加 `notifyDeviceBackOnline`（来自 `../device/lifecycle.js`）。
 
 Run: `cd "$SERVER" && npx vitest run && npx tsc --noEmit -p server/tsconfig.json`
 Expected: 全部 PASS / exit 0（spec §5 server 矩阵中「grace 内」「首次 hello」
-两例由 Task 10 的单元守卫覆盖；handler 接线由 tsc 与 call-site 保证）
+两例由 Task 11 的单元守卫覆盖；handler 接线由 tsc 与 call-site 保证）
 
 - [ ] **Step 4: 提交**
 
@@ -842,7 +990,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 
 ---
 
-### Task 12: 部署与真机验证（人工门，不自动执行）
+### Task 13: 部署与真机验证（人工门，不自动执行）
 
 **顺序强制：server 先上，手机后上**（spec §6：旧手机收新事件只是显示层过渡窗口，
 反序会让新手机开关长期无事件源）。
@@ -862,9 +1010,9 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 
 | spec 测试项 | 覆盖任务 |
 | --- | --- |
-| 手机 5 类型 × 开/关 矩阵 | Task 7（sheet 开关写 store）+ Task 10 既有 `isEventTypeEnabled` 链路；后台过滤行为由既有 `useBackgroundNotifications.ts:84` 保证，交付前在 Task 12 Step 2 真机端到端验证 |
-| 补发 / 迁移 | Task 1 Step 1（迁移）+ Task 12 Step 2（真机开关切换） |
+| 手机 5 类型 × 开/关 矩阵 | Task 9（hook 层矩阵：关绝不弹/开必弹）+ Task 7（sheet 开关写 store）；交付前在 Task 13 Step 2 真机端到端验证 |
+| 补发 / 迁移 | Task 1 Step 1（迁移）+ Task 9 第 2 例（后台窗口内重开补发）+ Task 13 Step 2（真机） |
 | nativeId 分组 | Task 2 |
 | 点按路由 | Task 4 |
 | 弹窗 UI | Task 7 + Task 8 |
-| server 转换 4+2 场景 | Task 10（守卫单测）+ Task 11（接线）+ Task 12 Step 2（端到端） |
+| server 转换 4+2 场景 | Task 11（守卫单测）+ Task 12（接线）+ Task 13 Step 2（端到端） |
