@@ -1037,3 +1037,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 - `ServerNotification.type` 与 `PushNotificationItem.type` 为手工镜像字面量，本次是第二次同步扩宽；
   后续可抽共享 `ServerNotificationType`（声明于 `src/api/notifications.ts`，store 导入），
   下次新增类型即可单点修改。（Task 3 质量评审 Minor #2）
+- 设备对谓词 `device_offline || device_online` 现存两处（`notificationTap.ts:30` 与
+  `backgroundNotifications.ts:55`）；后者受类型系统强制同步，前者因宽松 `string` 类型
+  可能静默漏掉新类型。若再出现第三个设备生命周期类型，应抽共享 `as const` 列表并让
+  tap 路由收敛到字面量联合。（Task 4 质量评审 Minor #3）
