@@ -463,7 +463,7 @@
       "terminalSubtitle": "打开终端",
       "refreshLatest": "刷新最新会话"
     },
-    "tuiSharedNotice": "该对话与桌面终端(TUI)共用:手机上发送的内容不会出现在已打开的终端界面;在终端内重启 resume 可同步上下文。",
+    "tuiSharedNotice": "该对话与桌面终端(TUI)共用:手机上的对话会自动同步进开着此会话的空闲终端;终端忙时本轮不注入、不补发。",
     "tuiSharedNoticeDismiss": "知道了"
   }
 }
