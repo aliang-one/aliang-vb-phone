@@ -463,7 +463,7 @@
       "terminalSubtitle": "Open terminal",
       "refreshLatest": "Refresh latest conversation"
     },
-    "tuiSharedNotice": "Shared with a terminal TUI — messages sent from the phone won't appear in an already-open terminal. Restart it with `claude --resume` in the terminal to sync the context.",
+    "tuiSharedNotice": "Shared with a terminal TUI — messages sent from the phone are automatically synced into an idle terminal running this session. While the terminal is busy, the notice is skipped (not retried).",
     "tuiSharedNoticeDismiss": "Got it"
   }
 }
