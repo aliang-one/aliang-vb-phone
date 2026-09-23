@@ -527,6 +527,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     showScrollToBottom,
     scrollToBottom,
     scheduleScrollToEnd,
+    handleContentSizeChange,
     registerScrollY,
     preserveFocusRef,
     messageLayouts,
@@ -2191,10 +2192,19 @@ export const VibeCodingSessionScreen: React.FC = () => {
             setViewportHeight(height);
           }}
           onMomentumScrollEnd={handleScroll}
-          onContentSizeChange={(_, _height) => {
-            if (pendingScrollToEndRef.current || followTailRef.current) {
+          onContentSizeChange={(_, height) => {
+            // Guarded tail scroll: duplicate content-size callbacks from one
+            // Fabric mount transaction (unchanged height) coalesce into the
+            // already-scheduled scroll instead of arming a new native one.
+            // Pending (send/composer focus) always scrolls once; live
+            // streaming tail-follows stay non-animated.
+            const scheduled = handleContentSizeChange(height, {
+              pending: pendingScrollToEndRef.current,
+              followTail: followTailRef.current,
+              live: isSessionLive,
+            });
+            if (scheduled) {
               pendingScrollToEndRef.current = false;
-              scheduleScrollToEnd(!isSessionLive);
             }
           }}
           onScroll={handleScroll}

@@ -21,7 +21,12 @@ const SCROLL_FOLLOW_THRESHOLD = 80;
 const SCROLL_THROTTLE_MS = 80;
 // Debounce trailing scroll-to-end calls so multiple ai.delta flushes in rapid
 // succession coalesce into one scroll.
-const FOLLOW_TAIL_SCROLL_MS = 120;
+export const FOLLOW_TAIL_SCROLL_MS = 120;
+// Minimum content-height delta (px) that counts as a REAL content change.
+// Fabric re-fires onContentSizeChange within one mount transaction with an
+// unchanged (or sub-pixel-oscillating) height; those duplicates must not
+// trigger another native tail scroll (iPhone watchdog stopgap Task 2).
+const CONTENT_HEIGHT_MIN_CHANGE_PX = 1;
 
 export interface PreserveFocusTarget {
   id: string;
@@ -43,6 +48,15 @@ export interface ConversationScrollController {
   scrollToBottom: (animated?: boolean) => void;
   // Debounced scroll-to-end (coalesces rapid calls).
   scheduleScrollToEnd: (animated?: boolean) => void;
+  // Guarded onContentSizeChange wiring. Feed it the REAL content height from
+  // the ScrollView callback plus the screen's pending/followTail/live flags.
+  // Returns whether a tail scroll was scheduled; repeated callbacks with an
+  // unchanged height (same Fabric mount transaction) coalesce into the single
+  // scroll already scheduled — they schedule nothing new.
+  handleContentSizeChange: (
+    height: number,
+    opts: { pending: boolean; followTail: boolean; live: boolean },
+  ) => boolean;
   // Register/unregister the scrubber layer's scroll-Y subscriber.
   registerScrollY: (fn: (y: number) => void) => () => void;
   // Preserve-focus: pin viewport to a message while older history prepends.
@@ -76,6 +90,9 @@ export function useConversationScrollController(): ConversationScrollController 
   const scrollToEndTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastScrollToEndAtRef = useRef(0);
   const pendingScrollAnimatedRef = useRef(false);
+  // Last content height observed via onContentSizeChange. null until the
+  // first callback (a first observation is always a "change").
+  const lastContentHeightRef = useRef<number | null>(null);
   const preserveFocusRef = useRef<PreserveFocusTarget | null>(null);
   const pendingLayoutsRef = useRef<
     Map<string, { top: number; height: number }>
@@ -108,6 +125,34 @@ export function useConversationScrollController(): ConversationScrollController 
       scrollViewRef.current?.scrollToEnd({ animated: shouldAnimate });
     }, delay);
   }, []);
+
+  // Guarded onContentSizeChange: only a REAL height change (≥1px delta vs the
+  // last observation) may schedule a new tail scroll while following the tail.
+  // Fabric re-fires the callback with an unchanged height within one mount
+  // transaction — each of those used to arm another native scrollToEnd and the
+  // scroll→layout→scroll feedback pinned the JS thread (watchdog stopgap).
+  // `pending` (send message / composer focus) is an explicit request and
+  // always scrolls once. Animation matches the previous screen behavior:
+  // non-animated while the session is live, animated otherwise; the manual
+  // scrollToBottom(true) button path is untouched and stays animated.
+  const handleContentSizeChange = useCallback(
+    (
+      height: number,
+      opts: { pending: boolean; followTail: boolean; live: boolean },
+    ): boolean => {
+      const heightChanged =
+        lastContentHeightRef.current === null ||
+        Math.abs(height - lastContentHeightRef.current) >=
+          CONTENT_HEIGHT_MIN_CHANGE_PX;
+      lastContentHeightRef.current = height;
+      if (!opts.pending && (!opts.followTail || !heightChanged)) {
+        return false;
+      }
+      scheduleScrollToEnd(!opts.live);
+      return true;
+    },
+    [scheduleScrollToEnd],
+  );
 
   // Button press: restore follow-tail FIRST so subsequent ai.delta flushes
   // keep autoscrolling, then perform the jump (debounced/coalesced).
@@ -228,6 +273,9 @@ export function useConversationScrollController(): ConversationScrollController 
     scrollYSubscriberRef.current(0);
     followTailRef.current = true;
     pendingScrollToEndRef.current = false;
+    // Drop the height memory too: a new session's content may legitimately
+    // land at the same height as the old one — that must still scroll once.
+    lastContentHeightRef.current = null;
     setShowScrollToBottom(false);
     preserveFocusRef.current = null;
     setMessageLayouts({});
@@ -243,6 +291,7 @@ export function useConversationScrollController(): ConversationScrollController 
     showScrollToBottom,
     scrollToBottom,
     scheduleScrollToEnd,
+    handleContentSizeChange,
     registerScrollY,
     preserveFocusRef,
     messageLayouts,
