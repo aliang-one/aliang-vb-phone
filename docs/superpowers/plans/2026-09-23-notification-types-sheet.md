@@ -800,6 +800,19 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 
 ### Task 10: 手机端全量验证门
 
+- [ ] **Step 0: 测试文件归并**（Task 1 质量评审发现：仓库已有
+  `src/utils/__tests__/notificationDeliveryPolicy.test.ts`（含既有 isEventTypeEnabled
+  describe），与 Task 1 新建的顶层 `__tests__/notificationDeliveryPolicy.test.ts`
+  同名异地）。把顶层文件的两个测试并入既有文件的对应 describe，删除顶层文件，
+  跑 `npx jest "$PWD/src/utils/__tests__/notificationDeliveryPolicy.test.ts"` 确认全绿后提交：
+
+```bash
+cd "$PHONE" && git add src/utils/__tests__/notificationDeliveryPolicy.test.ts __tests__/notificationDeliveryPolicy.test.ts
+git commit -m "test(通知): 归并 device_online 测试进既有 notificationDeliveryPolicy 测试文件
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>"
+```
+
 - [ ] **Step 1: 全量测试 + 类型 + lint**
 
 Run:
