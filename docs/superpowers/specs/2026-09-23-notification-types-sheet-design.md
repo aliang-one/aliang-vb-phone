@@ -71,7 +71,7 @@
   （`"{{enabled}}/{{total}} 已开启"` / `"{{enabled}}/{{total}} enabled"`）、
   `notifications.types.device_online`（「设备上线」/ "Device online"）。
 
-### 4.2 手机端 `device_online` 贯通（9 个落点）
+### 4.2 手机端 `device_online` 贯通（7 个落点）
 
 1. `notificationDeliveryPolicy.ts`：`NotifiableEventType` 加 `'device_online'`；
    `DEFAULT_NOTIFICATION_PREFS` 加 `device_online: true`。
@@ -87,18 +87,20 @@
    （与 `device_offline` 一致）。
 6. `SettingsScreen.tsx`：`NOTIFIABLE_EVENT_TYPES` 加 `'device_online'`。
 7. i18n：`settings/zh.json`、`settings/en.json` 的 `notifications.types`；
-   通知中心 label `notification.typeOnline`（common 命名空间，与 `typeOffline` 同处）。
+   通知中心 label `notification.typeOnline`（operations 命名空间
+   `src/i18n/locales/operations/{zh,en}.json`，与 `typeOffline` 同处）。
 
 ### 4.3 Server：`device_online` 只在真转换时发一条
 
-**四条防风暴不变量：**
+**防风暴不变量（5 条）：**
 
 | 场景 | 行为 |
 | --- | --- |
 | 真离线→上线（此前走过 `markDeviceOfflineById`，状态为 `offline`） | 恰好 1 条 `device_online` |
 | reconnect grace 窗口内的 WS 抖动（从未 mark offline） | 不发——「没发过离线就不发上线」，语义对称 |
 | 首次配对 hello（`existing` 为 undefined）、在线期间重复 announce、4G↔WiFi 换手重连 | 不发 |
-| server 重启后设备重连 | 每设备恰好 1 条 |
+| server 重启：grace 已过期才重连（设备已被 mark offline） | 恰好 1 条 |
+| server 热重启：grace 窗口内重连（boot 保留在线状态，从未 mark offline，见 `store.ts:425`） | 不发——与 row 2 同一对称原则 |
 
 **实现：**
 
@@ -156,13 +158,17 @@
 2. grace 内重连（未 mark offline）→ 不发。
 3. 首次 hello（无 existing）→ 不发。
 4. 在线期间重复 hello → 不发。
+5. 热重启 grace 内重连（boot 保留在线状态）→ 不发。
+6. 重启后 grace 过期才重连 → 恰好一次。
 
 ## 6. 错误处理与边界
 
 - `createNotification` 幂等（单写入口），fire 顺序在 `agent.registered` 应答之后，
   不阻塞握手主路径的失败传播。
-- 旧版手机 + 新 server：收到 `device_online`，旧联合类型仅是 TS 层约束，运行时
-  通知中心查表 miss 走兜底显示，无害。
+- 旧版手机 + 新 server：收到 `device_online`，旧联合类型仅是 TS 层约束；通知中心
+  对未知类型无显式兜底（`notificationTypeKey`/`notificationIcon` 查表 miss 返回
+  undefined，未验证 i18next 对缺失键的实际表现）——可能显示空标签，仅存在于新旧
+  版本并存的过渡窗口，可接受。
 - 新版手机 + 旧 server：`device_online` 开关存在但永不触发（无事件源），可接受，
   部署顺序上 server 先行即可窗口最小化。
 
