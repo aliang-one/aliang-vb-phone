@@ -5,7 +5,7 @@ export interface ServerNotification {
   id: string;
   notification_id: string;
   user_id: string;
-  type: 'approval' | 'completed' | 'error' | 'device_offline';
+  type: 'approval' | 'completed' | 'error' | 'device_offline' | 'device_online';
   title: string;
   body: string;
   device_id?: string;

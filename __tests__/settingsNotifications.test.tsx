@@ -140,6 +140,7 @@ describe('SettingsScreen notification panel', () => {
         session_done: true,
         session_failed: true,
         device_offline: true,
+        device_online: true,
       },
     });
     showSpy = jest.fn();

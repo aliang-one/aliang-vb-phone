@@ -171,7 +171,7 @@ export interface ApprovalRequest {
 
 export interface PushNotificationItem {
   id: string;
-  type: 'approval' | 'completed' | 'error' | 'device_offline';
+  type: 'approval' | 'completed' | 'error' | 'device_offline' | 'device_online';
   title: string;
   body: string;
   deviceId?: string;
