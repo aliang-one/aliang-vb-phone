@@ -50,6 +50,7 @@ import {
   serverNotificationToClient,
   serverProjectToClient,
   shortTime,
+  STRUCTURED_EVENTS_CAP,
   tail,
   trimTranscript,
   upsertNotification,
@@ -897,7 +898,19 @@ export const useControlCenterStore = create<ControlCenterState>()(
                       ),
                       eventDetailCache: previousRun.eventDetailCache,
                     }
-                  : nextRun;
+                  : {
+                      // First snapshot for this session (previousRun === undefined):
+                      // no local events to reconcile, but the hard floor must
+                      // still hold BEFORE the run becomes observable — set() is
+                      // atomic, so selectors can only ever read post-write state.
+                      // serverAiSessionToVibeRun already caps; this tail() is the
+                      // defensive second lock (identity-stable when already ≤ cap).
+                      ...nextRun,
+                      structuredEvents: tail(
+                        nextRun.structuredEvents,
+                        STRUCTURED_EVENTS_CAP,
+                      ),
+                    };
                 const shouldRecordEvent = hasMeaningfulVibeRunUpdate(
                   previousRun,
                   reconciled,

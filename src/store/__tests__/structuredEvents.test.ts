@@ -1,9 +1,25 @@
+import type { ServerAiSession } from '../../api/sessions';
 import type { VibeCodingRun } from '../../data/platformModels';
 import type { PlatformTransportEvent } from '../../services/platformTransport';
+import { useControlCenterStore } from '../controlCenterStore';
+import {
+  emptySessionData,
+  serverAiSessionToVibeRun,
+  STRUCTURED_EVENTS_CAP,
+} from '../internals';
 import {
   applyStructuredEvent,
   reconcileStructured,
 } from '../slices/structuredSlice';
+
+// The store-path test below imports controlCenterStore, whose import graph
+// pulls the platformTransport singleton. Mock it (same shape as
+// vibeRunIdentity.test.ts) to keep the test free of network side effects.
+jest.mock('../../services/platformTransport', () => ({
+  platformTransport: {
+    loadAiSession: jest.fn(),
+  },
+}));
 
 // Minimal run mock — only the fields the slice touches. Cast through unknown
 // so we don't have to materialize the full VibeCodingRun literal.
@@ -292,5 +308,114 @@ describe('structuredEvents hard-floor cap', () => {
     expect(out).toHaveLength(200);
     expect(out.map(e => e.eventId)).toContain('e204');
     expect(out.map(e => e.eventId)).not.toContain('e0');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Transport-boundary cap (watchdog stopgap Task 1): a FIRST server snapshot
+// can carry more structured_events than STRUCTURED_EVENTS_CAP. The live path
+// (applyStructuredEvent) and the reconcile path (previousRun exists) already
+// cap; the mapper and the no-previous-run store branch did not — an uncapped
+// array reached vibeRuns and every screen selector subscribed to it.
+// ---------------------------------------------------------------------------
+describe('serverAiSessionToVibeRun / first-snapshot cap', () => {
+  const envelopeAt = (n: number): Record<string, unknown> => ({
+    type: 'ai.command',
+    event_id: `e${n}`,
+    message_id: 'm1',
+    item_id: `i${n}`,
+    status: 'running',
+    command: `cmd ${n}`,
+    cwd: '/repo',
+  });
+
+  const makeSnapshot = (eventCount: number, sessionId = 's1') =>
+    ({
+      kind: 'ai',
+      user_id: 'u1',
+      device_id: 'd1',
+      status: 'running',
+      mode: 'chat',
+      session_id: sessionId,
+      created_at: '2026-01-01T00:00:00Z',
+      last_active_at: '2026-01-01T00:00:00Z',
+      structured_events: Array.from({ length: eventCount }, (_, i) =>
+        envelopeAt(i),
+      ),
+    }) as unknown as Parameters<typeof serverAiSessionToVibeRun>[0];
+
+  it('a first server snapshot with >CAP events maps to only the newest CAP', () => {
+    const run = serverAiSessionToVibeRun(makeSnapshot(STRUCTURED_EVENTS_CAP + 5), [], []);
+    expect(run.structuredEvents).toHaveLength(STRUCTURED_EVENTS_CAP);
+    const ids = run.structuredEvents.map(e => e.eventId);
+    // Ring-buffer semantics: oldest 5 dropped, newest retained in order.
+    expect(ids).not.toContain('e0');
+    expect(ids).not.toContain('e4');
+    expect(ids).toContain('e5');
+    expect(ids).toContain(`e${STRUCTURED_EVENTS_CAP + 4}`);
+    expect(ids[ids.length - 1]).toBe(`e${STRUCTURED_EVENTS_CAP + 4}`);
+  });
+
+  it('a snapshot within the cap passes through untouched in content and order', () => {
+    const run = serverAiSessionToVibeRun(makeSnapshot(3), [], []);
+    expect(run.structuredEvents.map(e => e.eventId)).toEqual([
+      'e0',
+      'e1',
+      'e2',
+    ]);
+  });
+});
+
+describe('ai.session.updated no-previous-run branch cap', () => {
+  const envelopeAt = (n: number): Record<string, unknown> => ({
+    type: 'ai.command',
+    event_id: `e${n}`,
+    message_id: 'm1',
+    item_id: `i${n}`,
+    status: 'running',
+    command: `cmd ${n}`,
+  });
+
+  const makeSession = (eventCount: number): ServerAiSession =>
+    ({
+      kind: 'ai',
+      user_id: 'u1',
+      device_id: 'd1',
+      status: 'running',
+      mode: 'chat',
+      session_id: 'fresh-session',
+      created_at: '2026-01-01T00:00:00Z',
+      last_active_at: '2026-01-01T00:00:00Z',
+      structured_events: Array.from({ length: eventCount }, (_, i) =>
+        envelopeAt(i),
+      ),
+    }) as unknown as ServerAiSession;
+
+  beforeEach(() => {
+    useControlCenterStore.setState({ ...emptySessionData(), serverMode: true });
+  });
+
+  it('inserts an unknown session with structuredEvents already capped (no selector ever sees >CAP)', () => {
+    // previousRun === undefined → the reconciled run IS the mapped snapshot;
+    // reconcileStructured never runs, so the cap must hold in this branch.
+    // set() is one atomic write and selectors read only post-write state, so
+    // asserting on vibeRuns immediately after the dispatch proves the run was
+    // capped at insertion — not by a later trim pass.
+    useControlCenterStore
+      .getState()
+      .handleTransportEvent({
+        type: 'ai.session.updated',
+        session: makeSession(STRUCTURED_EVENTS_CAP + 5),
+      } as never);
+
+    const run = useControlCenterStore
+      .getState()
+      .vibeRuns.find(r => r.id === 'fresh-session');
+    expect(run).toBeDefined();
+    expect(run?.structuredEvents).toHaveLength(STRUCTURED_EVENTS_CAP);
+    expect(run?.structuredEvents[0].eventId).toBe('e5');
+    expect(run?.structuredEvents[run.structuredEvents.length - 1].eventId).toBe(
+      `e${STRUCTURED_EVENTS_CAP + 4}`,
+    );
   });
 });
