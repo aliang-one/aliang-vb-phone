@@ -1031,3 +1031,9 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 | 点按路由 | Task 4 |
 | 弹窗 UI | Task 7 + Task 8 |
 | server 转换 4+2 场景 | Task 11（守卫单测）+ Task 12（接线）+ Task 13 Step 2（端到端） |
+
+## 评审遗留建议（明确不在本计划范围）
+
+- `ServerNotification.type` 与 `PushNotificationItem.type` 为手工镜像字面量，本次是第二次同步扩宽；
+  后续可抽共享 `ServerNotificationType`（声明于 `src/api/notifications.ts`，store 导入），
+  下次新增类型即可单点修改。（Task 3 质量评审 Minor #2）
