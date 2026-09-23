@@ -206,9 +206,11 @@ type: 'approval' | 'completed' | 'error' | 'device_offline' | 'device_online';
 - [ ] **Step 2: typecheck 收口（Task 1 遗留的 TS 报错在此清零）**
 
 Run: `cd "$PHONE" && npx tsc --noEmit`
-Expected: exit 0。若 `NotificationCenterScreen.tsx` 三张映射表因联合扩大而报
-「缺 device_online 键」——**这正是预期中的编译器检查**，先跳过该报错，
-Task 5 处理；除此之外不得有其他报错。若出现其他文件报错，停下排查，不要顺手改。
+Expected: exit 0。允许保留的**唯一**报错类别：`NotificationCenterScreen.tsx`
+三张映射表因联合扩大报「缺 device_online 键」（Task 5 处理）。此外本步必须清零
+Task 1+2 遗留的 4 个报错——2×TS2367（`backgroundNotifications.ts:55-56` 的
+device_online 比较 no-overlap）、1×TS2820（nativeId 测试文件的 type 字面量）、
+以及 Task 1 遗留 1 个。若出现其他文件报错，停下排查，不要顺手改。
 
 - [ ] **Step 3: 提交**
 
