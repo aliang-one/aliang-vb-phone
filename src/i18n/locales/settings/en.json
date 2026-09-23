@@ -53,11 +53,14 @@
     "openSettingsFailed": "Couldn't open system notification settings",
     "testDenied": "Notification permission was denied",
     "testOpenSettings": "Enable notifications in system settings, then tap test again",
+    "typesTitle": "Notification types",
+    "typesSummary": "{{enabled}}/{{total}} enabled",
     "types": {
       "approval": "Approvals",
       "session_done": "Session completed",
       "session_failed": "Session failed",
-      "device_offline": "Device offline"
+      "device_offline": "Device offline",
+      "device_online": "Device online"
     }
   },
   "account": {

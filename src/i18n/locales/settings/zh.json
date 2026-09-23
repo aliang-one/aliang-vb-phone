@@ -53,11 +53,14 @@
     "openSettingsFailed": "无法打开系统通知设置",
     "testDenied": "通知权限被拒绝",
     "testOpenSettings": "请在系统设置中开启通知,再点测试",
+    "typesTitle": "通知类型",
+    "typesSummary": "{{enabled}}/{{total}} 已开启",
     "types": {
       "approval": "审批请求",
       "session_done": "会话已完成",
       "session_failed": "会话失败",
-      "device_offline": "设备离线"
+      "device_offline": "设备离线",
+      "device_online": "设备上线"
     }
   },
   "account": {
