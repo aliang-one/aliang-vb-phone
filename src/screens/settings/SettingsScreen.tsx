@@ -15,6 +15,7 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  useWindowDimensions,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -133,6 +134,15 @@ export const SettingsScreen: React.FC = () => {
   const profile = accountData?.profile;
   const subscriptions = accountData?.subscriptions ?? [];
   const usageStats = accountData?.usageStats;
+
+  // usage 四环单行排布:环尺寸随屏宽收敛(可用宽 = 屏宽 - 页面内边距32 - 面板
+  // 内边距32,每环占 1/4),56 为下限保证环内文字可读。Ring 是绝对尺寸的 Svg,
+  // cell 收不下去,必须主动算小才能四环一行。
+  const { width: screenWidth } = useWindowDimensions();
+  const usageRingSize = Math.max(
+    56,
+    Math.min(98, Math.floor((screenWidth - 64) / 4)),
+  );
 
   // Primary subscription (first active with group access)
   const primarySubscription = subscriptions[0];
@@ -429,7 +439,7 @@ export const SettingsScreen: React.FC = () => {
                       progress={ratioPercent(totalTokens, 1_000_000)}
                       value={totalTokens >= 1000000 ? `${(totalTokens / 1000000).toFixed(1)}M` : `${Math.round(totalTokens / 1000)}K`}
                       label="Token"
-                      size={98}
+                      size={usageRingSize}
                     />
                     <Text
                       style={[theme.typography.labelSm, styles.ringCaption]}
@@ -443,7 +453,7 @@ export const SettingsScreen: React.FC = () => {
                       value={`$${totalCost.toFixed(2)}`}
                       label={t('usage.cost')}
                       color={theme.colors.secondary}
-                      size={98}
+                      size={usageRingSize}
                     />
                     <Text
                       style={[theme.typography.labelSm, styles.ringCaption]}
@@ -457,7 +467,7 @@ export const SettingsScreen: React.FC = () => {
                       value={String(totalRequests)}
                       label={t('usage.requests')}
                       color={theme.colors.primary}
-                      size={98}
+                      size={usageRingSize}
                     />
                     <Text
                       style={[theme.typography.labelSm, styles.ringCaption]}
@@ -471,7 +481,7 @@ export const SettingsScreen: React.FC = () => {
                       value={balanceDisplay}
                       label={t('account.balance')}
                       color={theme.colors.tertiary}
-                      size={98}
+                      size={usageRingSize}
                     />
                     <Text
                       style={[theme.typography.labelSm, styles.ringCaption]}
@@ -831,19 +841,12 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   ringsRow: {
+    // 四环一行:不换行,等宽 cell 各占 1/4;环尺寸由 usageRingSize 随屏宽收敛。
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    // Vertical gap between the two wrapped rows. Horizontal gap comes from
-    // space-between + each cell being 48% wide (≈4% gutter).
-    rowGap: 16,
+    alignItems: 'center',
   },
   ringCell: {
-    // Two cells per row regardless of device width, so the fixed-size rings
-    // (98px) never overflow their cell and overlap their neighbours. The ring
-    // is an absolute-sized Svg, so a flex:1 cell can't shrink it — capping the
-    // cell at 48% + wrapping is what prevents the overlap on narrow screens.
-    width: '48%',
+    flex: 1,
     alignItems: 'center',
     gap: 8,
   },
