@@ -234,4 +234,57 @@ describe('ToolsMenu', () => {
     expect(chipByLabel(root, '保存')).toBeUndefined();
     expect(onSaveSettings).not.toHaveBeenCalled();
   });
+
+  it('greys out effort chips the device does not support (supportedEfforts prop)', () => {
+    const root = wrap(
+      <ToolsMenu
+        {...defaultProps({
+          provider: 'claude_code',
+          supportedEfforts: ['low', 'high'],
+        })}
+      />,
+    );
+    // Unsupported ladder tiers are disabled.
+    expect(findByTestID(root, 'tools-effort-ultracode').props.disabled).toBe(true);
+    expect(findByTestID(root, 'tools-effort-max').props.disabled).toBe(true);
+    expect(findByTestID(root, 'tools-effort-xhigh').props.disabled).toBe(true);
+    expect(findByTestID(root, 'tools-effort-medium').props.disabled).toBe(true);
+    // Supported tiers + 默认 stay enabled.
+    expect(findByTestID(root, 'tools-effort-high').props.disabled).toBeFalsy();
+    expect(findByTestID(root, 'tools-effort-low').props.disabled).toBeFalsy();
+    expect(findByTestID(root, 'tools-effort-default').props.disabled).toBeFalsy();
+  });
+
+  it('all effort chips enabled when supportedEfforts is not supplied', () => {
+    const root = wrap(<ToolsMenu {...defaultProps({ provider: 'claude_code' })} />);
+    expect(findByTestID(root, 'tools-effort-ultracode').props.disabled).toBeFalsy();
+    expect(findByTestID(root, 'tools-effort-max').props.disabled).toBeFalsy();
+  });
+
+  it('clamps the saved effort to the device-supported ladder', async () => {
+    const onSaveSettings = jest.fn().mockResolvedValue(undefined);
+    const root = wrap(
+      <ToolsMenu
+        {...defaultProps({
+          provider: 'claude_code',
+          // Session carries ultracode from before the CLI was downgraded.
+          effort: 'ultracode',
+          supportedEfforts: ['low', 'high'],
+          onSaveSettings,
+        })}
+      />,
+    );
+    // Dirty the form via a model chip so the save button activates.
+    act(() => {
+      chipByLabel(root, 'glm-5.2')!.props.onPress();
+    });
+    await act(async () => {
+      chipByLabel(root, '保存')!.props.onPress();
+    });
+    // ultracode → (max/xhigh unsupported) → high along the global ladder.
+    expect(onSaveSettings).toHaveBeenCalledWith({
+      model: 'glm-5.2',
+      effort: 'high',
+    });
+  });
 });

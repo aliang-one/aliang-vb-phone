@@ -24,6 +24,8 @@ export interface ServerDevice {
     path?: string;
     available?: boolean;
     description?: string;
+    version?: string;
+    efforts?: string[];
     commands?: Array<{
       name: string;
       description?: string;

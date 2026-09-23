@@ -144,6 +144,10 @@ export interface AgentToolInfo {
   path?: string;
   available?: boolean;
   description?: string;
+  /** CLI version reported by the agent (e.g. claude 2.1.156), if known. */
+  version?: string;
+  /** Reasoning-effort levels this CLI version accepts (device capability). */
+  efforts?: string[];
   /** Slash commands the agent discovered for this tool, if any. */
   commands?: AgentCommandInfo[];
 }

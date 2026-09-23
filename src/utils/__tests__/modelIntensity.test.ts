@@ -1,10 +1,12 @@
 import {
+  EFFORT_DEGRADE_ORDER,
   EFFORT_PROVIDERS,
   EFFORT_PRESETS,
   MODEL_PRESETS_BY_PROVIDER,
   availableProviders,
   catalogModelOptions,
   composeModel,
+  degradeEffort,
   effortOptionsFor,
   effortPresetsFor,
   effortToIntensity,
@@ -12,6 +14,7 @@ import {
   modelPresetsFor,
   normalizeProvider,
   parseModelIntensity,
+  supportedEffortsFor,
 } from '../modelIntensity';
 
 describe('modelIntensity · effort taxonomy', () => {
@@ -270,5 +273,121 @@ describe('modelIntensity · availableProviders', () => {
         { id: 'opencode', available: true },
       ]),
     ).toEqual({ codex: true, claude_code: true, opencode: true });
+  });
+});
+
+describe('modelIntensity · supportedEffortsFor (device capability)', () => {
+  it('returns undefined when tools are missing/empty (agent not yet reported)', () => {
+    expect(supportedEffortsFor(undefined, 'claude_code')).toBeUndefined();
+    expect(supportedEffortsFor([], 'claude_code')).toBeUndefined();
+  });
+
+  it('returns the matching available tool\'s efforts', () => {
+    expect(
+      supportedEffortsFor(
+        [
+          { id: 'codex', available: true, efforts: ['low', 'high', 'xhigh'] },
+          { id: 'claude', available: true, efforts: ['low', 'medium'] },
+        ],
+        'claude_code',
+      ),
+    ).toEqual(['low', 'medium']);
+  });
+
+  it('matches the provider through normalizeProvider (id variants)', () => {
+    expect(
+      supportedEffortsFor([{ id: 'claude_code', efforts: ['high'] }], 'claude_code'),
+    ).toEqual(['high']);
+    expect(
+      supportedEffortsFor([{ id: 'claude-code', efforts: ['high'] }], 'claude_code'),
+    ).toEqual(['high']);
+    expect(
+      supportedEffortsFor([{ id: 'Claude', efforts: ['high'] }], 'claude_code'),
+    ).toEqual(['high']);
+    // No tool matches the requested provider → undefined (don't clamp).
+    expect(
+      supportedEffortsFor([{ id: 'codex', efforts: ['low'] }], 'claude_code'),
+    ).toBeUndefined();
+  });
+
+  it('skips tools with available===false', () => {
+    expect(
+      supportedEffortsFor(
+        [
+          { id: 'claude', available: false, efforts: ['low'] },
+          { id: 'codex', available: true, efforts: ['low', 'high'] },
+        ],
+        'claude_code',
+      ),
+    ).toBeUndefined();
+  });
+
+  it('returns undefined when the tool reports no (or an empty) efforts list', () => {
+    expect(supportedEffortsFor([{ id: 'claude', available: true }], 'claude_code')).toBeUndefined();
+    expect(supportedEffortsFor([{ id: 'claude', available: true, efforts: [] }], 'claude_code')).toBeUndefined();
+  });
+});
+
+describe('modelIntensity · degradeEffort (global degrade ladder)', () => {
+  it('exposes the authoritative high→low order', () => {
+    expect(EFFORT_DEGRADE_ORDER).toEqual([
+      'ultracode',
+      'max',
+      'xhigh',
+      'high',
+      'medium',
+      'low',
+    ]);
+  });
+
+  it('ultracode + [low..max] degrades to max', () => {
+    expect(
+      degradeEffort('ultracode', ['low', 'medium', 'high', 'max']),
+    ).toBe('max');
+  });
+
+  it('ultracode + [low..xhigh] degrades to xhigh', () => {
+    expect(
+      degradeEffort('ultracode', ['low', 'medium', 'high', 'xhigh']),
+    ).toBe('xhigh');
+  });
+
+  it('max + [low,medium,high] degrades to high', () => {
+    expect(degradeEffort('max', ['low', 'medium', 'high'])).toBe('high');
+  });
+
+  it('keeps the requested tier when it is supported (scan includes itself)', () => {
+    expect(degradeEffort('high', ['low', 'high', 'max'])).toBe('high');
+    expect(degradeEffort('low', ['low'])).toBe('low');
+  });
+
+  it('never upgrades a requested on-ladder tier', () => {
+    // low stays low even though max is supported.
+    expect(degradeEffort('low', ['max', 'low'])).toBe('low');
+  });
+
+  it('supported undefined (or empty) → requested unchanged (no clamping)', () => {
+    expect(degradeEffort('ultracode', undefined)).toBe('ultracode');
+    expect(degradeEffort('ultracode', [])).toBe('ultracode');
+  });
+
+  it('empty requested → unchanged', () => {
+    expect(degradeEffort('', ['low', 'high'])).toBe('');
+  });
+
+  it('requested not on the ladder → scan from the top', () => {
+    // Custom tier falls back to the highest supported ladder entry.
+    expect(degradeEffort('turbo', ['low', 'medium'])).toBe('medium');
+    expect(degradeEffort('turbo', ['low', 'max'])).toBe('max');
+  });
+
+  it('nothing on the ladder is supported → empty string (CLI default)', () => {
+    expect(degradeEffort('ultracode', ['custom_level'])).toBe('');
+  });
+
+  it('case-insensitive matching, original supported spelling returned', () => {
+    expect(degradeEffort('Ultracode', ['Low', 'Max'])).toBe('Max');
+    expect(degradeEffort('high', ['HIGH'])).toBe('HIGH');
+    expect(degradeEffort('HIGH', ['high'])).toBe('high');
   });
 });

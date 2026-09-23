@@ -24,6 +24,33 @@ const snapshot = (
     ...overrides,
   }) as PlatformDeviceSnapshot;
 
+describe('platformDeviceToClient tool effort-capability passthrough', () => {
+  it('passes tool version + efforts through to the client Device', () => {
+    const device = platformDeviceToClient(
+      snapshot({
+        tools: [
+          {
+            id: 'claude',
+            available: true,
+            version: '2.1.156',
+            efforts: ['low', 'medium', 'high'],
+          },
+        ],
+      }),
+    );
+    expect(device.tools[0].version).toBe('2.1.156');
+    expect(device.tools[0].efforts).toEqual(['low', 'medium', 'high']);
+  });
+
+  it('leaves version/efforts undefined when the tool omits them', () => {
+    const device = platformDeviceToClient(
+      snapshot({ tools: [{ id: 'codex', available: true }] }),
+    );
+    expect(device.tools[0].version).toBeUndefined();
+    expect(device.tools[0].efforts).toBeUndefined();
+  });
+});
+
 describe('platformDeviceToClient tunnel gating fields', () => {
   it('passes tunnelAvailable=true through to the client Device', () => {
     const device = platformDeviceToClient(snapshot({ tunnelAvailable: true }));

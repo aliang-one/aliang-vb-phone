@@ -103,6 +103,7 @@ import { useVoiceStt } from '../../hooks/useVoiceStt';
 import {
   catalogModelOptions,
   normalizeProvider,
+  supportedEffortsFor,
 } from '../../utils/modelIntensity';
 import { createId } from '../../store/internals';
 import { useSessionDetailLoader } from './useSessionDetailLoader';
@@ -2095,6 +2096,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
     sessionProvider,
     providerCatalog,
   );
+  // 设备 CLI 实测支持的 effort 档(agent 能力上报,随快照/device.updated 到达)
+  // → 传给 ToolsMenu 置灰 + 保存钳制。undefined = 未上报,不设障。
+  const sessionSupportedEfforts = useMemo(
+    () => supportedEffortsFor(device?.tools, sessionProvider),
+    [device?.tools, sessionProvider],
+  );
   const effective = session.effectiveModelConfig;
   const effectiveLabel = effective
     ? [
@@ -3230,6 +3237,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               effort={session.effort ?? ''}
               serverModelOptions={sessionModelOptions}
               effortOptions={sessionEffortOptions}
+              supportedEfforts={sessionSupportedEfforts}
               effectiveLabel={effectiveLabel ?? undefined}
               activeExecutionLabel={activeExecutionLabel ?? undefined}
               settingsEditable={session.purpose !== 'goal'}

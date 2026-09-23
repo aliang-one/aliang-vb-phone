@@ -31,8 +31,10 @@ import {
   EFFORT_PROVIDERS,
   availableProviders,
   catalogModelOptions,
+  degradeEffort,
   normalizeProvider,
   providerLabel,
+  supportedEffortsFor,
 } from '../../utils/modelIntensity';
 import { ModelConfirmSheet } from '../../components/vibecoding/ModelConfirmSheet';
 
@@ -110,6 +112,13 @@ export const CreateVibeCodingScreen: React.FC = () => {
     () => availableProviders(device?.tools),
     [device?.tools],
   );
+  // Effort levels this device's CLI actually accepts (agent capability report
+  // via device.tools[].efforts + version). undefined = not reported yet →
+  // no gating (same convention as availability above).
+  const supportedEfforts = useMemo(
+    () => supportedEffortsFor(device?.tools, provider),
+    [device?.tools, provider],
+  );
   // Per-provider model chips (codex / claude_code / opencode),
   // from the live catalog with a hardcoded fallback. Lead with "默认" (clear).
   const serverModelOptions = useMemo(
@@ -133,6 +142,14 @@ export const CreateVibeCodingScreen: React.FC = () => {
     else if (availability.claude_code) setProvider('claude_code');
     else if (availability.opencode) setProvider('opencode');
   }, [availability, provider]);
+  // 自动降级:当前选中的 effort 非空且不被本设备 CLI 支持(如旧版 claude
+  // 不收 ultracode 会直接 exit 1)→ 沿全局阶梯降到第一个支持档;全不支持
+  // 则回落 ''(CLI 默认)。置灰 chip 本身就是解释,无 touched-ref 保护。
+  useEffect(() => {
+    if (effort.trim() === '') return;
+    const degraded = degradeEffort(effort, supportedEfforts);
+    if (degraded !== effort) setEffort(degraded);
+  }, [effort, supportedEfforts]);
   // Start 前的模型/effort 二次确认弹窗(model/effort 任一未手动指定时打开)。
   const [confirmOpen, setConfirmOpen] = useState(false);
   // 用户手动点过 provider 芯片后,Me 默认 provider 预填不再生效。
@@ -237,6 +254,9 @@ export const CreateVibeCodingScreen: React.FC = () => {
     // enabled by config alone (device + provider + permissions), not by a
     // required "objective"/first-message field.
     setCreating(true);
+    // 下发前最后一道钳制:defense-in-depth(选中档在创建瞬间被设备能力
+    // 报告否决时,仍不会把 CLI 不认的 effort 发出去)。
+    const clampedEffort = degradeEffort(effort.trim(), supportedEfforts);
     navigation.replace('VibeCodingSession', {
       draftConfig: {
         deviceId: device.id,
@@ -244,7 +264,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
         directory: effectiveDirectory,
         provider,
         model: model.trim() || undefined,
-        effort: effort.trim() || undefined,
+        effort: clampedEffort.trim() || undefined,
         approvalScheme: approval === 'inherit' ? undefined : approval,
         canRead,
         canModify,
@@ -668,12 +688,21 @@ export const CreateVibeCodingScreen: React.FC = () => {
         <View style={styles.chipRow}>
           {effortOptions.map(preset => {
             const active = effort.trim() === preset.value;
+            // 置灰规则:设备已上报 efforts 且该档不在其中(大小写不敏感);
+            // ''(默认)永远可点,未上报时全部可点。
+            const effortEnabled =
+              preset.value === '' ||
+              !supportedEfforts ||
+              supportedEfforts.some(
+                item => item.trim().toLowerCase() === preset.value.toLowerCase(),
+              );
             return (
               <TouchableOpacity
                 key={preset.label}
                 testID={`effort-chip-${preset.value}`}
-                accessibilityState={{ selected: active }}
+                accessibilityState={{ selected: active, disabled: !effortEnabled }}
                 activeOpacity={0.75}
+                disabled={!effortEnabled}
                 onPress={() => setEffort(preset.value)}
                 style={[
                   styles.chip,
@@ -687,6 +716,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
                         ? 'rgba(86, 156, 214, 0.12)'
                         : 'rgba(0, 81, 174, 0.08)'
                       : 'transparent',
+                    opacity: effortEnabled ? 1 : 0.35,
                   },
                 ]}>
                 <Text
