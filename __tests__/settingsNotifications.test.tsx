@@ -244,13 +244,13 @@ describe('SettingsScreen notification panel', () => {
     expect(summary.some(s => s === '5/5 已开启')).toBe(true);
 
     // 内联开关已被移除：面板里不再直接渲染类型 Switch
+    expect(r.root.findAllByType(Switch)).toHaveLength(0);
     // 点击入口行 → 弹窗出现，含 5 个类型开关
     const entry = findButtonByText(r.root, '通知类型');
     await act(async () => {
       (entry!.props as { onPress: () => void }).onPress();
       await flush();
     });
-    const sheetSwitches = r.root.findAllByType(Switch);
-    expect(sheetSwitches.length).toBeGreaterThanOrEqual(5);
+    expect(r.root.findAllByType(Switch)).toHaveLength(5);
   });
 });

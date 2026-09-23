@@ -588,7 +588,6 @@ export const SettingsScreen: React.FC = () => {
               <TouchableOpacity
                 style={styles.settingRow}
                 onPress={() => setTypesSheetOpen(true)}
-                accessibilityLabel={t('notifications.typesTitle')}
                 accessibilityRole="button"
               >
                 <View style={styles.settingCopy}>
