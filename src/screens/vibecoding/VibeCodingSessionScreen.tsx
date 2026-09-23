@@ -1605,14 +1605,19 @@ export const VibeCodingSessionScreen: React.FC = () => {
     : session?.purpose !== 'goal' && shouldDisableComposerForProvider
       ? t('session.composer.claudeRunning')
       : undefined;
-  // TUI 共享提示(低成本方案):导入/已绑定的 CLI 会话与桌面终端共用同一份
-  // 会话文件——手机上发送的内容不会出现在已打开的 TUI 界面里(独立进程、
-  // 内存上下文),TUI 端需重启 resume 才能同步。按次进入会话展示一次,
-  // 可手动关闭。措辞为机制描述,不依赖 TUI 当前是否真的开着(避免状态误报)。
+  // TUI 共享提示(低成本方案):仅对「终端里发起」的导入会话展示——它们与
+  // 桌面终端共用同一份会话文件,手机上发送的内容不会出现在已打开的 TUI
+  // 界面里,TUI 端需重启 resume 才能同步。按次进入会话展示一次,可手动关闭。
+  // 判据用会话来源(ai_import_ 前缀 = agent 扫盘发现),而不是
+  // sourceSessionId——后者在纯手机会话首轮跑完后也会被 resume 绑定回填
+  // (claude-session-resume),拿它当触发条件会让每条纯手机会话都误弹横幅。
+  // 措辞为机制描述,不依赖 TUI 当前是否真的开着(避免状态误报)。
   const [tuiSharedNoticeDismissed, setTuiSharedNoticeDismissed] =
     useState(false);
-  const showTuiSharedNotice =
-    Boolean(session?.sourceSessionId) && !tuiSharedNoticeDismissed;
+  const isImportedTuiConversation =
+    Boolean(session?.id && session.id.startsWith('ai_import_')) &&
+    Boolean(session?.sourceSessionId);
+  const showTuiSharedNotice = isImportedTuiConversation && !tuiSharedNoticeDismissed;
   // 停止按钮显隐:与顶部相位 / composer 锁同源(看 isSessionLive),不裸读 session.status。
   // 旧版用 `serviceThinksRunning`(裸 status)会在回合答完后 status 卡陈旧 running 时,
   // 让停止按钮常驻显示——顶部已「已完成」、输入框已解锁,唯独停止按钮还在(脱节 bug)。
