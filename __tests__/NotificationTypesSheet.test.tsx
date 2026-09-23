@@ -35,6 +35,9 @@ describe('NotificationTypesSheet', () => {
     act(() => { r = renderSheet(); });
     const labels = r.root.findAllByType(Text).map(t => String(t.props.children ?? ''));
     expect(labels).toContain('审批请求');
+    expect(labels).toContain('会话已完成');
+    expect(labels).toContain('会话失败');
+    expect(labels).toContain('设备离线');
     expect(labels).toContain('设备上线');
     expect(r.root.findAllByType(Switch)).toHaveLength(5);
   });
@@ -45,6 +48,7 @@ describe('NotificationTypesSheet', () => {
     const offlineSwitch = r.root
       .findAllByType(Switch)
       .find(s => s.props.accessibilityLabel === '设备离线');
+    expect(offlineSwitch).toBeDefined();
     act(() => { offlineSwitch!.props.onValueChange(false); });
     expect(useSessionStore.getState().notificationPrefs.device_offline).toBe(false);
   });

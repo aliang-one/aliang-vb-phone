@@ -9,7 +9,6 @@ import {
   AppState,
   ActivityIndicator,
   Image,
-  Switch,
   View,
   Text,
   StyleSheet,
@@ -47,19 +46,16 @@ import {
   requestPermission,
   type LocalNotificationPermissionStatus,
 } from '../../services/localNotifications';
-import { type NotifiableEventType } from '../../utils/notificationDeliveryPolicy';
+import {
+  isEventTypeEnabled,
+  NOTIFIABLE_EVENT_TYPES,
+} from '../../utils/notificationDeliveryPolicy';
+import { NotificationTypesSheet } from '../../components/settings/NotificationTypesSheet';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 const ratio = (value: number, total: number) =>
   total > 0 ? Math.min(100, (value / total) * 100) : 0;
-
-const NOTIFIABLE_EVENT_TYPES: NotifiableEventType[] = [
-  'approval',
-  'session_done',
-  'session_failed',
-  'device_offline',
-];
 
 export const SettingsScreen: React.FC = () => {
   const { theme, isDark, mode, setMode } = useTheme();
@@ -82,7 +78,6 @@ export const SettingsScreen: React.FC = () => {
   const clearSavedCredentials = useSessionStore(state => state.clearSavedCredentials);
   const show = useToastStore(s => s.show);
   const notificationPrefs = useSessionStore(s => s.notificationPrefs);
-  const setNotificationPrefs = useSessionStore(s => s.setNotificationPrefs);
   const disconnectFromServer = useControlCenterStore(state => state.disconnectFromServer);
   const resetSessionData = useControlCenterStore(state => state.resetSessionData);
   const wsConnected = useControlCenterStore(state => state.wsConnected);
@@ -92,6 +87,7 @@ export const SettingsScreen: React.FC = () => {
     useState<LocalNotificationPermissionStatus>('unsupported');
   const [updatingNotificationPermission, setUpdatingNotificationPermission] =
     useState(false);
+  const [typesSheetOpen, setTypesSheetOpen] = useState(false);
 
   const refreshNotificationPermission = useCallback(() => {
     void getNotificationPermissionStatus().then(setNotificationPermission);
@@ -589,32 +585,33 @@ export const SettingsScreen: React.FC = () => {
                   style={styles.serviceButton}
                 />
               </View>
-              {NOTIFIABLE_EVENT_TYPES.map(type => {
-                const enabled = notificationPrefs[type] ?? true;
-                return (
-                  <View style={styles.settingRow} key={type}>
-                    <View style={styles.settingCopy}>
-                      <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                        {t(`notifications.types.${type}`)}
-                      </Text>
-                    </View>
-                    <Switch
-                      value={enabled}
-                      accessibilityLabel={t(`notifications.types.${type}`)}
-                      trackColor={{
-                        false: theme.colors.surfaceContainerHighest,
-                        true: theme.colors.primaryContainer,
-                      }}
-                      thumbColor={
-                        enabled ? theme.colors.primary : theme.colors.onSurfaceVariant
-                      }
-                      onValueChange={value =>
-                        setNotificationPrefs({ ...notificationPrefs, [type]: value })
-                      }
-                    />
-                  </View>
-                );
-              })}
+              <TouchableOpacity
+                style={styles.settingRow}
+                onPress={() => setTypesSheetOpen(true)}
+                accessibilityLabel={t('notifications.typesTitle')}
+                accessibilityRole="button"
+              >
+                <View style={styles.settingCopy}>
+                  <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                    {t('notifications.typesTitle')}
+                  </Text>
+                  <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+                    {t('notifications.typesSummary', {
+                      enabled: NOTIFIABLE_EVENT_TYPES.filter(
+                        type => isEventTypeEnabled(notificationPrefs, type),
+                      ).length,
+                      total: NOTIFIABLE_EVENT_TYPES.length,
+                    })}
+                  </Text>
+                </View>
+                <Text style={[theme.typography.labelMd, { color: theme.colors.primary }]}>
+                  ›
+                </Text>
+              </TouchableOpacity>
+              <NotificationTypesSheet
+                open={typesSheetOpen}
+                onClose={() => setTypesSheetOpen(false)}
+              />
             </GlassPanel>
 
             {renderSectionTitle(t('sections.capacity'))}

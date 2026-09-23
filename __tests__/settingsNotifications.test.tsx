@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
-import { Text, TouchableOpacity, AppState } from 'react-native';
+import { Text, TouchableOpacity, Switch, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
@@ -231,5 +231,26 @@ describe('SettingsScreen notification panel', () => {
       expect.stringContaining('channel vibe_background does not exist'),
       'error',
     );
+  });
+
+  test('the notification TYPES entry row opens the per-type sheet (inline switches replaced)', async () => {
+    let r!: ReactTestRenderer.ReactTestRenderer;
+    act(() => { r = renderScreen(); });
+    await flush();
+
+    // 入口行：标题 + 「N/5 已开启」摘要
+    expect(findButtonByText(r.root, '通知类型')).toBeDefined();
+    const summary = r.root.findAllByType(Text).map(t => String(t.props.children ?? ''));
+    expect(summary.some(s => s === '5/5 已开启')).toBe(true);
+
+    // 内联开关已被移除：面板里不再直接渲染类型 Switch
+    // 点击入口行 → 弹窗出现，含 5 个类型开关
+    const entry = findButtonByText(r.root, '通知类型');
+    await act(async () => {
+      (entry!.props as { onPress: () => void }).onPress();
+      await flush();
+    });
+    const sheetSwitches = r.root.findAllByType(Switch);
+    expect(sheetSwitches.length).toBeGreaterThanOrEqual(5);
   });
 });

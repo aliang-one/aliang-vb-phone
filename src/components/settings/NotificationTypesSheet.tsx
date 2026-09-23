@@ -1,25 +1,13 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/useTheme';
 import { BottomSheet } from '../shared/BottomSheet';
 import { useSessionStore } from '../../../stores/useSettingsStore';
 import {
   isEventTypeEnabled,
-  type NotifiableEventType,
+  NOTIFIABLE_EVENT_TYPES,
 } from '../../utils/notificationDeliveryPolicy';
-
-// Per-type notification toggles, reached from the Settings notification
-// panel's single 「通知类型」 row. Keys are the NotifiableEventType union —
-// identical to the `data.type` string carried by each background notification,
-// so the background hook filters with zero mapping (spec §4.4).
-const NOTIFIABLE_EVENT_TYPES: NotifiableEventType[] = [
-  'approval',
-  'session_done',
-  'session_failed',
-  'device_offline',
-  'device_online',
-];
 
 export const NotificationTypesSheet: React.FC<{
   open: boolean;
@@ -36,7 +24,15 @@ export const NotificationTypesSheet: React.FC<{
         {NOTIFIABLE_EVENT_TYPES.map(type => {
           const enabled = isEventTypeEnabled(notificationPrefs, type);
           return (
-            <View style={styles.row} key={type}>
+            <Pressable
+              style={styles.row}
+              key={type}
+              onPress={() =>
+                setNotificationPrefs({ ...notificationPrefs, [type]: !enabled })
+              }
+              accessibilityRole="switch"
+              accessibilityState={{ checked: enabled }}
+            >
               <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
                 {t(`notifications.types.${type}`)}
               </Text>
@@ -52,7 +48,7 @@ export const NotificationTypesSheet: React.FC<{
                   setNotificationPrefs({ ...notificationPrefs, [type]: value })
                 }
               />
-            </View>
+            </Pressable>
           );
         })}
       </ScrollView>

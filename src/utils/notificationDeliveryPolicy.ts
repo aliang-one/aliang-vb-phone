@@ -48,6 +48,19 @@ export type NotifiableEventType =
   | 'device_offline'
   | 'device_online';
 
+/**
+ * Single source of truth for the notifiable type list — every UI that iterates
+ * the types (Settings entry-row summary, NotificationTypesSheet rows) must
+ * import this instead of redeclaring a local array that can drift out of sync.
+ */
+export const NOTIFIABLE_EVENT_TYPES: readonly NotifiableEventType[] = [
+  'approval',
+  'session_done',
+  'session_failed',
+  'device_offline',
+  'device_online',
+];
+
 export type NotificationPrefs = Record<NotifiableEventType, boolean>;
 
 export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
