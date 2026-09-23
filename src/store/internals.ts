@@ -619,13 +619,21 @@ export function serverAiSessionToVibeRun(
     // reconcile/merge — that's P2.3); unknown envelopes are dropped via the
     // null filter. `eventDetailCache` is intentionally left undefined on a
     // fresh snapshot (populated on demand in P3 via fetchStructuredEventDetail).
-    structuredEvents: (session.structured_events ?? [])
-      .map(env =>
-        env && typeof env === 'object'
-          ? envelopeToActivity(env as Record<string, unknown>)
-          : null,
-      )
-      .filter((e): e is StructuredActivityEvent => e !== null),
+    // Cap at the transport boundary (same ring-buffer semantics as the live
+    // applyStructuredEvent path): a first snapshot for a session with no local
+    // run goes straight into vibeRuns, so an uncapped array here would reach
+    // every screen selector subscribed to structuredEvents (iPhone watchdog
+    // stopgap — big snapshot mounts on the JS thread).
+    structuredEvents: tail(
+      (session.structured_events ?? [])
+        .map(env =>
+          env && typeof env === 'object'
+            ? envelopeToActivity(env as Record<string, unknown>)
+            : null,
+        )
+        .filter((e): e is StructuredActivityEvent => e !== null),
+      STRUCTURED_EVENTS_CAP,
+    ),
   };
 }
 
