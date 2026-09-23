@@ -45,7 +45,8 @@ export type NotifiableEventType =
   | 'approval'
   | 'session_done'
   | 'session_failed'
-  | 'device_offline';
+  | 'device_offline'
+  | 'device_online';
 
 export type NotificationPrefs = Record<NotifiableEventType, boolean>;
 
@@ -54,6 +55,7 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   session_done: true,
   session_failed: true,
   device_offline: true,
+  device_online: true,
 };
 
 /**
