@@ -333,6 +333,8 @@ export function platformDeviceToClient(sd: PlatformDeviceSnapshot): Device {
       path: tool.path,
       available: tool.available,
       description: tool.description,
+      version: tool.version,
+      efforts: tool.efforts,
       commands: tool.commands?.map(cmd => ({
         name: cmd.name,
         description: cmd.description,

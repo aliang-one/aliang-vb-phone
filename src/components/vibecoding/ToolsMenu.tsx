@@ -16,6 +16,7 @@ import { IconBadge } from '../visual/IconBadge';
 import { Logo } from '../visual/Logo';
 import type { AgentCommandInfo } from '../../data/platformModels';
 import {
+  degradeEffort,
   effortPresetsFor,
   intensityToEffort,
   modelPresetsFor,
@@ -46,6 +47,13 @@ export interface ToolsMenuProps {
    * hardcoded fallback ladder is used. Passed down by the session screen.
    */
   effortOptions?: Array<{ label: string; value: string }>;
+  /**
+   * Effort levels this device's CLI actually accepts (agent capability from
+   * device.tools[].efforts). Chips outside this list are greyed out and the
+   * saved effort is clamped down the global ladder. undefined/omitted = not
+   * reported → no gating.
+   */
+  supportedEfforts?: string[];
   /**
    * Read-only "当前有效" hint from the session's `effective_model_config`
    * (server-resolved concrete model/effort + provenance). Shown above the
@@ -87,6 +95,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
   commands,
   effort,
   effortOptions,
+  supportedEfforts,
   serverModelOptions,
   effectiveLabel,
   activeExecutionLabel,
@@ -167,8 +176,10 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
       await onSaveSettings({
         // Clean base name only — effort is a separate field (see file header
         // in modelIntensity.ts). The gateway derives the codex level from it.
+        // Effort is clamped to the device's reported capability (global ladder)
+        // so an old session's tier can't crash a downgraded CLI.
         model: modelBase.trim(),
-        effort: effortDraft.trim(),
+        effort: degradeEffort(effortDraft.trim(), supportedEfforts),
       });
       rememberModel(modelBase);
       setSettingsDirty(false);
@@ -380,16 +391,30 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
             : effortPresetsFor(provider)
           ).map(option => {
             const active = effortDraft === option.value;
+            // 置灰规则同创建页:设备上报的 efforts 不含该档(大小写不敏感)
+            // → disabled+0.35;''(默认)永远可点;未上报(supportedEfforts
+            // undefined)→ 全部可点。
+            const effortEnabled =
+              option.value === '' ||
+              !supportedEfforts ||
+              supportedEfforts.some(
+                item => item.trim().toLowerCase() === option.value.toLowerCase(),
+              );
             return (
               <TouchableOpacity
                 key={option.value || 'default'}
                 testID={`tools-effort-${option.value || 'default'}`}
+                accessibilityState={{ disabled: !effortEnabled }}
                 activeOpacity={0.75}
+                disabled={!effortEnabled}
                 onPress={() => {
                   setEffortDraft(option.value);
                   setSettingsDirty(true);
                 }}
-                style={chipStyle(active)}>
+                style={[
+                  ...chipStyle(active),
+                  !effortEnabled ? styles.chipDisabled : null,
+                ]}>
                 <Text style={chipText(active)}>{option.label}</Text>
               </TouchableOpacity>
             );
@@ -607,6 +632,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingVertical: 5,
     paddingHorizontal: 11,
+  },
+  chipDisabled: {
+    opacity: 0.35,
   },
   errorText: {
     marginTop: 8,

@@ -229,6 +229,97 @@ export function availableProviders(
   return { codex: has('codex'), claude_code: has('claude_code'), opencode: has('opencode') };
 }
 
+/**
+ * GLOBAL effort degrade ladder, high → low. When a device's CLI only accepts
+ * a subset of the taxonomy (e.g. claude 2.1.156 rejects `ultracode` with
+ * exit 1), the requested effort is walked DOWN this ladder to the first tier
+ * the device supports. Authoritative order — mirrors the server's clamping.
+ */
+export const EFFORT_DEGRADE_ORDER = [
+  'ultracode',
+  'max',
+  'xhigh',
+  'high',
+  'medium',
+  'low',
+] as const;
+
+/**
+ * Resolve the effort levels a device's CLI actually accepts, from the agent's
+ * `device.tools[]` capability report (`efforts` + `version` on the tool
+ * entry). Mirrors `availableProviders` conventions:
+ *
+ *   - empty/undefined tool list → undefined (the agent may not have reported
+ *     yet — don't gate the UI before it does);
+ *   - the first tool with `available !== false` whose id normalizes to
+ *     `provider` wins;
+ *   - its `efforts` is returned when a non-empty array, otherwise undefined
+ *     (again: no capability report → no clamping).
+ *
+ * Structural tool type so this util stays free of device-type dependencies.
+ */
+export function supportedEffortsFor(
+  tools:
+    | ReadonlyArray<{
+        id?: string;
+        available?: boolean;
+        efforts?: readonly string[];
+      }>
+    | undefined,
+  provider: EffortProvider,
+): string[] | undefined {
+  if (!tools || !tools.length) {
+    return undefined;
+  }
+  const tool = tools.find(item => {
+    if (item.available === false) return false;
+    return normalizeProvider(item.id) === provider;
+  });
+  const efforts = tool?.efforts;
+  return efforts && efforts.length ? [...efforts] : undefined;
+}
+
+/**
+ * Clamp a requested effort to what the device supports, walking the global
+ * degrade ladder (high → low) from the requested tier (inclusive) downwards:
+ *
+ *   - `supported` undefined/empty → requested unchanged (no capability
+ *     report → no clamping, same convention as `supportedEffortsFor`);
+ *   - requested empty → unchanged (默认 / CLI default is always safe);
+ *   - requested tier unsupported → first supported tier BELOW it;
+ *   - requested not on the ladder (custom value) → scan from the top;
+ *   - nothing on the ladder is supported → '' (fall back to CLI default).
+ *
+ * Matching is case-insensitive (both sides are lowercased internally); the
+ * returned value preserves the ORIGINAL spelling from `supported`.
+ */
+export function degradeEffort(
+  requested: string,
+  supported: string[] | undefined,
+): string {
+  if (!supported || !supported.length) {
+    return requested;
+  }
+  const req = requested.trim();
+  if (!req) {
+    return req;
+  }
+  const ladder = EFFORT_DEGRADE_ORDER as readonly string[];
+  const reqLower = req.toLowerCase();
+  // Custom tiers (not on the ladder) degrade from the TOP of the ladder.
+  const start = ladder.indexOf(reqLower);
+  const startIndex = start >= 0 ? start : 0;
+  for (let i = startIndex; i < ladder.length; i++) {
+    const hit = supported.find(
+      effort => effort.trim().toLowerCase() === ladder[i],
+    );
+    if (hit !== undefined) {
+      return hit;
+    }
+  }
+  return '';
+}
+
 // ---- LEGACY: tier-as-model-suffix representation (parsing only) -------------
 
 // Legacy reasoning-effort tiers that used to be spliced onto the model name.

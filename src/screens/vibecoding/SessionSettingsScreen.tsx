@@ -18,12 +18,18 @@ import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { RootStackParamList } from '../../app/navigation/types';
-import { useControlCenterStore, useVibeRun } from '../../store/controlCenterStore';
+import {
+  useControlCenterStore,
+  useDevice,
+  useVibeRun,
+} from '../../store/controlCenterStore';
 import {
   catalogModelOptions,
+  degradeEffort,
   intensityToEffort,
   parseModelIntensity,
   providerLabel,
+  supportedEffortsFor,
   type EffortProvider,
 } from '../../utils/modelIntensity';
 import { catalogEffortOptions, useModelOptions } from '../../hooks/useModelOptions';
@@ -54,8 +60,15 @@ export const SessionSettingsScreen: React.FC = () => {
   const updateAgentSession = useControlCenterStore(
     state => state.updateAgentSession,
   );
+  const device = useDevice(session?.deviceId);
 
   const provider = resolveProvider(session?.provider, session?.model);
+  // 设备 CLI 实测支持的 effort 档(agent 能力上报)→ 置灰 + 保存钳制。
+  // undefined = 未上报,不设障。
+  const supportedEfforts = useMemo(
+    () => supportedEffortsFor(device?.tools, provider),
+    [device?.tools, provider],
+  );
   // Live catalog drives the effort chips (codex 4, claude 6) with a hardcoded
   // fallback before it loads.
   const { providerCatalog } = useModelOptions();
@@ -108,7 +121,9 @@ export const SessionSettingsScreen: React.FC = () => {
       // the gateway injects --model and derives reasoning effort from `effort`.
       await updateAgentSession(session.id, {
         model: modelBase.trim(),
-        effort: effortDraft.trim(),
+        // 钳到设备 CLI 实测支持的档(全局阶梯向下),旧会话的高档位不会
+        // 打崩降级后的 CLI;全不支持回落 ''(CLI 默认)。
+        effort: degradeEffort(effortDraft.trim(), supportedEfforts),
       });
       rememberModel(modelBase);
       navigation.goBack();
@@ -242,10 +257,20 @@ export const SessionSettingsScreen: React.FC = () => {
         <View style={styles.chipRow}>
           {effortOptions.map(option => {
             const active = effortDraft === option.value;
+            // 置灰规则同创建页:设备上报的 efforts 不含该档(大小写不敏感)
+            // → disabled+0.35;''(默认)永远可点;未上报 → 全部可点。
+            const effortEnabled =
+              option.value === '' ||
+              !supportedEfforts ||
+              supportedEfforts.some(
+                item => item.trim().toLowerCase() === option.value.toLowerCase(),
+              );
             return (
               <TouchableOpacity
                 key={option.value || 'default'}
+                accessibilityState={{ disabled: !effortEnabled }}
                 activeOpacity={0.75}
+                disabled={!effortEnabled}
                 onPress={() => setEffortDraft(option.value)}
                 style={[
                   styles.chip,
@@ -259,6 +284,7 @@ export const SessionSettingsScreen: React.FC = () => {
                         ? 'rgba(86, 156, 214, 0.12)'
                         : 'rgba(0, 81, 174, 0.08)'
                       : 'transparent',
+                    opacity: effortEnabled ? 1 : 0.35,
                   },
                 ]}>
                 <Text
