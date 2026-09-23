@@ -202,9 +202,10 @@ describe('MessageComposer', () => {
     expect(() => findByTestID(root, 'composer-interrupt')).toThrow();
   });
 
-  it('greys the stop control with the terminal hint for TUI-driven turns', () => {
+  it('greys the stop control and collapses the terminal hint behind a desktop icon', () => {
     // TUI 驱动的 running(无 v2 runStateVersion):手机停止不了外部终端进程
-    // ——按钮置灰+给出去处,而不是可点却无效的假动作。
+    // ——按钮置灰。完整原因文字收进台式电脑 icon(点击才展开):常驻文字会
+    // 挤爆 composer 行(溢出),icon 默认只占一格。
     const onInterruptTurn = jest.fn();
     const hint = '终端 TUI 正在运行对话——请在终端里按一次 Esc 停止本轮。';
     const root = wrap(
@@ -222,7 +223,44 @@ describe('MessageComposer', () => {
     // 置灰态不挂 onPress:结构上就不可能触发回调(而非点了没效果)。
     expect(stop.props.onPress).toBeUndefined();
     expect(onInterruptTurn).not.toHaveBeenCalled();
+    // 默认只有台式电脑 icon,提示文字不渲染。
+    expect(() => findByTestID(root, 'composer-tui-hint')).not.toThrow();
+    expect(allTexts(root).some(t => t === hint)).toBe(false);
+    // 点击 icon → 展开提示文字;再点文字 → 收回 icon。
+    act(() => {
+      findByTestID(root, 'composer-tui-hint').props.onPress();
+    });
     expect(allTexts(root).some(t => t === hint)).toBe(true);
+    expect(() => findByTestID(root, 'composer-tui-hint')).toThrow();
+    act(() => {
+      findByTestID(root, 'composer-tui-hint-text').props.onPress();
+    });
+    expect(allTexts(root).some(t => t === hint)).toBe(false);
+    expect(() => findByTestID(root, 'composer-tui-hint')).not.toThrow();
+  });
+
+  it('re-collapses the terminal hint when the greyed episode ends and returns', () => {
+    // 展开态要在 greyed 结束后复位:下一轮 TUI running 仍从 icon 开始,
+    // 而不是带着上一次遗留的展开文字进场。
+    const props = (greyed: boolean) =>
+      defaultProps({
+        canInterruptTurn: true,
+        interruptGreyed: greyed,
+        interruptGreyedHint: 'hint',
+        onInterruptTurn: jest.fn(),
+      });
+    const root = wrap(<MessageComposer {...props(true)} />);
+    act(() => {
+      findByTestID(root, 'composer-tui-hint').props.onPress();
+    });
+    expect(allTexts(root).some(t => t === 'hint')).toBe(true);
+    act(() => {
+      root.update(<MessageComposer {...props(false)} />);
+    });
+    act(() => {
+      root.update(<MessageComposer {...props(true)} />);
+    });
+    expect(allTexts(root).some(t => t === 'hint')).toBe(false);
   });
 
   it('keeps the stop control active for phone-driven runs (no greyed prop)', () => {

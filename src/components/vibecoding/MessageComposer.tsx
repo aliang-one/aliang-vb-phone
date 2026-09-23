@@ -82,7 +82,15 @@ export interface MessageComposerProps {
 
 // ---------- icons (inline SVG; no shared icon lib ships mic/keyboard/send) ----------
 
-type ComposerIconName = 'mic' | 'keyboard' | 'send' | 'sparkle' | 'stop' | 'refresh' | 'sliders';
+type ComposerIconName =
+  | 'mic'
+  | 'keyboard'
+  | 'send'
+  | 'sparkle'
+  | 'stop'
+  | 'refresh'
+  | 'sliders'
+  | 'desktop';
 
 interface ComposerIconProps {
   name: ComposerIconName;
@@ -143,6 +151,12 @@ const ComposerIcon: React.FC<ComposerIconProps> = ({ name, size = 22, color }) =
           stroke={color}
           {...common}
         />
+      )}
+      {name === 'desktop' && (
+        <>
+          <Rect x="2.5" y="4" width="19" height="12.5" rx="2" stroke={color} {...common} />
+          <Path d="M9 20.5h6M12 16.5v4" stroke={color} {...common} />
+        </>
       )}
     </Svg>
   );
@@ -325,6 +339,15 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
     });
   };
 
+  // TUI-driven-turn hint starts collapsed behind the desktop icon; the full
+  // text only renders after the user taps it. Re-collapse whenever the greyed
+  // episode ends so a later TUI turn enters with the icon again, not stale
+  // expanded text left over from the previous one.
+  const [greyedHintOpen, setGreyedHintOpen] = useState(false);
+  useEffect(() => {
+    if (!interruptGreyed) setGreyedHintOpen(false);
+  }, [interruptGreyed]);
+
   const containerBg = isDark ? 'rgba(255,255,255,0.045)' : theme.colors.surfaceContainer;
   const ctrlBg: ViewStyle = {
     backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
@@ -440,8 +463,10 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
     // non-interactive placeholder, unless a turn is streaming (then interrupt).
     if (canInterruptTurn && interruptGreyed && onInterruptTurn && !isGoalCommandInput && !goalDraft) {
       // TUI-driven turn (scan-reported running, no v2 run): the phone cannot
-      // stop an external terminal process — render the stop control greyed
-      // with the reason, so the user learns where the stop actually lives.
+      // stop an external terminal process — render the stop control greyed.
+      // The full reason text used to sit inline and overflowed the composer
+      // row, so it now lives behind a desktop icon: the icon signals "this
+      // turn runs on the desktop", tapping it reveals the where-to-stop hint.
       return (
         <View style={styles.ctrlGroup}>
           <TouchableOpacity
@@ -461,17 +486,43 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
           >
             <ComposerIcon name="stop" size={20} color={theme.colors.onPrimary} />
           </TouchableOpacity>
-          {interruptGreyedHint ? (
-            <Text
-              style={[
-                theme.typography.labelSm,
-                { color: theme.colors.onSurfaceVariant, flex: 1 },
-              ]}
-              numberOfLines={2}
+          {greyedHintOpen && interruptGreyedHint ? (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={interruptGreyedHint}
+              accessibilityState={{ expanded: true }}
+              onPress={() => setGreyedHintOpen(false)}
+              testID="composer-tui-hint-text"
+              style={styles.greyedHintWrap}
             >
-              {interruptGreyedHint}
-            </Text>
-          ) : null}
+              <Text
+                style={[
+                  theme.typography.labelSm,
+                  { color: theme.colors.onSurfaceVariant, flex: 1 },
+                ]}
+                numberOfLines={3}
+              >
+                {interruptGreyedHint}
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={interruptGreyedHint}
+              accessibilityState={{ expanded: false }}
+              onPress={() => setGreyedHintOpen(true)}
+              testID="composer-tui-hint"
+              style={[
+                styles.ctrlBtn,
+                {
+                  borderRadius: theme.borderRadius.full,
+                  backgroundColor: ctrlBg.backgroundColor,
+                },
+              ]}
+            >
+              <ComposerIcon name="desktop" size={20} color={theme.colors.onSurfaceVariant} />
+            </TouchableOpacity>
+          )}
         </View>
       );
     }
@@ -843,6 +894,10 @@ const styles = StyleSheet.create({
     width: BTN,
     height: BTN,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  greyedHintWrap: {
+    flex: 1,
     justifyContent: 'center',
   },
   contentArea: {
