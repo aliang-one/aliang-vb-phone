@@ -71,8 +71,10 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
               </Text>
             </TouchableOpacity>
           )}
-          <View>
+          <View style={styles.titleBlock}>
             <Text
+              numberOfLines={1}
+              ellipsizeMode="tail"
               style={[
                 theme.typography.headlineMd,
                 { color: theme.colors.onSurface },
@@ -81,6 +83,8 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
             </Text>
             {subtitle && (
               <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
                 style={[
                   theme.typography.labelCaps,
                   { color: theme.colors.onSurfaceVariant },
@@ -91,7 +95,7 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
             )}
           </View>
         </View>
-        {rightAction && <View>{rightAction}</View>}
+        {rightAction && <View style={styles.rightAction}>{rightAction}</View>}
       </View>
     </View>
   );
@@ -108,10 +112,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  // RN flex 默认 flexShrink:0,不限宽时过长的设备名/标题会顶挤右侧状态区。
+  // 左侧整体占剩余宽度并允许收缩,标题/副标题单行省略;右侧保持固有宽度不压缩。
   left: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  titleBlock: {
+    flexShrink: 1,
+  },
+  rightAction: {
+    flexShrink: 0,
   },
   backBtn: {
     width: 34,
