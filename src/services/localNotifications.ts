@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import i18n from '../i18n';
 import {
   decideNotificationDelivery,
@@ -13,11 +13,12 @@ let unavailable = false;
 function load(): NotifyKit | null {
   if (unavailable) return null;
   if (cache) return cache;
-  if (Platform.OS !== 'android') {
-    unavailable = true;
-    return null;
-  }
   try {
+    // Cross-platform (Android + iOS). The pod is linked via Podfile.lock and
+    // the library implements permission status/request natively on iOS; only
+    // openNotificationSettings is Android-only up there (see below). A require
+    // failure here — native module missing from the installed binary — is the
+    // one genuine "当前平台或安装包不支持" case.
     cache = require('react-native-notify-kit');
     return cache;
   } catch (error) {
@@ -108,6 +109,19 @@ export async function requestPermission(): Promise<boolean> {
 }
 
 export async function openNotificationSettings(): Promise<boolean> {
+  if (Platform.OS === 'ios') {
+    // notify-kit's openNotificationSettings is a no-op on iOS (upstream Notifee
+    // ships an empty resolve there). app-settings: opens THIS app's system
+    // settings page, where the master notification toggle lives — the correct
+    // destination for a denied user on iOS too.
+    try {
+      await Linking.openSettings();
+      return true;
+    } catch (error) {
+      console.warn('[localNotifications] Linking.openSettings failed', error);
+      return false;
+    }
+  }
   const lib = load();
   if (!lib) return false;
   try {

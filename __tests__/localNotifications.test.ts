@@ -35,8 +35,9 @@ const NotifyKit = require('react-native-notify-kit') as {
   AuthorizationStatus: { AUTHORIZED: string; NOT_DETERMINED: string };
 };
 
-// localNotifications.load() short-circuits to `unavailable` off-Android. The
-// notification feature is Android-only, so force the platform for this file.
+// The Android-specific paths (native openNotificationSettings, channel/group
+// plumbing) read Platform.OS at call time, so force Android for this file. The
+// iOS-side contract lives in localNotifications.ios.test.ts.
 const savedOS = Platform.OS;
 beforeAll(() => {
   Platform.OS = 'android';
