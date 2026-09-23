@@ -27,7 +27,7 @@ export function resolveNotificationTapTarget(
     return { route: 'NotificationCenter', params: undefined };
   }
   const deviceId = stringValue(data.deviceId);
-  if (data.type === 'device_offline' && deviceId) {
+  if ((data.type === 'device_offline' || data.type === 'device_online') && deviceId) {
     return { route: 'DeviceDetail', params: { deviceId } };
   }
   const sessionId = stringValue(data.sessionId);
