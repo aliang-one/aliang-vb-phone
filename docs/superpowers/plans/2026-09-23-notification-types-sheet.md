@@ -551,6 +551,9 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 ### Task 8: 设置页入口行替换内联开关（手机）
 
 **Files:**
+- Modify: `src/utils/notificationDeliveryPolicy.ts`（**新增导出** `NOTIFIABLE_EVENT_TYPES`——Task 7 质量评审 Important #1：组件与 SettingsScreen 两份列表已分叉，必须单点化，禁止按两份各自维护）
+- Modify: `src/components/settings/NotificationTypesSheet.tsx`（改用导入的列表；行级 a11y 包裹）
+- Modify: `__tests__/NotificationTypesSheet.test.tsx`（测试加固）
 - Modify: `src/screens/settings/SettingsScreen.tsx:56-60,82-96 区域,592-617`
 - Test: `__tests__/settingsNotifications.test.tsx`（追加用例）
 
@@ -590,11 +593,33 @@ Expected: 新用例 FAIL（找不到「通知类型」行），**既有 4 个用
 
 - [ ] **Step 3: 改 SettingsScreen**
 
-1. `NOTIFIABLE_EVENT_TYPES`（`SettingsScreen.tsx:56-60`）加 `'device_online'`——
-   不加的话摘要永远显示「4/5」，Task Step 1 的断言会红。
-2. import 区加 `TouchableOpacity`（应已有）与 `NotificationTypesSheet`。
-3. 组件 state 区（`~line 91` 附近）加 `const [typesSheetOpen, setTypesSheetOpen] = useState(false);`
-4. 删除 `SettingsScreen.tsx:592-617` 的 `NOTIFIABLE_EVENT_TYPES.map` 内联开关块，
+1. **列表单点化**（Task 7 质量评审 Important #1）：`notificationDeliveryPolicy.ts`
+   新增导出（紧挨联合类型）：
+
+   ```ts
+   export const NOTIFIABLE_EVENT_TYPES: readonly NotifiableEventType[] = [
+     'approval',
+     'session_done',
+     'session_failed',
+     'device_offline',
+     'device_online',
+   ];
+   ```
+
+   `NotificationTypesSheet.tsx` 删除本地 `NOTIFIABLE_EVENT_TYPES` 常量、改从
+   `../../utils/notificationDeliveryPolicy` 导入；`SettingsScreen.tsx` 删除本地
+   `NOTIFIABLE_EVENT_TYPES`（56-60 行），同样改为导入——不加这步，摘要永远
+   显示「4/5」，Step 1 断言会红。
+2. `__tests__/NotificationTypesSheet.test.tsx` 加固（Task 7 质量评审 Minor #2）：
+   `expect(offlineSwitch).toBeDefined()` 置于取 props 之前；test 1 断言完整 5 标签
+   集合而非仅 2 个。
+3. Sheet 行级 a11y（Task 7 质量评审 Minor #3）：每行 `<View>` 改 `<Pressable>`
+   （react-native import 补 Pressable），`onPress={() => setNotificationPrefs({ ...notificationPrefs, [type]: !enabled })}`，
+   加 `accessibilityRole="switch"` 与 `accessibilityState={{ checked: enabled }}`；
+   内层 Switch 保留（视觉 + 现有测试定位不变）。
+4. import 区加 `TouchableOpacity`（应已有）与 `NotificationTypesSheet`。
+5. 组件 state 区（`~line 91` 附近）加 `const [typesSheetOpen, setTypesSheetOpen] = useState(false);`
+6. 删除 `SettingsScreen.tsx:592-617` 的 `NOTIFIABLE_EVENT_TYPES.map` 内联开关块，
    原位替换为：
 
 ```tsx
@@ -633,9 +658,9 @@ Expected: 新用例 FAIL（找不到「通知类型」行），**既有 4 个用
 `›` 用字面量：`common:notification.edit` 键不存在，i18next 对缺失键返回键名
 字符串，`??` 兜底永远不会触发。）
 
-5. `isEventTypeEnabled` 加入该文件既有的
+7. `isEventTypeEnabled` 与 `NOTIFIABLE_EVENT_TYPES` 加入该文件既有的
    `../utils/notificationDeliveryPolicy` import（已导入 `NotifiableEventType`，扩展即可）。
-6. 「通知类型」行原位替换开关块——注意原开关块与「发送测试通知」按钮在**同一个
+8. 「通知类型」行原位替换开关块——注意原开关块与「发送测试通知」按钮在**同一个
    GlassPanel 内**（面板尾部的 `serviceActionsInset` 之后），替换后弹窗组件挂在该
    GlassPanel 内部末尾。
 
@@ -647,8 +672,8 @@ Expected: 全部 PASS（新用例 + 既有 4 例）
 - [ ] **Step 5: 提交**
 
 ```bash
-cd "$PHONE" && git add src/screens/settings/SettingsScreen.tsx __tests__/settingsNotifications.test.tsx
-git commit -m "feat(设置): 通知类型改为入口行+底部弹窗,替换内联开关
+cd "$PHONE" && git add src/utils/notificationDeliveryPolicy.ts src/components/settings/NotificationTypesSheet.tsx __tests__/NotificationTypesSheet.test.tsx src/screens/settings/SettingsScreen.tsx __tests__/settingsNotifications.test.tsx
+git commit -m "feat(设置): 通知类型改为入口行+底部弹窗,替换内联开关;类型列表单点化
 
 Co-Authored-By: Claude Code <noreply@anthropic.com>"
 ```
