@@ -37,6 +37,7 @@
     "typeCompleted": "Completed",
     "typeError": "Error",
     "typeOffline": "Offline",
+    "typeOnline": "Online",
     "allDevices": "all devices",
     "markAllRead": "MARK ALL READ",
     "read": "READ",

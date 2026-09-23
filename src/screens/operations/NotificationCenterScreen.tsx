@@ -30,6 +30,7 @@ const notificationTypeKey: Record<PushNotificationItem['type'], string> = {
   completed: 'notification.typeCompleted',
   error: 'notification.typeError',
   device_offline: 'notification.typeOffline',
+  device_online: 'notification.typeOnline',
 };
 
 const notificationTypeChip: Record<
@@ -40,6 +41,7 @@ const notificationTypeChip: Record<
   completed: 'success',
   error: 'error',
   device_offline: 'neutral',
+  device_online: 'neutral',
 };
 
 const notificationIcon: Record<PushNotificationItem['type'], IconName> = {
@@ -47,6 +49,7 @@ const notificationIcon: Record<PushNotificationItem['type'], IconName> = {
   completed: 'check',
   error: 'warning',
   device_offline: 'device',
+  device_online: 'device',
 };
 
 export const NotificationCenterScreen: React.FC = () => {
