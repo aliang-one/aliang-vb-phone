@@ -4,7 +4,8 @@ export type BackgroundNotificationType =
   | 'approval'
   | 'session_done'
   | 'session_failed'
-  | 'device_offline';
+  | 'device_offline'
+  | 'device_online';
 
 export interface PendingLocalNotification {
   /** Server notification identity, used for delivery dedupe and read sync. */
@@ -50,8 +51,9 @@ export function nativeNotificationId(item: PushNotificationItem): string {
     // leaving contradictory terminal-state notifications in the tray.
     return `vibe_session_${safeId(item.sessionId)}_terminal`;
   }
-  if (item.type === 'device_offline' && item.deviceId) {
-    return `vibe_device_${safeId(item.deviceId)}_offline`;
+  // 同设备的上/下线通知共享一个原生槽位：后到的替换先到的，不叠加。
+  if ((item.type === 'device_offline' || item.type === 'device_online') && item.deviceId) {
+    return `vibe_device_${safeId(item.deviceId)}_${item.type === 'device_online' ? 'online' : 'offline'}`;
   }
   return `vibe_notification_${safeId(item.id)}`;
 }
