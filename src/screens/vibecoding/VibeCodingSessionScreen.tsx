@@ -2013,6 +2013,23 @@ export const VibeCodingSessionScreen: React.FC = () => {
     );
   };
 
+  // 设备 CLI 实测支持的 effort 档(agent 能力上报,随快照/device.updated 到达)
+  // → 传给 ToolsMenu 置灰 + 保存钳制。undefined = 未上报,不设障。
+  // 必须位于下方 `if (!session)` 守卫之前:hook 不能条件执行。历史上它曾被放到
+  // 守卫之后(96c32c5),session 加载完成时 hook 数 +1 触发 "Rendered more hooks
+  // than during the previous render" 真机崩溃(2026-09-24 iPhone16Pro)。
+  const sessionProviderSafe =
+    session?.provider ??
+    (session?.model?.toLowerCase().includes('codex')
+      ? 'codex'
+      : session?.model?.toLowerCase().includes('opencode')
+        ? 'opencode'
+        : 'claude_code');
+  const sessionSupportedEfforts = useMemo(
+    () => supportedEffortsFor(device?.tools, sessionProviderSafe),
+    [device?.tools, sessionProviderSafe],
+  );
+
   if (!session) {
     return (
       <SafeAreaWrapper>
@@ -2079,16 +2096,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
     };
   })();
   const budgetLabel = formatBudget(session.projectBudget);
-  // Authoritative provider (from the server session), falling back to the model
-  // label only for legacy snapshots without the field. Drives the Tools menu's
-  // provider-aware effort presets and the agent command-tool lookup.
-  const sessionProvider =
-    session.provider ??
-    (session.model.toLowerCase().includes('codex')
-      ? 'codex'
-      : session.model.toLowerCase().includes('opencode')
-        ? 'opencode'
-        : 'claude_code');
+  // Authoritative provider (from the server session) — hoisted above the
+  // `if (!session)` guard as sessionProviderSafe so the effort-capability
+  // useMemo can run unconditionally (Rules of Hooks). Identical value once
+  // session is loaded; Tools menu provider semantics unchanged.
+  const sessionProvider = sessionProviderSafe;
   const isCodexSession = sessionProvider === 'codex';
   // Live model/effort catalog (shared, cached) — drives the ToolsMenu effort
   // chips so they render the provider's catalog efforts (codex 4, claude 6),
@@ -2100,12 +2112,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const sessionModelOptions = catalogModelOptions(
     sessionProvider,
     providerCatalog,
-  );
-  // 设备 CLI 实测支持的 effort 档(agent 能力上报,随快照/device.updated 到达)
-  // → 传给 ToolsMenu 置灰 + 保存钳制。undefined = 未上报,不设障。
-  const sessionSupportedEfforts = useMemo(
-    () => supportedEffortsFor(device?.tools, sessionProvider),
-    [device?.tools, sessionProvider],
   );
   const effective = session.effectiveModelConfig;
   const effectiveLabel = effective
