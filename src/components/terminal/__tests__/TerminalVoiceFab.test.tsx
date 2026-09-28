@@ -10,8 +10,13 @@
 // 断言用「存在/不存在」而非计数。
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { ActivityIndicator } from 'react-native';
-import { TerminalVoiceFab } from '../TerminalVoiceFab';
+import { ActivityIndicator, StyleSheet } from 'react-native';
+import {
+  TerminalVoiceFab,
+  BREATH_SCALE,
+  BREATH_HALF_MS,
+  SPIN_MS,
+} from '../TerminalVoiceFab';
 import { Logo } from '../../visual/Logo';
 import { darkTheme } from '../../../theme/themes/darkTheme';
 import { __setMockReduceMotion } from '../../../hooks/useReduceMotion';
@@ -177,6 +182,13 @@ describe('TerminalVoiceFab 渲染:logo 恒定', () => {
     expect(idle.renderer.root.findAllByProps({ testID: 'terminal-voice-fab-arc' })).toHaveLength(0);
     const rec = renderTrackedFab({ phase: 'recording' });
     expect(rec.renderer.root.findAllByProps({ testID: 'terminal-voice-fab-arc' }).length).toBeGreaterThan(0);
+    // 弧线/脉冲叠层必须保持 pointerEvents none——一旦可触摸,54×54 又会挡横滚。
+    for (const node of rec.renderer.root.findAllByProps({ testID: 'terminal-voice-fab-arc' })) {
+      expect(node.props.pointerEvents).toBe('none');
+    }
+    for (const node of rec.renderer.root.findAllByProps({ testID: 'terminal-voice-fab-pulse' })) {
+      expect(node.props.pointerEvents).toBe('none');
+    }
     const gen = renderTrackedFab({ phase: 'generating' });
     expect(gen.renderer.root.findAllByProps({ testID: 'terminal-voice-fab-arc' })).toHaveLength(0);
   });
@@ -199,9 +211,41 @@ describe('TerminalVoiceFab 渲染:logo 恒定', () => {
     expect(pressableOf(err.renderer).props.accessibilityLabel).toContain('语音识别失败');
   });
 
-  it('recording 样式含主题 error 色(红边红底)', () => {
+  it('recording 触摸圆红边红底(展开样式精确断言)', () => {
     const rec = renderTrackedFab({ phase: 'recording' });
-    expect(JSON.stringify(pressableOf(rec.renderer).props.style)).toContain(darkTheme.colors.error);
+    const touchStyle = StyleSheet.flatten(pressableOf(rec.renderer).props.style);
+    expect(touchStyle.backgroundColor).toBe(darkTheme.colors.errorContainer);
+    expect(touchStyle.borderColor).toBe(darkTheme.colors.error);
+  });
+
+  // 2026-09-28 真机反馈#1:54×54 的隐形方形 Pressable 挡住左侧按键行的横向
+  // 滚动(滚到 FAB 后面的键摸不到)。拆层:54×54 外层只当视觉锚(pulse/arc
+  // 铺满它),自身区域 box-none 直通;触摸收到内层 44×44 圆形 Pressable 上。
+  it('触摸层是 44×44 圆形(44 宽 + 44 高 + 半径 22),不再用 54 方形接收手势', () => {
+    const { renderer } = renderTrackedFab();
+    const touchStyle = StyleSheet.flatten(pressableOf(renderer).props.style);
+    expect(touchStyle.width).toBe(44);
+    expect(touchStyle.height).toBe(44);
+    expect(touchStyle.borderRadius).toBe(22);
+  });
+
+  it('外层 54×54 视觉锚 pointerEvents=box-none 且无底色无边框,自身区域直通不挡横滚', () => {
+    const { renderer } = renderTrackedFab();
+    const layer = renderer.root.findByProps({ testID: 'terminal-voice-fab-layer' });
+    expect(layer.props.pointerEvents).toBe('box-none');
+    const layerStyle = StyleSheet.flatten(layer.props.style);
+    expect(layerStyle.width).toBe(54);
+    expect(layerStyle.height).toBe(54);
+    expect(layerStyle.backgroundColor).toBeUndefined();
+    expect(layerStyle.borderWidth).toBeUndefined();
+  });
+
+  // 2026-09-28 真机反馈#2:呼吸 1.12~1.15@24px logo ≈3px 肉眼难辨。调优值
+  // 用导出常量钉住,防止后续无意回退(动画值本身无法从渲染树断言)。
+  it('呼吸/旋转调优常量钉住:幅度 1.18、半周期 1250ms、旋转 3200ms 一圈', () => {
+    expect(BREATH_SCALE).toBe(1.18);
+    expect(BREATH_HALF_MS).toBe(1250);
+    expect(SPIN_MS).toBe(3200);
   });
 
   it('generating 相位 accessibilityState.busy=true,其余相位 false', () => {
