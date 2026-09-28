@@ -1,18 +1,18 @@
 // Status strip rendered above the terminal bottom bar while the AI-suggest
 // flow is active (spec 2026-09-21): live STT caption while recording, the
-// current commandGen tool while generating, retry/dismiss on error, and the
-// editable text input that backs the FAB long-press.
-import React, { useState } from 'react';
+// commandGen tool-loop progress while generating/recovering, retry/dismiss on
+// error, and the editable text input that backs the FAB long-press.
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/useTheme';
-import type { AiSuggestPhase } from '../../hooks/useAiCommandSuggestions';
+import type { AiSuggestPhase, AiSuggestProgress } from '../../hooks/useAiCommandSuggestions';
 
 export interface TerminalAiStatusStripProps {
   phase: AiSuggestPhase;
   textMode: boolean;
   liveCaption: string;
-  liveStatus: string;
+  progress: AiSuggestProgress | null;
   errorText: string;
   onRetry: () => void;
   onDismissError: () => void;
@@ -24,7 +24,7 @@ export const TerminalAiStatusStrip: React.FC<TerminalAiStatusStripProps> = ({
   phase,
   textMode,
   liveCaption,
-  liveStatus,
+  progress,
   errorText,
   onRetry,
   onDismissError,
@@ -34,6 +34,14 @@ export const TerminalAiStatusStrip: React.FC<TerminalAiStatusStripProps> = ({
   const { theme, isDark } = useTheme();
   const { t } = useTranslation('terminal');
   const [draft, setDraft] = useState('');
+  // 秒级心跳:生成/恢复期间让已耗时一直走字,用户感知得到"它在干活"。
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const running = (phase === 'generating' || phase === 'recovering') && !!progress?.startedAt;
+  useEffect(() => {
+    if (!running) return;
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [running]);
 
   const surface = {
     backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : theme.colors.surfaceContainerLow,
@@ -99,7 +107,21 @@ export const TerminalAiStatusStrip: React.FC<TerminalAiStatusStripProps> = ({
     );
   }
 
-  if (phase === 'generating') {
+  if (phase === 'generating' || phase === 'recovering') {
+    const elapsed =
+      progress?.startedAt != null ? Math.max(0, Math.round((nowMs - progress.startedAt) / 1000)) : null;
+    let statusText: string;
+    if (!progress || (progress.stepsDone === 0 && !progress.currentTool)) {
+      statusText = t('aiSuggest.generating');
+    } else if (progress.currentTool) {
+      const toolLabel = t(`aiSuggest.tool.${progress.currentTool}`, {
+        defaultValue: progress.currentTool,
+      });
+      statusText = `${t('aiSuggest.stepN', { n: progress.stepsDone + 1 })} · ${toolLabel}`;
+    } else {
+      statusText = t('aiSuggest.stepsDone', { n: progress.stepsDone });
+    }
+    if (elapsed !== null) statusText += ` · ${elapsed}s`;
     return (
       <View testID="terminal-ai-strip" style={[styles.strip, surface]}>
         <ActivityIndicator size="small" color={theme.colors.primary} />
@@ -108,7 +130,7 @@ export const TerminalAiStatusStrip: React.FC<TerminalAiStatusStripProps> = ({
           numberOfLines={1}
           style={[theme.typography.bodySm, styles.flexText, { color: theme.colors.onSurfaceVariant }]}
         >
-          {liveStatus || t('aiSuggest.generating')}
+          {phase === 'recovering' ? `${t('aiSuggest.recovering')} · ${statusText}` : statusText}
         </Text>
       </View>
     );

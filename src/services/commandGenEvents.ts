@@ -34,7 +34,9 @@ export type CommandGenLiveEvent =
       runId: string;
       status: string;
       finalCommand?: string;
+      commands?: string[];
       dangerous?: boolean;
+      dangerousFlags?: boolean[];
       ts?: string;
     }
   | {

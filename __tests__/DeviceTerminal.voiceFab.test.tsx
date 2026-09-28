@@ -13,10 +13,10 @@ import { useControlCenterStore } from '../src/store/controlCenterStore';
 // reset), not the STT/commandGen machinery (covered by the hook's own tests).
 // Tests mutate `mockAi` then `screen.update(tree())` to re-render.
 const mockAi = {
-  phase: 'idle' as 'idle' | 'recording' | 'generating' | 'error',
+  phase: 'idle' as 'idle' | 'recording' | 'generating' | 'recovering' | 'error',
   chips: [] as Array<{ command: string; dangerous: boolean }>,
   liveCaption: '',
-  liveStatus: '',
+  progress: null as null | { stepsDone: number; currentTool: string | null; startedAt: number | null },
   errorText: '',
   textMode: false,
   voiceStatus: 'idle',
@@ -168,7 +168,7 @@ describe('DeviceTerminalScreen in-terminal voice FAB', () => {
     mockAi.phase = 'idle';
     mockAi.chips = [];
     mockAi.liveCaption = '';
-    mockAi.liveStatus = '';
+    mockAi.progress = null;
     mockAi.errorText = '';
     mockAi.textMode = false;
     mockAi.voiceStatus = 'idle';
@@ -421,14 +421,14 @@ describe('DeviceTerminalScreen in-terminal voice FAB', () => {
   it('status strip shows while generating', async () => {
     await renderScreen();
     mockAi.phase = 'generating';
-    mockAi.liveStatus = 'list_dir';
+    mockAi.progress = { stepsDone: 0, currentTool: 'list_dir', startedAt: null };
     await updateScreen();
 
     expect(hasNode('terminal-ai-strip')).toBe(true);
     expect(
       root()
         .findAllByType(Text)
-        .some(node => node.props.children === 'list_dir'),
+        .some(node => String(node.props.children).includes('浏览目录')),
     ).toBe(true);
   });
 });

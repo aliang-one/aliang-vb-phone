@@ -61,6 +61,16 @@
     "emptyHint": "轻点输入命令，长按说出命令",
     "listening": "正在聆听…",
     "generating": "正在生成建议…",
+    "stepN": "第 {{n}} 步",
+    "stepsDone": "已完成 {{n}} 步",
+    "recovering": "连接中断，后台仍在生成…",
+    "errorGenerate": "生成失败，请重试",
+    "tool": {
+      "list_dir": "浏览目录",
+      "recent_commands": "查看历史命令",
+      "read_file": "读取文件",
+      "env_info": "检查环境"
+    },
     "chipArm": "再点确认执行",
     "textPlaceholder": "描述你想执行的命令",
     "textSend": "发送",

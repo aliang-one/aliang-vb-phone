@@ -177,7 +177,7 @@ describe('useAiCommandSuggestions', () => {
     expect(latest.errorText).toBe('语音识别失败，请重试');
   });
 
-  it('liveStatus tracks commandGen.step tool_call events', async () => {
+  it('progress tracks commandGen.step tool_call events', async () => {
     mockGenerateCommand.mockImplementation(() => new Promise(() => undefined));
     await mount();
     await act(async () => { latest.submitText('slow'); });
@@ -185,7 +185,7 @@ describe('useAiCommandSuggestions', () => {
     act(() => {
       mockCommandGenListener!({ type: 'commandGen.step', runId: 'r1', seq: 1, kind: 'tool_call', toolName: 'list_dir' });
     });
-    expect(latest.liveStatus).toBe('list_dir');
+    expect(latest.progress).toMatchObject({ currentTool: 'list_dir' });
   });
 
   it('reset() clears chips/phase and cancels STT', async () => {

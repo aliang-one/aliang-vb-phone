@@ -5,7 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { TerminalAiStatusStrip } from '../src/components/terminal/TerminalAiStatusStrip';
-import type { AiSuggestPhase } from '../src/hooks/useAiCommandSuggestions';
+import type { AiSuggestPhase, AiSuggestProgress } from '../src/hooks/useAiCommandSuggestions';
 
 jest.useFakeTimers();
 
@@ -29,7 +29,7 @@ const renderStrip = async (props: {
   phase: AiSuggestPhase;
   textMode?: boolean;
   liveCaption?: string;
-  liveStatus?: string;
+  progress?: AiSuggestProgress | null;
   errorText?: string;
 }) => {
   await act(async () => {
@@ -39,7 +39,7 @@ const renderStrip = async (props: {
           phase={props.phase}
           textMode={props.textMode ?? false}
           liveCaption={props.liveCaption ?? ''}
-          liveStatus={props.liveStatus ?? ''}
+          progress={props.progress ?? null}
           errorText={props.errorText ?? ''}
           {...handlers}
         />,
@@ -61,12 +61,40 @@ describe('TerminalAiStatusStrip', () => {
     expect(screen.root.findAllByType(Text).some(n => n.props.children === '正在聆听…')).toBe(true);
   });
 
-  it('generating: shows liveStatus or the generating fallback', async () => {
-    await renderStrip({ phase: 'generating', liveStatus: 'list_dir' });
-    expect(screen.root.findAllByType(Text).some(n => n.props.children === 'list_dir')).toBe(true);
+  it('generating: 进度行显示 步数/工具/耗时,无进度时回退到生成中文案', async () => {
+    await renderStrip({
+      phase: 'generating',
+      progress: { stepsDone: 4, currentTool: 'read_file', startedAt: Date.now() - 37_000 },
+    });
+    const texts = () => screen.root.findAllByType(Text).map(n => String(n.props.children));
+    expect(texts().some(s => s.includes('第 5 步'))).toBe(true);
+    expect(texts().some(s => s.includes('读取文件'))).toBe(true);
+    expect(texts().some(s => s.includes('37s'))).toBe(true);
     act(() => { screen.unmount(); });
-    await renderStrip({ phase: 'generating', liveStatus: '' });
+    await renderStrip({ phase: 'generating', progress: null });
     expect(screen.root.findAllByType(Text).some(n => n.props.children === '正在生成建议…')).toBe(true);
+  });
+
+  it('generating: 工具间空档显示已完成步数+耗时,并随时间前进', async () => {
+    await renderStrip({
+      phase: 'generating',
+      progress: { stepsDone: 3, currentTool: null, startedAt: Date.now() - 42_000 },
+    });
+    const texts = () => screen.root.findAllByType(Text).map(n => String(n.props.children));
+    expect(texts().some(s => s.includes('已完成 3 步'))).toBe(true);
+    expect(texts().some(s => s.includes('42s'))).toBe(true);
+    act(() => { jest.advanceTimersByTime(1000); });
+    expect(texts().some(s => s.includes('43s'))).toBe(true);
+  });
+
+  it('recovering: 断连恢复文案 + 已运行耗时', async () => {
+    await renderStrip({
+      phase: 'recovering',
+      progress: { stepsDone: 6, currentTool: null, startedAt: Date.now() - 65_000 },
+    });
+    const texts = () => screen.root.findAllByType(Text).map(n => String(n.props.children));
+    expect(texts().some(s => s.includes('连接中断，后台仍在生成'))).toBe(true);
+    expect(texts().some(s => s.includes('65s'))).toBe(true);
   });
 
   it('error: message + retry + dismiss', async () => {

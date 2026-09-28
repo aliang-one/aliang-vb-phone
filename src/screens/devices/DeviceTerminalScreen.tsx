@@ -1562,7 +1562,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                     phase={aiSuggest.phase}
                     textMode={aiSuggest.textMode}
                     liveCaption={aiSuggest.liveCaption}
-                    liveStatus={aiSuggest.liveStatus}
+                    progress={aiSuggest.progress}
                     errorText={aiSuggest.errorText}
                     onRetry={aiSuggest.retry}
                     onDismissError={aiSuggest.dismissError}

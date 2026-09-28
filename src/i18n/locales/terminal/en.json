@@ -61,6 +61,16 @@
     "emptyHint": "Tap to type a command — hold to speak it",
     "listening": "Listening…",
     "generating": "Generating suggestions…",
+    "stepN": "Step {{n}}",
+    "stepsDone": "{{n}} steps done",
+    "recovering": "Connection lost — still generating…",
+    "errorGenerate": "Generation failed, please retry",
+    "tool": {
+      "list_dir": "Browsing directory",
+      "recent_commands": "Recent commands",
+      "read_file": "Reading files",
+      "env_info": "Checking environment"
+    },
     "chipArm": "Tap again to run",
     "textPlaceholder": "Describe the command to run",
     "textSend": "Send",
