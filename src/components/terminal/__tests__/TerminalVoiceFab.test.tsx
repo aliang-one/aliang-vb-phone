@@ -139,11 +139,16 @@ describe('TerminalVoiceFab 渲染:logo 恒定', () => {
     }
   });
 
-  it('generating 才出现角标 spinner,其余相位没有', () => {
+  it('generating 才出现 logo 旋转容器,其余相位没有;角标 spinner 已移除', () => {
+    // 2026-09-28:12px 角标 spinner 与圆形 logo 不兼容,生成态改为 logo 本体
+    // 旋转+呼吸(动效细节见组件内 spin/breath effect)。
     const { renderer } = renderTrackedFab({ phase: 'idle' });
+    expect(renderer.root.findAllByProps({ testID: 'terminal-voice-fab-spin' })).toHaveLength(0);
     expect(renderer.root.findAllByType(ActivityIndicator)).toHaveLength(0);
     const gen = renderTrackedFab({ phase: 'generating' });
-    expect(gen.renderer.root.findAllByType(ActivityIndicator)).toHaveLength(1);
+    // Animated.View 扇出多个同 testID 节点(见文件头注释),断存在性。
+    expect(gen.renderer.root.findAllByProps({ testID: 'terminal-voice-fab-spin' }).length).toBeGreaterThan(0);
+    expect(gen.renderer.root.findAllByType(ActivityIndicator)).toHaveLength(0);
   });
 
   it('recording 出现脉冲叠层,idle 没有(spec §6 渲染断言)', () => {

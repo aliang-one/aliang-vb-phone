@@ -48,3 +48,10 @@ export function useReduceMotion(): boolean {
 
   return reduce;
 }
+
+// 测试注入口:jest 里覆写模块级缓存(正常产品代码不调用)。顺带置
+// initialized,防止 ensureInit 的异步原生查询把注入值又覆盖回真实值。
+export const __setMockReduceMotion = (v: boolean) => {
+  initialized = true;
+  cachedReduceMotion = v;
+};

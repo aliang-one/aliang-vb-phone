@@ -1,11 +1,11 @@
 // Terminal AI FAB(spec 2026-09-22):短按=文字输入,长按(≥450ms)=STT
 // push-to-talk,松开=结束。图标恒为 aliang Logo,任何相位不换图标——相位
-// 由表面色/描边(录音红)、脉冲叠层与生成期角标 spinner 表达。纯展示手势
+// 由表面色/描边(录音红)、脉冲叠层与生成期 logo 旋转+呼吸表达。纯展示手势
 // 分类器:onShortPress/onHoldStart/onHoldEnd 由 screen 接线,并按
 // AiSuggestPhase 路由到 useAiCommandSuggestions(hook 自带相位守卫,
 // 陈旧闭包最多是被 hook 短路,不会产生错误行为)。
 import React, { useEffect, useRef } from 'react';
-import { ActivityIndicator, Animated, Pressable, StyleSheet } from 'react-native';
+import { Animated, Easing, Pressable, StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/useTheme';
 import { useReduceMotion } from '../../hooks/useReduceMotion';
@@ -54,6 +54,35 @@ export const TerminalVoiceFab: React.FC<TerminalVoiceFabProps> = ({
     animation.start();
     return () => animation.stop();
   }, [phase, reduceMotion, pulse]);
+
+  // 生成态(2026-09-28):角标 spinner 与圆形 logo 不兼容,改为 logo 本体
+  // 旋转(1.6s/圈)+呼吸(0.7s 放大到 108%)。reduce motion 或离开生成态时
+  // 复位归零;生成态仍由 a11y busy + AI 状态条文案传达(动效不能是唯一指示)。
+  const spin = useRef(new Animated.Value(0)).current;
+  const breath = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (phase !== 'generating' || reduceMotion) {
+      spin.setValue(0);
+      breath.setValue(0);
+      return;
+    }
+    const rotate = Animated.loop(
+      Animated.timing(spin, { toValue: 1, duration: 1600, easing: Easing.linear, useNativeDriver: true }),
+    );
+    const breathe = Animated.loop(
+      Animated.sequence([
+        Animated.timing(breath, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(breath, { toValue: 0, duration: 700, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]),
+    );
+    rotate.start();
+    breathe.start();
+    return () => {
+      rotate.stop();
+      breathe.stop();
+    };
+  }, [phase, reduceMotion, spin, breath]);
 
   // 手势状态机:pressActiveRef 保证 pressOut 与 pressIn 配对(滑出/被抢占
   // 触发的 pressOut 也走这里);holdFiredRef 区分短按与长按松开。
@@ -138,10 +167,21 @@ export const TerminalVoiceFab: React.FC<TerminalVoiceFabProps> = ({
           ]}
         />
       ) : null}
-      <Logo size={24} />
-      {phase === 'generating' ? (
-        <ActivityIndicator size={12} color={theme.colors.primary} style={styles.spinner} />
-      ) : null}
+      {phase === 'generating' && !reduceMotion ? (
+        <Animated.View
+          testID="terminal-voice-fab-spin"
+          style={{
+            transform: [
+              { rotate: spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) },
+              { scale: breath.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] }) },
+            ],
+          }}
+        >
+          <Logo size={24} />
+        </Animated.View>
+      ) : (
+        <Logo size={24} />
+      )}
     </Pressable>
   );
 };
@@ -157,6 +197,5 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   pulse: { borderRadius: 27 },
-  spinner: { position: 'absolute', right: 6, bottom: 6 },
   disabled: { opacity: 0.45 },
 });
