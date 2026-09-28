@@ -14,6 +14,7 @@ import { ActivityIndicator } from 'react-native';
 import { TerminalVoiceFab } from '../TerminalVoiceFab';
 import { Logo } from '../../visual/Logo';
 import { darkTheme } from '../../../theme/themes/darkTheme';
+import { __setMockReduceMotion } from '../../../hooks/useReduceMotion';
 
 type FabProps = React.ComponentProps<typeof TerminalVoiceFab>;
 
@@ -149,6 +150,16 @@ describe('TerminalVoiceFab 渲染:logo 恒定', () => {
     // Animated.View 扇出多个同 testID 节点(见文件头注释),断存在性。
     expect(gen.renderer.root.findAllByProps({ testID: 'terminal-voice-fab-spin' }).length).toBeGreaterThan(0);
     expect(gen.renderer.root.findAllByType(ActivityIndicator)).toHaveLength(0);
+  });
+
+  it('reduce motion: generating 保持 logo 静态(无旋转容器)', () => {
+    __setMockReduceMotion(true);
+    // renderTrackedFab:generating 的 Animated.loop 只有卸载才 stop(文件头注释)。
+    const { renderer } = renderTrackedFab({ phase: 'generating' });
+    expect(
+      renderer.root.findAllByProps({ testID: 'terminal-voice-fab-spin' }),
+    ).toHaveLength(0);
+    __setMockReduceMotion(false);
   });
 
   it('recording 出现脉冲叠层,idle 没有(spec §6 渲染断言)', () => {
