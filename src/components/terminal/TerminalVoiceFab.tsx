@@ -1,11 +1,12 @@
 // Terminal AI FAB(spec 2026-09-22):短按=文字输入,长按(≥450ms)=STT
 // push-to-talk,松开=结束。图标恒为 aliang Logo,任何相位不换图标——相位
-// 由表面色/描边(录音红)、脉冲叠层与生成期 logo 旋转+呼吸表达。纯展示手势
+// 由表面色/描边(录音红)、脉冲叠层+录音弧线环与生成期 logo 旋转+呼吸表达。纯展示手势
 // 分类器:onShortPress/onHoldStart/onHoldEnd 由 screen 接线,并按
 // AiSuggestPhase 路由到 useAiCommandSuggestions(hook 自带相位守卫,
 // 陈旧闭包最多是被 hook 短路,不会产生错误行为)。
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, Pressable, StyleSheet } from 'react-native';
+import Svg, { Circle } from 'react-native-svg';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/useTheme';
 import { useReduceMotion } from '../../hooks/useReduceMotion';
@@ -55,9 +56,28 @@ export const TerminalVoiceFab: React.FC<TerminalVoiceFabProps> = ({
     return () => animation.stop();
   }, [phase, reduceMotion, pulse]);
 
+  // 录音弧线环(2026-09-28 真机反馈):长按录音时叠加一圈 1/4 弧段的扫描
+  // 旋转(1.4s/圈),与脉冲叠层并行表达录音态;reduce motion 时不出现,
+  // 录音态仍由红边红底 + a11y 播报传达(动效不能是唯一指示)。
+  const arcSweep = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (phase !== 'recording' || reduceMotion) {
+      arcSweep.setValue(0);
+      return;
+    }
+    const arc = Animated.loop(
+      Animated.timing(arcSweep, { toValue: 1, duration: 1400, easing: Easing.linear, useNativeDriver: true }),
+    );
+    arc.start();
+    return () => arc.stop();
+  }, [phase, reduceMotion, arcSweep]);
+
   // 生成态(2026-09-28):角标 spinner 与圆形 logo 不兼容,改为 logo 本体
-  // 旋转(1.6s/圈)+呼吸(0.7s 放大到 108%)。reduce motion 或离开生成态时
-  // 复位归零;生成态仍由 a11y busy + AI 状态条文案传达(动效不能是唯一指示)。
+  // 旋转(3.2s/圈)+呼吸(0.85s 放大到 112%)。真机反馈旋转太快/呼吸不明显,
+  // 2026-09-28 调优:1.6s→3.2s、108%→112%、0.7s→0.85s。reduce motion 或
+  // 离开生成态时复位归零;生成态仍由 a11y busy + AI 状态条文案传达(动效
+  // 不能是唯一指示)。
   const spin = useRef(new Animated.Value(0)).current;
   const breath = useRef(new Animated.Value(0)).current;
 
@@ -68,12 +88,12 @@ export const TerminalVoiceFab: React.FC<TerminalVoiceFabProps> = ({
       return;
     }
     const rotate = Animated.loop(
-      Animated.timing(spin, { toValue: 1, duration: 1600, easing: Easing.linear, useNativeDriver: true }),
+      Animated.timing(spin, { toValue: 1, duration: 3200, easing: Easing.linear, useNativeDriver: true }),
     );
     const breathe = Animated.loop(
       Animated.sequence([
-        Animated.timing(breath, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(breath, { toValue: 0, duration: 700, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(breath, { toValue: 1, duration: 850, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(breath, { toValue: 0, duration: 850, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
       ]),
     );
     rotate.start();
@@ -167,13 +187,25 @@ export const TerminalVoiceFab: React.FC<TerminalVoiceFabProps> = ({
           ]}
         />
       ) : null}
+      {recording && !reduceMotion ? (
+        <Animated.View
+          testID="terminal-voice-fab-arc"
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFill, { transform: [{ rotate: arcSweep.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }]}
+        >
+          {/* 54×54 铺满 FAB:圆心 27、半径 24,周长≈150.8,弧段≈1/4(37.7)。 */}
+          <Svg width={54} height={54} viewBox="0 0 54 54">
+            <Circle cx={27} cy={27} r={24} fill="none" stroke={theme.colors.primary} strokeWidth={2.5} strokeLinecap="round" strokeDasharray="37.7 113.1" />
+          </Svg>
+        </Animated.View>
+      ) : null}
       {phase === 'generating' && !reduceMotion ? (
         <Animated.View
           testID="terminal-voice-fab-spin"
           style={{
             transform: [
               { rotate: spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) },
-              { scale: breath.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] }) },
+              { scale: breath.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] }) },
             ],
           }}
         >

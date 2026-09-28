@@ -170,6 +170,24 @@ describe('TerminalVoiceFab 渲染:logo 恒定', () => {
     expect(rec.renderer.root.findAllByProps({ testID: 'terminal-voice-fab-pulse' }).length).toBeGreaterThan(0);
   });
 
+  // 2026-09-28 动画调优:录音期加旋转弧线环(扫描动画),仅 recording 相位
+  // 出现;reduce motion 下不出现(动效禁用,a11y 播报仍传达录音态)。
+  it('recording 出现弧线动画,generating/idle 没有', () => {
+    const idle = renderTrackedFab({ phase: 'idle' });
+    expect(idle.renderer.root.findAllByProps({ testID: 'terminal-voice-fab-arc' })).toHaveLength(0);
+    const rec = renderTrackedFab({ phase: 'recording' });
+    expect(rec.renderer.root.findAllByProps({ testID: 'terminal-voice-fab-arc' }).length).toBeGreaterThan(0);
+    const gen = renderTrackedFab({ phase: 'generating' });
+    expect(gen.renderer.root.findAllByProps({ testID: 'terminal-voice-fab-arc' })).toHaveLength(0);
+  });
+
+  it('reduce motion: recording 弧线不出现', () => {
+    __setMockReduceMotion(true);
+    const rec = renderTrackedFab({ phase: 'recording' });
+    expect(rec.renderer.root.findAllByProps({ testID: 'terminal-voice-fab-arc' })).toHaveLength(0);
+    __setMockReduceMotion(false);
+  });
+
   // 以下四条移植自被删除的旧根级测试(2026-09-22 评审):颜色/动效不能是
   // 唯一指示,相位还要有 a11y 播报;红边红底与 busy 态是主相位视觉。
   // 渲染走 renderTrackedFab(非裸 renderFab):recording 的 Animated.loop
