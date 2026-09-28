@@ -82,7 +82,9 @@ export const TerminalVoiceFab: React.FC<TerminalVoiceFabProps> = ({
   const breath = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (phase !== 'generating' || reduceMotion) {
+    // 呼吸同时覆盖生成与录音两相位(真机反馈录音期看不到呼吸);幅度加大到
+    // 115%、半周期 1.1s,肉眼可辨。旋转只在生成期。
+    if ((phase !== 'generating' && phase !== 'recording') || reduceMotion) {
       spin.setValue(0);
       breath.setValue(0);
       return;
@@ -92,8 +94,8 @@ export const TerminalVoiceFab: React.FC<TerminalVoiceFabProps> = ({
     );
     const breathe = Animated.loop(
       Animated.sequence([
-        Animated.timing(breath, { toValue: 1, duration: 850, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(breath, { toValue: 0, duration: 850, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(breath, { toValue: 1, duration: 1100, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(breath, { toValue: 0, duration: 1100, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
       ]),
     );
     rotate.start();
@@ -141,10 +143,8 @@ export const TerminalVoiceFab: React.FC<TerminalVoiceFabProps> = ({
   };
 
   const recording = phase === 'recording';
-  // 表面色沿用 DeviceTerminalScreen 底栏 FAB 的 elevatedSurface/outline 惯用
-  // (dark 用半透明白叠层,light 用主题 token),录音/错误态红边红底盖过默认。
-  const restingSurface = isDark ? 'rgba(255,255,255,0.06)' : theme.colors.surfaceContainerLowest;
-  const restingOutline = isDark ? 'rgba(255,255,255,0.08)' : theme.colors.outlineVariant;
+  // 背景/描边透明(2026-09-28 真机反馈):视觉上只呈现圆形 logo 本体,
+  // 不再有一个隐形的方形底座挡在周围;录音/错误态仍用红色边/底表达。
 
   return (
     <Pressable
@@ -167,8 +167,8 @@ export const TerminalVoiceFab: React.FC<TerminalVoiceFabProps> = ({
       style={[
         styles.fab,
         {
-          backgroundColor: recording ? theme.colors.errorContainer : restingSurface,
-          borderColor: recording || phase === 'error' ? theme.colors.error : restingOutline,
+          backgroundColor: recording ? theme.colors.errorContainer : 'transparent',
+          borderColor: recording || phase === 'error' ? theme.colors.error : 'transparent',
         },
         disabled && styles.disabled,
       ]}
@@ -205,14 +205,18 @@ export const TerminalVoiceFab: React.FC<TerminalVoiceFabProps> = ({
           style={{
             transform: [
               { rotate: spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) },
-              { scale: breath.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] }) },
+              { scale: breath.interpolate({ inputRange: [0, 1], outputRange: [1, 1.15] }) },
             ],
           }}
         >
           <Logo size={24} />
         </Animated.View>
       ) : (
-        <Logo size={24} />
+        <Animated.View
+          style={{ transform: [{ scale: breath.interpolate({ inputRange: [0, 1], outputRange: [1, 1.15] }) }] }}
+        >
+          <Logo size={24} />
+        </Animated.View>
       )}
     </Pressable>
   );
