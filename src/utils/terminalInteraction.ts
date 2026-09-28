@@ -33,6 +33,31 @@ export const isActiveTerminalSessionStatus = (
 ) => activeTerminalStatuses.has(status);
 
 /**
+ * The device's active session for an exact directory, if any. Entry points
+ * that "switch" to a directory (screen directory tiles) reuse this session
+ * instead of minting another one — switching is USING a terminal, not
+ * creating one (RCA 2026-09-28: per-directory creates accumulated phantom
+ * "running" terminals).
+ */
+export const findActiveTerminalSessionByDirectory = <
+  T extends {
+    deviceId: string;
+    directory?: string;
+    status: TerminalSessionStatus;
+  },
+>(
+  sessions: T[],
+  deviceId: string,
+  directory: string,
+): T | undefined =>
+  sessions.find(
+    session =>
+      session.deviceId === deviceId &&
+      session.directory === directory &&
+      isActiveTerminalSessionStatus(session.status),
+  );
+
+/**
  * The device's most recent ACTIVE terminal session — the session an entry
  * point (or the terminal screen's default) should attach to under the
  * "one default terminal per device" product rule. Ties on updatedAt fall

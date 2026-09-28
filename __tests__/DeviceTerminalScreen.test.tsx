@@ -837,13 +837,16 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     expect(mockTerminalSendText).not.toHaveBeenCalled();
   });
 
-  it('keeps the terminal disabled until a newly opened session renders', async () => {
+  it('reuses the existing active session when switching to its directory (RCA 切目录收敛)', async () => {
     const mockCreateTerminalSession = jest
       .fn()
       .mockResolvedValueOnce('term-2');
+    // 复用必须走 attach 重驱(回放替换 + 僵尸恢复),而不是静默接管。
+    const mockAttachTerminalSession = jest.fn().mockResolvedValue('term-2');
     useControlCenterStore.setState(state => ({
       ...state,
       createTerminalSession: mockCreateTerminalSession,
+      attachTerminalSession: mockAttachTerminalSession,
       devices: state.devices.map(device =>
         device.id === 'device-1'
           ? {
@@ -887,9 +890,11 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
         .onPress();
     });
 
-    expect(mockCreateTerminalSession).toHaveBeenCalledWith(
-      'device-1',
-      '~/other',
+    // 切到已有活跃会话的目录 = 接管复用,不再新建(切换≠建终端)。
+    expect(mockCreateTerminalSession).not.toHaveBeenCalled();
+    expect(mockAttachTerminalSession).toHaveBeenCalledWith(
+      'term-2',
+      expect.objectContaining({ deviceId: 'device-1' }),
     );
     expect(
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
@@ -904,6 +909,46 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
         .accessibilityState,
     ).toEqual({ disabled: false, selected: true });
 
+    expect(mockTerminalSendText).not.toHaveBeenCalled();
+  });
+
+  it('still creates a fresh session when switching to a directory with no active session', async () => {
+    const mockCreateTerminalSession = jest
+      .fn()
+      .mockResolvedValueOnce('term-fresh');
+    useControlCenterStore.setState(state => ({
+      ...state,
+      createTerminalSession: mockCreateTerminalSession,
+      devices: state.devices.map(device =>
+        device.id === 'device-1'
+          ? {
+              ...device,
+              authorizedDirectories: ['~/project', '~/fresh'],
+            }
+          : device,
+      ),
+    }));
+
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    mockAutoRenderTerminal = false;
+    act(() => {
+      screen!.root.findByProps({ testID: 'terminal-directory-fresh' }).props
+        .onPress();
+    });
+
+    await act(async () => {
+      screen!.root.findByProps({ testID: 'terminal-directory-enter' }).props
+        .onPress();
+    });
+
+    // 没有可复用的活跃会话 → 维持原行为:为该目录新建。
+    expect(mockCreateTerminalSession).toHaveBeenCalledWith(
+      'device-1',
+      '~/fresh',
+    );
     expect(mockTerminalSendText).not.toHaveBeenCalled();
   });
 

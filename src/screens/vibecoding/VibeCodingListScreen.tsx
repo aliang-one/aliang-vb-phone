@@ -261,6 +261,9 @@ export const VibeCodingListScreen: React.FC = () => {
   const holdTriggeredRef = useRef(false);
   // 防双击：NEW TERM 面板行上次创建导航的时间戳（见 handleCreateTerminal 节流）。
   const lastPanelCreateAtRef = useRef(0);
+  // 语音确认的防双发节流(与 NEW TERM 短按同款):快速二次确认曾并发出两个
+  // newSession 导航→两个 pty(生产毫秒级成对孤儿家族)。
+  const lastVoiceCreateAtRef = useRef(0);
 
   useEffect(() => {
     if (serverMode && !historyPage.initialized) {
@@ -619,6 +622,11 @@ export const VibeCodingListScreen: React.FC = () => {
       const chosenDeviceId = deviceId ?? targetDevice?.id;
       const chosenCwd = cwd ?? targetDevice?.authorizedDirectories?.[0] ?? '~';
       if (!chosenDeviceId) return;
+      // 防双发节流(对齐 handleCreateTerminal 的 800ms):导航在途期间的二次
+      // 确认不再叠开新终端。
+      const now = Date.now();
+      if (now - lastVoiceCreateAtRef.current < 800) return;
+      lastVoiceCreateAtRef.current = now;
       // 语音→bash 的 NEW TERM 长按入口同样是显式新建（命令跑在新终端里）。
       navigation.navigate('DeviceTerminal', {
         deviceId: chosenDeviceId,

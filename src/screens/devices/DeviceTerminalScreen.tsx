@@ -45,6 +45,7 @@ import {
   useTerminalSession,
 } from '../../store/controlCenterStore';
 import {
+  findActiveTerminalSessionByDirectory,
   findRecentActiveTerminalSession,
   getTerminalInteractionState,
   getTerminalStatusChip,
@@ -413,8 +414,14 @@ export const DeviceTerminalScreen: React.FC = () => {
     }
   }, []);
 
+  // 依赖只取原语(device.id / offline 标志),不订阅 device 对象引用——
+  // 每帧 device.updated 都换新引用,曾把创建在途的 effect 重跑成第二个
+  // POST(生产 42ms 成对孤儿,RCA 2026-09-28)。
+  const deviceId = device?.id;
+  const deviceOffline = device?.status === 'offline';
+
   useEffect(() => {
-    if (!device) {
+    if (!deviceId) {
       return undefined;
     }
 
@@ -426,7 +433,7 @@ export const DeviceTerminalScreen: React.FC = () => {
       attachedTerminalIdRef.current = terminalId;
       let cancelled = false;
       setTerminalOpening(true);
-      attachTerminalSession(terminalId, { deviceId: device.id, rows: 24, cols: 80 })
+      attachTerminalSession(terminalId, { deviceId, rows: 24, cols: 80 })
         .then(() => {
           if (!cancelled) {
             setTerminalOpenError(null);
@@ -450,8 +457,8 @@ export const DeviceTerminalScreen: React.FC = () => {
 
     // ── Resolve path: no id yet ──
     // Agent 已知离线时别发注定失败的请求：占位区会用 openErrorMessage 给出说明，
-    // 且设备重新上线时本 effect 会因依赖 device 而自动重跑。
-    if (device.status === 'offline') {
+    // 且设备重新上线时本 effect 会因 deviceOffline 翻转而自动重跑。
+    if (deviceOffline) {
       return undefined;
     }
 
@@ -462,7 +469,7 @@ export const DeviceTerminalScreen: React.FC = () => {
     if (!route.params.newSession) {
       const recentActive = findRecentActiveTerminalSession(
         useControlCenterStore.getState().terminalSessions,
-        device.id,
+        deviceId,
       );
       if (recentActive) {
         setTerminalId(recentActive.id);
@@ -472,7 +479,7 @@ export const DeviceTerminalScreen: React.FC = () => {
 
     let cancelled = false;
     setTerminalOpening(true);
-    createTerminalSession(device.id, route.params.directory)
+    createTerminalSession(deviceId, route.params.directory)
       .then(sessionId => {
         if (!cancelled) {
           // Freshly created: mark as "already opened" so the attach effect
@@ -497,7 +504,8 @@ export const DeviceTerminalScreen: React.FC = () => {
   }, [
     attachTerminalSession,
     createTerminalSession,
-    device,
+    deviceId,
+    deviceOffline,
     route.params.directory,
     route.params.newSession,
     terminalId,
@@ -653,7 +661,36 @@ export const DeviceTerminalScreen: React.FC = () => {
       return;
     }
 
+    // 切目录收敛(RCA 2026-09-28):目标目录已有活跃会话 = 接管复用,不新建
+    // ——切换是"用"终端,不是"建"终端,旧会话不再累积成多出来的"运行中"。
+    const existing = findActiveTerminalSessionByDirectory(
+      useControlCenterStore.getState().terminalSessions,
+      device.id,
+      nextDirectory,
+    );
+    if (existing && existing.id !== terminalId) {
+      // 接管复用,但不预置 attachedTerminalIdRef——让 open effect 的 attach
+      // 路径对复用会话正常跑 attachTerminalSession(回放替换 + 服务端
+      // attach:true 重驱),与「带 terminalId 进屏」语义一致:僵尸会话得到
+      // 恢复,复用会话不至于无回放黑屏(审查 RCA 2026-09-28)。
+      quickDirectoryInitializedRef.current = true;
+      setCurrentQuickDirectory(nextDirectory);
+      setFocusedDirectory(nextDirectory);
+      setRenderedTerminalId('');
+      setTerminalRenderError(null);
+      setTerminalId(existing.id);
+      return;
+    }
+    if (existing) {
+      // 已在该会话上:只同步目录选择态。
+      quickDirectoryInitializedRef.current = true;
+      setCurrentQuickDirectory(nextDirectory);
+      setFocusedDirectory(nextDirectory);
+      return;
+    }
+
     setTerminalOpening(true);
+    const previousRenderedTerminalId = renderedTerminalId;
     setRenderedTerminalId('');
     setTerminalRenderError(null);
     try {
@@ -666,6 +703,14 @@ export const DeviceTerminalScreen: React.FC = () => {
       quickDirectoryInitializedRef.current = true;
       setCurrentQuickDirectory(nextDirectory);
       setFocusedDirectory(nextDirectory);
+    } catch (error) {
+      // 409 上限/网络失败等:恢复原会话渲染态,别把「Rendering terminal…」
+      // 遮罩和输入禁用卡死在空 rendered id 上。
+      setRenderedTerminalId(previousRenderedTerminalId);
+      setTerminalRenderError({
+        sessionId: terminalId ?? '',
+        message: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setTerminalOpening(false);
     }

@@ -8,6 +8,7 @@ import type {
 } from '../types';
 import {
   beginTerminalReplayStream,
+  createId,
   event,
   line,
   MAX_TERMINAL_LINES,
@@ -16,6 +17,11 @@ import {
   serverTerminalSessionToClient,
   tail,
 } from '../internals';
+
+// 单飞在途创建(RCA 2026-09-28):同设备同目录的并发创建意图合并为同一个
+// 请求——进屏 effect 重跑(device 对象引用换新)或快速重入不再各自发出 POST
+// 产出毫秒级成对孤儿会话。
+const terminalCreateInflight = new Map<string, Promise<string>>();
 
 type TerminalSlice = Pick<
   ControlCenterState,
@@ -53,49 +59,67 @@ export const createTerminalSlice: StateCreator<
     const device = get().devices.find(item => item.id === deviceId);
     const selectedDirectory =
       directory ?? device?.authorizedDirectories[0] ?? '~';
-    const serverSession = await platformTransport.createTerminalSession({
-      device_id: deviceId,
-      cwd: selectedDirectory,
-      cols: 80,
-      rows: 24,
-    });
-    const terminal = serverTerminalSessionToClient(serverSession);
+    // 单飞:同设备同目录的在途创建共享同一个请求与结果。
+    const inflightKey = `${deviceId}:${selectedDirectory}`;
+    const inflight = terminalCreateInflight.get(inflightKey);
+    if (inflight) {
+      return inflight;
+    }
+    // 幂等键:HTTP 层超时重试(网络错重发同一 POST)在服务端命中同一会话,
+    // 而不是开出第二个 pty。
+    const clientRequestId = createId('term-create');
+    const creation = (async () => {
+      const serverSession = await platformTransport.createTerminalSession({
+        device_id: deviceId,
+        cwd: selectedDirectory,
+        cols: 80,
+        rows: 24,
+        client_request_id: clientRequestId,
+      });
+      const terminal = serverTerminalSessionToClient(serverSession);
 
-    set(state => ({
-      terminalSessions: [
-        {
-          ...terminal,
-          shell:
-            terminal.shell ||
-            (device?.os.toLowerCase().includes('windows') ? 'pwsh' : 'zsh'),
-          lines: [
-            line(
-              'system',
-              device
-                ? `Terminal session opened on ${device.name}.`
-                : 'Device is unavailable.',
-            ),
-            line('system', `Working directory: ${selectedDirectory}`),
-          ],
-        },
-        ...state.terminalSessions.filter(item => item.id !== terminal.id),
-      ],
-      events: [
-        event(
-          'command.started',
-          'Terminal session opened',
-          selectedDirectory,
-          'running',
+      set(state => ({
+        terminalSessions: [
           {
-            deviceId,
-            terminalId: terminal.id,
+            ...terminal,
+            shell:
+              terminal.shell ||
+              (device?.os.toLowerCase().includes('windows') ? 'pwsh' : 'zsh'),
+            lines: [
+              line(
+                'system',
+                device
+                  ? `Terminal session opened on ${device.name}.`
+                  : 'Device is unavailable.',
+              ),
+              line('system', `Working directory: ${selectedDirectory}`),
+            ],
           },
-        ),
-        ...state.events,
-      ].slice(0, 120),
-    }));
+          ...state.terminalSessions.filter(item => item.id !== terminal.id),
+        ],
+        events: [
+          event(
+            'command.started',
+            'Terminal session opened',
+            selectedDirectory,
+            'running',
+            {
+              deviceId,
+              terminalId: terminal.id,
+            },
+          ),
+          ...state.events,
+        ].slice(0, 120),
+      }));
 
-    return terminal.id;
+      return terminal.id;
+    })();
+    terminalCreateInflight.set(inflightKey, creation);
+    try {
+      return await creation;
+    } finally {
+      terminalCreateInflight.delete(inflightKey);
+    }
   },
 
   attachTerminalSession: async (sessionId, options) => {

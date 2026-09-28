@@ -539,6 +539,9 @@ export const createTerminalSession = (input: {
   shell?: string;
   cols?: number;
   rows?: number;
+  // Create-intent id: a retried POST (client.ts re-discover retry) hits the
+  // same live session server-side instead of opening a second pty.
+  client_request_id?: string;
 }): Promise<ServerTerminalSession> =>
   apiPost<ServerTerminalSession>('/api/terminal/sessions', input);
 

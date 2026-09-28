@@ -1,4 +1,5 @@
 import {
+  findActiveTerminalSessionByDirectory,
   getTerminalInteractionState,
   getTerminalStatusChip,
   isActiveTerminalSessionStatus,
@@ -70,5 +71,43 @@ describe('terminalInteraction', () => {
     expect(isActiveTerminalSessionStatus('completed')).toBe(false);
     expect(isActiveTerminalSessionStatus('failed')).toBe(false);
     expect(isActiveTerminalSessionStatus('stopped')).toBe(false);
+  });
+
+  describe('findActiveTerminalSessionByDirectory (切目录复用, RCA 2026-09-28)', () => {
+    const sessions = [
+      { id: 't1', deviceId: 'd1', directory: '/tmp/a', status: 'running' },
+      { id: 't2', deviceId: 'd1', directory: '/tmp/b', status: 'idle' },
+      { id: 't3', deviceId: 'd2', directory: '/tmp/a', status: 'running' },
+      { id: 't4', deviceId: 'd1', directory: '/tmp/a', status: 'completed' },
+    ] as any[];
+
+    it('reuses the active session on the exact device+directory', () => {
+      expect(
+        findActiveTerminalSessionByDirectory(sessions, 'd1', '/tmp/a')?.id,
+      ).toBe('t1');
+      expect(
+        findActiveTerminalSessionByDirectory(sessions, 'd1', '/tmp/b')?.id,
+      ).toBe('t2');
+    });
+
+    it('ignores other devices, other directories, and dead sessions', () => {
+      expect(
+        findActiveTerminalSessionByDirectory(sessions, 'd2', '/tmp/b'),
+      ).toBeUndefined();
+      expect(
+        findActiveTerminalSessionByDirectory(sessions, 'd1', '/tmp/c'),
+      ).toBeUndefined();
+      expect(
+        findActiveTerminalSessionByDirectory(
+          [sessions[3]!],
+          'd1',
+          '/tmp/a',
+        ),
+      ).toBeUndefined();
+    });
+
+    it('returns undefined when nothing matches', () => {
+      expect(findActiveTerminalSessionByDirectory([], 'd1', '/tmp/a')).toBeUndefined();
+    });
   });
 });
