@@ -33,7 +33,19 @@ export interface BackgroundNotifyInput {
   /** Notifications successfully delivered during this background window. */
   alreadyNotified: Set<string>;
   userId?: string;
+  /** Delivery clock; defaults to Date.now(). Injectable for tests. */
+  now?: number;
 }
+
+/**
+ * Notifications older than this are history, not news: they stay in the
+ * in-app notification center but never fire a system notification. Without
+ * this bound, a login/reconnect backlog (bulk snapshot refill landing after
+ * the baseline snapshot) explodes as a wall of system notifications — the
+ * baseline only excludes what was in the store at background-entry, so age
+ * is the only reliable "is this actually news" signal. User-set: 30 minutes.
+ */
+export const NOTIFICATION_MAX_AGE_MS = 30 * 60_000;
 
 export interface BackgroundNotifyResult {
   notifications: PendingLocalNotification[];
@@ -85,8 +97,13 @@ export function decideBackgroundNotifications(
   const ordered = [...input.notifications].sort((left, right) =>
     left.createdAt.localeCompare(right.createdAt),
   );
+  const now = input.now ?? Date.now();
   for (const item of ordered) {
     if (item.read || input.baselineNotificationIds.has(item.id)) continue;
+    // Expiry: stale unread history stays silent. Unparseable/missing createdAt
+    // counts as expired — fail silent rather than notify on unknown age.
+    const age = now - Date.parse(item.createdAt);
+    if (!Number.isFinite(age) || age > NOTIFICATION_MAX_AGE_MS) continue;
     const key = `notification:${item.id}`;
     if (notified.has(key)) continue;
     pending.push({

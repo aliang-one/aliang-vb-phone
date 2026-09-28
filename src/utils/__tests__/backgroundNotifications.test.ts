@@ -4,6 +4,10 @@ import {
 } from '../backgroundNotifications';
 import type { PushNotificationItem } from '../../store/types';
 
+// Fixed delivery clock injected via `now` so every test is deterministic
+// against the 30-minute expiry window.
+const NOW = 1_758_000_000_000;
+
 const notification = (
   overrides: Partial<PushNotificationItem> & { id: string },
 ): PushNotificationItem => ({
@@ -11,7 +15,7 @@ const notification = (
   title: 'Title',
   body: 'Body',
   read: false,
-  createdAt: '2026-07-15T00:00:00.000Z',
+  createdAt: new Date(NOW - 60_000).toISOString(),
   ...overrides,
 });
 
@@ -21,6 +25,7 @@ const baseInput = {
   baselineNotificationIds: new Set<string>(),
   alreadyNotified: new Set<string>(),
   userId: 'user-1',
+  now: NOW,
 };
 
 describe('decideBackgroundNotifications', () => {
@@ -129,5 +134,54 @@ describe('decideBackgroundNotifications', () => {
       'device_offline',
     ]);
     expect(result.notifications[2].nativeId).toBe('vibe_device_d1_offline');
+  });
+
+  // 时效过滤（用户定版 30min）：历史未读只进 App 内通知中心，不发系统通知。
+  // 否则登录/重连时的积压会整批炸成系统通知（baseline 快照拦不住 bulk 回填）。
+  describe('expiry window', () => {
+    it('delivers a fresh unread notification (within the window)', () => {
+      const result = decideBackgroundNotifications({
+        ...baseInput,
+        now: NOW,
+        notifications: [
+          notification({ id: 'n1', createdAt: new Date(NOW - 60_000).toISOString() }),
+        ],
+      });
+      expect(result.notifications).toHaveLength(1);
+    });
+
+    it('never delivers history older than the window, still delivers fresh ones', () => {
+      const result = decideBackgroundNotifications({
+        ...baseInput,
+        now: NOW,
+        notifications: [
+          notification({ id: 'old', createdAt: new Date(NOW - 31 * 60_000).toISOString() }),
+          notification({ id: 'fresh', createdAt: new Date(NOW - 30_000).toISOString() }),
+        ],
+      });
+      expect(result.notifications.map(item => item.key)).toEqual([
+        'notification:fresh',
+      ]);
+    });
+
+    it('treats exactly-window-old as fresh (> window is the skip rule)', () => {
+      const result = decideBackgroundNotifications({
+        ...baseInput,
+        now: NOW,
+        notifications: [
+          notification({ id: 'edge', createdAt: new Date(NOW - 30 * 60_000).toISOString() }),
+        ],
+      });
+      expect(result.notifications).toHaveLength(1);
+    });
+
+    it('treats missing/unparseable createdAt as expired (fail silent)', () => {
+      const result = decideBackgroundNotifications({
+        ...baseInput,
+        now: NOW,
+        notifications: [notification({ id: 'n1', createdAt: 'not-a-date' })],
+      });
+      expect(result.notifications).toEqual([]);
+    });
   });
 });

@@ -64,6 +64,13 @@ export function useBackgroundNotifications({
     }
 
     const check = () => {
+      // Self-heal the background flag from the live AppState at every decision
+      // point. The mount-time read can be stale on cold launches
+      // ('initial'/'inactive' mis-read as background), and the correcting
+      // 'change' event may fire before this effect even subscribes — trusting
+      // the ref alone let a foreground login deliver its snapshot refill as a
+      // wall of background notifications.
+      isBackgroundRef.current = AppState.currentState !== 'active';
       if (!isBackgroundRef.current || !permissionGrantedRef.current) return;
       const state = useControlCenterStore.getState();
       const excluded = new Set([
@@ -76,6 +83,7 @@ export function useBackgroundNotifications({
         baselineNotificationIds: baselineNotificationIdsRef.current,
         alreadyNotified: excluded,
         userId,
+        now: Date.now(),
       });
       const prefs = useSessionStore.getState().notificationPrefs;
       for (const notification of result.notifications) {
