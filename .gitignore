@@ -99,3 +99,4 @@ yarn-error.log
 # Python bytecode (skill scripts / tooling; regenerable)
 __pycache__/
 *.pyc
+.superpowers/
