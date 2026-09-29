@@ -26,7 +26,8 @@ const matchesCode = (
 ): boolean => Boolean(code === value || (message && message.includes(value)));
 
 /**
- * 识别 device_offline / agent_request_timeout 等 Agent 不可达错误。
+ * 识别 Agent 不可达类错误（device_offline / agent_request_timeout）与设备绑定
+ * 冲突类错误（device_id_already_bound 等 409，绑定属主非当前账号）。
  * 命中返回人话消息；否则返回 null（交给调用方通用处理）。
  *
  * 同时接受「已知设备离线」的哨兵：传入 `new Error('device_offline')` 即可拿到
@@ -52,6 +53,19 @@ export const describeDeviceError = (
       title: i18n.t('common:error.agentTimeoutTitle'),
       detail: i18n.t('common:error.agentTimeoutDetail'),
       offline: true,
+    };
+  }
+  // Device-binding conflicts (agent enable/register 409): not retryable — the
+  // resolution is ownership transfer on re-register (updated servers) or an
+  // explicit unbind from the original owner (older servers).
+  if (
+    matchesCode(code, message, 'device_id_already_bound') ||
+    matchesCode(code, message, 'device_already_bound')
+  ) {
+    return {
+      title: i18n.t('common:error.deviceBoundTitle'),
+      detail: i18n.t('common:error.deviceBoundDetail'),
+      offline: false,
     };
   }
   return null;

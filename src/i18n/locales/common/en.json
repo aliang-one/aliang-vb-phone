@@ -56,6 +56,8 @@
     "deviceOfflineDetail": "The desktop Agent is currently offline. Make sure the Agent is running and connected to the same service, then retry.",
     "agentTimeoutTitle": "Agent timed out",
     "agentTimeoutDetail": "The desktop Agent didn't respond in time. Please retry shortly, or confirm the Agent isn't busy with another task.",
+    "deviceBoundTitle": "Device bound to another account",
+    "deviceBoundDetail": "This device's binding belongs to a different account. Updated servers transfer ownership automatically when the Agent re-registers; on older servers, delete the device from the original account's device list first.",
     "connectionFailedTitle": "Can't reach the platform service",
     "connectionFailedBody": "Failed to load data. Check your connection and tap Retry; if it persists, the server may be temporarily unavailable."
   },
