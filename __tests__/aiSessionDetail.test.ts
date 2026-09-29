@@ -319,3 +319,26 @@ describe('interruptAiSession compatibility fallback', () => {
     });
   });
 });
+
+describe('serverAiSessionToVibeRun — snapshot mapper contract', () => {
+  test('快照映射恒不携带 eventDetailCache(本地专属;合并保留依赖展开语义,此为根基)', () => {
+    // eventDetailCache 是本地专属(快照/映射恒不产出),REST 刷新合并里的显式
+    // 保留行依赖这一展开语义。未来 mapper 一旦显式写入该键(哪怕 undefined),
+    // 此契约先在 mapper 层报警,而不是让保留行静默变成承重墙。
+    const run = serverAiSessionToVibeRun(
+      baseSession({
+        transcript: [
+          {
+            id: 'm1',
+            role: 'user',
+            content: 'hi',
+            timestamp: '2026-06-18T10:00:00.000Z',
+          },
+        ],
+      }),
+      [],
+      [],
+    );
+    expect('eventDetailCache' in run).toBe(false);
+  });
+});
