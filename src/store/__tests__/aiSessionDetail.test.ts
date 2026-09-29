@@ -193,3 +193,105 @@ describe('loadAgentSessionDetail — empty-but-known-history recovery', () => {
     ]);
   });
 });
+
+describe('loadAgentSessionDetail — refresh status + structuredEvents reconcile', () => {
+  beforeEach(() => {
+    mockLoadAiSession.mockReset();
+    resetStore();
+  });
+
+  test('把 detail_refresh.status 返回给调用方(failed → 徽标刷新可给反馈)', async () => {
+    mockLoadAiSession.mockResolvedValueOnce(
+      makeSession({
+        session_id: SESSION_ID,
+        transcript: [msg('m1')],
+        detail_refresh: { status: 'failed', error: 'agent_request_timeout' },
+      }) as never,
+    );
+
+    const result = await useControlCenterStore
+      .getState()
+      .loadAgentSessionDetail(SESSION_ID, { refresh: true });
+
+    expect(result).toEqual({ detailRefreshStatus: 'failed' });
+  });
+
+  test('REST 刷新保留往返窗口内的本地活动事件(并集),eventDetailCache 不被清空', async () => {
+    // 本地已持有:快照里有的 e1 + 快照还没有的 live 事件 e2-live。
+    const envelope = (eventId: string, command: string) => ({
+      type: 'ai.command',
+      event_id: eventId,
+      message_id: 'm1',
+      item_id: eventId,
+      status: 'started',
+      command,
+    });
+    useControlCenterStore.setState(state => ({
+      vibeRuns: [
+        {
+          id: SESSION_ID,
+          title: 'run',
+          deviceId: 'd1',
+          projectId: 'p1',
+          directory: '~/proj',
+          status: 'running',
+          objective: '',
+          model: 'glm-5.3',
+          risk: 'medium',
+          currentStep: '',
+          branch: 'main',
+          lastActivityMs: 0,
+          updatedAt: '',
+          suggestions: [],
+          transcript: [],
+          events: [],
+          structuredEvents: [
+            {
+              kind: 'command',
+              eventId: 'e1',
+              messageId: 'm1',
+              itemId: 'e1',
+              status: 'started',
+              command: 'old',
+            },
+            {
+              kind: 'command',
+              eventId: 'e2-live',
+              messageId: 'm1',
+              itemId: 'e2-live',
+              status: 'running',
+              command: 'just-arrived-live',
+            },
+          ],
+          eventDetailCache: { 'ev-9': { text: 'cached' } } as never,
+        },
+        ...state.vibeRuns,
+      ],
+    }));
+
+    mockLoadAiSession.mockResolvedValueOnce(
+      makeSession({
+        session_id: SESSION_ID,
+        transcript: [msg('m1')],
+        detail_refresh: { status: 'fresh' },
+        structured_events: [envelope('e1', 'updated-by-snapshot'), envelope('e3', 'from-server')],
+      }) as never,
+    );
+
+    await useControlCenterStore.getState().loadAgentSessionDetail(SESSION_ID, {
+      refresh: true,
+    });
+
+    const run = getRun();
+    const eventIds = (run?.structuredEvents ?? []).map(e => e.eventId);
+    // 快照携带的事件刷新(e1 以快照为准、e3 新增),live 独有的 e2-live 不被清掉。
+    expect(eventIds).toContain('e1');
+    expect(eventIds).toContain('e2-live');
+    expect(eventIds).toContain('e3');
+    expect(
+      run?.structuredEvents.find(e => e.eventId === 'e1')?.kind === 'command' &&
+        (run?.structuredEvents.find(e => e.eventId === 'e1') as { command?: string }).command,
+    ).toBe('updated-by-snapshot');
+    expect(run?.eventDetailCache).toEqual({ 'ev-9': { text: 'cached' } });
+  });
+});

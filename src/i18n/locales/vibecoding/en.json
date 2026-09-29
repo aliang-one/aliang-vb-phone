@@ -362,6 +362,8 @@
       "syncEarlier": "Syncing earlier conversation…",
       "detailTimeout": "Full conversation fetch timed out; live messages will still appear.",
       "loadDetailFailed": "Failed to load session detail.",
+      "refreshStaleFailed": "Refresh failed — the device didn't respond. Showing the last synced copy.",
+      "refreshOffline": "Device is offline — latest history is unreachable right now.",
       "loadEarlierFailed": "Failed to load earlier messages."
     },
     "title": {

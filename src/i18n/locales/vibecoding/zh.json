@@ -362,6 +362,8 @@
       "syncEarlier": "正在同步更早的会话内容...",
       "detailTimeout": "完整会话内容拉取超时，实时消息会继续显示。",
       "loadDetailFailed": "Failed to load session detail.",
+      "refreshStaleFailed": "刷新失败：设备未响应，当前显示上次同步的内容。",
+      "refreshOffline": "设备离线，暂时无法获取最新会话内容。",
       "loadEarlierFailed": "Failed to load earlier messages."
     },
     "title": {

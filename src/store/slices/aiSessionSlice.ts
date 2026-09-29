@@ -28,6 +28,7 @@ import {
   shouldEscalateEmptyDetailToRefresh,
   resolveDetailState,
 } from '../sessionDetail';
+import { reconcileStructured } from './structuredSlice';
 import {
   emptyHistoryPage,
   historyPageFromServer,
@@ -256,6 +257,13 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         refresh: true,
       });
     }
+    // The resolved refresh status, surfaced to callers (the badge refresh
+    // button turns `failed` / `skipped_offline` into user-visible feedback
+    // instead of a silent no-op — the server answers 200 with the stale
+    // cached page in those cases).
+    const detailRefreshStatus =
+      serverSession.detail_refresh?.status ??
+      serverSession.last_detail_fetch_status;
     set(state => {
       const mapped = serverAiSessionToVibeRun(
         serverSession,
@@ -280,12 +288,33 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         detailState,
       };
       const exists = state.vibeRuns.some(run => run.id === nextRun.id);
-      const vibeRuns = evictStaleSessionDetail(exists ? state.vibeRuns.map(run => run.id === nextRun.id ? mergeVibeRunSnapshot(run, nextRun) : run) : [nextRun, ...state.vibeRuns]);
+      const vibeRuns = evictStaleSessionDetail(
+        exists
+          ? state.vibeRuns.map(run => {
+              if (run.id !== nextRun.id) return run;
+              const merged = mergeVibeRunSnapshot(run, nextRun);
+              // REST 刷新与 WS 快照路径(controlCenterStore)遵循同一 reconcile
+              // 契约:agent 往返窗口内到达的实时活动事件不在响应快照里,整表
+              // 替换会把刚上屏的活动气泡丢掉;服务端事件缓存冷/空时更会把整墙
+              // 事件清空。并集保留(冲突以快照为准)。eventDetailCache 是本地
+              // 专属(快照恒不携带),保持原值。
+              return {
+                ...merged,
+                structuredEvents: reconcileStructured(
+                  run.structuredEvents,
+                  merged.structuredEvents,
+                ),
+                eventDetailCache: run.eventDetailCache,
+              };
+            })
+          : [nextRun, ...state.vibeRuns],
+      );
       return {
         vibeRuns,
         devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
       };
     });
+    return { detailRefreshStatus };
   },
 
   loadEarlierAgentMessages: async sessionId => {

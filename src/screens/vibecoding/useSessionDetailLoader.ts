@@ -23,6 +23,12 @@ import {
 } from './sessionDetailState';
 
 const DETAIL_LOAD_TIMEOUT_MS = 15000;
+// Manual badge-refresh deadline. The underlying apiGet bounds ONE attempt at
+// 15s, but a timeout there is retried (re-discovery ~2.5s + a full second
+// attempt) and the response body has no JS timeout — without our own deadline
+// the spinner could run 30s+. Late arrivals still merge into the store (only
+// the wait is abandoned), mirroring the mount auto-load's Promise.race.
+const REFRESH_LATEST_DEADLINE_MS = 20000;
 
 export interface SessionDetailLoaderInput {
   targetSessionId: string | undefined;
@@ -33,7 +39,7 @@ export interface SessionDetailLoaderInput {
   loadAgentSessionDetail: (
     sessionId: string,
     options?: { refresh?: boolean },
-  ) => Promise<unknown>;
+  ) => Promise<{ detailRefreshStatus?: string } | undefined>;
   t: TFunction;
   refreshing: boolean;
   /** Shared error display — the screen owns the state, passes the setter in. */
@@ -195,18 +201,46 @@ export function useSessionDetailLoader(
   }, [targetSessionId]);
 
   const refreshLatest = useCallback(async () => {
-    if (!targetSessionId) return;
+    const sessionId = targetSessionId;
+    if (!sessionId) return;
     setRefreshingLatest(true);
     setDetailError('');
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    // Paint errors only while this refresh still belongs to the on-screen
+    // session (the mount auto-load guards with the same refs; a mid-refresh
+    // session switch must not paint session A's failure onto session B).
+    const stillRelevant = () =>
+      mountedRef.current && targetSessionIdRef.current === sessionId;
     try {
-      await loadAgentSessionDetail(targetSessionId, { refresh: true });
+      const detailLoad = loadAgentSessionDetail(sessionId, { refresh: true });
+      const timeout = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error(t('session.loading.detailTimeout'))),
+          REFRESH_LATEST_DEADLINE_MS,
+        );
+      });
+      const result = await Promise.race([detailLoad, timeout]);
+      // detail_refresh=failed / skipped_offline arrives as HTTP 200 with the
+      // STALE cached page — without this the refresh ends as a silent no-op
+      // (nothing else in the app consumes detailRefreshStatus).
+      if (stillRelevant()) {
+        const status = result?.detailRefreshStatus;
+        if (status === 'failed') {
+          setDetailError(t('session.loading.refreshStaleFailed'));
+        } else if (status === 'skipped_offline') {
+          setDetailError(t('session.loading.refreshOffline'));
+        }
+      }
     } catch (error) {
-      setDetailError(
-        error instanceof Error
-          ? error.message
-          : t('session.loading.loadDetailFailed'),
-      );
+      if (stillRelevant()) {
+        setDetailError(
+          error instanceof Error
+            ? error.message
+            : t('session.loading.loadDetailFailed'),
+        );
+      }
     } finally {
+      if (timeoutId) clearTimeout(timeoutId);
       setRefreshingLatest(false);
     }
   }, [loadAgentSessionDetail, t, targetSessionId, setDetailError]);

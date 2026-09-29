@@ -419,10 +419,16 @@ export interface ControlCenterState {
     deviceId?: string,
   ) => Promise<void>;
   startAgentSession: (input: StartAgentInput) => Promise<string>;
+  /**
+   * Resolves with the fetched `detail_refresh` status (fresh / failed /
+   * skipped_offline / cached…) so a manual refresh can surface "the agent
+   * didn't respond, showing the stale copy" instead of failing silently —
+   * the server answers HTTP 200 with the cached page in those cases.
+   */
   loadAgentSessionDetail: (
     sessionId: string,
     options?: { refresh?: boolean },
-  ) => Promise<void>;
+  ) => Promise<{ detailRefreshStatus?: string } | undefined>;
   loadEarlierAgentMessages: (sessionId: string) => Promise<void>;
   loadAiSessionHistory: (options?: { reset?: boolean }) => Promise<void>;
   /**
