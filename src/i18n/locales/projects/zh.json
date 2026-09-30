@@ -63,8 +63,8 @@
     }
   },
   "commandCenter": {
-    "title": "Vibe Command",
-    "subtitle": "MOBILE AGENT CONTROL",
+    "title": "Aliang Vibe Coding",
+    "subtitle": "AI 编程代理工作台",
     "loadingHome": "正在加载首页…",
     "feedPending": "待确认",
     "feedNewMessage": "新消息",

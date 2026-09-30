@@ -5,6 +5,7 @@ import {
   fetchCurrentUser,
   login as apiLogin,
   logout as apiLogout,
+  deleteAccount as apiDeleteAccount,
   refreshSessionTokens,
   type PlatformUser,
 } from '../src/api/auth';
@@ -70,6 +71,15 @@ interface SessionState {
   restoreUser: () => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /**
+   * Permanently delete the account server-side (Apple 5.1.1(v)). Throws on
+   * failure (wrong password / network) WITHOUT touching the local session —
+   * the account still exists, so the user stays signed in and the UI shows
+   * the error. On success the session is wiped exactly like logout, plus the
+   * saved keychain credentials (the account is gone — nothing to log back
+   * into), which drives RootNavigator back to Login.
+   */
+  deleteAccount: (password: string) => Promise<void>;
   /**
    * Forget the saved login (Keychain entry + the non-sensitive flag). Wired to
    * the Settings "clear saved login" row; logout does NOT call this.
@@ -226,6 +236,44 @@ export const useSessionStore = create<SessionState>()(
           await apiLogout();
         } catch {
           // Local sign-out should still complete when the server is unavailable.
+        }
+        set({
+          user: null,
+          token: null,
+          refreshToken: null,
+          operatorName: 'Aliang',
+          accountData: null,
+        });
+      },
+      deleteAccount: async password => {
+        // Server-side deletion FIRST: a wrong password (401) or network error
+        // throws and leaves the local session untouched — the account still
+        // exists, so the user stays signed in and the UI surfaces the error.
+        await apiDeleteAccount(password);
+        // Best-effort: close any active remote terminals before the token is
+        // cleared, same as logout — the account (and its devices) are gone
+        // server-side, so the shells must not linger. Failures are swallowed.
+        try {
+          const activeTerminals = useControlCenterStore
+            .getState()
+            .terminalSessions.filter(t =>
+              isActiveTerminalSessionStatus(t.status),
+            );
+          await Promise.all(
+            activeTerminals.map(t =>
+              platformTransport.closeTerminalSession(t.id).catch(() => {}),
+            ),
+          );
+        } catch {
+          // Best-effort only.
+        }
+        // The account no longer exists — wipe the saved keychain credentials
+        // too. Unlike logout (which keeps them for one-tap re-login) there is
+        // nothing left to log back into.
+        try {
+          await get().clearSavedCredentials();
+        } catch {
+          // Best-effort only — the session reset below must still run.
         }
         set({
           user: null,

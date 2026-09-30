@@ -1,4 +1,4 @@
-import { accountGet, accountPost } from './accountClient';
+import { accountDelete, accountGet, accountPost } from './accountClient';
 
 export interface PlatformUser {
   id: string;
@@ -144,3 +144,12 @@ export const refreshSessionTokens = (
 // there is no server session to invalidate, and a network call would only 404.
 export const logout = (): Promise<{ status: string }> =>
   Promise.resolve({ status: 'ok' });
+
+/**
+ * Permanently delete the signed-in account (Apple 5.1.1(v)). The server
+ * cascades the sub2api account and its platform mirror (devices/sessions/
+ * recordings), so the local session is dead afterwards and the caller must
+ * wipe it. Requires the account password; a 401 means wrong password.
+ */
+export const deleteAccount = (password: string): Promise<void> =>
+  accountDelete<void>('/api/auth/account', { password });

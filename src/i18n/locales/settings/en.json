@@ -126,5 +126,21 @@
     "metersNotificationsValue": "{{unread}}/{{total}} unread"
   },
   "clearCredentialsLabel": "Clear saved login",
-  "clearCredentialsConfirm": "Saved login cleared."
+  "clearCredentialsConfirm": "Saved login cleared.",
+  "about": {
+    "title": "ABOUT",
+    "privacyPolicy": "Privacy Policy"
+  },
+  "dangerZone": {
+    "title": "DANGER ZONE",
+    "deleteAccountTitle": "Delete Account",
+    "deleteAccountSubtitle": "Permanently erase the account and all its data",
+    "deleteModalTitle": "Delete Account",
+    "deleteModalBody": "This permanently deletes your account along with all devices, sessions, and recordings. This cannot be undone. Enter your password to confirm.",
+    "deletePasswordPlaceholder": "Account password",
+    "deleteConfirm": "DELETE ACCOUNT",
+    "deleteCancel": "Cancel",
+    "wrongPassword": "Incorrect password. Please try again.",
+    "deleteSuccess": "Account deleted."
+  }
 }

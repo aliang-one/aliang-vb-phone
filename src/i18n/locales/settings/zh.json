@@ -126,5 +126,21 @@
     "metersNotificationsValue": "{{unread}}/{{total}} unread"
   },
   "clearCredentialsLabel": "清除保存的登录信息",
-  "clearCredentialsConfirm": "已清除保存的登录信息。"
+  "clearCredentialsConfirm": "已清除保存的登录信息。",
+  "about": {
+    "title": "关于 ABOUT",
+    "privacyPolicy": "隐私政策"
+  },
+  "dangerZone": {
+    "title": "账号危险区 DANGER ZONE",
+    "deleteAccountTitle": "删除账号",
+    "deleteAccountSubtitle": "永久删除账号及其全部数据",
+    "deleteModalTitle": "删除账号",
+    "deleteModalBody": "这将永久删除你的账号,以及所有设备、会话和录音数据。此操作无法撤销。请输入账号密码确认。",
+    "deletePasswordPlaceholder": "账号密码",
+    "deleteConfirm": "删除账号",
+    "deleteCancel": "取消",
+    "wrongPassword": "密码不正确,请重试。",
+    "deleteSuccess": "账号已删除。"
+  }
 }

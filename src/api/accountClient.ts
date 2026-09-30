@@ -166,3 +166,14 @@ export const accountPost = <T = unknown>(
     method: 'POST',
     body: body ? JSON.stringify(body) : undefined,
   });
+
+export const accountDelete = <T = unknown>(
+  path: string,
+  body?: unknown,
+  options: ApiFetchOptions = {},
+) =>
+  accountFetch<T>(path, {
+    ...options,
+    method: 'DELETE',
+    body: body ? JSON.stringify(body) : undefined,
+  });
