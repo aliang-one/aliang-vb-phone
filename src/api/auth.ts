@@ -1,4 +1,5 @@
 import { accountDelete, accountGet, accountPost } from './accountClient';
+import { ALIANG_API_BASE_URL } from '../config/accountService';
 
 export interface PlatformUser {
   id: string;
@@ -150,6 +151,13 @@ export const logout = (): Promise<{ status: string }> =>
  * cascades the sub2api account and its platform mirror (devices/sessions/
  * recordings), so the local session is dead afterwards and the caller must
  * wipe it. Requires the account password; a 401 means wrong password.
+ *
+ * Targets the Go backend (backend.aliang.one) directly: the www frontend only
+ * proxies an allowlist of /api/* paths and this route is not on it.
  */
 export const deleteAccount = (password: string): Promise<void> =>
-  accountDelete<void>('/api/auth/account', { password });
+  accountDelete<void>(
+    '/api/auth/account',
+    { password },
+    { baseUrl: ALIANG_API_BASE_URL },
+  );

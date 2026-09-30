@@ -22,15 +22,17 @@ describe('deleteAccount', () => {
     accountDeleteMock.mockReset();
   });
 
-  it('issues DELETE /api/auth/account with the password in the JSON body', async () => {
+  it('issues DELETE /api/auth/account with the password in the JSON body, targeting the Go backend directly', async () => {
     accountDeleteMock.mockResolvedValue(undefined);
 
     await deleteAccount('hunter2');
 
     expect(accountDeleteMock).toHaveBeenCalledTimes(1);
-    expect(accountDeleteMock).toHaveBeenCalledWith('/api/auth/account', {
-      password: 'hunter2',
-    });
+    expect(accountDeleteMock).toHaveBeenCalledWith(
+      '/api/auth/account',
+      { password: 'hunter2' },
+      { baseUrl: 'https://backend.aliang.one' },
+    );
   });
 
   it('propagates failures (401 wrong password / network) to the caller', async () => {
