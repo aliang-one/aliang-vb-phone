@@ -8,7 +8,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 
-import { useSessionCatchUp } from '../useSessionCatchUp';
+import { useSessionCatchUp, MAX_CATCH_UP_ROUNDS } from '../useSessionCatchUp';
 import type { SessionCatchUpResult } from '../../../store/types';
 
 jest.useFakeTimers();
@@ -198,6 +198,147 @@ describe('useSessionCatchUp', () => {
     expect(deps.fetchMeta).toHaveBeenCalledTimes(1);
     expect(deps.catchUp).toHaveBeenCalledWith('s1', 9);
     renderer.unmount();
+  });
+
+  it('moreRemaining=true 时自动续排下一轮排水,追平即止', async () => {
+    // 单触发源(transcriptCount=undefined)隔离出元数据一条链
+    deps.fetchMeta.mockResolvedValue({ transcript_count: 9999 });
+    deps.catchUp
+      .mockResolvedValueOnce({
+        mode: 'after',
+        fetched: 600,
+        anchorMissing: false,
+        moreRemaining: true,
+      })
+      .mockResolvedValueOnce({
+        mode: 'after',
+        fetched: 137,
+        anchorMissing: false,
+        moreRemaining: false,
+      });
+
+    const renderer = renderHook(
+      { sessionId: 's1', transcriptCount: undefined },
+      deps,
+    );
+    await act(async () => {
+      await drain();
+    });
+    expect(deps.catchUp).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      jest.advanceTimersByTime(300);
+      await drain();
+    });
+    // 续排轮:同一会话、同一权威计数
+    expect(deps.catchUp).toHaveBeenCalledTimes(2);
+    expect(deps.catchUp).toHaveBeenLastCalledWith('s1', 9999);
+
+    // 追平后不再续排
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+      await drain();
+    });
+    expect(deps.catchUp).toHaveBeenCalledTimes(2);
+    renderer.unmount();
+  });
+
+  it('续排轮次有上限:永远 has_more 时在 MAX_CATCH_UP_ROUNDS 处停手', async () => {
+    deps.fetchMeta.mockResolvedValue({ transcript_count: 999999 });
+    deps.catchUp.mockResolvedValue({
+      mode: 'after',
+      fetched: 600,
+      anchorMissing: false,
+      moreRemaining: true,
+    });
+
+    const renderer = renderHook(
+      { sessionId: 's1', transcriptCount: undefined },
+      deps,
+    );
+    await act(async () => {
+      await drain();
+    });
+
+    // 首轮 + 续排至上限,之后稳定不再增长
+    for (let i = 0; i < MAX_CATCH_UP_ROUNDS + 3; i += 1) {
+      await act(async () => {
+        jest.advanceTimersByTime(300);
+        await drain();
+      });
+    }
+    expect(deps.catchUp).toHaveBeenCalledTimes(1 + MAX_CATCH_UP_ROUNDS);
+    renderer.unmount();
+  });
+
+  it('续排链上失败即断链(进入冷却,不再自动重试)', async () => {
+    deps.fetchMeta.mockResolvedValue({ transcript_count: 9999 });
+    deps.catchUp
+      .mockResolvedValueOnce({
+        mode: 'after',
+        fetched: 600,
+        anchorMissing: false,
+        moreRemaining: true,
+      })
+      .mockRejectedValueOnce(new Error('network'));
+
+    const renderer = renderHook(
+      { sessionId: 's1', transcriptCount: undefined },
+      deps,
+    );
+    await act(async () => {
+      await drain();
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(300);
+      await drain();
+    });
+    expect(deps.catchUp).toHaveBeenCalledTimes(2);
+
+    // 链断了:继续推进时间也不会有第三次(冷却 + 无续排)
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+      await drain();
+    });
+    expect(deps.catchUp).toHaveBeenCalledTimes(2);
+    renderer.unmount();
+  });
+
+  it('卸载即断链:卸载后无论推进多少时间,续排调用数不再增长', async () => {
+    // 注:async act 会泵动 jest 假定时器,挂载期内续排可能被提前触发——
+    // 这是合法行为(有 MAX_CATCH_UP_ROUNDS 预算兜底)。本测试钉的契约是:
+    // 卸载清掉挂起定时器 + mounted 守卫拦住后续调度,链条死亡不再增长。
+    deps.fetchMeta.mockResolvedValue({ transcript_count: 9999 });
+    deps.catchUp.mockResolvedValue({
+      mode: 'after',
+      fetched: 600,
+      anchorMissing: false,
+      moreRemaining: true,
+    });
+
+    const renderer = renderHook(
+      { sessionId: 's1', transcriptCount: undefined },
+      deps,
+    );
+    await act(async () => {
+      await drain();
+    });
+    expect(deps.catchUp.mock.calls.length).toBeGreaterThanOrEqual(1);
+    // 卸载必须包 act:TestRenderer 的 passive destroy 是排队到下一次 act 才
+    // 冲刷的——不包 act 的话,挂起定时器会在清理运行前被推进触发(实现无辜)。
+    await act(async () => {
+      renderer.unmount();
+      await drain();
+    });
+
+    const frozen = deps.catchUp.mock.calls.length;
+    for (let i = 0; i < MAX_CATCH_UP_ROUNDS + 3; i += 1) {
+      await act(async () => {
+        jest.advanceTimersByTime(500);
+        await drain();
+      });
+    }
+    expect(deps.catchUp.mock.calls.length).toBe(frozen);
   });
 
   it('控制器对象跨重渲染身份稳定(会话屏把它放进 useFocusEffect 依赖,身份抖动 = 每帧重跑 effect)', async () => {

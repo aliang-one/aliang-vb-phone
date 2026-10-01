@@ -23,6 +23,12 @@ import type { ServerAiSession } from '../../api/sessions';
 import type { SessionCatchUpResult } from '../../store/types';
 
 const FAILURE_RETRY_COOLDOWN_MS = 10_000;
+// 续排节拍:每轮 10 页(动作内上限)之间的间隔,让出 JS 线程给渲染。
+export const CONTINUATION_DELAY_MS = 250;
+// 一次"排水会话"的续排预算:50 轮 × 600 条 = 3 万条消息的缺口上限。
+// 超出即停(手动刷新兜底)——预算在追平(moreRemaining=false)时归零,
+// 新的大缺口拿到全新预算。
+export const MAX_CATCH_UP_ROUNDS = 50;
 
 export interface SessionCatchUpInput {
   sessionId: string | undefined;
@@ -56,6 +62,24 @@ export function useSessionCatchUp(
   // instance (the screen remounts per session in the stack, so a plain ref is
   // effectively per-session anyway).
   const lastFailureAtRef = useRef<Record<string, number>>({});
+  // 超大缺口排水:动作层每轮最多 10 页后返回 moreRemaining=true 且不动水位
+  // (依赖不会自己再触发)。这里消费该标志,自驱动续排直至追平;轮次预算
+  // 在追平时归零。卸载/切会话即断链(定时器清理 + id 守卫)。
+  const drainRoundsRef = useRef<Record<string, number>>({});
+  const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+  const sessionIdRef = useRef(sessionId);
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+    drainRoundsRef.current = {};
+  }, [sessionId]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (drainTimerRef.current) clearTimeout(drainTimerRef.current);
+    };
+  }, []);
 
   const attempt = useCallback(
     async (serverCount: number | undefined) => {
@@ -70,13 +94,34 @@ export function useSessionCatchUp(
         return;
       }
       try {
-        await catchUpAgentMessages(id, serverCount);
+        const result = await catchUpAgentMessages(id, serverCount);
+        if (result.mode === 'after') {
+          if (!result.moreRemaining) {
+            // 排水完成:预算归零,下一次大缺口从零计
+            drainRoundsRef.current[id] = 0;
+            return;
+          }
+          const rounds = (drainRoundsRef.current[id] ?? 0) + 1;
+          drainRoundsRef.current[id] = rounds;
+          if (rounds > MAX_CATCH_UP_ROUNDS) return;
+          // 卸载后解析进来的 moreRemaining 不再调度(清理只能删已有定时器,
+          // 拦不住清理之后的调度——这里守门)。
+          if (!mountedRef.current) return;
+          if (drainTimerRef.current) clearTimeout(drainTimerRef.current);
+          drainTimerRef.current = setTimeout(() => {
+            drainTimerRef.current = null;
+            if (sessionIdRef.current === id) void attempt(serverCount);
+          }, CONTINUATION_DELAY_MS);
+        }
       } catch {
         // Catch-up is best-effort recovery: live WS deltas and the manual
-        // refresh button remain. Back off before the next attempt.
+        // refresh button remain. Back off before the next attempt — and the
+        // continuation chain ends here (no scheduling on failure).
         lastFailureAtRef.current[id] = Date.now();
       }
     },
+    // `attempt` self-reference below runs only after assignment (async path).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [catchUpAgentMessages, sessionId],
   );
 
