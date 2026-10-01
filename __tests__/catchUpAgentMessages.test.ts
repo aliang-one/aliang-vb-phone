@@ -107,7 +107,12 @@ describe('catchUpAgentMessages', () => {
       limit: 60,
       after: 'msg_b',
     });
-    expect(result).toEqual({ mode: 'after', fetched: 2, anchorMissing: false });
+    expect(result).toEqual({
+      mode: 'after',
+      fetched: 2,
+      anchorMissing: false,
+      moreRemaining: false,
+    });
 
     const transcript = useControlCenterStore
       .getState()
@@ -155,6 +160,109 @@ describe('catchUpAgentMessages', () => {
     expect(mockedLoadMessages).not.toHaveBeenCalled();
   });
 
+  it('缺口跨页(has_more)时循环消费 next_after_cursor 直到追平', async () => {
+    // 2 条本地确认 + 61 条缺口:第一页 60 条(has_more)+ 第二页 1 条。
+    seedStore([msg('msg_a', 0), msg('msg_b', 1)]);
+    const pageOne = Array.from({ length: 60 }, (_, i) =>
+      wireMessage(`gap_${i}`, 2 + i),
+    );
+    mockedLoadMessages
+      .mockResolvedValueOnce({
+        session_id: 's1',
+        messages: pageOne,
+        page: {
+          limit: 60,
+          count: 60,
+          total_count: 63,
+          has_more: true,
+          next_after_cursor: 'ENC_CURSOR_1',
+          anchor_found: true,
+        },
+        detail_refresh: { status: 'server_ledger' },
+      })
+      .mockResolvedValueOnce({
+        session_id: 's1',
+        messages: [wireMessage('gap_60', 62)],
+        page: {
+          limit: 60,
+          count: 1,
+          total_count: 63,
+          has_more: false,
+          anchor_found: true,
+        },
+        detail_refresh: { status: 'server_ledger' },
+      });
+
+    const result = await useControlCenterStore
+      .getState()
+      .catchUpAgentMessages('s1', 63);
+
+    expect(mockedLoadMessages).toHaveBeenCalledTimes(2);
+    // 第一页用裸锚点,第二页回传服务端签发的编码游标
+    expect(mockedLoadMessages).toHaveBeenNthCalledWith(1, 's1', {
+      limit: 60,
+      after: 'msg_b',
+    });
+    expect(mockedLoadMessages).toHaveBeenNthCalledWith(2, 's1', {
+      limit: 60,
+      after: 'ENC_CURSOR_1',
+    });
+    expect(result).toEqual({
+      mode: 'after',
+      fetched: 61,
+      anchorMissing: false,
+      moreRemaining: false,
+    });
+
+    const state = useControlCenterStore.getState().vibeRuns.find(r => r.id === 's1')!;
+    expect(state.transcript.map(m => m.id)).toEqual([
+      'msg_a',
+      'msg_b',
+      ...Array.from({ length: 61 }, (_, i) => `gap_${i}`),
+    ]);
+    // 全部追平才允许声明水位对齐
+    expect(state.transcriptCount).toBe(63);
+  });
+
+  it('达到页数上限仍有剩余时停止,且不虚报水位对齐(留待下轮触发续补)', async () => {
+    seedStore([msg('msg_a', 0), msg('msg_b', 1)]);
+    mockedLoadMessages.mockImplementation((_sessionId: string, options?: { after?: string }) => {
+      // 每页 60 条,永远 has_more:总缺口远超 MAX_CATCH_UP_PAGES×60
+      const start = options?.after === 'msg_b' ? 2 : 1000; // 游标页不影响 id 生成,仅保证可区分
+      return Promise.resolve({
+        session_id: 's1',
+        messages: Array.from({ length: 60 }, (_, i) =>
+          wireMessage(`gap_${start + i}`, start - 2 + 2 + i),
+        ),
+        page: {
+          limit: 60,
+          count: 60,
+          total_count: 9999,
+          has_more: true,
+          next_after_cursor: `ENC_CURSOR_${start}`,
+          anchor_found: true,
+        },
+        detail_refresh: { status: 'server_ledger' },
+      });
+    });
+
+    const result = await useControlCenterStore
+      .getState()
+      .catchUpAgentMessages('s1', 9999);
+
+    expect(result).toEqual({
+      mode: 'after',
+      fetched: 600,
+      anchorMissing: false,
+      moreRemaining: true,
+    });
+    expect(mockedLoadMessages).toHaveBeenCalledTimes(10);
+
+    const state = useControlCenterStore.getState().vibeRuns.find(r => r.id === 's1')!;
+    // 未追平:transcriptCount 不许顶到服务端总数(否则水位抹平,缺口永远补不齐)
+    expect(state.transcriptCount).not.toBe(9999);
+  });
+
   it('anchor 失效(anchor_found=false)仍安全合并服务端尾窗', async () => {
     seedStore([msg('msg_a', 0)]);
     mockedLoadMessages.mockResolvedValue({
@@ -175,7 +283,12 @@ describe('catchUpAgentMessages', () => {
       .getState()
       .catchUpAgentMessages('s1', 2);
 
-    expect(result).toEqual({ mode: 'after', fetched: 2, anchorMissing: true });
+    expect(result).toEqual({
+      mode: 'after',
+      fetched: 2,
+      anchorMissing: true,
+      moreRemaining: false,
+    });
     const transcript = useControlCenterStore
       .getState()
       .vibeRuns.find(r => r.id === 's1')!.transcript;

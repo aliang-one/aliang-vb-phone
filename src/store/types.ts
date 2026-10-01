@@ -40,7 +40,14 @@ export type RefreshOutcome = { ok: true } | { ok: false; error: string };
 export type SessionCatchUpResult =
   | { mode: 'skipped'; reason: 'in_flight' | 'no_run' | 'fresh' }
   | { mode: 'full' }
-  | { mode: 'after'; fetched: number; anchorMissing: boolean };
+  | {
+      mode: 'after';
+      fetched: number;
+      anchorMissing: boolean;
+      /** true = page cap hit with the server still claiming has_more; the
+       * watermark was NOT advanced — the next trigger resumes the drain. */
+      moreRemaining: boolean;
+    };
 
 export interface HistoryPageState {
   initialized: boolean;

@@ -61,6 +61,12 @@ const catchUpsInFlight = new Set<string>();
 // Catch-up page size. Generous on purpose: most gaps are a turn or two; the
 // server clamps to its own max and chains via next_after_cursor if ever larger.
 const CATCH_UP_PAGE_LIMIT = 60;
+// Hard cap per catch-up call: a pathological gap (or a server that keeps
+// claiming has_more) cannot loop unbounded inside one action. Remaining pages
+// are left for the NEXT watermark trigger — transcriptCount is NOT advanced
+// while more remains, so the hook keeps seeing "behind" and continues from
+// the new local tail.
+const MAX_CATCH_UP_PAGES = 10;
 
 // On-demand capability discovery: 1h auto-gate + in-flight dedup, keyed by
 // session. Skills are not project-static; active CLI settings/version matter.
@@ -357,50 +363,85 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         await get().loadAgentSessionDetail(sessionId);
         return { mode: 'full' as const };
       }
-      const response = await platformTransport.loadAiSessionMessages(
-        sessionId,
-        { limit: CATCH_UP_PAGE_LIMIT, after: anchor },
-      );
-      const incoming = response.messages.map(serverAiMessageToAgent);
-      const anchorMissing = response.page.anchor_found === false;
-      const fetchedCount = response.page.total_count ?? 0;
-      set(state => {
-        const vibeRuns = state.vibeRuns.map(run => {
-          if (run.id !== sessionId) return run;
-          // Id-union merge (mergeAgentMessages): duplicates collapse, the
-          // optimistic pending bubble gets confirmed by its server copy, and
-          // an anchorMissing tail window is absorbed as a full refresh.
-          const transcript = trimTranscript(
-            mergeAgentMessages(run.transcript, incoming),
-          );
+      // Drain the gap page by page. The initial anchor is the LOCAL tail's raw
+      // message id; every continuation uses the server-issued encoded
+      // next_after_cursor (opaque — never inspected client-side).
+      let cursor = anchor;
+      let fetched = 0;
+      let anchorMissing = false;
+      let moreRemaining = false;
+      let lastPageTotal = 0;
+      const accumulated: VibeCodingRun['transcript'] = [];
+      for (let pageIndex = 0; pageIndex < MAX_CATCH_UP_PAGES; pageIndex += 1) {
+        const response = await platformTransport.loadAiSessionMessages(
+          sessionId,
+          { limit: CATCH_UP_PAGE_LIMIT, after: cursor },
+        );
+        const incoming = response.messages.map(serverAiMessageToAgent);
+        accumulated.push(...incoming);
+        fetched += incoming.length;
+        anchorMissing = anchorMissing || response.page.anchor_found === false;
+        lastPageTotal = response.page.total_count ?? lastPageTotal;
+        // Progressive merge per page: id-union (mergeAgentMessages) makes each
+        // pass idempotent, so re-merging the full accumulator is safe.
+        set(state => {
+          const vibeRuns = state.vibeRuns.map(run => {
+            if (run.id !== sessionId) return run;
+            // Id-union merge (mergeAgentMessages): duplicates collapse, the
+            // optimistic pending bubble gets confirmed by its server copy, and
+            // an anchorMissing tail window is absorbed as a full refresh.
+            const transcript = trimTranscript(
+              mergeAgentMessages(run.transcript, accumulated),
+            );
+            return {
+              ...run,
+              transcript,
+              // Delivered content is authoritative (mirrors loadEarlierAgentMessages).
+              detailState:
+                incoming.length > 0
+                  ? { kind: 'ready' as const }
+                  : run.detailState,
+            };
+          });
           return {
-            ...run,
-            transcript,
-            transcriptCount: Math.max(
-              run.transcriptCount ?? 0,
-              fetchedCount,
-              serverCount,
-            ),
-            transcriptPage: run.transcriptPage
-              ? {
-                  ...run.transcriptPage,
-                  totalCount: Math.max(
-                    run.transcriptPage.totalCount ?? 0,
-                    fetchedCount,
-                  ),
-                }
-              : run.transcriptPage,
-            // Delivered content is authoritative (mirrors loadEarlierAgentMessages).
-            detailState:
-              incoming.length > 0 ? { kind: 'ready' as const } : run.detailState,
+            vibeRuns,
+            devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
           };
         });
-        return {
-          vibeRuns,
-          devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
-        };
-      });
-      return { mode: 'after' as const, fetched: incoming.length, anchorMissing };
+        if (!(response.page.has_more && response.page.next_after_cursor)) {
+          moreRemaining = false;
+          break;
+        }
+        moreRemaining = true;
+        cursor = response.page.next_after_cursor;
+      }
+      // Watermark parity is claimed ONLY when the gap fully drained. A capped
+      // run leaves transcriptCount untouched so the watermark still reads
+      // "behind" and the next trigger resumes from the new local tail (the
+      // merged server rows carry index, so materialized coverage stays exact
+      // even under hot-window trimming).
+      if (!moreRemaining) {
+        set(state => ({
+          vibeRuns: state.vibeRuns.map(run =>
+            run.id === sessionId
+              ? {
+                  ...run,
+                  transcriptCount: Math.max(
+                    run.transcriptCount ?? 0,
+                    lastPageTotal,
+                    serverCount,
+                  ),
+                }
+              : run,
+          ),
+        }));
+      }
+      return {
+        mode: 'after' as const,
+        fetched,
+        anchorMissing,
+        moreRemaining,
+      };
     } finally {
       catchUpsInFlight.delete(sessionId);
     }
