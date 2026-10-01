@@ -107,6 +107,8 @@ import {
 } from '../../utils/modelIntensity';
 import { createId } from '../../store/internals';
 import { useSessionDetailLoader } from './useSessionDetailLoader';
+import { useSessionCatchUp } from './useSessionCatchUp';
+import { fetchAiSession } from '../../api/sessions';
 import { useConversationScrollController } from './useConversationScrollController';
 import { useConversationTranscript } from './useConversationTranscript';
 import { usePublishedVibeRun } from './usePublishedVibeRun';
@@ -443,6 +445,17 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // Per-session timestamp of the last silent focus auto-refresh (cooldown).
   // Declared before useFocusEffect so the focus callback can read it.
   const lastAutoRefreshAtRef = useRef<Record<string, number>>({});
+  // 水位对账:mount + 屏内快照计数推进时,用服务端权威 transcript_count 做
+  // 数据比对,落后才增量补齐(见 useSessionCatchUp)。声明在 useFocusEffect
+  // 之前,重进 focus 的重查走下方已有 effect 的 refreshLatestCount 入口。
+  const sessionCatchUp = useSessionCatchUp({
+    sessionId: focusedSessionId,
+    transcriptCount: session?.transcriptCount,
+    catchUpAgentMessages: useControlCenterStore(
+      state => state.catchUpAgentMessages,
+    ),
+    fetchServerSessionMeta: fetchAiSession,
+  });
   useFocusEffect(
     useCallback(() => {
       // Draft mode has no session id yet — nothing to mark as viewed.
@@ -453,6 +466,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
       // lastViewedAt. Silent = no spinner; mergeVibeRunSnapshot merges in place
       // so there is no transcript flicker, and its stale guard rejects the
       // response if newer live deltas have landed since.
+      try {
+        // 水位重查先行:轻量元数据对账(缓存优先、不落后零请求),与下方的
+        // 时间启发式互补——数据比对是权威,时间启发式只兜 WS 长静默的场景。
+        sessionCatchUp.refreshLatestCount();
+      } catch {
+        // Never let a refresh hiccup break the focus marking below.
+      }
       try {
         const storeState = useControlCenterStore.getState();
         const run = storeState.vibeRuns.find(r => r.id === focusedSessionId);
@@ -489,7 +509,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
       return () => {
         clearCurrentlyViewedSession(focusedSessionId);
       };
-    }, [focusedSessionId, markSessionViewed, clearCurrentlyViewedSession]),
+    }, [focusedSessionId, markSessionViewed, clearCurrentlyViewedSession, sessionCatchUp]),
   );
   const updateAgentSession = useControlCenterStore(
     state => state.updateAgentSession,

@@ -19,11 +19,17 @@ import {
   evictStaleSessionDetail,
   fileNameFromPath,
   formatActivityLabel,
+  mergeAgentMessages,
   mergeEarlierAgentMessages,
   mergeIds,
   mergeVibeRunSnapshot,
   serverAiSessionToVibeRun,
+  trimTranscript,
 } from '../internals';
+import {
+  isSessionBehindTranscript,
+  latestServerConfirmedMessageId,
+} from '../../utils/sessionCatchUp';
 import {
   shouldEscalateEmptyDetailToRefresh,
   resolveDetailState,
@@ -38,7 +44,7 @@ import {
 type AiSessionSlice = Pick<
   ControlCenterState,
   | 'vibeRuns' | 'aiSessionHistory' | 'aiSessionHistoryPage' | 'previewLinks' | 'sessionCommands'
-  | 'startAgentSession' | 'loadAgentSessionDetail' | 'pauseAgentSession'
+  | 'startAgentSession' | 'loadAgentSessionDetail' | 'catchUpAgentMessages' | 'pauseAgentSession'
   | 'interruptAgentSession' | 'resumeAgentSession' | 'terminateAgentSession' | 'updateAgentSession'
   | 'deleteAgentSession' | 'appendAgentMessage' | 'loadEarlierAgentMessages'
   | 'loadAiSessionHistory'
@@ -48,6 +54,13 @@ type AiSessionSlice = Pick<
 >;
 
 const pendingMessageSends = new Set<string>();
+// In-flight catch-up dedup: a snapshot burst can trigger several attempts for
+// the same session; only the first hits the network.
+const catchUpsInFlight = new Set<string>();
+
+// Catch-up page size. Generous on purpose: most gaps are a turn or two; the
+// server clamps to its own max and chains via next_after_cursor if ever larger.
+const CATCH_UP_PAGE_LIMIT = 60;
 
 // On-demand capability discovery: 1h auto-gate + in-flight dedup, keyed by
 // session. Skills are not project-static; active CLI settings/version matter.
@@ -315,6 +328,82 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       };
     });
     return { detailRefreshStatus };
+  },
+
+  catchUpAgentMessages: async (sessionId, serverCount) => {
+    if (!get().serverMode) {
+      throw new Error('Platform connection is required before catching up a VibeCoding session.');
+    }
+    if (catchUpsInFlight.has(sessionId)) {
+      return { mode: 'skipped' as const, reason: 'in_flight' as const };
+    }
+    const current = get().vibeRuns.find(run => run.id === sessionId);
+    if (!current) {
+      return { mode: 'skipped' as const, reason: 'no_run' as const };
+    }
+    // The watermark gate: fresh sessions cost ZERO network I/O. Snapshot
+    // bursts where the server count transiently leads the local materialized
+    // messages resolve here or via the in-flight dedup above.
+    if (!isSessionBehindTranscript(current, serverCount)) {
+      return { mode: 'skipped' as const, reason: 'fresh' as const };
+    }
+    catchUpsInFlight.add(sessionId);
+    try {
+      const anchor = latestServerConfirmedMessageId(current);
+      if (!anchor) {
+        // No server-confirmed tail to anchor on (brand-new / optimistic-only
+        // / truncated-everything) — the full detail path already handles
+        // empty-page escalation and id-merge, so reuse it wholesale.
+        await get().loadAgentSessionDetail(sessionId);
+        return { mode: 'full' as const };
+      }
+      const response = await platformTransport.loadAiSessionMessages(
+        sessionId,
+        { limit: CATCH_UP_PAGE_LIMIT, after: anchor },
+      );
+      const incoming = response.messages.map(serverAiMessageToAgent);
+      const anchorMissing = response.page.anchor_found === false;
+      const fetchedCount = response.page.total_count ?? 0;
+      set(state => {
+        const vibeRuns = state.vibeRuns.map(run => {
+          if (run.id !== sessionId) return run;
+          // Id-union merge (mergeAgentMessages): duplicates collapse, the
+          // optimistic pending bubble gets confirmed by its server copy, and
+          // an anchorMissing tail window is absorbed as a full refresh.
+          const transcript = trimTranscript(
+            mergeAgentMessages(run.transcript, incoming),
+          );
+          return {
+            ...run,
+            transcript,
+            transcriptCount: Math.max(
+              run.transcriptCount ?? 0,
+              fetchedCount,
+              serverCount,
+            ),
+            transcriptPage: run.transcriptPage
+              ? {
+                  ...run.transcriptPage,
+                  totalCount: Math.max(
+                    run.transcriptPage.totalCount ?? 0,
+                    fetchedCount,
+                  ),
+                }
+              : run.transcriptPage,
+            // Delivered content is authoritative (mirrors loadEarlierAgentMessages).
+            detailState:
+              incoming.length > 0 ? { kind: 'ready' as const } : run.detailState,
+          };
+        });
+        return {
+          vibeRuns,
+          devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
+        };
+      });
+      return { mode: 'after' as const, fetched: incoming.length, anchorMissing };
+    } finally {
+      catchUpsInFlight.delete(sessionId);
+    }
   },
 
   loadEarlierAgentMessages: async sessionId => {

@@ -352,7 +352,12 @@ class PlatformTransport {
 
   async loadAiSessionMessages(
     sessionId: string,
-    options?: { limit?: number; before?: string; refresh?: boolean },
+    options?: {
+      limit?: number;
+      before?: string;
+      after?: string;
+      refresh?: boolean;
+    },
   ): Promise<ServerAiMessagesPageResponse> {
     return fetchAiSessionMessages(sessionId, options);
   }

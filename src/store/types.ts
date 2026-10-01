@@ -36,6 +36,12 @@ export type AgentProvider = 'claude_code' | 'codex' | 'opencode';
  */
 export type RefreshOutcome = { ok: true } | { ok: false; error: string };
 
+/** Outcome of a catch-up attempt (see catchUpAgentMessages). */
+export type SessionCatchUpResult =
+  | { mode: 'skipped'; reason: 'in_flight' | 'no_run' | 'fresh' }
+  | { mode: 'full' }
+  | { mode: 'after'; fetched: number; anchorMissing: boolean };
+
 export interface HistoryPageState {
   initialized: boolean;
   loading: boolean;
@@ -429,6 +435,17 @@ export interface ControlCenterState {
     sessionId: string,
     options?: { refresh?: boolean },
   ) => Promise<{ detailRefreshStatus?: string } | undefined>;
+  /**
+   * Incremental catch-up: compare the authoritative server transcript count
+   * against the locally materialized messages and pull ONLY the missing tail
+   * (after-cursor) when behind. Zero network I/O when fresh. Falls back to a
+   * full detail fetch when no server-confirmed anchor exists locally. See
+   * utils/sessionCatchUp + SessionCatchUpResult.
+   */
+  catchUpAgentMessages: (
+    sessionId: string,
+    serverCount: number,
+  ) => Promise<SessionCatchUpResult>;
   loadEarlierAgentMessages: (sessionId: string) => Promise<void>;
   loadAiSessionHistory: (options?: { reset?: boolean }) => Promise<void>;
   /**

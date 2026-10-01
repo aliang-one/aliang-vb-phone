@@ -18,6 +18,13 @@ export interface ServerAiTranscriptPage {
   has_more: boolean;
   next_before_cursor?: string;
   next_before_message_id?: string;
+  /**
+   * after(catch-up)模式专属:向前链式游标 / 锚点存在性。before 模式下
+   * 服务端不返回(undefined → JSON 序列化丢弃)。
+   */
+  next_after_cursor?: string;
+  next_after_message_id?: string;
+  anchor_found?: boolean;
   order?: 'asc';
   cache_status?: string;
   fetched_at?: string;
@@ -328,11 +335,18 @@ export const fetchAiSession = (
 
 export const fetchAiSessionMessages = (
   sessionId: string,
-  options?: { limit?: number; before?: string; refresh?: boolean },
+  options?: {
+    limit?: number;
+    before?: string;
+    /** catch-up 锚点:返回该消息之后(不含)的增量段,与 before 互斥。 */
+    after?: string;
+    refresh?: boolean;
+  },
 ): Promise<ServerAiMessagesPageResponse> => {
   const query = new URLSearchParams();
   if (options?.limit) query.set('limit', String(options.limit));
   if (options?.before) query.set('before', options.before);
+  if (options?.after) query.set('after', options.after);
   if (options?.refresh) query.set('refresh', 'true');
   const suffix = query.toString() ? `?${query.toString()}` : '';
   return apiGet<ServerAiMessagesPageResponse>(
