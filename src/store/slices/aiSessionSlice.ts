@@ -48,6 +48,7 @@ type AiSessionSlice = Pick<
   | 'interruptAgentSession' | 'resumeAgentSession' | 'terminateAgentSession' | 'updateAgentSession'
   | 'deleteAgentSession' | 'appendAgentMessage' | 'loadEarlierAgentMessages'
   | 'loadAiSessionHistory'
+  | 'hydrateSessionHistory'
   | 'retryAgentMessage' | 'dismissFailedMessage' | 'cacheStructuredDetail'
   | 'markSessionViewed' | 'clearCurrentlyViewedSession' | 'demoteIdleSessions'
   | 'refreshSessionCommands'
@@ -566,6 +567,30 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         },
       }));
       throw error;
+    }
+  },
+
+  hydrateSessionHistory: async options => {
+    const min = Math.max(1, options?.minItems ?? 150);
+    const maxPages = Math.max(1, options?.maxPages ?? 10);
+    for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
+      const { serverMode, devices, aiSessionHistoryPage, aiSessionHistory } =
+        get();
+      if (!serverMode) return;
+      // 设备未就绪：本次水合到此为止，调用方在 devices 到位后重入
+      // （loadAiSessionHistory 内部同款守卫保证 cursor 不被空跑消费）。
+      if (devices.length === 0) return;
+      if (aiSessionHistoryPage.loading) return;
+      if (aiSessionHistoryPage.initialized && !aiSessionHistoryPage.hasMore) {
+        return;
+      }
+      if (
+        aiSessionHistoryPage.initialized &&
+        aiSessionHistory.length >= min
+      ) {
+        return;
+      }
+      await get().loadAiSessionHistory();
     }
   },
 

@@ -219,16 +219,27 @@ export function useStableVibeRuns(): VibeCodingRun[] {
 }
 
 /** Merge cursor-loaded summaries into the live session list without allowing
- * stale history to replace a resident realtime session with the same id. */
+ * stale history to replace a resident realtime session with the same id.
+ * Goal sessions are excluded: 对话入口只展示普通会话，Goal 走 Tasks 入口
+ * (/api/goals + GoalDetailScreen)。 */
+export function mergeSessionListRuns(
+  vibeRuns: VibeCodingRun[],
+  aiSessionHistory: VibeCodingRun[],
+): VibeCodingRun[] {
+  const liveIds = new Set(vibeRuns.map(run => run.id));
+  return [
+    ...vibeRuns.filter(run => run.purpose !== 'goal'),
+    ...aiSessionHistory.filter(
+      run => !liveIds.has(run.id) && run.purpose !== 'goal',
+    ),
+  ].map(toStableRun);
+}
+
 export function useSessionListRuns(): VibeCodingRun[] {
   return useControlCenterStore(
-    useShallow(state => {
-      const liveIds = new Set(state.vibeRuns.map(run => run.id));
-      return [
-        ...state.vibeRuns,
-        ...state.aiSessionHistory.filter(run => !liveIds.has(run.id)),
-      ].map(toStableRun);
-    }),
+    useShallow(state =>
+      mergeSessionListRuns(state.vibeRuns, state.aiSessionHistory),
+    ),
   );
 }
 

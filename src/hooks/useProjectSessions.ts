@@ -77,7 +77,10 @@ export function useProjectSessions(
         if (run.projectId === projectId) byId.set(run.id, run);
       }
     }
-    const merged = [...byId.values()].sort(compareSessionsByStableActivity);
+    // 对话入口只展示普通会话;goal 会话归 Tasks 入口(/api/goals 通道)。
+    const merged = [...byId.values()]
+      .filter(run => run.purpose !== 'goal')
+      .sort(compareSessionsByStableActivity);
     return limit !== undefined ? merged.slice(0, limit) : merged;
   }, [fetched, vibeRuns, projectId, limit]);
 

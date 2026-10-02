@@ -493,6 +493,16 @@ export interface ControlCenterState {
   loadEarlierAgentMessages: (sessionId: string) => Promise<void>;
   loadAiSessionHistory: (options?: { reset?: boolean }) => Promise<void>;
   /**
+   * 自动水合会话历史：连续按 cursor 拉页直到 ≥minItems 条摘要或服务端
+   * has_more 结束。设备列表未就绪时直接返回（由调用方在 devices 到位后重入，
+   * 见 VibeCodingListScreen 的 boot effect）。minItems 是预取目标而非上限，
+   * 用户手动"加载更多"仍可继续访问全部历史。
+   */
+  hydrateSessionHistory: (options?: {
+    minItems?: number;
+    maxPages?: number;
+  }) => Promise<void>;
+  /**
    * On-demand `/`-command discovery for a session. Auto path (ToolsMenu open,
    * `force=false`) is 1h-gated + in-flight-deduped (cheap). Manual path (input
    * refresh button, `force=true`) bypasses the 1h gate. The server applies a

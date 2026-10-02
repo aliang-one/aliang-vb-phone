@@ -40,6 +40,7 @@ import { DeferredMount } from '../../components/shared/DeferredMount';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { ConnectionFailedCard } from '../../components/shared/ConnectionFailedCard';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
+import { GoalInboxPanel } from './GoalInboxScreen';
 import { TerminalCard } from '../../components/terminals/TerminalCard';
 import { VoiceToBashModal } from '../../components/terminal/VoiceToBashModal';
 import type { DevicePickerEntry } from '../../components/terminal/DevicePicker';
@@ -59,7 +60,6 @@ import { compareSessionsByStableActivity } from '../../utils/sessionPhase';
 import {
   buildDeviceStatusIndex,
   isDeviceStatusOffline,
-  offlineLastComparator,
 } from '../../utils/deviceStatus';
 import { isActiveTerminalSessionStatus } from '../../utils/terminalInteraction';
 
@@ -84,11 +84,15 @@ const getFilterChipBackground = (active: boolean, isDark: boolean) => {
 
 type VibecodingTab =
   | { key: 'vibecoding'; title: string }
+  | { key: 'tasks'; title: string }
   | { key: 'terminals'; title: string };
 const TABS: VibecodingTab[] = [
   { key: 'vibecoding', title: 'Vibecoding' },
+  { key: 'tasks', title: 'Tasks' },
   { key: 'terminals', title: 'Terminals' },
 ];
+// 页序派生自 TABS，禁止硬编码数字页号(插入新段时必踩坑)。
+const TERMINALS_TAB_INDEX = TABS.findIndex(tab => tab.key === 'terminals');
 
 // Light-mode elevation for the sliding indicator (dark mode uses theme glow).
 const INDICATOR_LIGHT_SHADOW = {
@@ -118,7 +122,7 @@ interface SegmentedTabProps {
   progress: ProgressValue;
   index: number;
   title: string;
-  count: number;
+  count?: number;
   onPress: () => void;
 }
 
@@ -195,11 +199,13 @@ const SegmentedTab: React.FC<SegmentedTabProps> = ({
         >
           {title}
         </Animated.Text>
-        <Animated.Text
-          style={[theme.typography.codeSm, styles.tabCount, countStyle]}
-        >
-          {count}
-        </Animated.Text>
+        {count !== undefined ? (
+          <Animated.Text
+            style={[theme.typography.codeSm, styles.tabCount, countStyle]}
+          >
+            {count}
+          </Animated.Text>
+        ) : null}
       </View>
     </TouchableOpacity>
   );
@@ -234,6 +240,7 @@ export const VibeCodingListScreen: React.FC = () => {
   const vibeRuns = useSessionListRuns();
   const historyPage = useControlCenterStore(state => state.aiSessionHistoryPage);
   const loadAiSessionHistory = useControlCenterStore(state => state.loadAiSessionHistory);
+  const hydrateSessionHistory = useControlCenterStore(state => state.hydrateSessionHistory);
   const serverMode = useControlCenterStore(state => state.serverMode);
   const lastSyncedAt = useControlCenterStore(state => state.lastSyncedAt);
   const lastConnectError = useControlCenterStore(
@@ -250,6 +257,8 @@ export const VibeCodingListScreen: React.FC = () => {
   const stopTerminal = useControlCenterStore(state => state.stopTerminal);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | VibeStatus>('all');
+  // Tasks 页的刷新信号:下拉时 +1,GoalInboxPanel 据此重拉 /api/goals。
+  const [refreshTick, setRefreshTick] = useState(0);
   const { refreshing, handleRefresh } = useRefreshWithFeedback();
   const [activeTab, setActiveTab] = useState(0);
   const [terminalDevicePickerOpen, setTerminalDevicePickerOpen] =
@@ -265,13 +274,15 @@ export const VibeCodingListScreen: React.FC = () => {
   // newSession 导航→两个 pty(生产毫秒级成对孤儿家族)。
   const lastVoiceCreateAtRef = useRef(0);
 
+  // 设备就绪后自动水合会话历史(首屏 + 预取至 ~150 条摘要)。设备未就绪时
+  // 本 effect 随 devices.length 依赖重试;devices 空时 store 内守卫保证
+  // cursor 不被空跑消费(2026-10-02 死锁修复的收尾)。
   useEffect(() => {
-    if (serverMode && !historyPage.initialized) {
-      void loadAiSessionHistory({ reset: true }).catch(error => {
-        console.warn('[sessions] failed to load history', error);
-      });
-    }
-  }, [historyPage.initialized, loadAiSessionHistory, serverMode]);
+    if (!serverMode || devices.length === 0) return;
+    void hydrateSessionHistory({ minItems: 150 }).catch(error => {
+      console.warn('[sessions] failed to hydrate history', error);
+    });
+  }, [serverMode, devices.length, hydrateSessionHistory]);
 
   // Folder-tab activeness driven directly by the horizontal pager's scroll
   // offset, so each tab's card lifts/fades in real time as you swipe (and
@@ -381,13 +392,10 @@ export const VibeCodingListScreen: React.FC = () => {
           const matchesFilter = filter === 'all' || session.status === filter;
           return sessionMatchesQuery && matchesFilter;
         })
-        .sort(
-          offlineLastComparator(
-            deviceStatusIndex,
-            session => session.deviceId,
-            compareSessionsByStableActivity,
-          ),
-        ),
+        // 设备在线状态不参与排序(离线沉底会把掉线设备的全部近期会话压到
+        // 列表末尾,2026-10-02 实证为"最近几条→直接 8 月"观感的成因之一);
+        // 离线只做卡片置灰/角标/操作禁用。
+        .sort(compareSessionsByStableActivity),
     [
       vibeRuns,
       filter,
@@ -395,7 +403,6 @@ export const VibeCodingListScreen: React.FC = () => {
       projectById,
       projectSearchIndex,
       deviceSearchIndex,
-      deviceStatusIndex,
     ],
   );
   const sessionList = useIncrementalList(filtered, {
@@ -719,10 +726,19 @@ export const VibeCodingListScreen: React.FC = () => {
     }
   };
 
+  // 下拉 = 快照刷新 + 历史游标重置重拉首屏(旧缓存按 id 去重保留)。
+  const onRefresh = useCallback(async () => {
+    await handleRefresh();
+    setRefreshTick(tick => tick + 1);
+    await loadAiSessionHistory({ reset: true }).catch(error => {
+      console.warn('[sessions] failed to refresh history', error);
+    });
+  }, [handleRefresh, loadAiSessionHistory]);
+
   const refreshControl = (
     <RefreshControl
       refreshing={refreshing}
-      onRefresh={handleRefresh}
+      onRefresh={onRefresh}
       tintColor={theme.colors.primary}
       colors={[theme.colors.primary]}
     />
@@ -759,7 +775,9 @@ export const VibeCodingListScreen: React.FC = () => {
               ? !normalizedQuery && filter === 'all'
                 ? historyPage.totalCount ?? filtered.length
                 : filtered.length
-              : activeTerminals.length}
+              : index === 2
+                ? activeTerminals.length
+                : undefined}
             onPress={() => goToTab(index)}
           />
         ))}
@@ -922,7 +940,28 @@ export const VibeCodingListScreen: React.FC = () => {
             </ScrollView>
           </View>
 
-          {/* ---------- Page 2: Terminals ---------- */}
+          {/* ---------- Page 2: Tasks (Goals) ---------- */}
+          <View testID="tasks-page" style={{ width }}>
+            <ScrollView
+              nestedScrollEnabled
+              contentContainerStyle={[styles.content, { paddingBottom: 40 + tabBarHeight }]}
+              refreshControl={refreshControl}
+            >
+              <View style={styles.sectionHeader}>
+                <Text
+                  style={[
+                    theme.typography.labelCaps,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  TASKS
+                </Text>
+              </View>
+              <GoalInboxPanel reloadKey={refreshTick} />
+            </ScrollView>
+          </View>
+
+          {/* ---------- Page 3: Terminals ---------- */}
           <View testID="terminals-page" style={{ width }}>
             <View style={styles.terminalPage}>
               <ScrollView
@@ -985,7 +1024,7 @@ export const VibeCodingListScreen: React.FC = () => {
         </ScrollView>
       </DeferredMount>
 
-      {activeTab === 1 && terminalDevicePickerOpen ? (
+      {activeTab === TERMINALS_TAB_INDEX && terminalDevicePickerOpen ? (
         <Pressable
           testID="new-term-device-picker-backdrop"
           style={styles.devicePickerBackdrop}
@@ -996,7 +1035,7 @@ export const VibeCodingListScreen: React.FC = () => {
         />
       ) : null}
 
-      {activeTab === 1 && terminalDevicePickerOpen ? (
+      {activeTab === TERMINALS_TAB_INDEX && terminalDevicePickerOpen ? (
         <View
           testID="new-term-device-picker"
           style={[
@@ -1307,7 +1346,7 @@ export const VibeCodingListScreen: React.FC = () => {
         </View>
       ) : null}
 
-      {activeTab === 1 ? (
+      {activeTab === TERMINALS_TAB_INDEX ? (
         <View
           style={[
             styles.newTermFabShadow,
