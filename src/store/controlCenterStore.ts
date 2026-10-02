@@ -1135,6 +1135,11 @@ export const useControlCenterStore = create<ControlCenterState>()(
                       }
                     : ts,
                 ),
+                // The PTY is gone, so any pending quota challenge for it can
+                // never be answered — drop it with the session.
+                pendingChallenges: state.pendingChallenges.filter(
+                  item => item.sessionId !== transportEvent.sessionId,
+                ),
                 events: [
                   event(
                     'command.completed',
@@ -1160,6 +1165,11 @@ export const useControlCenterStore = create<ControlCenterState>()(
                       }
                     : ts,
                 ),
+                // Same as terminal.closed: an exited session can't resolve a
+                // pending quota challenge, so the queue entry dies with it.
+                pendingChallenges: state.pendingChallenges.filter(
+                  item => item.sessionId !== transportEvent.sessionId,
+                ),
                 events: [
                   event(
                     'command.completed',
@@ -1172,6 +1182,42 @@ export const useControlCenterStore = create<ControlCenterState>()(
                   ),
                   ...state.events,
                 ].slice(0, 120),
+              }));
+              return;
+
+            // Server-side output-quota challenge: the terminal crossed its
+            // warning watermark. Queue it for the challenge modal (C4);
+            // dedupe by challengeId — the server may re-broadcast the same
+            // challenge (e.g. WS replay), and first arrival keeps its payload.
+            case 'terminal.quota.challenge':
+              set(state => ({
+                pendingChallenges: state.pendingChallenges.some(
+                  item => item.challengeId === transportEvent.challengeId,
+                )
+                  ? state.pendingChallenges
+                  : [
+                      ...state.pendingChallenges,
+                      {
+                        challengeId: transportEvent.challengeId,
+                        sessionId: transportEvent.sessionId,
+                        seq: transportEvent.seq,
+                        terminalName: transportEvent.terminalName,
+                        usedBytes: transportEvent.usedBytes,
+                        killAtBytes: transportEvent.killAtBytes,
+                        maxBytes: transportEvent.maxBytes,
+                      },
+                    ],
+              }));
+              return;
+
+            // The challenge finished server-side (user answered, killed, or
+            // timed out). The verdict is not consumed here — the modal only
+            // needs the entry gone.
+            case 'terminal.quota.challenge_resolved':
+              set(state => ({
+                pendingChallenges: state.pendingChallenges.filter(
+                  item => item.challengeId !== transportEvent.challengeId,
+                ),
               }));
               return;
 

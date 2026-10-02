@@ -26,6 +26,7 @@ const terminalCreateInflight = new Map<string, Promise<string>>();
 type TerminalSlice = Pick<
   ControlCenterState,
   | 'terminalSessions'
+  | 'pendingChallenges'
   | 'terminalCommandHistory'
   | 'createTerminalSession'
   | 'attachTerminalSession'
@@ -48,6 +49,7 @@ export const createTerminalSlice: StateCreator<
   TerminalSlice
 > = (set, get) => ({
   terminalSessions: [],
+  pendingChallenges: [],
   terminalCommandHistory: {},
 
   createTerminalSession: async (deviceId, directory) => {

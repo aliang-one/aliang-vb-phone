@@ -122,6 +122,23 @@ export interface TerminalSession {
   replayTruncated?: boolean;
 }
 
+/**
+ * A live output-quota challenge pushed by the server
+ * (`terminal.quota.challenge`): the terminal has crossed its warning
+ * watermark and will be killed at `killAtBytes` unless the user intervenes.
+ * Client-side only — a transient queue drained by `challenge_resolved` or by
+ * the session closing; never part of the server snapshot.
+ */
+export interface TerminalQuotaChallenge {
+  challengeId: string;
+  sessionId: string;
+  seq: number;
+  terminalName?: string;
+  usedBytes: number;
+  killAtBytes: number;
+  maxBytes: number;
+}
+
 export interface TerminalCommandHistoryItem {
   id: string;
   terminalSessionId: string;
@@ -340,6 +357,8 @@ export interface ControlCenterState {
   currentlyViewedSessionId?: string;
   previewLinks: PreviewLink[];
   terminalSessions: TerminalSession[];
+  /** Pending terminal output-quota challenges, keyed by challengeId for dedupe. */
+  pendingChallenges: TerminalQuotaChallenge[];
   terminalCommandHistory: Record<string, TerminalCommandHistoryItem[]>;
   scanResults: ProjectScanResult[];
   approvals: ApprovalRequest[];
