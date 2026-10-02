@@ -19,5 +19,13 @@
     "recent": "RECENT",
     "offlineSuffix": " · Offline",
     "emptyHistory": "(no commands yet)"
+  },
+  "quotaChallenge": {
+    "title": "Terminal output quota",
+    "nameFallback": "this terminal",
+    "usage": "{{used}} MB used / {{kill}} MB limit",
+    "warning": "Output is still growing; left unanswered, this terminal will be terminated automatically.",
+    "continue": "Keep running",
+    "terminate": "Terminate"
   }
 }

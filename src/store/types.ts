@@ -357,7 +357,7 @@ export interface ControlCenterState {
   currentlyViewedSessionId?: string;
   previewLinks: PreviewLink[];
   terminalSessions: TerminalSession[];
-  /** Pending terminal output-quota challenges, keyed by challengeId for dedupe. */
+  /** Pending terminal output-quota challenges, deduped by challengeId. */
   pendingChallenges: TerminalQuotaChallenge[];
   terminalCommandHistory: Record<string, TerminalCommandHistoryItem[]>;
   scanResults: ProjectScanResult[];
@@ -446,6 +446,17 @@ export interface ControlCenterState {
   resetTerminalReplay: (sessionId: string) => void;
   stopTerminal: (terminalId: string) => Promise<void>;
   interruptTerminal: (terminalId: string) => void;
+  /**
+   * Answer a queued output-quota challenge from the global ChallengeModal:
+   * send the `challenge.respond` message and optimistically dequeue the entry
+   * without waiting for the server's `challenge_resolved` broadcast — that
+   * broadcast's dequeue is an idempotent filter, so the optimistic removal
+   * never conflicts with the echo and the next queued challenge shows at once.
+   */
+  respondToPendingChallenge: (
+    challengeId: string,
+    verdict: 'granted' | 'denied',
+  ) => void;
   loadTerminalCommandHistory: (
     terminalId: string,
     deviceId?: string,

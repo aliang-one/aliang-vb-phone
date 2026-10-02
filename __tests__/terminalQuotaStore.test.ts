@@ -117,7 +117,9 @@ describe('terminal quota challenge queue (store)', () => {
 
   it('keeps coexisting challenges when only one is resolved', () => {
     handle(challengeEvent({ challengeId: 'chal-1', seq: 1 }));
-    handle(challengeEvent({ challengeId: 'chal-2', sessionId: 'term-2', seq: 2 }));
+    handle(
+      challengeEvent({ challengeId: 'chal-2', sessionId: 'term-2', seq: 2 }),
+    );
     handle(challengeEvent({ challengeId: 'chal-3', seq: 3 }));
 
     handle({

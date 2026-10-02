@@ -35,6 +35,7 @@ type TerminalSlice = Pick<
   | 'resetTerminalReplay'
   | 'stopTerminal'
   | 'interruptTerminal'
+  | 'respondToPendingChallenge'
   | 'loadTerminalCommandHistory'
   | 'createPtySession'
   | 'sendTerminalInput'
@@ -287,6 +288,23 @@ export const createTerminalSlice: StateCreator<
               ),
             }
           : item,
+      ),
+    }));
+  },
+
+  // 乐观回应:立刻发送裁决并出队,不等服务器 challenge_resolved 广播回环
+  // (那条路径的出队是幂等 filter,与这里的移除重复无害);否则双击或广播
+  // 延迟会卡住队列里的下一条挑战。发送失败同样出队——会话侧超时/关闭事件
+  // 兜底清理,残留的 modal 比一条发不出去的裁决更糟。
+  respondToPendingChallenge: (challengeId, verdict) => {
+    platformTransport.send({
+      type: 'challenge.respond',
+      challengeId,
+      verdict,
+    });
+    set(state => ({
+      pendingChallenges: state.pendingChallenges.filter(
+        item => item.challengeId !== challengeId,
       ),
     }));
   },

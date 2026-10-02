@@ -19,5 +19,13 @@
     "recent": "RECENT",
     "offlineSuffix": " · 离线",
     "emptyHistory": "（暂无指令）"
+  },
+  "quotaChallenge": {
+    "title": "终端输出配额确认",
+    "nameFallback": "该终端",
+    "usage": "已用 {{used}} MB / 上限 {{kill}} MB",
+    "warning": "输出仍在增长，未确认将自动终止该终端。",
+    "continue": "继续运行",
+    "terminate": "终止"
   }
 }
