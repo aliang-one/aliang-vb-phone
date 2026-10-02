@@ -13,6 +13,11 @@ import { useControlCenterStore } from '../src/store/controlCenterStore';
 
 const mockGoBack = jest.fn();
 const mockIsFocused = jest.fn(() => true);
+// 扫码屏(Task 11)起经 useRoute 读 mode 参数;本套既有用例不传参数 =
+// 缺省 scanLogin 行为,与线上 4 处 navigate('DeviceCameraScanner') 一致。
+const mockRouteParams:
+  | { mode?: 'scanLogin' | 'terminalWebPair'; deviceId?: string; terminalId?: string; directory?: string }
+  | undefined = undefined;
 
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({
@@ -21,6 +26,7 @@ jest.mock('@react-navigation/native', () => ({
     navigate: jest.fn(),
   }),
   useIsFocused: () => mockIsFocused(),
+  useRoute: () => ({ params: mockRouteParams }),
 }));
 
 // Capture the frame-processor callback so tests can emulate the scanner firing

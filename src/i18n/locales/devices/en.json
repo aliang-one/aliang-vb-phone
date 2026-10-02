@@ -31,6 +31,18 @@
     "voiceCommand": "Voice command: {{command}}",
     "retry": "Retry"
   },
+  "webPair": {
+    "confirmTitle": "Allow web access to this terminal?",
+    "device": "Device",
+    "directory": "Directory",
+    "domain": "Web page",
+    "allow": "Allow",
+    "deny": "Deny",
+    "success": "Web access granted",
+    "expired": "QR code expired — refresh the page and scan again",
+    "pageDisconnected": "Web page disconnected — refresh and rescan",
+    "scanEntryLabel": "Scan to open on web"
+  },
   "detail": {
     "emptyTerminal": "No active terminals. Tap Terminal above to open a remote shell."
   },

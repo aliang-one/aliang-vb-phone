@@ -8,7 +8,8 @@ import {
   TouchableOpacity,
   Linking,
 } from 'react-native';
-import { useIsFocused, useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
+import type { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCameraPermission } from 'react-native-vision-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,9 +31,17 @@ import {
   scanLoginDeny,
   scanLoginScan,
 } from '../../api/scanLogin';
+import {
+  approveTerminalWebPair,
+  extractTerminalWebPair,
+  TERMINAL_WEB_PAIR_HOST,
+} from '../../api/terminalWebPair';
+import type { TerminalWebPair } from '../../api/terminalWebPair';
+import { WebPairConfirmSheet } from '../../components/terminal/WebPairConfirmSheet';
 import { ApiResponseError } from '../../api/client';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
+type DeviceCameraScannerRoute = RouteProp<RootStackParamList, 'DeviceCameraScanner'>;
 
 type Phase = 'idle' | 'confirming' | 'working' | 'success' | 'error';
 
@@ -48,18 +57,45 @@ function describeScanError(error: unknown, t: TFunction): string {
   return error instanceof Error ? error.message : t('scanner.error.fallback');
 }
 
+// Map a terminal-web pair approve error to a user-facing message.
+// 契约唯一权威:src/api/terminalWebPair.ts 文件头(approveTerminalWebPair):
+// - 404 pairing_not_found(二维码过期**或已被用过**)/session_not_found →
+//   webPair.expired(勿按 scanLogin 的 notFound 文案)
+// - 409 pairing_disconnected / session_not_active / pairing_already_granted →
+//   webPair.pageDisconnected(统一「网页已断开」文案)
+// - 401 → 沿用扫码登录的 unauthorized 文案
+// - 其余(400/403/网络层)→ 与 describeScanError 相同的透传语义。
+function describeWebPairError(error: unknown, t: TFunction): string {
+  if (error instanceof ApiResponseError) {
+    if (error.status === 404) return t('webPair.expired');
+    if (error.status === 409) return t('webPair.pageDisconnected');
+    if (error.status === 401) return t('scanner.error.unauthorized');
+    return error.message;
+  }
+  return error instanceof Error ? error.message : t('scanner.error.fallback');
+}
+
 export const DeviceCameraScannerScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const { t } = useTranslation('devices');
   const navigation = useNavigation<Navigation>();
+  const route = useRoute<DeviceCameraScannerRoute>();
   const isFocused = useIsFocused();
   // 扫描框/重扫按钮贴物理底边，重扫按钮要抬到 home indicator 之上。
   const insets = useSafeAreaInsets();
   const { hasPermission, canRequestPermission, requestPermission, status } =
     useCameraPermission();
   const refreshFromServer = useControlCenterStore(state => state.refreshFromServer);
+  // pairMode 下确认弹窗要显示目标设备名(查不到时回落 deviceId)。
+  const devices = useControlCenterStore(state => state.devices);
+  const pairMode = route.params?.mode === 'terminalWebPair';
+  const pairDevice = pairMode
+    ? devices.find(device => device.id === route.params?.deviceId)
+    : undefined;
 
   const [scanCode, setScanCode] = useState<string | undefined>();
+  // terminalWebPair 模式从二维码 hash 解析出的 pid/s(与 scanCode 互斥使用)。
+  const [pair, setPair] = useState<TerminalWebPair | undefined>();
   const [phase, setPhase] = useState<Phase>('idle');
   const [message, setMessage] = useState('');
   const [scannerError, setScannerError] = useState('');
@@ -91,6 +127,7 @@ export const DeviceCameraScannerScreen: React.FC = () => {
     confirmInFlightRef.current = false;
     clearGoBackTimer();
     setScanCode(undefined);
+    setPair(undefined);
     setPhase('idle');
     setMessage('');
     setScannerError('');
@@ -104,7 +141,28 @@ export const DeviceCameraScannerScreen: React.FC = () => {
   };
 
   // Scan → extract sc_ → POST /auth/scan/scan (pending→scanned) → ask to confirm.
+  // pairMode(终端网页配对):本地解析 terminal.aliang.one/pair#pid&s 即入确认态,
+  // 无 scanLoginScan 网络调用;在途/代际守卫语义与 scanLogin 分支完全一致。
   const handleScannedValue = async (rawValue?: string) => {
+    if (pairMode) {
+      const candidate = extractTerminalWebPair(rawValue ?? '');
+      if (!candidate) {
+        setMessage(t('scanner.unrecognized'));
+        return;
+      }
+      if (scanInFlightRef.current) {
+        return; // 同一码的重复帧事件,丢弃
+      }
+      if (phase === 'working' || phase === 'confirming') {
+        return; // 一次只处理一个码
+      }
+      scanInFlightRef.current = true;
+      setPair(candidate);
+      setPhase('confirming');
+      setMessage('');
+      setScannerError('');
+      return;
+    }
     const code = extractScanCode(rawValue ?? '');
     if (!code) {
       setMessage(t('scanner.unrecognized'));
@@ -135,6 +193,35 @@ export const DeviceCameraScannerScreen: React.FC = () => {
   };
 
   const handleConfirm = async () => {
+    if (pairMode) {
+      if (!pair || confirmInFlightRef.current) return;
+      confirmInFlightRef.current = true;
+      const myGen = genRef.current;
+      setPhase('working');
+      setMessage('');
+      try {
+        // server 建立 Grant 并把 terminal 元信息推给网页;terminal.status 可能
+        // 为 'creating'(attach 回填的同步前缀,正常,勿当错误)。
+        await approveTerminalWebPair({
+          pairingId: pair.pairingId,
+          secret: pair.secret,
+          terminalId: route.params!.terminalId!,
+        });
+        if (genRef.current !== myGen) return; // 已 reset:本轮作废
+        setPhase('success');
+        setMessage(t('webPair.success'));
+        clearGoBackTimer();
+        goBackTimerRef.current = setTimeout(() => navigation.goBack(), 1600);
+      } catch (error) {
+        if (genRef.current !== myGen) return;
+        // 与 scanLogin 分支同语义:失败后两个守卫都放开,允许重扫或重试。
+        scanInFlightRef.current = false;
+        confirmInFlightRef.current = false;
+        setPhase('error');
+        setMessage(describeWebPairError(error, t));
+      }
+      return;
+    }
     if (!scanCode || confirmInFlightRef.current) return;
     confirmInFlightRef.current = true;
     const myGen = genRef.current;
@@ -160,6 +247,11 @@ export const DeviceCameraScannerScreen: React.FC = () => {
   };
 
   const handleDeny = async () => {
+    if (pairMode) {
+      // 拒绝=纯本地放弃:pending pairing 由服务端 TTL 过期自清理,无服务端调用。
+      reset();
+      return;
+    }
     if (!scanCode) {
       reset();
       return;
@@ -273,6 +365,24 @@ export const DeviceCameraScannerScreen: React.FC = () => {
           </Text>
         ) : null}
 
+        {/* pairMode 的提示区:scanLogin 的 message 只在结果面板(scanCode 门控)
+            里渲染,而 pairMode 没有 scanCode/结果面板,unrecognized/success/error
+            文案在这里显示;working 态文案由确认弹窗的 loading 表达。 */}
+        {pairMode &&
+        message &&
+        (phase === 'idle' || phase === 'success' || phase === 'error') ? (
+          <Text
+            style={[
+              theme.typography.bodySm,
+              {
+                color:
+                  phase === 'error' ? theme.colors.error : theme.colors.onSurfaceVariant,
+              },
+            ]}>
+            {message}
+          </Text>
+        ) : null}
+
         {scanCode && phase !== 'idle' ? (
           <GlassPanel
             style={styles.resultPanel}
@@ -369,6 +479,21 @@ export const DeviceCameraScannerScreen: React.FC = () => {
               <GlowButton title={t('scanner.rescan')} onPress={reset} variant="primary" />
             ) : null}
           </GlassPanel>
+        ) : null}
+
+        {/* pairMode 确认弹窗:扫到合法配对码(confirming)与批准在途(working)
+            期间显示;成功/失败后收起,由上方提示区接手文案。scanLogin 的既有
+            确认面板在上面由 scanCode 门控,pairMode 永不进入。 */}
+        {pairMode && (phase === 'confirming' || phase === 'working') ? (
+          <WebPairConfirmSheet
+            visible
+            deviceName={pairDevice?.name ?? route.params?.deviceId}
+            directory={route.params?.directory}
+            host={TERMINAL_WEB_PAIR_HOST}
+            working={phase === 'working'}
+            onAllow={handleConfirm}
+            onDeny={handleDeny}
+          />
         ) : null}
 
         <GlassPanel style={styles.manualPanel}>
