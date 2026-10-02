@@ -503,6 +503,11 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     if (!get().serverMode) {
       throw new Error('Platform connection is required before loading session history.');
     }
+    // 设备列表未加载完(空数组)时禁止消费分页页:下方归并按 state.devices 过滤
+    // device_id,空设备时整页被丢而游标照常推进 → 该页会话在本次分页轮里漏段,
+    // 直到 reset 重拉才补回(2026-10-02 复现)。直接不拉;initialized 保持 false,
+    // 设备就绪后由 focus/下拉按 reset 语义重试。
+    if (get().devices.length === 0) return;
     const currentPage = get().aiSessionHistoryPage;
     if (currentPage.loading) return;
     const reset = options?.reset === true;
