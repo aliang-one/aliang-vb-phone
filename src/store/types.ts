@@ -120,6 +120,13 @@ export interface TerminalSession {
   replayStatus?: 'live' | 'exited';
   /** True when part of the scrollback was dropped (agent ring eviction or the client byte cap). */
   replayTruncated?: boolean;
+  /**
+   * Raw kill/exit reason from the agent's `terminal.error` frame (verbatim,
+   * e.g. "quota_unanswered: output quota exhausted …"). Set when the session
+   * dies with an error, cleared when it is created/resumed again. Display
+   * points humanize the quota_* prefixes; other texts keep generic copy.
+   */
+  exitReason?: string;
 }
 
 /**

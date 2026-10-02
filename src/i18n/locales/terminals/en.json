@@ -27,5 +27,10 @@
     "warning": "Output is still growing; left unanswered, this terminal will be terminated automatically.",
     "continue": "Keep running",
     "terminate": "Terminate"
+  },
+  "exitReason": {
+    "quota_unanswered": "Output reached the quota limit and the confirmation prompt was not answered in time, so this terminal was stopped. For long-running noisy commands, redirect output to a file with \"cmd > log 2>&1\".",
+    "quota_hard_cap": "Output reached the hard cap, so this terminal was stopped. For long-running noisy commands, redirect output to a file with \"cmd > log 2>&1\".",
+    "quota_denied": "You chose to terminate this terminal (the output quota confirmation was denied)."
   }
 }

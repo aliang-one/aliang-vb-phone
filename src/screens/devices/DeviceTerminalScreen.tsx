@@ -60,6 +60,7 @@ import {
   terminalKeyboardProxyKeyAction,
 } from '../../utils/terminalKeyboardProxy';
 import { terminalShortcutGroups } from '../../utils/terminalKeySequences';
+import { terminalQuotaExitKind } from '../../utils/terminalExitReason';
 import { describeDeviceError } from '../../utils/deviceError';
 import { useAiCommandSuggestions } from '../../hooks/useAiCommandSuggestions';
 import { TerminalSuggestionRow } from '../../components/terminal/TerminalSuggestionRow';
@@ -206,6 +207,10 @@ export const DeviceTerminalScreen: React.FC = () => {
   // Replay/attach copy lives in the shared `terminal` namespace (same entries
   // the emulator's ended banner uses).
   const { t: tReplay } = useTranslation('terminal');
+  // Quota kill-reason copy (C5): the agent's terminal.error text is prefixed
+  // quota_unanswered/quota_hard_cap/quota_denied (cross-repo contract) — the
+  // three map to human sentences; anything else keeps the generic copy.
+  const { t: tExit } = useTranslation('terminals');
   const navigation = useNavigation<Navigation>();
   const route = useRoute<DeviceTerminalRoute>();
   // 浮动命令条停靠物理底边，键盘收起时要让出 home indicator。
@@ -352,6 +357,15 @@ export const DeviceTerminalScreen: React.FC = () => {
   //  ② closed/failed 且无回放 —— 会话已死又没有可回放的历史：整个模拟器换成
   //     空态提示 + 「新建会话」（根治「每键报 terminal session not found」）。
   const terminalEnded = terminal?.replayStatus === 'exited';
+  // Humanized quota kill reason, or null for every other exit/error text —
+  // those keep the pre-existing generic copy (zero-regression rule). exitReason
+  // only ever sits on dead sessions (cleared on create/resume), so its presence
+  // alone is the display condition, in all three dead shapes: ended-replay,
+  // dead-without-replay placeholder, and dead-with-stale-replay.
+  const quotaExitKind = terminalQuotaExitKind(terminal?.exitReason);
+  const quotaExitText = quotaExitKind
+    ? tExit(`exitReason.${quotaExitKind}`)
+    : null;
   const terminalDeadWithoutReplay = Boolean(
     terminal &&
       !terminalEnded &&
@@ -1396,6 +1410,27 @@ export const DeviceTerminalScreen: React.FC = () => {
                 </TouchableOpacity>
               </View>
             ) : null}
+            {terminal && quotaExitText ? (
+              <View
+                testID="terminal-exit-reason"
+                style={[
+                  styles.exitReasonBar,
+                  {
+                    backgroundColor: elevatedSurfaceColor,
+                    borderColor: outlineColor,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    theme.typography.codeSm,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {quotaExitText}
+                </Text>
+              </View>
+            ) : null}
             {!terminalReplayCapable ? (
               <View
                 testID="terminal-replay-capability-hint"
@@ -2058,6 +2093,13 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   capabilityHintBar: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  exitReasonBar: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderWidth: 1,

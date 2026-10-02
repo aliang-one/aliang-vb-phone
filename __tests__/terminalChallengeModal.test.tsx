@@ -3,7 +3,7 @@ import ReactTestRenderer, { act } from 'react-test-renderer';
 import { Text } from 'react-native';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
-import { ChallengeModal } from '../src/components/ChallengeModal';
+import { ChallengeModal, challengeBytesToMb } from '../src/components/ChallengeModal';
 import { useControlCenterStore } from '../src/store/controlCenterStore';
 import { platformTransport } from '../src/services/platformTransport';
 import type { TerminalQuotaChallenge } from '../src/store/types';
@@ -222,5 +222,13 @@ describe('ChallengeModal (terminal output quota)', () => {
     });
     expect(useControlCenterStore.getState().pendingChallenges).toEqual([]);
     expect(renderer.root.findAllByType(Text)).toHaveLength(0);
+  });
+});
+
+describe('challengeBytesToMb (MB display rounding)', () => {
+  it('rounds byte counts to whole MB — 3.6 MB reads 4, not floor 3', () => {
+    expect(challengeBytesToMb(0)).toBe(0);
+    expect(challengeBytesToMb(3.6 * MB)).toBe(4);
+    expect(challengeBytesToMb(5 * MB)).toBe(5);
   });
 });

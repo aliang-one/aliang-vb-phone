@@ -1095,13 +1095,20 @@ export const useControlCenterStore = create<ControlCenterState>()(
                     return ts;
                   }
                   if (exited) {
+                    // Tombstone attach: keep any exitReason captured when the
+                    // kill frame was observed — the banner survives re-entry.
                     return {
                       ...ts,
                       status: 'completed' as TerminalSessionStatus,
                     };
                   }
                   if (resumed) {
-                    return { ...ts, status: 'running' as TerminalSessionStatus };
+                    // Live again: a stale kill reason must not linger.
+                    return {
+                      ...ts,
+                      status: 'running' as TerminalSessionStatus,
+                      exitReason: undefined,
+                    };
                   }
                   return {
                     ...ts,
@@ -1110,6 +1117,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
                     replayReady: false,
                     replayStatus: undefined,
                     replayTruncated: false,
+                    exitReason: undefined,
                   };
                 }),
               }));
@@ -1162,6 +1170,10 @@ export const useControlCenterStore = create<ControlCenterState>()(
                         status: transportEvent.failed
                           ? ('failed' as TerminalSessionStatus)
                           : ('completed' as TerminalSessionStatus),
+                        // Raw agent kill/exit text (quota_* prefixes get
+                        // humanized at the display point). Plain exits carry
+                        // no reason, which also clears any stale one.
+                        exitReason: transportEvent.reason,
                       }
                     : ts,
                 ),

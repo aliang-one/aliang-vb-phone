@@ -178,7 +178,7 @@ export type PlatformTransportEvent =
   | { type: 'terminal.replay'; sessionId: string; data: string; encoding: string; seq: number; final: boolean; status?: string; truncated?: boolean; raw: Record<string, unknown> }
   | { type: 'terminal.created'; sessionId: string; raw: Record<string, unknown> }
   | { type: 'terminal.closed'; sessionId: string; raw: Record<string, unknown> }
-  | { type: 'terminal.exit'; sessionId: string; failed: boolean; raw: Record<string, unknown> }
+  | { type: 'terminal.exit'; sessionId: string; failed: boolean; reason?: string; raw: Record<string, unknown> }
   | { type: 'terminal.quota.challenge'; challengeId: string; sessionId: string; seq: number; terminalName?: string; usedBytes: number; killAtBytes: number; maxBytes: number; raw: Record<string, unknown> }
   | { type: 'terminal.quota.challenge_resolved'; challengeId: string; verdict: string; raw: Record<string, unknown> }
   | { type: 'approval.requested'; approval: PlatformApprovalSnapshot; raw: Record<string, unknown> }
@@ -770,6 +770,10 @@ class PlatformTransport {
         type: 'terminal.exit',
         sessionId: String(message.session_id ?? ''),
         failed: type === 'terminal.error',
+        // terminal.error frames carry the kill/exit reason in `error` (the
+        // quota_*: prefixes are the cross-repo contract humanized at the
+        // display point); plain exits have no reason text.
+        reason: asString(message.error),
         raw: message,
       };
     }
