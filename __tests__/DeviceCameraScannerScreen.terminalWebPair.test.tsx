@@ -89,23 +89,29 @@ const CONFIRM_TITLE = '允许网页访问此终端?';
 const UNRECOGNIZED = '二维码无法识别,请扫描网页上的配对码';
 
 function renderScreen() {
-  return ReactTestRenderer.create(
-    <ThemeContext.Provider
-      value={{
-        theme: utilityMinimalist,
-        isDark: false,
-        mode: 'light',
-        setMode: () => {},
-      }}>
-      <SafeAreaProvider
-        initialMetrics={{
-          frame: { x: 0, y: 0, width: 390, height: 844 },
-          insets: { top: 0, right: 0, bottom: 0, left: 0 },
+  // create 包进 act(仓内已知 workaround):挂载期的状态更新不再泄漏成
+  // 「not wrapped in act」警告;异步收敛仍由调用方既有的 await act 完成。
+  let renderer!: ReactTestRenderer.ReactTestRenderer;
+  act(() => {
+    renderer = ReactTestRenderer.create(
+      <ThemeContext.Provider
+        value={{
+          theme: utilityMinimalist,
+          isDark: false,
+          mode: 'light',
+          setMode: () => {},
         }}>
-        <DeviceCameraScannerScreen />
-      </SafeAreaProvider>
-    </ThemeContext.Provider>,
-  );
+        <SafeAreaProvider
+          initialMetrics={{
+            frame: { x: 0, y: 0, width: 390, height: 844 },
+            insets: { top: 0, right: 0, bottom: 0, left: 0 },
+          }}>
+          <DeviceCameraScannerScreen />
+        </SafeAreaProvider>
+      </ThemeContext.Provider>,
+    );
+  });
+  return renderer;
 }
 
 function findAllText(
