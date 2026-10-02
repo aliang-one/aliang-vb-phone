@@ -7,6 +7,9 @@ import { apiPost } from './client';
  * `https://terminal.aliang.one/pair#pid=<pairingId>&s=<secret>`;手机扫到后
  * 用 extractTerminalWebPair 解析,确认(WebPairConfirmSheet)后调
  * approveTerminalWebPair 让 server 建立 Grant 并把 terminal 元信息推给网页。
+ *
+ * secret 约定为 base64url(无 + / =):hash 片段不含 URL 保留字符,
+ * 不存在被 URL 解析截断的风险。
  */
 
 /** 二维码宿主(严格相等白名单,URL 已把 hostname 规范化为小写)。 */
@@ -51,6 +54,8 @@ export function extractTerminalWebPair(rawValue: string): TerminalWebPair | unde
 
 export interface ApproveTerminalWebPairResult {
   ok: boolean;
+  /** 200 附带的 terminal 元信息;status 可能为 'creating'(正常同步前缀)。 */
+  terminal?: { status?: string };
 }
 
 /**
@@ -60,10 +65,13 @@ export interface ApproveTerminalWebPairResult {
  * - 400 `validation_error`
  * - 401 未登录
  * - 404 `pairing_not_found` —— 二维码过期**或已被用过**(pending 一次性消费
- *   即删,没有 409"已被用"分支,勿按其实现)
+ *   即删,没有 409"已被用"分支,勿按其实现);或 `session_not_found`
+ *   (terminal 会话不存在)
  * - 403 `pairing_secret_mismatch` 或 `remote_terminal_disabled`
- * - 409 `pairing_disconnected`(网页已断开,提示刷新网页重扫)或
- *   `pairing_already_granted`(理论不可达,归通用 409 文案)
+ * - 409 `pairing_disconnected`(网页已断开,提示刷新网页重扫)、
+ *   `session_not_active`(会话可能在流程中途关闭/退出——文案按通用 409
+ *   处理,勿与二维码过期混淆)或 `pairing_already_granted`(理论不可达,
+ *   归通用 409 文案)
  * - 200 `{ok:true, terminal:{...}}`,其中 terminal.status 可能为
  *   'creating'(attach 回填的同步前缀,正常,勿当错误)
  */

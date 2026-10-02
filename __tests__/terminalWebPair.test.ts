@@ -59,28 +59,6 @@ describe('extractTerminalWebPair', () => {
     ).toEqual({ pairingId: 'A', secret: 'B' });
   });
 
-  it('rejects a foreign host', () => {
-    expect(
-      extractTerminalWebPair('https://evil.com/pair#pid=A&s=B'),
-    ).toBeUndefined();
-  });
-
-  it('rejects a suffix-trick host', () => {
-    expect(
-      extractTerminalWebPair(
-        'https://terminal.aliang.one.evil.com/pair#pid=A&s=B',
-      ),
-    ).toBeUndefined();
-  });
-
-  it('rejects a subdomain of the pair host', () => {
-    expect(
-      extractTerminalWebPair(
-        'https://x.terminal.aliang.one/pair#pid=A&s=B',
-      ),
-    ).toBeUndefined();
-  });
-
   it('rejects a URL without a hash', () => {
     expect(
       extractTerminalWebPair('https://terminal.aliang.one/pair'),
@@ -99,17 +77,49 @@ describe('extractTerminalWebPair', () => {
     ).toBeUndefined();
   });
 
-  it('rejects a bare non-URL pid/s string', () => {
-    expect(extractTerminalWebPair('pid=A&s=B')).toBeUndefined();
-  });
-
   it('rejects the empty string', () => {
     expect(extractTerminalWebPair('')).toBeUndefined();
     expect(extractTerminalWebPair('   ')).toBeUndefined();
   });
 
-  it('rejects a scan-login sc_ code', () => {
-    expect(extractTerminalWebPair('sc_abcdef1234')).toBeUndefined();
+  describe('rejects spoofed payloads', () => {
+    it('rejects a foreign host', () => {
+      expect(
+        extractTerminalWebPair('https://evil.com/pair#pid=A&s=B'),
+      ).toBeUndefined();
+    });
+
+    it('rejects a suffix-trick host', () => {
+      expect(
+        extractTerminalWebPair(
+          'https://terminal.aliang.one.evil.com/pair#pid=A&s=B',
+        ),
+      ).toBeUndefined();
+    });
+
+    it('rejects a subdomain of the pair host', () => {
+      expect(
+        extractTerminalWebPair(
+          'https://x.terminal.aliang.one/pair#pid=A&s=B',
+        ),
+      ).toBeUndefined();
+    });
+
+    it('rejects a scan-login sc_ code', () => {
+      expect(extractTerminalWebPair('sc_abcdef1234')).toBeUndefined();
+    });
+
+    it('rejects a bare non-URL pid/s string', () => {
+      expect(extractTerminalWebPair('pid=A&s=B')).toBeUndefined();
+    });
+
+    it('rejects pid/s passed in the query string', () => {
+      // 规格 §5 安全不变量:secret 只走 # 片段(不进服务器访问日志),
+      // 查询串形态的 pid/s 一律不认。
+      expect(
+        extractTerminalWebPair('https://terminal.aliang.one/pair?pid=A&s=B'),
+      ).toBeUndefined();
+    });
   });
 
   it('exposes the host constant the QR pages live on', () => {
