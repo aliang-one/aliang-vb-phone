@@ -1742,10 +1742,11 @@ export const DeviceTerminalScreen: React.FC = () => {
                           ))}
                         </View>
                       ))}
-                      {/* 网页扫码配对入口(Task 12):授权的就是当前屏上这个
-                          终端会话(terminalId),故挂在终端页快捷键栏尾部;
-                          扫码屏 mode 分支由 Task 11 落位。禁用条件与其余
-                          快捷键完全一致(terminalInputEnabled)。 */}
+                      {/* 网页扫码配对入口:扫码授权的是当前屏上这个终端会话
+                          (terminalId),故挂在终端页快捷键栏尾部;禁用态与其
+                          余快捷键一致(terminalInputEnabled)。可见标签用短
+                          key——keyGroupLabel 是 34px 固定宽插槽,全句会换行
+                          撑高;读屏 accessibilityLabel 仍用完整句。 */}
                       <View style={styles.keyGroup}>
                         <Text
                           style={[
@@ -1753,7 +1754,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                             styles.keyGroupLabel,
                             { color: theme.colors.onSurfaceVariant },
                           ]}>
-                          {t('webPair.scanEntryLabel')}
+                          {t('webPair.scanEntryShort')}
                         </Text>
                         <TouchableOpacity
                           testID="terminal-key-webqr"

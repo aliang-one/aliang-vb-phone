@@ -133,7 +133,9 @@ const seedStore = () => {
   });
 };
 
-// jest 锁 zh(jest.setup),devices.webPair.scanEntryLabel 的中文值。
+// jest 锁 zh(jest.setup)。可见标签用短 key(34px 固定宽插槽放不下全句,
+// 会被压成多行);读屏 accessibilityLabel 用完整句 scanEntryLabel。
+const SCAN_ENTRY_SHORT = '扫码';
 const SCAN_ENTRY_LABEL = '扫码投屏';
 
 describe('DeviceTerminalScreen 快捷键栏网页扫码入口', () => {
@@ -205,14 +207,21 @@ describe('DeviceTerminalScreen 快捷键栏网页扫码入口', () => {
     expect(hasNode('terminal-key-webqr')).toBe(true);
     const entry = root().findByProps({ testID: 'terminal-key-webqr' });
     expect(entry.props.accessibilityRole).toBe('button');
+    // 读屏用完整句 scanEntryLabel。
     expect(entry.props.accessibilityLabel).toBe(SCAN_ENTRY_LABEL);
     expect(entry.props.disabled).toBe(false);
-    // 分组标签文案即 scanEntryLabel 的值(jest 锁 zh)。
+    // 可见分组标签用短 key scanEntryShort(34px 插槽防换行)。
+    expect(
+      root()
+        .findAllByType(Text)
+        .some(node => node.props.children === SCAN_ENTRY_SHORT),
+    ).toBe(true);
+    // 短标签之外不得再出现全句(防标签误用回长文案换行)。
     expect(
       root()
         .findAllByType(Text)
         .some(node => node.props.children === SCAN_ENTRY_LABEL),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('terminalInputEnabled=false 时入口禁用', async () => {

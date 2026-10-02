@@ -384,6 +384,7 @@ describe('devices.webPair i18n 奇偶', () => {
       'expired',
       'pageDisconnected',
       'scanEntryLabel',
+      'scanEntryShort',
       'success',
       'unrecognized',
     ]);

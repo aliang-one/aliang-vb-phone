@@ -42,7 +42,8 @@
     "expired": "QR code expired — refresh the page and scan again",
     "pageDisconnected": "Web page disconnected — refresh and rescan",
     "unrecognized": "Unrecognized QR code — scan the pairing code shown on the web page",
-    "scanEntryLabel": "Scan to open on web"
+    "scanEntryLabel": "Scan to open on web",
+    "scanEntryShort": "Web QR"
   },
   "detail": {
     "emptyTerminal": "No active terminals. Tap Terminal above to open a remote shell."
