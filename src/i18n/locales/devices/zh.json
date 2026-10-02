@@ -41,6 +41,7 @@
     "success": "已授权网页访问当前终端",
     "expired": "二维码已过期,请刷新网页后重试",
     "pageDisconnected": "网页已断开,请刷新后重新扫码",
+    "unrecognized": "二维码无法识别,请扫描网页上的配对码",
     "scanEntryLabel": "扫码投屏"
   },
   "detail": {

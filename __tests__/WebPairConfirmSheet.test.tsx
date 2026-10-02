@@ -127,7 +127,7 @@ describe('WebPairConfirmSheet', () => {
     expect(onDeny).toHaveBeenCalledTimes(1);
   });
 
-  it('working 时允许按钮禁用并显示 loading', async () => {
+  it('working 时允许/拒绝按钮均禁用并显示 loading', async () => {
     renderer = await wrap(
       <WebPairConfirmSheet
         {...BASE_PROPS}
@@ -141,9 +141,10 @@ describe('WebPairConfirmSheet', () => {
     // GlowButton 把 disabled||loading 透传给 TouchableOpacity。
     expect(allow.props.disabled).toBe(true);
     expect(renderer.root.findAllByType(ActivityIndicator).length).toBeGreaterThan(0);
-    // 拒绝按钮不因 working 禁用(规格只要求允许按钮)。
+    // 拒绝同样禁用:进行中的 approve 可能服务端已完成,此时"拒绝"会误导
+    // 用户以为撤销了授权(与 scrim 关闭门同一语义)。
     const deny = renderer.root.findByProps({ testID: 'web-pair-deny' });
-    expect(deny.props.disabled).toBeFalsy();
+    expect(deny.props.disabled).toBe(true);
   });
 
   it('visible=false 时不渲染内容', async () => {

@@ -29,7 +29,8 @@ export function WebPairConfirmSheet({
   directory?: string;
   /** 网页域名,默认 terminal.aliang.one。 */
   host?: string;
-  /** 批准请求在途:允许按钮禁用 + loading,点 scrim/关闭不再触发拒绝。 */
+  /** 批准请求在途:允许/拒绝按钮均禁用,点 scrim/关闭不再触发拒绝
+   *(进行中的 approve 可能已在服务端完成,此时"拒绝"会误导用户以为撤销了授权)。 */
   working: boolean;
   onAllow: () => void;
   onDeny: () => void;
@@ -86,6 +87,7 @@ export function WebPairConfirmSheet({
             title={t('webPair.deny')}
             onPress={onDeny}
             variant="outline"
+            disabled={working}
             testID="web-pair-deny"
             style={styles.actionButton}
           />

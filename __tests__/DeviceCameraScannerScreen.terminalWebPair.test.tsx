@@ -86,7 +86,7 @@ const mockedApprove = approveTerminalWebPair as jest.Mock;
 
 const PAIR_QR = 'https://terminal.aliang.one/pair#pid=P1&s=S1';
 const CONFIRM_TITLE = '允许网页访问此终端?';
-const UNRECOGNIZED = '无法识别的二维码。请扫描桌面端「扫码登录」显示的二维码。';
+const UNRECOGNIZED = '二维码无法识别,请扫描网页上的配对码';
 
 function renderScreen() {
   return ReactTestRenderer.create(
@@ -159,7 +159,10 @@ describe('DeviceCameraScannerScreen terminalWebPair 模式', () => {
   });
 
   afterEach(() => {
-    screen?.unmount();
+    // 与相邻测试一致:unmount 包 act,消除卸载期状态更新警告。
+    act(() => {
+      screen?.unmount();
+    });
     screen = undefined;
   });
 
@@ -214,6 +217,25 @@ describe('DeviceCameraScannerScreen terminalWebPair 模式', () => {
       mockScanner.onCodeScanned?.(PAIR_QR);
     });
     expect(hasText(screen.root, CONFIRM_TITLE)).toBe(true);
+  });
+
+  it('terminalId 缺失:合法码也按 unrecognized 处理,不进确认态', async () => {
+    // 调用方漏传 terminalId 时无法构成合法批准,前置拦截而非等服务端 400。
+    mockRouteParams = {
+      mode: 'terminalWebPair',
+      deviceId: 'dev-1',
+      directory: '~/work',
+    };
+    screen = renderScreen();
+    await act(async () => {});
+
+    await act(async () => {
+      mockScanner.onCodeScanned?.(PAIR_QR);
+    });
+
+    expect(mockedApprove).not.toHaveBeenCalled();
+    expect(hasText(screen.root, UNRECOGNIZED)).toBe(true);
+    expect(hasText(screen.root, CONFIRM_TITLE)).toBe(false);
   });
 
   it('确认成功:approve 以正确参数调用一次,success 文案,1.6s 后 goBack', async () => {
@@ -283,6 +305,31 @@ describe('DeviceCameraScannerScreen terminalWebPair 模式', () => {
     expect(findPressableByText(screen.root, '重新扫描')).toBeDefined();
   });
 
+  it('确认 409(pairing_disconnected):webPair.pageDisconnected 文案', async () => {
+    // 现实最高频失败:网页在 approve 前被关闭,server 推送通道已断。
+    mockedApprove.mockRejectedValueOnce(
+      new ApiResponseError('pairing_disconnected', 409, 'pairing_disconnected'),
+    );
+    mockRouteParams = {
+      mode: 'terminalWebPair',
+      deviceId: 'dev-1',
+      terminalId: 't-9',
+      directory: '~/work',
+    };
+    screen = renderScreen();
+    await act(async () => {});
+
+    await act(async () => {
+      mockScanner.onCodeScanned?.(PAIR_QR);
+    });
+    const allow = findButton(screen.root, '允许');
+    await act(async () => {
+      allow.props.onPress();
+    });
+
+    expect(hasText(screen.root, '网页已断开,请刷新后重新扫码')).toBe(true);
+  });
+
   it('拒绝:reset 回 idle,零 approve 调用', async () => {
     mockRouteParams = {
       mode: 'terminalWebPair',
@@ -332,6 +379,7 @@ describe('devices.webPair i18n 奇偶', () => {
       'pageDisconnected',
       'scanEntryLabel',
       'success',
+      'unrecognized',
     ]);
     expect(enKeys).toEqual(zhKeys);
   });

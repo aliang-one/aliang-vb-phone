@@ -146,8 +146,10 @@ export const DeviceCameraScannerScreen: React.FC = () => {
   const handleScannedValue = async (rawValue?: string) => {
     if (pairMode) {
       const candidate = extractTerminalWebPair(rawValue ?? '');
-      if (!candidate) {
-        setMessage(t('scanner.unrecognized'));
+      // terminalId 缺失时无法构成合法批准(调用方漏传参数),与无法识别同
+      // 处理,不把缺参请求留给服务端 400 兜底。
+      if (!candidate || !route.params?.terminalId) {
+        setMessage(t('webPair.unrecognized'));
         return;
       }
       if (scanInFlightRef.current) {
