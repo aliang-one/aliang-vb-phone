@@ -66,6 +66,7 @@ import { useAiCommandSuggestions } from '../../hooks/useAiCommandSuggestions';
 import { TerminalSuggestionRow } from '../../components/terminal/TerminalSuggestionRow';
 import { TerminalVoiceFab } from '../../components/terminal/TerminalVoiceFab';
 import { TerminalAiStatusStrip } from '../../components/terminal/TerminalAiStatusStrip';
+import { IconBadge } from '../../components/visual/IconBadge';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DeviceTerminalRoute = RouteProp<RootStackParamList, 'DeviceTerminal'>;
@@ -1776,6 +1777,53 @@ export const DeviceTerminalScreen: React.FC = () => {
                           ))}
                         </View>
                       ))}
+                      {/* 网页扫码配对入口:扫码授权的是当前屏上这个终端会话
+                          (terminalId),故挂在终端页快捷键栏尾部;禁用态与其
+                          余快捷键一致(terminalInputEnabled)。可见标签用短
+                          key——keyGroupLabel 是 34px 固定宽插槽,全句会换行
+                          撑高;读屏 accessibilityLabel 仍用完整句。 */}
+                      <View style={styles.keyGroup}>
+                        <Text
+                          style={[
+                            theme.typography.labelCaps,
+                            styles.keyGroupLabel,
+                            { color: theme.colors.onSurfaceVariant },
+                          ]}>
+                          {t('webPair.scanEntryShort')}
+                        </Text>
+                        <TouchableOpacity
+                          testID="terminal-key-webqr"
+                          activeOpacity={0.74}
+                          accessibilityRole="button"
+                          accessibilityLabel={t('webPair.scanEntryLabel')}
+                          hitSlop={terminalControlHitSlop}
+                          accessibilityState={{ disabled: !terminalInputEnabled }}
+                          onPress={() => {
+                            if (!device || !terminalId) return;
+                            navigation.navigate('DeviceCameraScanner', {
+                              mode: 'terminalWebPair',
+                              deviceId: device.id,
+                              terminalId,
+                              directory: terminal?.directory ?? directory,
+                            });
+                          }}
+                          disabled={!terminalInputEnabled}
+                          style={[
+                            styles.keyButton,
+                            {
+                              backgroundColor: elevatedSurfaceColor,
+                              borderColor: outlineColor,
+                            },
+                            !terminalInputEnabled && styles.disabledControl,
+                          ]}>
+                          <IconBadge
+                            name="scan"
+                            tone="neutral"
+                            size={18}
+                            iconSize={12}
+                          />
+                        </TouchableOpacity>
+                      </View>
                     </ScrollView>
                   </View>
                   <TerminalVoiceFab

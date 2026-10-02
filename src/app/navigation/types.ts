@@ -10,7 +10,18 @@ export type RootStackParamList = {
   // push('MainTabs', { screen: 'Account' }) 无法类型通过。
   MainTabs: NavigatorScreenParams<MainTabParamList>;
   DebugDeviceTerminalBootstrap: { target: DebugDeviceTerminalTarget };
-  DeviceCameraScanner: undefined;
+  // 扫码屏的两种用途:缺省(既有 4 处调用点不传参)= 官网「扫码登录」;
+  // mode: 'terminalWebPair' = 终端网页扫码配对(Task 11),由终端屏快捷键
+  // 入口(Task 12)进入,确认后授权 terminal.aliang.one 访问该终端会话。
+  DeviceCameraScanner: {
+    mode?: 'scanLogin' | 'terminalWebPair';
+    /** terminalWebPair:配对批准要绑定的目标设备(确认弹窗展示设备名)。 */
+    deviceId?: string;
+    /** terminalWebPair:配对批准要绑定的终端会话 id(approve 必传)。 */
+    terminalId?: string;
+    /** terminalWebPair:终端当前工作目录(确认弹窗展示)。 */
+    directory?: string;
+  } | undefined;
   DeviceDetail: { deviceId: string };
   PortMappings: { deviceId: string };
   DeviceTerminal: {
