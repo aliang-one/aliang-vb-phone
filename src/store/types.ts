@@ -120,6 +120,30 @@ export interface TerminalSession {
   replayStatus?: 'live' | 'exited';
   /** True when part of the scrollback was dropped (agent ring eviction or the client byte cap). */
   replayTruncated?: boolean;
+  /**
+   * Raw kill/exit reason from the agent's `terminal.error` frame (verbatim,
+   * e.g. "quota_unanswered: output quota exhausted …"). Set when the session
+   * dies with an error, cleared when it is created/resumed again. Display
+   * points humanize the quota_* prefixes; other texts keep generic copy.
+   */
+  exitReason?: string;
+}
+
+/**
+ * A live output-quota challenge pushed by the server
+ * (`terminal.quota.challenge`): the terminal has crossed its warning
+ * watermark and will be killed at `killAtBytes` unless the user intervenes.
+ * Client-side only — a transient queue drained by `challenge_resolved` or by
+ * the session closing; never part of the server snapshot.
+ */
+export interface TerminalQuotaChallenge {
+  challengeId: string;
+  sessionId: string;
+  seq: number;
+  terminalName?: string;
+  usedBytes: number;
+  killAtBytes: number;
+  maxBytes: number;
 }
 
 export interface TerminalCommandHistoryItem {
@@ -340,6 +364,8 @@ export interface ControlCenterState {
   currentlyViewedSessionId?: string;
   previewLinks: PreviewLink[];
   terminalSessions: TerminalSession[];
+  /** Pending terminal output-quota challenges, deduped by challengeId. */
+  pendingChallenges: TerminalQuotaChallenge[];
   terminalCommandHistory: Record<string, TerminalCommandHistoryItem[]>;
   scanResults: ProjectScanResult[];
   approvals: ApprovalRequest[];
@@ -427,6 +453,17 @@ export interface ControlCenterState {
   resetTerminalReplay: (sessionId: string) => void;
   stopTerminal: (terminalId: string) => Promise<void>;
   interruptTerminal: (terminalId: string) => void;
+  /**
+   * Answer a queued output-quota challenge from the global ChallengeModal:
+   * send the `challenge.respond` message and optimistically dequeue the entry
+   * without waiting for the server's `challenge_resolved` broadcast — that
+   * broadcast's dequeue is an idempotent filter, so the optimistic removal
+   * never conflicts with the echo and the next queued challenge shows at once.
+   */
+  respondToPendingChallenge: (
+    challengeId: string,
+    verdict: 'granted' | 'denied',
+  ) => void;
   loadTerminalCommandHistory: (
     terminalId: string,
     deviceId?: string,

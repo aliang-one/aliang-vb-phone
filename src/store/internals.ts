@@ -1837,6 +1837,7 @@ export const emptySessionData = () => ({
   sessionCommands: {},
   previewLinks: [],
   terminalSessions: [],
+  pendingChallenges: [],
   terminalCommandHistory: {},
   scanResults: [],
   approvals: [],

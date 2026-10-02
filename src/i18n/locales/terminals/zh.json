@@ -19,5 +19,18 @@
     "recent": "RECENT",
     "offlineSuffix": " · 离线",
     "emptyHistory": "（暂无指令）"
+  },
+  "quotaChallenge": {
+    "title": "终端输出配额确认",
+    "nameFallback": "该终端",
+    "usage": "已用 {{used}} MB / 上限 {{kill}} MB",
+    "warning": "输出仍在增长，未确认将自动终止该终端。",
+    "continue": "继续运行",
+    "terminate": "终止"
+  },
+  "exitReason": {
+    "quota_unanswered": "输出已达配额上限，且确认弹窗未在期限内回应，终端已被终止。长时间高输出命令建议用「命令 > log 2>&1」把输出重定向到文件后再查看。",
+    "quota_hard_cap": "输出已达硬性上限，终端已被终止。长时间高输出命令建议用「命令 > log 2>&1」把输出重定向到文件后再查看。",
+    "quota_denied": "已选择终止该终端（输出配额确认被拒绝）。"
   }
 }
