@@ -531,7 +531,7 @@ describe('DeviceTerminalScreen quota exit-reason banner', () => {
     const root = await renderScreen();
 
     expect(hasTestID(root, 'terminal-exit-reason')).toBe(true);
-    expect(allText(root)).toContain('您已选择终止');
+    expect(allText(root)).toContain('已选择终止该终端');
   });
 
   it('keeps the existing generic copy for non-quota errors (regression guard)', async () => {
