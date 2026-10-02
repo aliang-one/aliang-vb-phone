@@ -1171,9 +1171,15 @@ export const useControlCenterStore = create<ControlCenterState>()(
                           ? ('failed' as TerminalSessionStatus)
                           : ('completed' as TerminalSessionStatus),
                         // Raw agent kill/exit text (quota_* prefixes get
-                        // humanized at the display point). Plain exits carry
-                        // no reason, which also clears any stale one.
-                        exitReason: transportEvent.reason,
+                        // humanized at the display point). A reason-less
+                        // frame never rewrites the recorded cause: the real
+                        // Go kill flow is a double frame (terminal.error with
+                        // the reason, then waitTerminal's plain terminal.exit
+                        // bookkeeping) — the second frame must not erase the
+                        // first's reason. Stale reasons are cleared at
+                        // rebirth instead (terminal.created resumed/plain).
+                        exitReason:
+                          transportEvent.reason ?? ts.exitReason,
                       }
                     : ts,
                 ),

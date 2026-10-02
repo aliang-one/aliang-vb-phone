@@ -303,10 +303,19 @@ describe('store exitReason bookkeeping', () => {
   });
 
   it('clears a stale reason on a plain (non-error) exit', () => {
+    // Corrected semantics (was: a plain exit wiped the reason directly — that
+    // exactly reproduced the real Go double-frame bug below). Stale reasons
+    // die at REBIRTH instead: created/resumed resets, so a clean reuse cycle
+    // still ends with no reason.
     useControlCenterStore.setState({
       terminalSessions: [
         sessionWith({ status: 'failed', exitReason: QUOTA_DENIED_TEXT }),
       ],
+    });
+    handle({
+      type: 'terminal.created',
+      sessionId: 'term-1',
+      raw: { resumed: true },
     });
     handle({
       type: 'terminal.exit',
@@ -315,7 +324,62 @@ describe('store exitReason bookkeeping', () => {
       raw: {},
     });
 
+    expect(session()?.status).toBe('completed');
     expect(session()?.exitReason).toBeUndefined();
+  });
+
+  it('introduces no reason on a plain exit of a fresh session', () => {
+    handle({
+      type: 'terminal.exit',
+      sessionId: 'term-1',
+      failed: false,
+      raw: {},
+    });
+
+    expect(session()?.status).toBe('completed');
+    expect(session()?.exitReason).toBeUndefined();
+  });
+
+  // Real Go kill sequence (agent_terminal.go): killTerminalSession emits the
+  // terminal.error reason frame, then the process dies and the waitTerminal
+  // goroutine emits a PLAIN terminal.exit (the waiter maps signal kills to
+  // (exitCode, nil) — no error field). The bookkeeping frame must not erase
+  // the kill reason the first frame just established.
+  it('keeps the quota_unanswered kill reason across the follow-up plain exit frame (double frame)', () => {
+    handle({
+      type: 'terminal.exit',
+      sessionId: 'term-1',
+      failed: true,
+      reason: QUOTA_UNANSWERED_TEXT,
+      raw: {},
+    });
+    handle({
+      type: 'terminal.exit',
+      sessionId: 'term-1',
+      failed: false,
+      raw: { exit_code: -1 },
+    });
+
+    expect(session()?.status).toBe('completed');
+    expect(session()?.exitReason).toBe(QUOTA_UNANSWERED_TEXT);
+  });
+
+  it('keeps the quota_denied kill reason across the follow-up plain exit frame', () => {
+    handle({
+      type: 'terminal.exit',
+      sessionId: 'term-1',
+      failed: true,
+      reason: QUOTA_DENIED_TEXT,
+      raw: {},
+    });
+    handle({
+      type: 'terminal.exit',
+      sessionId: 'term-1',
+      failed: false,
+      raw: { exit_code: -1 },
+    });
+
+    expect(session()?.exitReason).toBe(QUOTA_DENIED_TEXT);
   });
 
   it('clears the reason when the session is created/resumed again', () => {
@@ -516,5 +580,39 @@ describe('DeviceTerminalScreen quota exit-reason banner', () => {
     expect(hasTestID(root, 'terminal-emulator')).toBe(true);
     expect(hasTestID(root, 'terminal-exit-reason')).toBe(true);
     expect(allText(root)).toContain('硬性上限');
+  });
+
+  // End-to-end double frame (the real Go kill sequence): the terminal.error
+  // reason frame lands while the user is watching, then the waitTerminal
+  // goroutine's plain terminal.exit bookkeeping frame follows. The banner
+  // must survive the second frame — including the status flip to completed.
+  it('keeps the humanized banner after the follow-up plain exit frame (double frame through the real store)', async () => {
+    seedSession({ status: 'running' });
+    const dispatch = (event: PlatformTransportEvent) => {
+      act(() => {
+        useControlCenterStore.getState().handleTransportEvent(event);
+      });
+    };
+    dispatch({
+      type: 'terminal.exit',
+      sessionId: 'term-1',
+      failed: true,
+      reason: QUOTA_UNANSWERED_TEXT,
+      raw: {},
+    });
+    dispatch({
+      type: 'terminal.exit',
+      sessionId: 'term-1',
+      failed: false,
+      raw: { exit_code: -1 },
+    });
+
+    const root = await renderScreen();
+
+    expect(hasTestID(root, 'terminal-exit-reason')).toBe(true);
+    expect(allText(root)).toContain('输出已达配额上限');
+    // The bookkeeping frame's completed status keeps the generic dead-hint
+    // path intact too (banner does not depend on status=failed).
+    expect(allText(root)).toContain('会话已结束');
   });
 });
