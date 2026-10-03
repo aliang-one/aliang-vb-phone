@@ -218,6 +218,15 @@ export function useStableVibeRuns(): VibeCodingRun[] {
   );
 }
 
+/** 对话入口专用的稳定 vibe runs：排除 Goal 会话(对话/任务分离，Goal 走
+ *  Tasks 入口)。任何"会话列表"形态的屏幕都应使用本 hook 而非裸
+ *  useStableVibeRuns，避免 goal 会话混入对话列表。 */
+export function useConversationRuns(): VibeCodingRun[] {
+  return useControlCenterStore(
+    useShallow(state => mergeSessionListRuns(state.vibeRuns, [])),
+  );
+}
+
 /** Merge cursor-loaded summaries into the live session list without allowing
  * stale history to replace a resident realtime session with the same id.
  * Goal sessions are excluded: 对话入口只展示普通会话，Goal 走 Tasks 入口

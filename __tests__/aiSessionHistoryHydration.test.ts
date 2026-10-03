@@ -102,4 +102,34 @@ describe('hydrateSessionHistory', () => {
       useControlCenterStore.getState().aiSessionHistoryPage.initialized,
     ).toBe(false);
   });
+
+  it('reset waits for an in-flight hydration then refetches page 1', async () => {
+    let release1!: () => void;
+    const gate = new Promise<void>(resolve => {
+      release1 = resolve;
+    });
+    const calls: Array<{ before?: string }> = [];
+    (platformTransport.loadAiSessionsPage as jest.Mock)
+      .mockImplementationOnce(options => {
+        calls.push(options ?? {});
+        return gate.then(() => pageOf(0, true));
+      })
+      .mockImplementationOnce(options => {
+        calls.push(options ?? {});
+        return Promise.resolve(pageOf(30, false));
+      });
+
+    // p1=后台水合(在途);p2=下拉刷新的 reset——必须等待 p1 落地后重拉首屏,
+    // 而不是被 loading 早退悄悄吞掉。
+    const first = useControlCenterStore.getState().loadAiSessionHistory();
+    const second = useControlCenterStore
+      .getState()
+      .loadAiSessionHistory({ reset: true });
+    release1();
+    await Promise.all([first, second]);
+
+    expect(calls.length).toBe(2);
+    expect(calls[0].before).toBeUndefined();
+    expect(calls[1].before).toBeUndefined();
+  });
 });

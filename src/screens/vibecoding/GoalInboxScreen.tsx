@@ -56,33 +56,58 @@ export const GoalInboxPanel: React.FC<{ reloadKey?: number }> = ({
   const [rows, setRows] = useState<GoalRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  // 部分设备同步失败:保留成功设备的任务,但必须可见,不能伪装成"没有任务"。
+  const [partialError, setPartialError] = useState<string | undefined>();
 
   const load = useCallback(async () => {
     if (devices.length === 0) {
       setRows([]);
+      setPartialError(undefined);
       return;
     }
     setLoading(true);
     setError(undefined);
+    setPartialError(undefined);
     try {
       const settled = await Promise.allSettled(
         devices.map(device => fetchGoals({ deviceId: device.id })),
       );
       const next: GoalRow[] = [];
+      let failed = 0;
       settled.forEach((result, index) => {
         const device = devices[index];
-        if (result.status !== 'fulfilled') return;
+        if (result.status === 'rejected') {
+          failed += 1;
+          return;
+        }
         for (const goal of result.value) {
           next.push({ ...goal, deviceId: device.id, deviceName: device.name });
         }
       });
+      // 全部失败 = 明确报错(不能伪装成"没有任务");部分失败 = 保留成功
+      // 设备的任务 + 醒目提示。
+      if (failed > 0 && failed === settled.length) {
+        setRows([]);
+        setError(
+          t('goalInbox.syncFailed', 'Failed to sync tasks. Pull to retry.'),
+        );
+        return;
+      }
       setRows(organizeGoalRows(next));
+      if (failed > 0) {
+        setPartialError(
+          t('goalInbox.partialSync', {
+            count: failed,
+            defaultValue: `${failed} device(s) failed to sync; their tasks may be missing`,
+          }),
+        );
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setLoading(false);
     }
-  }, [devices]);
+  }, [devices, t]);
 
   useEffect(() => {
     void load();
@@ -159,6 +184,10 @@ export const GoalInboxPanel: React.FC<{ reloadKey?: number }> = ({
       ) : error ? (
         <Text style={[theme.typography.bodySm, { color: theme.colors.error }]}>
           {error}
+        </Text>
+      ) : partialError ? (
+        <Text style={[theme.typography.bodySm, { color: theme.colors.error }]}>
+          {partialError}
         </Text>
       ) : rows.length === 0 ? (
         <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }, styles.center]}>

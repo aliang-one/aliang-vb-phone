@@ -88,6 +88,10 @@ const providerWireValue = (provider: AgentProvider): 'codex' | 'claudecode' | 'o
 const providerDefaultModelLabel = (provider: AgentProvider): string =>
   provider === 'codex' ? 'GPT-5 Codex' : providerLabel(provider);
 
+// 在途的历史分页请求。reset(下拉刷新)必须等它落地后再执行,否则 loading
+// 早退会让刷新悄悄失去重置语义(与 hydrateSessionHistory 的竞态)。
+let historyLoadInFlight: Promise<void> | null = null;
+
 export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSessionSlice> = (set, get) => ({
   vibeRuns: [],
   aiSessionHistory: [],
@@ -504,6 +508,16 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     if (!get().serverMode) {
       throw new Error('Platform connection is required before loading session history.');
     }
+    const reset = options?.reset === true;
+    // 下拉刷新与后台水合的竞态:reset 必须等在途分页落地后再执行,否则上面
+    // 的 loading 早退会让刷新悄悄失去重置语义。
+    if (reset && historyLoadInFlight) {
+      try {
+        await historyLoadInFlight;
+      } catch {
+        /* 在途失败不阻断重置 */
+      }
+    }
     // 设备列表未加载完(空数组)时禁止消费分页页:下方归并按 state.devices 过滤
     // device_id,空设备时整页被丢而游标照常推进 → 该页会话在本次分页轮里漏段,
     // 直到 reset 重拉才补回(2026-10-02 复现)。直接不拉;initialized 保持 false,
@@ -511,16 +525,16 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     if (get().devices.length === 0) return;
     const currentPage = get().aiSessionHistoryPage;
     if (currentPage.loading) return;
-    const reset = options?.reset === true;
     if (!reset && currentPage.initialized && !currentPage.hasMore) return;
 
-    set({
-      aiSessionHistoryPage: {
-        ...currentPage,
-        loading: true,
-        error: undefined,
-      },
-    });
+    const run = async () => {
+      set({
+        aiSessionHistoryPage: {
+          ...get().aiSessionHistoryPage,
+          loading: true,
+          error: undefined,
+        },
+      });
     try {
       const response = await platformTransport.loadAiSessionsPage({
         limit: 30,
@@ -566,8 +580,14 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
           error: error instanceof Error ? error.message : String(error),
         },
       }));
-      throw error;
-    }
+        throw error;
+      }
+    };
+    const flight = run().finally(() => {
+      if (historyLoadInFlight === flight) historyLoadInFlight = null;
+    });
+    historyLoadInFlight = flight;
+    await flight;
   },
 
   hydrateSessionHistory: async options => {
