@@ -40,7 +40,13 @@ import { DeferredMount } from '../../components/shared/DeferredMount';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { ConnectionFailedCard } from '../../components/shared/ConnectionFailedCard';
 import { VibeSessionCard } from '../../components/vibecoding/VibeSessionCard';
-import { GoalInboxPanel } from './GoalInboxScreen';
+import {
+  GoalInboxPanel,
+  organizeGoalRows,
+  type GoalRow,
+} from './GoalInboxScreen';
+import { fetchGoals } from '../../api/goals';
+import { buildTabs, type VibeTab as VibecodingTab } from '../../utils/vibeTabs';
 import { TerminalCard } from '../../components/terminals/TerminalCard';
 import { VoiceToBashModal } from '../../components/terminal/VoiceToBashModal';
 import type { DevicePickerEntry } from '../../components/terminal/DevicePicker';
@@ -60,6 +66,7 @@ import { compareSessionsByStableActivity } from '../../utils/sessionPhase';
 import {
   buildDeviceStatusIndex,
   isDeviceStatusOffline,
+  offlineLastComparator,
 } from '../../utils/deviceStatus';
 import { isActiveTerminalSessionStatus } from '../../utils/terminalInteraction';
 
@@ -82,17 +89,7 @@ const getFilterChipBackground = (active: boolean, isDark: boolean) => {
   return getActiveChipBackground(isDark);
 };
 
-type VibecodingTab =
-  | { key: 'vibecoding'; title: string }
-  | { key: 'tasks'; title: string }
-  | { key: 'terminals'; title: string };
-const TABS: VibecodingTab[] = [
-  { key: 'vibecoding', title: 'Vibecoding' },
-  { key: 'tasks', title: 'Tasks' },
-  { key: 'terminals', title: 'Terminals' },
-];
-// 页序派生自 TABS，禁止硬编码数字页号(插入新段时必踩坑)。
-const TERMINALS_TAB_INDEX = TABS.findIndex(tab => tab.key === 'terminals');
+const TERMINAL_GOAL_STATES = new Set(['completed', 'cancelled', 'abandoned']);
 
 // Light-mode elevation for the sliding indicator (dark mode uses theme glow).
 const INDICATOR_LIGHT_SHADOW = {
@@ -257,8 +254,15 @@ export const VibeCodingListScreen: React.FC = () => {
   const stopTerminal = useControlCenterStore(state => state.stopTerminal);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | VibeStatus>('all');
-  // Tasks 页的刷新信号:下拉时 +1,GoalInboxPanel 据此重拉 /api/goals。
-  const [refreshTick, setRefreshTick] = useState(0);
+  // Tasks 段数据:goal 快照按设备拉取,有数据才显示 Tasks 分段。
+  const [goalRows, setGoalRows] = useState<
+    Parameters<typeof organizeGoalRows>[0]
+  >([]);
+  const [goalLoading, setGoalLoading] = useState(false);
+  const [goalError, setGoalError] = useState<string | undefined>();
+  const [goalPartialError, setGoalPartialError] = useState<
+    string | undefined
+  >();
   const { refreshing, handleRefresh } = useRefreshWithFeedback();
   const [activeTab, setActiveTab] = useState(0);
   const [terminalDevicePickerOpen, setTerminalDevicePickerOpen] =
@@ -283,6 +287,83 @@ export const VibeCodingListScreen: React.FC = () => {
       console.warn('[sessions] failed to hydrate history', error);
     });
   }, [serverMode, devices.length, hydrateSessionHistory]);
+
+  // Tasks 段数据:goal 快照按设备拉取(全部拉完后 organizeGoalRows 统一整理)。
+  const loadGoals = useCallback(async () => {
+    if (devices.length === 0) {
+      setGoalRows([]);
+      setGoalPartialError(undefined);
+      return;
+    }
+    setGoalLoading(true);
+    setGoalError(undefined);
+    setGoalPartialError(undefined);
+    try {
+      const settled = await Promise.allSettled(
+        devices.map(device => fetchGoals({ deviceId: device.id })),
+      );
+      const next: GoalRow[] = [];
+      let failed = 0;
+      settled.forEach((result, index) => {
+        const device = devices[index];
+        if (result.status === 'rejected') {
+          failed += 1;
+          return;
+        }
+        for (const goal of result.value) {
+          next.push({
+            ...goal,
+            deviceId: device.id,
+            deviceName: device.name,
+          });
+        }
+      });
+      if (failed > 0 && failed === settled.length) {
+        setGoalRows([]);
+        setGoalError(
+          t('goalInbox.syncFailed', 'Failed to sync tasks. Pull to retry.'),
+        );
+        return;
+      }
+      setGoalRows(organizeGoalRows(next));
+      if (failed > 0) {
+        setGoalPartialError(
+          t('goalInbox.partialSync', {
+            count: failed,
+            defaultValue: `${failed} device(s) failed to sync; their tasks may be missing`,
+          }),
+        );
+      }
+    } catch (cause) {
+      setGoalError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setGoalLoading(false);
+    }
+  }, [devices, t]);
+
+  const hasTasks = goalRows.length > 0;
+  const activeGoalCount = useMemo(
+    () =>
+      goalRows.filter(
+        row =>
+          !row.deleted_at && !TERMINAL_GOAL_STATES.has(String(row.state)),
+      ).length,
+    [goalRows],
+  );
+  const tabs = useMemo(() => buildTabs(hasTasks), [hasTasks]);
+  const tasksTabIndex = tabs.findIndex(tab => tab.key === 'tasks');
+  const terminalsTabIndex = tabs.findIndex(tab => tab.key === 'terminals');
+
+  // Tasks 段收起(任务清零)时,若用户正停在 Tasks 页则夹回合法页号。
+  useEffect(() => {
+    if (activeTab > tabs.length - 1) {
+      setActiveTab(tabs.length - 1);
+      pagerRef.current?.scrollTo({
+        x: (tabs.length - 1) * width,
+        animated: false,
+      });
+    }
+  }, [tabs.length, activeTab, width]);
 
   // Folder-tab activeness driven directly by the horizontal pager's scroll
   // offset, so each tab's card lifts/fades in real time as you swipe (and
@@ -392,10 +473,15 @@ export const VibeCodingListScreen: React.FC = () => {
           const matchesFilter = filter === 'all' || session.status === filter;
           return sessionMatchesQuery && matchesFilter;
         })
-        // 设备在线状态不参与排序(离线沉底会把掉线设备的全部近期会话压到
-        // 列表末尾,2026-10-02 实证为"最近几条→直接 8 月"观感的成因之一);
-        // 离线只做卡片置灰/角标/操作禁用。
-        .sort(compareSessionsByStableActivity),
+        // 用户要求(2026-10-03):在线设备的会话按时间排在前,离线设备的
+        // 沉到底部;设备状态只决定分组位置,组内仍按活跃度排序。
+        .sort(
+          offlineLastComparator(
+            deviceStatusIndex,
+            session => session.deviceId,
+            compareSessionsByStableActivity,
+          ),
+        ),
     [
       vibeRuns,
       filter,
@@ -403,6 +489,7 @@ export const VibeCodingListScreen: React.FC = () => {
       projectById,
       projectSearchIndex,
       deviceSearchIndex,
+      deviceStatusIndex,
     ],
   );
   const sessionList = useIncrementalList(filtered, {
@@ -721,7 +808,7 @@ export const VibeCodingListScreen: React.FC = () => {
     const offset = event.nativeEvent.contentOffset.x;
     progress.value = offset / width;
     const index = Math.round(offset / width);
-    if (index !== activeTab && index >= 0 && index < TABS.length) {
+    if (index !== activeTab && index >= 0 && index < tabs.length) {
       setActiveTab(index);
     }
   };
@@ -729,7 +816,7 @@ export const VibeCodingListScreen: React.FC = () => {
   // 下拉 = 快照刷新 + 历史游标重置重拉首屏(旧缓存按 id 去重保留)。
   const onRefresh = useCallback(async () => {
     await handleRefresh();
-    setRefreshTick(tick => tick + 1);
+    void loadGoals();
     await loadAiSessionHistory({ reset: true }).catch(error => {
       console.warn('[sessions] failed to refresh history', error);
     });
@@ -765,7 +852,7 @@ export const VibeCodingListScreen: React.FC = () => {
           },
         ]}
       >
-        {TABS.map((tab, index) => (
+        {tabs.map((tab, index) => (
           <SegmentedTab
             key={tab.key}
             progress={progress}
@@ -775,9 +862,11 @@ export const VibeCodingListScreen: React.FC = () => {
               ? !normalizedQuery && filter === 'all'
                 ? historyPage.totalCount ?? filtered.length
                 : filtered.length
-              : index === 2
-                ? activeTerminals.length
-                : undefined}
+              : index === tasksTabIndex
+                ? activeGoalCount
+                : index === terminalsTabIndex
+                  ? activeTerminals.length
+                  : undefined}
             onPress={() => goToTab(index)}
           />
         ))}
@@ -957,7 +1046,12 @@ export const VibeCodingListScreen: React.FC = () => {
                   TASKS
                 </Text>
               </View>
-              <GoalInboxPanel reloadKey={refreshTick} />
+              <GoalInboxPanel
+                rows={goalRows}
+                loading={goalLoading}
+                error={goalError}
+                partialError={goalPartialError}
+              />
             </ScrollView>
           </View>
 
@@ -1024,7 +1118,7 @@ export const VibeCodingListScreen: React.FC = () => {
         </ScrollView>
       </DeferredMount>
 
-      {activeTab === TERMINALS_TAB_INDEX && terminalDevicePickerOpen ? (
+      {activeTab === terminalsTabIndex && terminalDevicePickerOpen ? (
         <Pressable
           testID="new-term-device-picker-backdrop"
           style={styles.devicePickerBackdrop}
@@ -1035,7 +1129,7 @@ export const VibeCodingListScreen: React.FC = () => {
         />
       ) : null}
 
-      {activeTab === TERMINALS_TAB_INDEX && terminalDevicePickerOpen ? (
+      {activeTab === terminalsTabIndex && terminalDevicePickerOpen ? (
         <View
           testID="new-term-device-picker"
           style={[
@@ -1346,7 +1440,7 @@ export const VibeCodingListScreen: React.FC = () => {
         </View>
       ) : null}
 
-      {activeTab === TERMINALS_TAB_INDEX ? (
+      {activeTab === terminalsTabIndex ? (
         <View
           style={[
             styles.newTermFabShadow,
@@ -1529,8 +1623,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   tabCount: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 9,
+    fontWeight: '600',
   },
   searchContainer: {
     paddingHorizontal: 16,

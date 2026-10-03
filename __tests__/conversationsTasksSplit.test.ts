@@ -72,3 +72,21 @@ describe('organizeGoalRows', () => {
     expect(ordered.map(item => item.goal_id)).toEqual(['kept']);
   });
 });
+
+import { buildTabs } from '../src/utils/vibeTabs';
+
+describe('buildTabs', () => {
+  it('shows two tabs without task data', () => {
+    expect(buildTabs(false).map(tab => tab.key)).toEqual([
+      'vibecoding',
+      'terminals',
+    ]);
+  });
+  it('inserts Tasks between them when task data exists', () => {
+    expect(buildTabs(true).map(tab => tab.key)).toEqual([
+      'vibecoding',
+      'tasks',
+      'terminals',
+    ]);
+  });
+});
