@@ -1,4 +1,8 @@
 import { useControlCenterStore } from '../src/store/controlCenterStore';
+import {
+  CATCH_UP_COMMIT_EVERY_PAGES,
+  CATCH_UP_PAGE_YIELD_MS,
+} from '../src/store/slices/aiSessionSlice';
 import { platformTransport } from '../src/services/platformTransport';
 import type {
   AgentMessage,
@@ -76,6 +80,26 @@ const seedStore = (transcript: VibeCodingRun['transcript']) => {
     devices: [],
     projects: [],
   });
+};
+
+// 假计时器下驱动多页排水:每拍一个 yield 窗口(泵动微任务 + 定时器)。
+// 收尾必须多泵一拍——尾页若是 has_more,循环体还会挂起一个 yield 定时器,
+// 不释放它动作永不 settle(还会把 in-flight 僵尸泄漏给后续用例)。
+const drainWithFakeTimers = async (
+  action: () => Promise<unknown>,
+  expectedPages: number,
+) => {
+  jest.useFakeTimers();
+  try {
+    const actionPromise = action();
+    while (mockedLoadMessages.mock.calls.length < expectedPages) {
+      await jest.advanceTimersByTimeAsync(CATCH_UP_PAGE_YIELD_MS);
+    }
+    await jest.advanceTimersByTimeAsync(CATCH_UP_PAGE_YIELD_MS);
+    return await actionPromise;
+  } finally {
+    jest.useRealTimers();
+  }
 };
 
 describe('catchUpAgentMessages', () => {
@@ -193,9 +217,16 @@ describe('catchUpAgentMessages', () => {
         detail_refresh: { status: 'server_ledger' },
       });
 
-    const result = await useControlCenterStore
-      .getState()
-      .catchUpAgentMessages('s1', 63);
+    const result = (await drainWithFakeTimers(
+      () => useControlCenterStore.getState().catchUpAgentMessages('s1', 63),
+      2,
+    )) as Awaited<
+      ReturnType<
+        ReturnType<
+          typeof useControlCenterStore.getState
+        >['catchUpAgentMessages']
+      >
+    >;
 
     expect(mockedLoadMessages).toHaveBeenCalledTimes(2);
     // 第一页用裸锚点,第二页回传服务端签发的编码游标
@@ -246,9 +277,16 @@ describe('catchUpAgentMessages', () => {
       });
     });
 
-    const result = await useControlCenterStore
-      .getState()
-      .catchUpAgentMessages('s1', 9999);
+    const result = (await drainWithFakeTimers(
+      () => useControlCenterStore.getState().catchUpAgentMessages('s1', 9999),
+      10,
+    )) as Awaited<
+      ReturnType<
+        ReturnType<
+          typeof useControlCenterStore.getState
+        >['catchUpAgentMessages']
+      >
+    >;
 
     expect(result).toEqual({
       mode: 'after',
@@ -329,5 +367,128 @@ describe('catchUpAgentMessages', () => {
     await expect(
       useControlCenterStore.getState().catchUpAgentMessages('s1', 2),
     ).rejects.toThrow('Platform connection is required');
+  });
+
+  it('页与页之间让出主线程:下一页必须等 CATCH_UP_PAGE_YIELD_MS 之后才发', async () => {
+    // 看门狗 RCA 回归测试:连续 10s 无间歇的"取页→合并→挂载"把 Fabric 主线程
+    // 压死(scene-update watchdog SIGKILL)。页间必须有 yield 窗口。
+    seedStore([msg('msg_a', 0), msg('msg_b', 1)]);
+    const page = (cursor: string, hasMore: boolean) => ({
+      session_id: 's1',
+      messages: Array.from({ length: 60 }, (_, i) =>
+        wireMessage(`gap_${cursor}_${i}`, 100 + i),
+      ),
+      page: {
+        limit: 60,
+        count: 60,
+        total_count: 999,
+        has_more: hasMore,
+        next_after_cursor: hasMore ? `ENC_${cursor}_NEXT` : undefined,
+        anchor_found: true,
+      },
+      detail_refresh: { status: 'server_ledger' },
+    });
+    mockedLoadMessages
+      .mockResolvedValueOnce(page('p1', true))
+      .mockResolvedValueOnce(page('p2', true))
+      .mockResolvedValueOnce(page('p3', false));
+
+    jest.useFakeTimers();
+    try {
+      const actionPromise = useControlCenterStore
+        .getState()
+        .catchUpAgentMessages('s1', 999);
+
+      // 第一页微任务解析后,页 1 的请求已发出
+      await jest.advanceTimersByTimeAsync(0);
+      expect(mockedLoadMessages).toHaveBeenCalledTimes(1);
+
+      // yield 窗口尚未走完:不允许发第二页(让路给渲染/Fabric 提交)
+      await jest.advanceTimersByTimeAsync(CATCH_UP_PAGE_YIELD_MS - 1);
+      expect(mockedLoadMessages).toHaveBeenCalledTimes(1);
+
+      // yield 走完:第二页放行
+      await jest.advanceTimersByTimeAsync(1);
+      expect(mockedLoadMessages).toHaveBeenCalledTimes(2);
+
+      // 第二页→第三页之间同样存在 yield 窗口
+      await jest.advanceTimersByTimeAsync(CATCH_UP_PAGE_YIELD_MS - 1);
+      expect(mockedLoadMessages).toHaveBeenCalledTimes(2);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(mockedLoadMessages).toHaveBeenCalledTimes(3);
+
+      await actionPromise;
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('store 提交按页节流:每 CATCH_UP_COMMIT_EVERY_PAGES 页才 set 一次(收尾必 flush)', async () => {
+    // 4 页缺口 → 状态提交恰为 4/K 次;最终 transcript 仍必须完整(数据不丢)。
+    seedStore([msg('msg_a', 0), msg('msg_b', 1)]);
+    mockedLoadMessages.mockImplementation(
+      (_sessionId: string, options?: { after?: string }) => {
+        const pageIndex =
+          options?.after === 'msg_b'
+            ? 0
+            : Number((options?.after ?? '').replace(/^ENC_/, '')) - 1;
+        const hasMore = pageIndex < 3;
+        return Promise.resolve({
+          session_id: 's1',
+          messages: Array.from({ length: 60 }, (_, i) =>
+            wireMessage(`gap_${pageIndex}_${i}`, 2 + pageIndex * 60 + i),
+          ),
+          page: {
+            limit: 60,
+            count: 60,
+            total_count: 242,
+            has_more: hasMore,
+            next_after_cursor: hasMore ? `ENC_${pageIndex + 2}` : undefined,
+            anchor_found: true,
+          },
+          detail_refresh: { status: 'server_ledger' },
+        });
+      },
+    );
+
+    let vibeRunUpdates = 0;
+    let lastTranscript: VibeCodingRun['transcript'] | null = null;
+    const unsubscribe = useControlCenterStore.subscribe(state => {
+      const s1 = state.vibeRuns.find(r => r.id === 's1');
+      // 只数真正替换了 transcript 数组引用的提交(水位收尾的 set 只动
+      // transcriptCount,不算内容提交)。
+      if (s1 && s1.transcript !== lastTranscript) {
+        lastTranscript = s1.transcript;
+        if (s1.transcript.length > 2) vibeRunUpdates += 1;
+      }
+    });
+
+    jest.useFakeTimers();
+    try {
+      const actionPromise = useControlCenterStore
+        .getState()
+        .catchUpAgentMessages('s1', 242);
+      while (mockedLoadMessages.mock.calls.length < 4) {
+        await jest.advanceTimersByTimeAsync(CATCH_UP_PAGE_YIELD_MS);
+      }
+      await actionPromise;
+
+      expect(vibeRunUpdates).toBe(4 / CATCH_UP_COMMIT_EVERY_PAGES);
+
+      const transcript = useControlCenterStore
+        .getState()
+        .vibeRuns.find(r => r.id === 's1')!.transcript;
+      expect(transcript.map(m => m.id)).toEqual([
+        'msg_a',
+        'msg_b',
+        ...Array.from({ length: 240 }, (_, i) => {
+          const pageIndex = Math.floor(i / 60);
+          return `gap_${pageIndex}_${i % 60}`;
+        }),
+      ]);
+    } finally {
+      unsubscribe();
+      jest.useRealTimers();
+    }
   });
 });
