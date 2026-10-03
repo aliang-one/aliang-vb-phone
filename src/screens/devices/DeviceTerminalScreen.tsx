@@ -61,6 +61,7 @@ import {
 } from '../../utils/terminalKeyboardProxy';
 import { terminalShortcutGroups } from '../../utils/terminalKeySequences';
 import { terminalQuotaExitKind } from '../../utils/terminalExitReason';
+import { sendTerminalInput } from '../../utils/terminalInputDispatch';
 import { describeDeviceError } from '../../utils/deviceError';
 import { useAiCommandSuggestions } from '../../hooks/useAiCommandSuggestions';
 import { TerminalSuggestionRow } from '../../components/terminal/TerminalSuggestionRow';
@@ -771,9 +772,14 @@ export const DeviceTerminalScreen: React.FC = () => {
     options?: { focus?: boolean; keepKeyboardProxyFocused?: boolean },
   ) => {
     if (!terminalInputEnabled || !data) return;
-    const shouldFocus = options?.focus !== false;
-    terminalBridgeRef.current?.sendText(data, { focus: shouldFocus });
-    if (shouldFocus) terminalBridgeRef.current?.focus();
+    // 直发:RN 侧已持有最终输入,WebView 注入→postMessage 回环是纯桥接
+    // 开销(WebView 的 'input' 分支不碰 xterm,只回传)。会话 id 从 ref 取,
+    // 避免键盘代理回调闭包里的陈旧 state。无会话(attach 未完成)时回退
+    // 旧注入路径,由 emulator 的 onMessage 分支处理。
+    if (!sendTerminalInput(attachedTerminalIdRef.current, data)) {
+      terminalBridgeRef.current?.sendText(data, { focus: options?.focus !== false });
+    }
+    if (options?.focus !== false) terminalBridgeRef.current?.focus();
     if (options?.keepKeyboardProxyFocused) {
       focusKeyboardProxyInput();
     }
