@@ -43,7 +43,11 @@
     "pageDisconnected": "Web page disconnected — refresh and rescan",
     "unrecognized": "Unrecognized QR code — scan the pairing code shown on the web page",
     "scanEntryLabel": "Scan to open on web",
-    "scanEntryShort": "Web QR"
+    "scanEntryShort": "Web QR",
+    "screenTitle": "Pair with Web Terminal",
+    "screenSubtitle": "Scan the QR code shown on terminal.aliang.one",
+    "visitHintTitle": "Open in your computer's browser",
+    "visitHintBody": "After you approve, this terminal session mirrors to the web page so you can use it from your computer."
   },
   "detail": {
     "emptyTerminal": "No active terminals. Tap Terminal above to open a remote shell."
