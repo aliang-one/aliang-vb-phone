@@ -454,6 +454,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
     catchUpAgentMessages: useControlCenterStore(
       state => state.catchUpAgentMessages,
     ),
+    cancelCatchUp: useControlCenterStore(
+      state => state.cancelAiSessionCatchUp,
+    ),
     fetchServerSessionMeta: fetchAiSession,
   });
   useFocusEffect(

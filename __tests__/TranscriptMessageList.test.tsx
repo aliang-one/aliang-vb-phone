@@ -122,6 +122,48 @@ describe('TranscriptMessageList — 失败回合重试入口 (case B)', () => {
     expect(texts.some(t => t === '发送失败')).toBe(true);
     expect(texts.some(t => t === '未收到回复')).toBe(false);
   });
+
+  it('已挂载气泡从正常转失败(memo 漏比较审计):turnFailedMessageId 变化必须重渲染', () => {
+    // P2 审计复现:气泡先按正常态挂载,回合失败后同一气泡补下
+    // turnFailedMessageId——memo comparator 不比较它,重试入口永远不出现。
+    // 必须单一且引用稳定的 Theme Provider:外层 provider 值一变,context
+    // 传播会穿透 memo 强制重渲染,测试就假绿了(wrap 的 value 是每次新建的)。
+    const stableThemeValue = {
+      theme: utilityMinimalist,
+      mode: 'light' as const,
+      setMode: jest.fn(),
+      isDark: false,
+    };
+    const withProvider = (ui: React.ReactElement) => (
+      <ThemeContext.Provider value={stableThemeValue}>
+        {ui}
+      </ThemeContext.Provider>
+    );
+    const message = userMessage();
+    const root = (() => {
+      let r!: ReactTestRenderer.ReactTestRenderer;
+      act(() => {
+        r = ReactTestRenderer.create(
+          withProvider(<TranscriptMessageList message={message} />),
+        );
+      });
+      return r;
+    })();
+    expect(allTexts(root).some(t => t === '未收到回复')).toBe(false);
+
+    act(() => {
+      root.update(
+        withProvider(
+          <TranscriptMessageList
+            message={message}
+            turnFailedMessageId="u1"
+            onRetryTurn={jest.fn()}
+          />,
+        ),
+      );
+    });
+    expect(allTexts(root).some(t => t === '未收到回复')).toBe(true);
+  });
 });
 
 const assistantFromContent = (

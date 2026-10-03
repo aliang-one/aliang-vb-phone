@@ -47,6 +47,10 @@ export type SessionCatchUpResult =
       /** true = page cap hit with the server still claiming has_more; the
        * watermark was NOT advanced — the next trigger resumes the drain. */
       moreRemaining: boolean;
+      /** true = the drain was cancelled mid-flight (unmount / session switch).
+       * Already-fetched batches stay committed, but the caller must NOT treat
+       * this as a finished drain: no continuation scheduling, no budget reset. */
+      cancelled?: boolean;
     };
 
 export interface HistoryPageState {
@@ -492,6 +496,12 @@ export interface ControlCenterState {
     sessionId: string,
     serverCount: number,
   ) => Promise<SessionCatchUpResult>;
+  /**
+   * Cancel an in-flight catch-up drain (unmount / session switch). The loop
+   * stops at the next page boundary; already-fetched batches stay committed
+   * but the watermark is never claimed by a cancelled run.
+   */
+  cancelAiSessionCatchUp: (sessionId: string) => void;
   loadEarlierAgentMessages: (sessionId: string) => Promise<void>;
   loadAiSessionHistory: (options?: {
     reset?: boolean;
