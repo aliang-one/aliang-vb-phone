@@ -41,6 +41,8 @@ export interface SessionCatchUpInput {
     sessionId: string,
     serverCount: number,
   ) => Promise<SessionCatchUpResult>;
+  /** 注入点:终止该会话的在途排水(卸载/切会话时调用)。 */
+  cancelCatchUp: (sessionId: string) => void;
   /** 注入点(测试替身):轻量元数据拉取,生产传 fetchAiSession(缓存优先)。 */
   fetchServerSessionMeta: (
     sessionId: string,
@@ -55,8 +57,13 @@ export interface SessionCatchUpController {
 export function useSessionCatchUp(
   input: SessionCatchUpInput,
 ): SessionCatchUpController {
-  const { sessionId, transcriptCount, catchUpAgentMessages, fetchServerSessionMeta } =
-    input;
+  const {
+    sessionId,
+    transcriptCount,
+    catchUpAgentMessages,
+    cancelCatchUp,
+    fetchServerSessionMeta,
+  } = input;
 
   // Per-session failure cooldown survives session switches within this screen
   // instance (the screen remounts per session in the stack, so a plain ref is
@@ -64,22 +71,31 @@ export function useSessionCatchUp(
   const lastFailureAtRef = useRef<Record<string, number>>({});
   // 超大缺口排水:动作层每轮最多 10 页后返回 moreRemaining=true 且不动水位
   // (依赖不会自己再触发)。这里消费该标志,自驱动续排直至追平;轮次预算
-  // 在追平时归零。卸载/切会话即断链(定时器清理 + id 守卫)。
+  // 在追平时归零。卸载/切会话即断链(定时器清理 + id 守卫 + 动作层取消)。
   const drainRoundsRef = useRef<Record<string, number>>({});
   const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
   const sessionIdRef = useRef(sessionId);
   useEffect(() => {
+    // 切会话:终止旧会话的在途排水(P1 生命周期审计)。
+    const previousId = sessionIdRef.current;
+    if (previousId && previousId !== sessionId) {
+      cancelCatchUp(previousId);
+    }
     sessionIdRef.current = sessionId;
     drainRoundsRef.current = {};
-  }, [sessionId]);
+  }, [cancelCatchUp, sessionId]);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       if (drainTimerRef.current) clearTimeout(drainTimerRef.current);
+      // 卸载:终止在途排水(P1 生命周期审计——只清定时器拦不住已开工的
+      // 十页循环,动作层在页边界自检取消标记)。
+      const id = sessionIdRef.current;
+      if (id) cancelCatchUp(id);
     };
-  }, []);
+  }, [cancelCatchUp]);
 
   const attempt = useCallback(
     async (serverCount: number | undefined) => {
@@ -96,6 +112,8 @@ export function useSessionCatchUp(
       try {
         const result = await catchUpAgentMessages(id, serverCount);
         if (result.mode === 'after') {
+          // 已取消的轮次(P1):不是"排水完成"——不清预算、不安排续排。
+          if (result.cancelled) return;
           if (!result.moreRemaining) {
             // 排水完成:预算归零,下一次大缺口从零计
             drainRoundsRef.current[id] = 0;
@@ -132,6 +150,9 @@ export function useSessionCatchUp(
     void (async () => {
       try {
         const meta = await fetchServerSessionMeta(id);
+        // 元数据迟到的闸门(P1 生命周期审计):卸载或已切走后,不得再凭
+        // 迟到的计数启动一轮新补齐。
+        if (!mountedRef.current || sessionIdRef.current !== id) return;
         await attempt(meta?.transcript_count);
       } catch {
         // Meta fetch itself failed (offline / 404) — the count-driven trigger

@@ -20,6 +20,7 @@ const makeDeps = () => ({
   fetchMeta: jest
     .fn<Promise<{ transcript_count?: number } | undefined>, [string]>()
     .mockResolvedValue(undefined),
+  cancelCatchUp: jest.fn<void, [string]>(),
 });
 
 let deps: ReturnType<typeof makeDeps>;
@@ -42,6 +43,7 @@ const renderHook = (
         transcriptCount: props.transcriptCount,
         catchUpAgentMessages: hookDeps.catchUp,
         fetchServerSessionMeta: hookDeps.fetchMeta,
+        cancelCatchUp: hookDeps.cancelCatchUp,
       });
       return null;
     }),
@@ -66,6 +68,73 @@ describe('useSessionCatchUp', () => {
 
     expect(deps.fetchMeta).toHaveBeenCalledWith('s1');
     expect(deps.catchUp).toHaveBeenCalledWith('s1', 5);
+    renderer.unmount();
+  });
+
+  it('卸载后迟到的元数据不得再触发补齐(生命周期 P1)', async () => {
+    // 审计探针复现:页面卸载后元数据才 resolve,仍启动了一次新补齐。
+    deps.fetchMeta.mockReturnValue(
+      new Promise(resolve => {
+        setTimeout(() => resolve({ transcript_count: 5 }), 50);
+      }),
+    );
+
+    const renderer = renderHook(
+      { sessionId: 's1', transcriptCount: 2 },
+      deps,
+    );
+    // 先 flush 挂载 effect(触发元数据请求、注册卸载清理),再卸载
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // mount 双触发器可能已各自 attempt(本地计数 2);记录基线
+    const callsAtUnmount = deps.catchUp.mock.calls.length;
+    // 不等元数据返回就卸载
+    act(() => {
+      renderer.unmount();
+    });
+
+    jest.advanceTimersByTime(100);
+    await act(async () => {
+      await drain();
+    });
+
+    // 迟到的元数据计数(5)不得启动新补齐;卸载后也不许有任何增长
+    expect(deps.catchUp).not.toHaveBeenCalledWith('s1', 5);
+    expect(deps.catchUp.mock.calls.length).toBe(callsAtUnmount);
+    // 卸载同时要终止在途排水(取消动作以会话为粒度)
+    expect(deps.cancelCatchUp).toHaveBeenCalledWith('s1');
+  });
+
+  it('cancelled 结果不安排续排、也不清空续排预算', async () => {
+    // 审计(P1):取消语义必须区别于追平——cancelled 轮次不得被当作
+    // "排水完成"清零预算,也不得自驱动下一轮。
+    deps.fetchMeta.mockResolvedValue({ transcript_count: 999 });
+    deps.catchUp.mockResolvedValue({
+      mode: 'after',
+      fetched: 60,
+      anchorMissing: false,
+      moreRemaining: true,
+      cancelled: true,
+    });
+
+    const renderer = renderHook(
+      { sessionId: 's1', transcriptCount: 2 },
+      deps,
+    );
+    await act(async () => {
+      await drain();
+    });
+
+    // mount 双触发器各自 attempt 一次;cancelled 轮次之后不许再有增长
+    const callsAfterMount = deps.catchUp.mock.calls.length;
+    expect(callsAfterMount).toBeGreaterThan(0);
+    // 续排节拍是 CONTINUATION_DELAY_MS(250ms):cancelled 不允许调度下一轮
+    jest.advanceTimersByTime(1000);
+    await act(async () => {
+      await drain();
+    });
+    expect(deps.catchUp.mock.calls.length).toBe(callsAfterMount);
     renderer.unmount();
   });
 
@@ -98,6 +167,7 @@ describe('useSessionCatchUp', () => {
             sessionId: 's1',
             transcriptCount: 7,
             catchUpAgentMessages: deps.catchUp,
+            cancelCatchUp: deps.cancelCatchUp,
             fetchServerSessionMeta: deps.fetchMeta,
           });
           return null;
@@ -122,6 +192,7 @@ describe('useSessionCatchUp', () => {
         sessionId: 's1',
         transcriptCount: propsHolder.count,
         catchUpAgentMessages: deps.catchUp,
+        cancelCatchUp: deps.cancelCatchUp,
         fetchServerSessionMeta: deps.fetchMeta,
       });
       return null;
@@ -178,6 +249,7 @@ describe('useSessionCatchUp', () => {
           sessionId: 's1',
           transcriptCount: 2,
           catchUpAgentMessages: deps.catchUp,
+          cancelCatchUp: deps.cancelCatchUp,
           fetchServerSessionMeta: deps.fetchMeta,
         });
         captured = refreshLatestCount;
@@ -350,6 +422,7 @@ describe('useSessionCatchUp', () => {
           sessionId: 's1',
           transcriptCount: propsHolder.count,
           catchUpAgentMessages: deps.catchUp,
+          cancelCatchUp: deps.cancelCatchUp,
           fetchServerSessionMeta: deps.fetchMeta,
         }),
       );

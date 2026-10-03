@@ -491,4 +491,108 @@ describe('catchUpAgentMessages', () => {
       jest.useRealTimers();
     }
   });
+
+  it('取消:cancel 后不再取下一页,已取批次落库但不虚报水位', async () => {
+    // 生命周期审计(P1):卸载/切会话必须能终止在途排水;已取消的轮次
+    // 不得把水位顶到服务端总数(否则缺口被假性抹平)。
+    seedStore([msg('msg_a', 0), msg('msg_b', 1)]);
+    mockedLoadMessages.mockImplementation(() =>
+      Promise.resolve({
+        session_id: 's1',
+        messages: Array.from({ length: 60 }, (_, i) =>
+          wireMessage(`gap_p_${i}`, 2 + i),
+        ),
+        page: {
+          limit: 60,
+          count: 60,
+          total_count: 999,
+          has_more: true,
+          next_after_cursor: 'ENC_NEXT',
+          anchor_found: true,
+        },
+        detail_refresh: { status: 'server_ledger' },
+      }),
+    );
+
+    jest.useFakeTimers();
+    try {
+      const actionPromise = useControlCenterStore
+        .getState()
+        .catchUpAgentMessages('s1', 999);
+      // 第一页取回、挂起 yield 时取消
+      while (mockedLoadMessages.mock.calls.length < 1) {
+        await jest.advanceTimersByTimeAsync(CATCH_UP_PAGE_YIELD_MS);
+      }
+      useControlCenterStore.getState().cancelAiSessionCatchUp('s1');
+      // cancel 生效在下一个页边界:泵掉挂起的 yield 让循环走到检测点
+      await jest.advanceTimersByTimeAsync(CATCH_UP_PAGE_YIELD_MS);
+      const result = (await actionPromise) as {
+        mode: 'after';
+        fetched: number;
+        cancelled?: boolean;
+        moreRemaining: boolean;
+      };
+
+      expect(mockedLoadMessages).toHaveBeenCalledTimes(1);
+      expect(result.cancelled).toBe(true);
+
+      const state = useControlCenterStore
+        .getState()
+        .vibeRuns.find(r => r.id === 's1')!;
+      // 已取回的批次保留(取消不丢已获得的进度)
+      expect(state.transcript.some(m => m.id === 'gap_p_0')).toBe(true);
+      // 水位不许因取消而虚报对齐
+      expect(state.transcriptCount).not.toBe(999);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('部分失败:下一页抛错时,已取批次保进度落库后再抛', async () => {
+    // 审计(P2):页 1 成功、页 2 网络失败时,第一页进度不许整轮丢弃
+    // (否则失败后冷却期内用户看到的仍是旧内容,重试还要重拉第一页)。
+    seedStore([msg('msg_a', 0), msg('msg_b', 1)]);
+    mockedLoadMessages
+      .mockResolvedValueOnce({
+        session_id: 's1',
+        messages: Array.from({ length: 60 }, (_, i) =>
+          wireMessage(`gap_0_${i}`, 2 + i),
+        ),
+        page: {
+          limit: 60,
+          count: 60,
+          total_count: 999,
+          has_more: true,
+          next_after_cursor: 'ENC_2',
+          anchor_found: true,
+        },
+        detail_refresh: { status: 'server_ledger' },
+      })
+      .mockRejectedValueOnce(new Error('network dropped'));
+
+    jest.useFakeTimers();
+    try {
+      const actionPromise = useControlCenterStore
+        .getState()
+        .catchUpAgentMessages('s1', 999);
+      // 先挂上 rejects 断言再泵时钟:拒绝 settle 与挂 handler 之间不能留
+      // 空窗,否则 fake-timer 环境会把它当 unhandled rejection 记为失败。
+      const rejectionExpectation = expect(actionPromise).rejects.toThrow(
+        'network dropped',
+      );
+      while (mockedLoadMessages.mock.calls.length < 2) {
+        await jest.advanceTimersByTimeAsync(CATCH_UP_PAGE_YIELD_MS);
+      }
+      await rejectionExpectation;
+
+      const state = useControlCenterStore
+        .getState()
+        .vibeRuns.find(r => r.id === 's1')!;
+      expect(state.transcript.some(m => m.id === 'gap_0_0')).toBe(true);
+      // 失败轮次同样不许虚报水位
+      expect(state.transcriptCount).not.toBe(999);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

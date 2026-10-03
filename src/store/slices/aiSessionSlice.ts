@@ -44,7 +44,7 @@ import {
 type AiSessionSlice = Pick<
   ControlCenterState,
   | 'vibeRuns' | 'aiSessionHistory' | 'aiSessionHistoryPage' | 'previewLinks' | 'sessionCommands'
-  | 'startAgentSession' | 'loadAgentSessionDetail' | 'catchUpAgentMessages' | 'pauseAgentSession'
+  | 'startAgentSession' | 'loadAgentSessionDetail' | 'catchUpAgentMessages' | 'cancelAiSessionCatchUp' | 'pauseAgentSession'
   | 'interruptAgentSession' | 'resumeAgentSession' | 'terminateAgentSession' | 'updateAgentSession'
   | 'deleteAgentSession' | 'appendAgentMessage' | 'loadEarlierAgentMessages'
   | 'loadAiSessionHistory'
@@ -58,6 +58,9 @@ const pendingMessageSends = new Set<string>();
 // In-flight catch-up dedup: a snapshot burst can trigger several attempts for
 // the same session; only the first hits the network.
 const catchUpsInFlight = new Set<string>();
+// 生命周期取消(P1 审计):卸载/切会话时由 hook 置位,在途排水在下一个
+// 页边界检测到即停。attempt 开始时清除(取消先于新尝试属正常时序)。
+const cancelledCatchUps = new Set<string>();
 
 // Catch-up page size. Generous on purpose: most gaps are a turn or two; the
 // server clamps to its own max and chains via next_after_cursor if ever larger.
@@ -349,6 +352,10 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     return { detailRefreshStatus };
   },
 
+  cancelAiSessionCatchUp: sessionId => {
+    cancelledCatchUps.add(sessionId);
+  },
+
   catchUpAgentMessages: async (sessionId, serverCount) => {
     if (!get().serverMode) {
       throw new Error('Platform connection is required before catching up a VibeCoding session.');
@@ -356,6 +363,8 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     if (catchUpsInFlight.has(sessionId)) {
       return { mode: 'skipped' as const, reason: 'in_flight' as const };
     }
+    // 新尝试开始:此前的取消标记只对旧的那轮在途排水生效。
+    cancelledCatchUps.delete(sessionId);
     const current = get().vibeRuns.find(run => run.id === sessionId);
     if (!current) {
       return { mode: 'skipped' as const, reason: 'no_run' as const };
@@ -386,16 +395,22 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       let lastPageTotal = 0;
       let pagesSinceCommit = 0;
       let batchHasContent = false;
-      const accumulated: VibeCodingRun['transcript'] = [];
+      const batch: VibeCodingRun['transcript'] = [];
       // Progressive merge: id-union (mergeAgentMessages) makes each pass
-      // idempotent, so re-merging the full accumulator is safe. Commits are
-      // throttled to every CATCH_UP_COMMIT_EVERY_PAGES pages (halves the
-      // full-list reconcile each merge triggers); the tail of a round is
-      // always flushed so nothing is held back.
-      const commitMerged = () => {
+      // idempotent. Only the NEW batch is merged per commit (merging the full
+      // accumulator re-scanned already-committed pages every time — P2 audit);
+      // commits are throttled to every CATCH_UP_COMMIT_EVERY_PAGES pages, and
+      // a round's tail is always flushed so nothing is held back.
+      const commitBatch = () => {
+        if (!batch.length) {
+          batchHasContent = false;
+          pagesSinceCommit = 0;
+          return;
+        }
         const hadContent = batchHasContent;
         batchHasContent = false;
         pagesSinceCommit = 0;
+        const pending = batch.splice(0, batch.length);
         set(state => {
           const vibeRuns = state.vibeRuns.map(run => {
             if (run.id !== sessionId) return run;
@@ -403,7 +418,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
             // optimistic pending bubble gets confirmed by its server copy, and
             // an anchorMissing tail window is absorbed as a full refresh.
             const transcript = trimTranscript(
-              mergeAgentMessages(run.transcript, accumulated),
+              mergeAgentMessages(run.transcript, pending),
             );
             return {
               ...run,
@@ -421,18 +436,41 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         });
       };
       for (let pageIndex = 0; pageIndex < MAX_CATCH_UP_PAGES; pageIndex += 1) {
-        const response = await platformTransport.loadAiSessionMessages(
-          sessionId,
-          { limit: CATCH_UP_PAGE_LIMIT, after: cursor },
-        );
+        // 生命周期闸门(P1 审计):卸载/切会话即停在页边界。已取回的批次先落库
+        // (同会话的有效数据,不丢进度),但水位不许声明对齐——cancelled 结果
+        // 由调用方区分:不安排续排、不清续排预算。
+        if (cancelledCatchUps.has(sessionId)) {
+          commitBatch();
+          return {
+            mode: 'after' as const,
+            fetched,
+            anchorMissing,
+            moreRemaining: true,
+            cancelled: true,
+          };
+        }
+        let response: Awaited<
+          ReturnType<typeof platformTransport.loadAiSessionMessages>
+        >;
+        try {
+          response = await platformTransport.loadAiSessionMessages(
+            sessionId,
+            { limit: CATCH_UP_PAGE_LIMIT, after: cursor },
+          );
+        } catch (error) {
+          // 部分失败保进度(P2 审计):已取回的批次落库后再抛,冷却结束的
+          // 重试从新尾部锚点续,不必重拉本轮已取的页。
+          commitBatch();
+          throw error;
+        }
         const incoming = response.messages.map(serverAiMessageToAgent);
-        accumulated.push(...incoming);
+        batch.push(...incoming);
         fetched += incoming.length;
         anchorMissing = anchorMissing || response.page.anchor_found === false;
         lastPageTotal = response.page.total_count ?? lastPageTotal;
         if (incoming.length > 0) batchHasContent = true;
         pagesSinceCommit += 1;
-        if (pagesSinceCommit >= CATCH_UP_COMMIT_EVERY_PAGES) commitMerged();
+        if (pagesSinceCommit >= CATCH_UP_COMMIT_EVERY_PAGES) commitBatch();
         if (!(response.page.has_more && response.page.next_after_cursor)) {
           moreRemaining = false;
           break;
@@ -445,8 +483,8 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
           setTimeout(resolve, CATCH_UP_PAGE_YIELD_MS),
         );
       }
-      // 收尾 flush:节流窗口里未提交的页在这里落库(空批不空转)。
-      if (pagesSinceCommit > 0 && batchHasContent) commitMerged();
+      // 收尾 flush:节流窗口里未提交的页在这里落库(空批内部直接跳过)。
+      commitBatch();
       // Watermark parity is claimed ONLY when the gap fully drained. A capped
       // run leaves transcriptCount untouched so the watermark still reads
       // "behind" and the next trigger resumes from the new local tail (the

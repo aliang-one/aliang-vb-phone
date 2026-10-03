@@ -1276,6 +1276,11 @@ const areTranscriptPropsEqual = (
   // re-render of all bubbles then — never per flush.
   if (prev.liveMessageId !== next.liveMessageId) return false;
   if (prev.timelinePosition !== next.timelinePosition) return false;
+  // Turn-failure affordance (case B): a mounted bubble can flip to
+  // "未收到回复 · 重试" when its turn lands in the failed set — without this
+  // comparison the memo'd row never re-renders and the retry entry is lost
+  // (P2 audit 2026-10-03).
+  if (prev.turnFailedMessageId !== next.turnFailedMessageId) return false;
   // A fetched detail changes the session-level cache object. Only invalidate
   // this row when one of its own events changed, otherwise every transcript row
   // would re-render (including open diff highlighters) for an unrelated detail.
