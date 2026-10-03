@@ -304,6 +304,7 @@ export const fetchAiSessions = (): Promise<ServerAiSession[]> =>
 export const fetchAiSessionsPage = (options?: {
   limit?: number;
   before?: string;
+  deviceId?: string;
 }): Promise<ServerCursorPageResponse<ServerAiSession>> =>
   apiGet<ServerCursorPageResponse<ServerAiSession>>(
     `/api/ai/sessions?${cursorPageQuery(options)}`,

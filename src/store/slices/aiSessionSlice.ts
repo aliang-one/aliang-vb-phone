@@ -509,6 +509,8 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       throw new Error('Platform connection is required before loading session history.');
     }
     const reset = options?.reset === true;
+    // 续页调用(不带 deviceId)沿用 page 上已存的过滤标记。
+    const deviceId = options?.deviceId ?? get().aiSessionHistoryPage.deviceId;
     // 下拉刷新与后台水合的竞态:reset 必须等在途分页落地后再执行,否则上面
     // 的 loading 早退会让刷新悄悄失去重置语义。
     if (reset && historyLoadInFlight) {
@@ -523,7 +525,17 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     // 直到 reset 重拉才补回(2026-10-02 复现)。直接不拉;initialized 保持 false,
     // 设备就绪后由 focus/下拉按 reset 语义重试。
     if (get().devices.length === 0) return;
-    const currentPage = get().aiSessionHistoryPage;
+    let currentPage = get().aiSessionHistoryPage;
+    // 设备过滤变化 → 隐式重置:清空旧设备的历史与游标,从头拉新设备。
+    if ((currentPage.deviceId ?? undefined) !== (deviceId ?? undefined)) {
+      currentPage = {
+        initialized: false,
+        loading: false,
+        hasMore: true,
+        deviceId,
+      };
+      set({ aiSessionHistory: [], aiSessionHistoryPage: currentPage });
+    }
     if (currentPage.loading) return;
     if (!reset && currentPage.initialized && !currentPage.hasMore) return;
 
@@ -539,6 +551,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       const response = await platformTransport.loadAiSessionsPage({
         limit: 30,
         before: reset ? undefined : currentPage.nextBeforeCursor,
+        deviceId,
       });
       // Defensive: old server returns a flat array, new server returns
       // {items:[...], page:{...}}. Normalize both.
@@ -568,7 +581,12 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         return {
           vibeRuns: updatedLive,
           aiSessionHistory: mergeHistoryById(historyOnly, state.aiSessionHistory),
-          aiSessionHistoryPage: historyPageFromServer(response.page),
+          // 保住本次的设备过滤标记:丢了她,下一轮会误判"过滤变化"→ 无限
+          // 隐式重置(2026-10-03 device_id 联调实证)。
+          aiSessionHistoryPage: {
+            ...historyPageFromServer(response.page),
+            deviceId,
+          },
         };
       });
     } catch (error) {
@@ -593,10 +611,16 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
   hydrateSessionHistory: async options => {
     const min = Math.max(1, options?.minItems ?? 150);
     const maxPages = Math.max(1, options?.maxPages ?? 10);
+    const deviceId = options?.deviceId;
     for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
       const { serverMode, devices, aiSessionHistoryPage, aiSessionHistory } =
         get();
       if (!serverMode) return;
+      // 设备过滤变化 → 先消费一次隐式重置(清旧设备历史),不计入页数。
+      if ((aiSessionHistoryPage.deviceId ?? undefined) !== (deviceId ?? undefined)) {
+        await get().loadAiSessionHistory({ deviceId });
+        continue;
+      }
       // 设备未就绪：本次水合到此为止，调用方在 devices 到位后重入
       // （loadAiSessionHistory 内部同款守卫保证 cursor 不被空跑消费）。
       if (devices.length === 0) return;
@@ -610,7 +634,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       ) {
         return;
       }
-      await get().loadAiSessionHistory();
+      await get().loadAiSessionHistory({ deviceId });
     }
   },
 

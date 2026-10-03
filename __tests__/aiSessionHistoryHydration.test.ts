@@ -90,6 +90,61 @@ describe('hydrateSessionHistory', () => {
     );
   });
 
+  it('passes deviceId to the transport and stamps the page', async () => {
+    (platformTransport.loadAiSessionsPage as jest.Mock)
+      .mockImplementation(options => {
+        expect(options?.deviceId).toBe('dev-b');
+        return Promise.resolve(pageOf(0, false));
+      });
+
+    await useControlCenterStore
+      .getState()
+      .hydrateSessionHistory({ minItems: 10, deviceId: 'dev-b' });
+
+    expect(platformTransport.loadAiSessionsPage).toHaveBeenCalledTimes(1);
+    expect(
+      useControlCenterStore.getState().aiSessionHistoryPage.deviceId,
+    ).toBe('dev-b');
+  });
+
+  it('switching device implicitly resets history and cursor', async () => {
+    // 第一轮:dev-b 的历史已水合
+    (platformTransport.loadAiSessionsPage as jest.Mock)
+      .mockImplementationOnce(() => Promise.resolve(pageOf(0, false)));
+    await useControlCenterStore
+      .getState()
+      .hydrateSessionHistory({ minItems: 10, deviceId: 'dev-b' });
+    expect(useControlCenterStore.getState().aiSessionHistory.length).toBe(30);
+
+    // 第二轮:切到 dev-a → 隐式重置(历史清空+首屏无 before)
+    const calls: Array<{ before?: string; deviceId?: string }> = [];
+    (platformTransport.loadAiSessionsPage as jest.Mock)
+      .mockImplementationOnce(options => {
+        calls.push(options ?? {});
+        return Promise.resolve({
+          items: [makeSession(900, '2026-10-02T00:00:00Z')],
+          page: {
+            limit: 30,
+            count: 1,
+            total_count: 1,
+            has_more: false,
+            next_before_cursor: undefined,
+          },
+        });
+      });
+    await useControlCenterStore
+      .getState()
+      .hydrateSessionHistory({ minItems: 10, deviceId: 'dev-a' });
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].before).toBeUndefined();
+    expect(calls[0].deviceId).toBe('dev-a');
+    expect(useControlCenterStore.getState().aiSessionHistory.length).toBe(1);
+    expect(useControlCenterStore.getState().aiSessionHistory[0].deviceId).toBe(
+      'd1',
+    );
+  });
+
   it('does not consume the cursor while devices are empty', async () => {
     useControlCenterStore.setState({ devices: [] });
 

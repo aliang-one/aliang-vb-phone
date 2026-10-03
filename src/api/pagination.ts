@@ -14,9 +14,11 @@ export interface ServerCursorPageResponse<T> {
 export const cursorPageQuery = (options?: {
   limit?: number;
   before?: string;
+  deviceId?: string;
 }): string => {
   const query = new URLSearchParams();
   query.set('limit', String(options?.limit ?? 30));
   if (options?.before) query.set('before', options.before);
+  if (options?.deviceId) query.set('device_id', options.deviceId);
   return query.toString();
 };

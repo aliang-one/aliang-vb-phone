@@ -324,6 +324,7 @@ class PlatformTransport {
   loadAiSessionsPage(options?: {
     limit?: number;
     before?: string;
+    deviceId?: string;
   }): Promise<ServerCursorPageResponse<PlatformAiSessionSnapshot>> {
     return fetchAiSessionsPage(options);
   }

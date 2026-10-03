@@ -254,6 +254,8 @@ export const VibeCodingListScreen: React.FC = () => {
   const stopTerminal = useControlCenterStore(state => state.stopTerminal);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | VibeStatus>('all');
+  // 设备筛选:undefined = 全部设备。选中后服务端按设备过滤拉取该设备全部历史。
+  const [deviceFilter, setDeviceFilter] = useState<string | undefined>();
   // Tasks 段数据:goal 快照按设备拉取,有数据才显示 Tasks 分段。
   const [goalRows, setGoalRows] = useState<
     Parameters<typeof organizeGoalRows>[0]
@@ -283,10 +285,12 @@ export const VibeCodingListScreen: React.FC = () => {
   // cursor 不被空跑消费(2026-10-02 死锁修复的收尾)。
   useEffect(() => {
     if (!serverMode || devices.length === 0) return;
-    void hydrateSessionHistory({ minItems: 150 }).catch(error => {
-      console.warn('[sessions] failed to hydrate history', error);
-    });
-  }, [serverMode, devices.length, hydrateSessionHistory]);
+    void hydrateSessionHistory({ minItems: 150, deviceId: deviceFilter }).catch(
+      error => {
+        console.warn('[sessions] failed to hydrate history', error);
+      },
+    );
+  }, [serverMode, devices.length, deviceFilter, hydrateSessionHistory]);
 
   // Tasks 段数据:goal 快照按设备拉取(全部拉完后 organizeGoalRows 统一整理)。
   const loadGoals = useCallback(async () => {
@@ -445,6 +449,7 @@ export const VibeCodingListScreen: React.FC = () => {
     () =>
       vibeRuns
         .filter(session => {
+          if (deviceFilter && session.deviceId !== deviceFilter) return false;
           const project = projectById.get(session.projectId);
           const displayTitle = formatVibeSessionTitle(session.title, {
             directory: session.directory,
@@ -490,12 +495,13 @@ export const VibeCodingListScreen: React.FC = () => {
       projectSearchIndex,
       deviceSearchIndex,
       deviceStatusIndex,
+      deviceFilter,
     ],
   );
   const sessionList = useIncrementalList(filtered, {
     initialCount: 10,
     step: 12,
-    resetKey: `${normalizedQuery}:${filter}`,
+    resetKey: `${normalizedQuery}:${filter}:${deviceFilter ?? 'all'}`,
   });
   const handleShowMoreSessions = useCallback(() => {
     if (sessionList.hasMore) {
@@ -817,10 +823,12 @@ export const VibeCodingListScreen: React.FC = () => {
   const onRefresh = useCallback(async () => {
     await handleRefresh();
     void loadGoals();
-    await loadAiSessionHistory({ reset: true }).catch(error => {
-      console.warn('[sessions] failed to refresh history', error);
-    });
-  }, [handleRefresh, loadAiSessionHistory]);
+    await loadAiSessionHistory({ reset: true, deviceId: deviceFilter }).catch(
+      error => {
+        console.warn('[sessions] failed to refresh history', error);
+      },
+    );
+  }, [handleRefresh, loadAiSessionHistory, deviceFilter, loadGoals]);
 
   const refreshControl = (
     <RefreshControl
@@ -978,6 +986,54 @@ export const VibeCodingListScreen: React.FC = () => {
                   );
                 })}
               </ScrollView>
+              {devices.length > 1 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.filters}
+                >
+                  {[
+                    { id: undefined, name: t('listScreen.allDevices', 'ALL') },
+                    ...devices.map(d => ({ id: d.id, name: d.name })),
+                  ].map(item => {
+                    const active =
+                      deviceFilter === item.id ||
+                      (item.id === undefined && !deviceFilter);
+                    return (
+                      <TouchableOpacity
+                        key={item.id ?? 'all-devices'}
+                        onPress={() => setDeviceFilter(item.id)}
+                        style={[
+                          styles.filterChip,
+                          {
+                            borderRadius: theme.borderRadius.full,
+                            backgroundColor: getFilterChipBackground(
+                              active,
+                              isDark,
+                            ),
+                            borderColor: active
+                              ? theme.colors.primary
+                              : theme.colors.outlineVariant,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            theme.typography.labelSm,
+                            {
+                              color: active
+                                ? theme.colors.primary
+                                : theme.colors.onSurfaceVariant,
+                            },
+                          ]}
+                        >
+                          {item.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              ) : null}
               <View style={styles.summary}>
                 <StatusChip
                   label={`${!normalizedQuery && filter === 'all'

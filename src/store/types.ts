@@ -56,6 +56,8 @@ export interface HistoryPageState {
   nextBeforeCursor?: string;
   totalCount?: number;
   error?: string;
+  /** 当前历史游标的设备过滤( undefined=全部设备 )。 */
+  deviceId?: string;
 }
 
 export type UnifiedEventType =
@@ -491,7 +493,10 @@ export interface ControlCenterState {
     serverCount: number,
   ) => Promise<SessionCatchUpResult>;
   loadEarlierAgentMessages: (sessionId: string) => Promise<void>;
-  loadAiSessionHistory: (options?: { reset?: boolean }) => Promise<void>;
+  loadAiSessionHistory: (options?: {
+    reset?: boolean;
+    deviceId?: string;
+  }) => Promise<void>;
   /**
    * 自动水合会话历史：连续按 cursor 拉页直到 ≥minItems 条摘要或服务端
    * has_more 结束。设备列表未就绪时直接返回（由调用方在 devices 到位后重入，
@@ -501,6 +506,7 @@ export interface ControlCenterState {
   hydrateSessionHistory: (options?: {
     minItems?: number;
     maxPages?: number;
+    deviceId?: string;
   }) => Promise<void>;
   /**
    * On-demand `/`-command discovery for a session. Auto path (ToolsMenu open,

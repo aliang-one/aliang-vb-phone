@@ -1,8 +1,9 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
+import type { VibeCodingRun } from '../../data/platformModels';
 import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
@@ -22,6 +23,8 @@ import { IconBadge } from '../../components/visual/IconBadge';
 import { RingMeter } from '../../components/visual/RingMeter';
 import { VibeStatus } from '../../data/platformModels';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
+import { fetchAiSessionsPage } from '../../api/sessions';
+import { serverAiSessionToVibeRun } from '../../store/internals';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { newestFirst } from '../../utils/timeSort';
 import { isActiveTerminalSessionStatus } from '../../utils/terminalInteraction';
@@ -109,14 +112,62 @@ export const DeviceDetailScreen: React.FC = () => {
     },
     [projectsStore, device],
   );
+  // 按设备的服务端历史分页(该设备全部会话,不只有内存里的活跃子集)。
+  const [history, setHistory] = useState<{
+    items: VibeCodingRun[];
+    cursor?: string;
+    hasMore: boolean;
+    loading: boolean;
+  }>({ items: [], hasMore: true, loading: false });
+
+  const loadMoreHistory = useCallback(async () => {
+    if (!device || history.loading || !history.hasMore) return;
+    setHistory(state => ({ ...state, loading: true }));
+    try {
+      const response = await fetchAiSessionsPage({
+        limit: 30,
+        deviceId: device.id,
+        before: history.cursor,
+      });
+      const runs = response.items.map(item =>
+        serverAiSessionToVibeRun(item, devices, projectsStore),
+      );
+      setHistory(state => {
+        const byId = new Map<string, VibeCodingRun>();
+        for (const run of state.items) byId.set(run.id, run);
+        for (const run of runs) if (!byId.has(run.id)) byId.set(run.id, run);
+        return {
+          items: [...byId.values()],
+          cursor: response.page.next_before_cursor,
+          hasMore: response.page.has_more,
+          loading: false,
+        };
+      });
+    } catch {
+      setHistory(state => ({ ...state, loading: false }));
+    }
+  }, [device, history.cursor, history.hasMore, history.loading, devices, projectsStore]);
+
+  useEffect(() => {
+    setHistory({ items: [], hasMore: true, loading: false });
+    void loadMoreHistory();
+    // 设备切换即重置;loadMoreHistory 依赖随设备/游标更新
+  }, [device?.id]);
+
   const sessions = useMemo(
     () => {
       if (!device) return [];
-      return vibeRuns
-        .filter(session => session.deviceId === device.id)
-        .sort(compareSessionsByStableActivity);
+      const byId = new Map<string, VibeCodingRun>();
+      // 服务端历史分页为主,内存 live 运行态优先(同 id 不被历史覆盖)
+      for (const run of history.items) {
+        if (run.deviceId === device.id) byId.set(run.id, run);
+      }
+      for (const run of vibeRuns) {
+        if (run.deviceId === device.id) byId.set(run.id, run);
+      }
+      return [...byId.values()].sort(compareSessionsByStableActivity);
     },
-    [vibeRuns, device],
+    [vibeRuns, device, history.items],
   );
   const activeSessions = useMemo(
     () => sessions.filter(session => activeSessionStatuses.includes(session.status)),
@@ -435,7 +486,15 @@ export const DeviceDetailScreen: React.FC = () => {
           <LoadMoreRow
             visibleCount={sessionList.visibleCount}
             totalCount={sessionList.totalCount}
-            onPress={sessionList.showMore}
+            serverHasMore={history.hasMore}
+            loading={history.loading}
+            onPress={() => {
+              if (sessionList.hasMore) {
+                sessionList.showMore();
+                return;
+              }
+              void loadMoreHistory();
+            }}
           />
           </>
         ) : (
