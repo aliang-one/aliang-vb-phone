@@ -364,6 +364,30 @@ describe('DeviceCameraScannerScreen terminalWebPair 模式', () => {
     });
     expect(hasText(screen.root, CONFIRM_TITLE)).toBe(true);
   });
+
+  it('待扫态专属外壳:pair 标题/副标题+指引卡,隐藏 sc_ 手动输入', async () => {
+    mockRouteParams = {
+      mode: 'terminalWebPair',
+      deviceId: 'dev-1',
+      terminalId: 't-9',
+      directory: '~/work',
+    };
+    screen = renderScreen();
+    await act(async () => {});
+
+    // 顶栏不再借用扫码登录的文案。
+    expect(hasText(screen.root, '扫码登录')).toBe(false);
+    expect(hasText(screen.root, '扫码连接终端')).toBe(true);
+    expect(hasText(screen.root, '扫描 terminal.aliang.one 页面上的二维码')).toBe(
+      true,
+    );
+    // 指引卡:打开域名 + 授权后会发生什么。
+    expect(hasText(screen.root, '在电脑浏览器打开')).toBe(true);
+    expect(hasText(screen.root, 'terminal.aliang.one')).toBe(true);
+    // sc_ 手动输入面板整块隐藏。
+    expect(hasText(screen.root, '手动输入')).toBe(false);
+    expect(hasText(screen.root, 'sc_...')).toBe(false);
+  });
 });
 
 describe('devices.webPair i18n 奇偶', () => {
@@ -385,8 +409,12 @@ describe('devices.webPair i18n 奇偶', () => {
       'pageDisconnected',
       'scanEntryLabel',
       'scanEntryShort',
+      'screenSubtitle',
+      'screenTitle',
       'success',
       'unrecognized',
+      'visitHintBody',
+      'visitHintTitle',
     ]);
     expect(enKeys).toEqual(zhKeys);
   });

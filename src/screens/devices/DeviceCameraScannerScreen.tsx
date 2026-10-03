@@ -269,8 +269,10 @@ export const DeviceCameraScannerScreen: React.FC = () => {
   return (
     <SafeAreaWrapper>
       <TopAppBar
-        title={t('scanner.title')}
-        subtitle={t('scanner.subtitle')}
+        title={pairMode ? t('webPair.screenTitle') : t('scanner.title')}
+        subtitle={
+          pairMode ? t('webPair.screenSubtitle') : t('scanner.subtitle')
+        }
         onBack={navigation.goBack}
         rightAction={
           <StatusChip
@@ -383,6 +385,31 @@ export const DeviceCameraScannerScreen: React.FC = () => {
             ]}>
             {message}
           </Text>
+        ) : null}
+
+        {/* pairMode 待扫指引:告诉用户去哪里打开配对页、授权后会发生什么。
+            只在 idle 显示——confirming/working 由确认弹窗接管,结果由提示区。 */}
+        {pairMode && phase === 'idle' ? (
+          <GlassPanel style={styles.visitHintCard}>
+            <View style={styles.manualTop}>
+              <IconBadge name="terminal" tone="primary" size={36} iconSize={18} />
+              <View style={styles.resultTitle}>
+                <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
+                  {t('webPair.visitHintTitle')}
+                </Text>
+                <Text style={[theme.typography.codeSm, { color: theme.colors.primary }]}>
+                  {TERMINAL_WEB_PAIR_HOST}
+                </Text>
+              </View>
+            </View>
+            <Text
+              style={[
+                theme.typography.bodySm,
+                { color: theme.colors.onSurfaceVariant },
+              ]}>
+              {t('webPair.visitHintBody')}
+            </Text>
+          </GlassPanel>
         ) : null}
 
         {scanCode && phase !== 'idle' ? (
@@ -498,6 +525,9 @@ export const DeviceCameraScannerScreen: React.FC = () => {
           />
         ) : null}
 
+        {/* sc_ 手动输入面板:仅扫码登录有意义;pairMode 的码来自网页二维码
+            (且带 pid/s 片段),粘贴 sc_ 必然失败,故整块隐藏。 */}
+        {!pairMode ? (
         <GlassPanel style={styles.manualPanel}>
           <View style={styles.manualTop}>
             <IconBadge name="code" tone="neutral" size={36} iconSize={18} />
@@ -530,6 +560,7 @@ export const DeviceCameraScannerScreen: React.FC = () => {
             ]}
           />
         </GlassPanel>
+        ) : null}
       </ScrollView>
     </SafeAreaWrapper>
   );
@@ -637,6 +668,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   manualPanel: {
+    padding: 16,
+    gap: 12,
+  },
+  // pairMode 待扫指引卡:与 manualPanel 同构(标题+图标在上,说明在下)。
+  visitHintCard: {
     padding: 16,
     gap: 12,
   },
