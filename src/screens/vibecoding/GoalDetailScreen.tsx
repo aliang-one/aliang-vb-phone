@@ -328,21 +328,26 @@ export const GoalDetailScreen: React.FC = () => {
     async (signal?: AbortSignal) => {
       setLoading(true);
       setLoadError('');
-      try {
-        const [snapshot, eventPage] = await Promise.all([
-          fetchGoalSnapshot(route.params.goalId, signal),
-          fetchGoalEvents(route.params.goalId, signal),
-        ]);
-        if (signal?.aborted) return;
-        const incoming = goalSnapshotToSummary(snapshot);
+      // 快照与事件独立落账(评审回归 2026-10-05):原先 Promise.all 把两者绑死,
+      // 快照成功而事件失败时 summary 不更新 → 头部永远「Goal · 同步中」且
+      // canDelete=false 删除按钮不渲染。快照是唯一权威状态源,必须独立生效;
+      // 事件列表失败仅保留旧事件,不影响头部与操作可用性。
+      const [snapshotResult, eventResult] = await Promise.allSettled([
+        fetchGoalSnapshot(route.params.goalId, signal),
+        fetchGoalEvents(route.params.goalId, signal),
+      ]);
+      if (signal?.aborted) return;
+      if (snapshotResult.status === 'fulfilled') {
+        const incoming = goalSnapshotToSummary(snapshotResult.value);
         setSummary(current => newerGoalSummary(current, incoming));
-        setEvents(eventPage.events);
-      } catch (error) {
-        if (signal?.aborted) return;
+      } else {
+        const error = snapshotResult.reason;
         setLoadError(error instanceof Error ? error.message : 'Goal 状态同步失败');
-      } finally {
-        if (!signal?.aborted) setLoading(false);
       }
+      if (eventResult.status === 'fulfilled') {
+        setEvents(eventResult.value.events);
+      }
+      setLoading(false);
     },
     [route.params.goalId],
   );
