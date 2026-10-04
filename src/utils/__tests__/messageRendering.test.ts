@@ -2,7 +2,7 @@ import type {
   TranscriptMarkdownBlock,
   TranscriptMarkdownInline,
 } from '../messageRendering';
-import { parseMarkdownBlocks } from '../messageRendering';
+import { parseMarkdownBlocks, parseMessageContentSegments } from '../messageRendering';
 
 /**
  * 构造纯文本输入(parseMarkdownBlocks 的 MarkdownSourcePart[] 入口)。
@@ -199,5 +199,63 @@ describe('parseMarkdownBlocks — 回归 / 混合', () => {
     expect(blockAt(blocks, 0).kind).toBe('paragraph');
     expect(firstInline(blockAt(blocks, 0)).kind).toBe('strong');
     expect(blockAt(blocks, 1).kind).toBe('list');
+  });
+});
+
+describe('parseMessageContentSegments — aliang-options 丢围栏兜底', () => {
+  // 生产实锤三种"模型不守围栏"形态（2026-09/10 线上实例）：
+  // A = 裸 ``` 围栏丢语言标签；B = 整条消息就是裸 JSON；C = JSON 混在散文里。
+  // 修复前这些原样打印 JSON；修复后应转为 approval-request callout 卡片。
+  const plan = {
+    title: '线程模型怎么实现',
+    description: '选一个落地方向',
+    options: [
+      { id: 'virtual', label: '虚拟线程（观察层）', description: '改动小' },
+      { id: 'entity', label: '实体常驻线程', description: '成本上升' },
+    ],
+    allow_custom: true,
+    multi: false,
+  };
+  const json = JSON.stringify(plan);
+  const calloutTags = (content: string) =>
+    parseMessageContentSegments('msg_test', content)
+      .filter(s => s.kind === 'callout')
+      .map(s => (s.kind === 'callout' ? s.title : ''));
+
+  it('形态 B：裸 JSON 无围栏 → approval-request callout', () => {
+    expect(calloutTags(json)).toEqual(['Approval request']);
+  });
+
+  it('形态 A：裸 ``` 围栏丢语言标签 → approval-request callout', () => {
+    expect(calloutTags('```\n' + json + '\n```')).toEqual(['Approval request']);
+  });
+
+  it('形态 C：JSON 混在散文中间 → 前后保留正文 + callout 卡片', () => {
+    const segments = parseMessageContentSegments(
+      'msg_test',
+      '结论如下：\n```\n' + json + '\n```\n另外两个顺带发现：① … ② …',
+    );
+    expect(segments.filter(s => s.kind === 'callout').map(s => s.kind === 'callout' ? s.title : ''))
+      .toEqual(['Approval request']);
+    // 散文段落仍在（作为文本段），没有被吞掉
+    expect(segments.some(s => s.kind === 'text')).toBe(true);
+  });
+
+  it('带语言标签的代码围栏里的同形 JSON 不转卡片（代码示例）', () => {
+    expect(calloutTags('```ts\nconst e = ' + json + ';\n```')).toEqual([]);
+  });
+
+  it('无 option 形状的普通 JSON 不转卡片', () => {
+    expect(calloutTags('{"title":"cfg","retries":3}')).toEqual([]);
+  });
+
+  it('围栏正确的 aliang-options 行为不回归', () => {
+    expect(calloutTags('```aliang-options\n' + json + '\n```')).toEqual([
+      'Approval request',
+    ]);
+  });
+
+  it('流式半截 JSON 不闪卡片', () => {
+    expect(calloutTags(json.slice(0, Math.floor(json.length / 2)))).toEqual([]);
   });
 });

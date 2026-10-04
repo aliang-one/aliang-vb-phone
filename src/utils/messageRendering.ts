@@ -297,11 +297,161 @@ const formatAliangOptionsFence = (body: string) => {
   }
 };
 
-const replaceAliangOptionsFences = (rawContent: string) =>
-  rawContent.replace(/```aliang-options\s*([\s\S]*?)```/gi, (_match, body) => {
-    const content = formatAliangOptionsFence(String(body ?? ''));
-    return `\n<approval-request>${content}</approval-request>\n`;
-  });
+const replaceAliangOptionsFences = (rawContent: string) => {
+  const content = rawContent.replace(
+    /```aliang-options\s*([\s\S]*?)```/gi,
+    (_match, body) => {
+      const formatted = formatAliangOptionsFence(String(body ?? ''));
+      return `\n<approval-request>${formatted}</approval-request>\n`;
+    },
+  );
+  return replaceBareOptionJson(content);
+};
+
+// --- Fence-tolerant aliang-options fallback ---------------------------------
+// 生产实锤：模型偶尔丢掉 ```aliang-options 围栏标签——裸 JSON、裸 ``` 围栏、
+// JSON 混在散文里——旧解析原样把 JSON 打印给用户。这里按"形状"识别兜底，
+// 与 server 侧 approval/parsing.ts 的 fenceTolerantOptionBlocks 保持同一判定
+//（两处为镜像实现，改一处须同步另一处）。
+
+const OPTION_JSON_MARKER = /"options"\s*:/g;
+
+/** 带非 json/aliang-options 语言标签的围栏视为代码示例，不转卡片——
+ * 文档示例不能在聊天里伪装成方案卡。裸 ``` 围栏与无围栏 JSON 仍可识别。 */
+const FALLBACK_FENCE_LANGUAGES = new Set(['', 'aliang-options', 'json']);
+
+/** 字符串感知单趟扫描，返回每个配平 `{...}` 对象的 [start, end) 区间。
+ * JSON 字符串字面量里的花括号（含转义引号）不计入嵌套。半截流式 JSON
+ * 没有闭合区间，天然跳过。 */
+const collectBalancedObjectSpans = (content: string): Array<[number, number]> => {
+  const spans: Array<[number, number]> = [];
+  const stack: number[] = [];
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < content.length; i += 1) {
+    const ch = content[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      stack.push(i);
+    } else if (ch === '}' && stack.length > 0) {
+      spans.push([stack.pop() as number, i + 1]);
+    }
+  }
+  return spans;
+};
+
+interface FenceSpan {
+  start: number;
+  end: number;
+  language: string;
+}
+
+const collectOptionFenceSpans = (content: string): FenceSpan[] => {
+  const spans: FenceSpan[] = [];
+  const fence = /```([^\n`]*)\n([\s\S]*?)```/g;
+  let match: RegExpExecArray | null;
+  while ((match = fence.exec(content))) {
+    spans.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      language: match[1].trim().toLowerCase(),
+    });
+  }
+  return spans;
+};
+
+const isOptionRequestShape = (raw: unknown): raw is Record<string, unknown> => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
+  const record = raw as Record<string, unknown>;
+  const options = record.options;
+  if (!Array.isArray(options) || options.length === 0 || options.length > 12) {
+    return false;
+  }
+  const wellFormed = options.every(
+    option =>
+      Boolean(option) &&
+      typeof option === 'object' &&
+      !Array.isArray(option) &&
+      (typeof (option as Record<string, unknown>).label === 'string' ||
+        typeof (option as Record<string, unknown>).id === 'string'),
+  );
+  if (!wellFormed) return false;
+  // 形状锚点：至少带一个签名级字段，避免普通配置 JSON 误判。
+  return (
+    typeof record.title === 'string' ||
+    typeof record.allow_custom === 'boolean' ||
+    typeof record.multi === 'boolean'
+  );
+};
+
+const replaceBareOptionJson = (content: string) => {
+  const objectSpans = collectBalancedObjectSpans(content);
+  if (objectSpans.length === 0) return content;
+  const fences = collectOptionFenceSpans(content);
+  const replacements: Array<{ start: number; end: number; body: string }> = [];
+  OPTION_JSON_MARKER.lastIndex = 0;
+  let marker: RegExpExecArray | null;
+  while ((marker = OPTION_JSON_MARKER.exec(content))) {
+    const markerIndex = marker.index;
+    // 覆盖该标记的最小配平对象——对 option 形状来说就是带 options 键的那层。
+    let best: [number, number] | null = null;
+    for (const [start, end] of objectSpans) {
+      if (start <= markerIndex && markerIndex < end) {
+        if (!best || (start >= best[0] && end <= best[1])) best = [start, end];
+      }
+    }
+    if (!best) continue;
+    if (
+      replacements.some(
+        existing => existing.start < best![1] && best![0] < existing.end,
+      )
+    ) {
+      continue; // 嵌套对象共享标记：已接受的外层替换优先，防重叠替换。
+    }
+    const fence = fences.find(
+      span => best![0] >= span.start && best![1] <= span.end,
+    );
+    if (fence && !FALLBACK_FENCE_LANGUAGES.has(fence.language)) continue;
+    const json = content.slice(best[0], best[1]);
+    let raw: unknown;
+    try {
+      raw = JSON.parse(json);
+    } catch {
+      continue;
+    }
+    if (!isOptionRequestShape(raw)) continue;
+    // JSON 在（允许的）裸围栏内时，把整个围栏一起替换：只换 JSON 会把
+    // <approval-request> 标签留在 ``` 围栏里，被 markdown 当成代码块。
+    const start = fence ? fence.start : best[0];
+    const end = fence ? fence.end : best[1];
+    replacements.push({
+      start,
+      end,
+      body: formatAliangOptionsFence(json),
+    });
+  }
+  if (replacements.length === 0) return content;
+  let result = '';
+  let cursor = 0;
+  for (const replacement of replacements) {
+    result +=
+      content.slice(cursor, replacement.start) +
+      `\n<approval-request>${replacement.body}</approval-request>\n`;
+    cursor = replacement.end;
+  }
+  return result + content.slice(cursor);
+};
 
 const summarizeContent = (value: string) => {
   const lineCount = value ? value.split('\n').length : 0;
