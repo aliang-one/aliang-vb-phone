@@ -93,6 +93,21 @@ export const drainPendingTerminalOutput = (
   return queued;
 };
 
+/**
+ * Return teardown-time leftover batched chunks to a session's pending buffer
+ * (2026-10 桥接批量修复)。模拟器卸载/换会话时,输出批处理器里未冲刷的块不能
+ * 丢,也不能注入已换主的 WebView —— 回填到 pending,由下一次挂载按到达顺序
+ * 补放:回填块(更早)排在本会话已缓冲块(卸载期间到达)之前。
+ */
+export const requeuePendingTerminalOutput = (
+  sessionId: string,
+  chunks: TerminalOutputChunk[],
+): void => {
+  if (!chunks.length) return;
+  const queued = pending.get(sessionId) ?? [];
+  pending.set(sessionId, [...chunks, ...queued].slice(-MAX_PENDING_OUTPUT));
+};
+
 /** Drop any buffered pending output for a session (e.g. when the session ends). */
 export const clearPendingTerminalOutput = (sessionId: string): void => {
   pending.delete(sessionId);

@@ -10,6 +10,11 @@ import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { platformTransport } from '../src/services/platformTransport';
 import { getTerminalThemePalette } from '../src/components/terminal/terminalHtml';
+import {
+  registerTerminalOutputHandler,
+  routeTerminalOutputToEmulator,
+  unregisterTerminalOutputHandler,
+} from '../src/services/terminalOutputRegistry';
 
 const mockWebViewInjectJavaScript = jest.fn();
 const mockWebViewMount = jest.fn();
@@ -339,5 +344,97 @@ describe('TerminalEmulator WebView bridge', () => {
       "window.injectTerminalData",
     );
     expect(mockWebViewInjectJavaScript.mock.calls.at(-1)?.[0]).toContain('"fit"');
+  });
+});
+
+// RN↔WebView 桥接合并(2026-10 终端卡顿修复):挂载态的 terminal.output 不再
+// 逐块 injectJavaScript —— 突发块合并进单次注入,卸载/换会话时未冲刷的块
+// 回填 registry pending(不丢、不串台)。
+describe('TerminalEmulator output batching', () => {
+  const renderWired = () => {
+    const tree = renderTerminal();
+    const webview = tree.root.findByType(WebView);
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+    return tree;
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockWebViewInjectJavaScript.mockClear();
+    mockWebViewMount.mockClear();
+    mockWebViewUnmount.mockClear();
+    unregisterTerminalOutputHandler('term-1');
+  });
+
+  afterEach(() => {
+    unregisterTerminalOutputHandler('term-1');
+    jest.useRealTimers();
+  });
+
+  it('injects the leading chunk immediately and coalesces the burst behind it', () => {
+    jest.useFakeTimers();
+    const tree = renderWired();
+    const webview = tree.root.findByType(WebView);
+
+    const callsAfterReady = mockWebViewInjectJavaScript.mock.calls.length;
+    act(() => {
+      routeTerminalOutputToEmulator('term-1', 'one');
+      routeTerminalOutputToEmulator('term-1', 'two');
+      routeTerminalOutputToEmulator('term-1', 'three');
+    });
+
+    // Leading chunk renders with zero added latency…
+    expect(mockWebViewInjectJavaScript.mock.calls.length).toBe(
+      callsAfterReady + 1,
+    );
+    expect(mockWebViewInjectJavaScript.mock.calls[callsAfterReady][0]).toContain(
+      '"one"',
+    );
+
+    // …the rest of the burst lands in ONE trailing injectJavaScript, in order.
+    act(() => {
+      jest.advanceTimersByTime(30);
+    });
+    expect(mockWebViewInjectJavaScript.mock.calls.length).toBe(
+      callsAfterReady + 2,
+    );
+    const batchedScript = String(
+      mockWebViewInjectJavaScript.mock.calls[callsAfterReady + 1][0],
+    );
+    expect(batchedScript).toContain('"two"');
+    expect(batchedScript).toContain('"three"');
+    expect(batchedScript.indexOf('"two"')).toBeLessThan(
+      batchedScript.indexOf('"three"'),
+    );
+  });
+
+  it('requeues output still batched when the emulator unmounts', () => {
+    jest.useFakeTimers();
+    const tree = renderWired();
+
+    act(() => {
+      routeTerminalOutputToEmulator('term-1', 'lead');
+      routeTerminalOutputToEmulator('term-1', 'pending-1');
+      routeTerminalOutputToEmulator('term-1', 'pending-2');
+    });
+
+    act(() => {
+      tree.unmount();
+    });
+    const callsAtUnmount = mockWebViewInjectJavaScript.mock.calls.length;
+
+    // The cancelled window must not fire into the gone WebView…
+    act(() => {
+      jest.advanceTimersByTime(60);
+    });
+    expect(mockWebViewInjectJavaScript.mock.calls.length).toBe(callsAtUnmount);
+
+    // …and the buffered chunks are back in the registry, in arrival order.
+    expect(registerTerminalOutputHandler('term-1', () => {})).toEqual([
+      { data: 'pending-1', encoding: 'text' },
+      { data: 'pending-2', encoding: 'text' },
+    ]);
   });
 });

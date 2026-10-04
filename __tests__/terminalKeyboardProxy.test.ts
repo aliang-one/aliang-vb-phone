@@ -7,6 +7,7 @@ import {
   terminalKeyboardProxyChangeAction,
   terminalKeyboardProxyKeyAction,
   terminalKeyboardProxyInputFromText,
+  terminalKeyboardProxyNeedsNativeReset,
 } from '../src/utils/terminalKeyboardProxy';
 
 describe('terminalKeyboardProxy', () => {
@@ -280,5 +281,48 @@ describe('terminalKeyboardProxy', () => {
       text: TERMINAL_KEYBOARD_PROXY_VALUE,
       selection: TERMINAL_KEYBOARD_PROXY_SELECTION,
     });
+  });
+});
+
+// 每键 setNativeProps 治理(2026-10 终端卡顿修复):原生值仍是哨兵时重置是
+// 纯桥接空转(方向键/Enter 等不产生文本的按键),应跳过。
+describe('terminalKeyboardProxyNeedsNativeReset', () => {
+  it('is false while the proxy holds the sentinel value', () => {
+    expect(
+      terminalKeyboardProxyNeedsNativeReset(createTerminalKeyboardProxyState()),
+    ).toBe(false);
+  });
+
+  it('is true after a change that left visible text in the native input', () => {
+    const action = terminalKeyboardProxyChangeAction(
+      createTerminalKeyboardProxyState(),
+      `${TERMINAL_KEYBOARD_PROXY_VALUE}a`,
+    );
+
+    expect(terminalKeyboardProxyNeedsNativeReset(action.state)).toBe(true);
+    expect(
+      terminalKeyboardProxyNeedsNativeReset(
+        markTerminalKeyboardProxyInputReset(action.state),
+      ),
+    ).toBe(false);
+  });
+
+  it('is false for special-key presses that never dirty the native input', () => {
+    const action = terminalKeyboardProxyKeyAction(
+      createTerminalKeyboardProxyState(),
+      'Enter',
+    );
+
+    expect(action.input).toBe('\r');
+    expect(terminalKeyboardProxyNeedsNativeReset(action.state)).toBe(false);
+  });
+
+  it('is false when a change already carries the sentinel back', () => {
+    const action = terminalKeyboardProxyChangeAction(
+      createTerminalKeyboardProxyState(),
+      TERMINAL_KEYBOARD_PROXY_VALUE,
+    );
+
+    expect(terminalKeyboardProxyNeedsNativeReset(action.state)).toBe(false);
   });
 });

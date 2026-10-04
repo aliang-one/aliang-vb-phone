@@ -173,6 +173,18 @@ export function resetTerminalKeyboardProxyInput(
   });
 }
 
+/**
+ * 是否需要跨桥重置隐藏 TextInput(2026-10 终端卡顿修复):原生值仍是哨兵时
+ * (方向键/Enter 等不产生文本的按键),重置是纯桥接空转,应跳过。判据取状态
+ * 里跟踪的原生值 —— 它由 change 事件写入、由 markTerminalKeyboardProxyInputReset
+ * 归位;任何真实文本变动都会产生 change 事件,由该路径兜底归位。
+ */
+export function terminalKeyboardProxyNeedsNativeReset(
+  state: TerminalKeyboardProxyState,
+): boolean {
+  return state.nativeValue !== TERMINAL_KEYBOARD_PROXY_VALUE;
+}
+
 export function markTerminalKeyboardProxyInputReset(
   state: TerminalKeyboardProxyState,
 ): TerminalKeyboardProxyState {

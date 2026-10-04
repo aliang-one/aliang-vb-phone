@@ -6,9 +6,15 @@ import { useTheme } from '../../theme/useTheme';
 import { getTerminalHtml, getTerminalThemePalette } from './terminalHtml';
 import { platformTransport } from '../../services/platformTransport';
 import {
+  requeuePendingTerminalOutput,
   registerTerminalOutputHandler,
   unregisterTerminalOutputHandler,
 } from '../../services/terminalOutputRegistry';
+import {
+  createTerminalOutputBatcher,
+  TERMINAL_OUTPUT_FLUSH_MS,
+  type TerminalOutputBatcher,
+} from '../../utils/terminalOutputBatcher';
 
 interface TerminalEmulatorProps {
   /** Server-side terminal session ID */
@@ -78,6 +84,9 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
   const webViewRef = useRef<WebView>(null);
   const readyRef = useRef(false);
   const renderedRef = useRef(false);
+  // Output batcher — lazily created (see getOutputBatcher); drained + requeued
+  // to the registry on teardown so no chunk is lost or cross-injected.
+  const batcherRef = useRef<TerminalOutputBatcher | null>(null);
   // Replay → live seam: true once this mount claimed the live output feed.
   // Until then the registry's pending buffer holds any arriving output, which
   // keeps live bytes strictly BEHIND the replayed scrollback.
@@ -106,15 +115,48 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
     [],
   );
 
+  // Output batching (2026-10 卡顿修复):PTY 回显按 pty.onData 原样转发,逐块
+  // injectJavaScript 意味着每个回显字符一次原生桥穿越 —— 打字/刷屏即卡。路由
+  // 到模拟器的块先进批处理器:空闲首块立即渲染(零附加回显延迟),突发其余块
+  // 合并为单次注入(脚本内逐块调用,xterm.write 排队保序,字节流语义不变)。
+  const injectOutputBatch = useCallback(
+    (items: { data: string; encoding: string }[]) => {
+      if (!webViewRef.current || items.length === 0) return;
+      const calls = items
+        .map(
+          item =>
+            `window.injectTerminalData("output", ${JSON.stringify(
+              item.data,
+            )}, ${JSON.stringify(item.encoding)}, false);`,
+        )
+        .join('');
+      webViewRef.current.injectJavaScript(
+        `if (window.injectTerminalData) { ${calls} } true;`,
+      );
+    },
+    [],
+  );
+
+  const getOutputBatcher = useCallback(() => {
+    if (!batcherRef.current) {
+      batcherRef.current = createTerminalOutputBatcher(
+        injectOutputBatch,
+        TERMINAL_OUTPUT_FLUSH_MS,
+        __DEV__ ? 'terminal-bridge' : undefined,
+      );
+    }
+    return batcherRef.current;
+  }, [injectOutputBatch]);
+
   // Forward output data from WS to xterm.js. Only ever registered after the
   // WebView is ready (see liveWired), so chunks arrive as direct injections;
   // everything from before that moment is held by the registry's pending
-  // buffer and drained on wiring.
+  // buffer and drained on wiring (through the batcher, coalesced).
   const handleOutput = useCallback(
     (data: string, encoding = 'text') => {
-      injectTerminalData('output', data, encoding);
+      getOutputBatcher().push(data, encoding);
     },
-    [injectTerminalData],
+    [getOutputBatcher],
   );
 
   useEffect(() => {
@@ -207,14 +249,22 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
   useEffect(() => {
     if (!liveWired || !liveWiredRef.current) return undefined;
 
+    const batcher = getOutputBatcher();
     registerTerminalOutputHandler(sessionId, handleOutput).forEach(item => {
-      handleOutput(item.data, item.encoding);
+      // Registry-drained backlog coalesces (never leads): it is behind the
+      // replayed scrollback by contract, not fresh live output.
+      batcher.push(item.data, item.encoding, { leading: false });
     });
 
     return () => {
+      // Unflushed batched output goes back to the registry's pending buffer —
+      // never dropped, never injected into a WebView that has moved on to a
+      // different session (sessionId swap reuses this mounted instance).
+      const leftover = batcher.drain();
+      requeuePendingTerminalOutput(sessionId, leftover);
       unregisterTerminalOutputHandler(sessionId);
     };
-  }, [liveWired, sessionId, handleOutput]);
+  }, [liveWired, sessionId, handleOutput, getOutputBatcher]);
 
   // Handle messages from xterm.js WebView
   const onMessage = useCallback(

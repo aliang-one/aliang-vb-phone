@@ -53,6 +53,7 @@ import {
   routeTerminalOutputToEmulator,
   unregisterTerminalOutputHandler,
 } from '../../../services/terminalOutputRegistry';
+import { TERMINAL_OUTPUT_FLUSH_MS } from '../../../utils/terminalOutputBatcher';
 import { TerminalEmulator } from '../TerminalEmulator';
 import type { WebViewMessageEvent } from 'react-native-webview';
 
@@ -71,18 +72,36 @@ const fireWebViewMessage = (payload: Record<string, unknown>) => {
   });
 };
 
+// 批量注入(2026-10):一次 injectJavaScript 可能携带多个 writes —— 逐 call
+// 提取改为逐 write 提取,顺序仍按脚本内出现次序。
 const injectTypes = () =>
-  mockInjectJavaScript.mock.calls.map(call =>
-    // `if (window.injectTerminalData) { window.injectTerminalData("type", ...); } true;`
-    String(call[0]).match(/injectTerminalData\("([^"]+)"/)?.[1] ?? 'unknown',
+  mockInjectJavaScript.mock.calls.flatMap(call =>
+    String(call[0])
+      .match(/injectTerminalData\("([^"]+)"/g)
+      ?.map(m => m.match(/"([^"]+)"/)?.[1] ?? 'unknown') ?? [],
   );
 
 const injectPayloads = (type: string) =>
   mockInjectJavaScript.mock.calls
     .map(call => String(call[0]))
-    .filter(script => script.includes(`injectTerminalData("${type}"`))
-    .map(script => script.match(/, ("(?:[^"\\]|\\.)*"),/)?.[1] ?? '')
-    .map(json => JSON.parse(json) as string);
+    .flatMap(script => {
+      const payloads: string[] = [];
+      const pattern = /injectTerminalData\("([^"]+)", ("(?:[^"\\]|\\.)*")/g;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(script)) !== null) {
+        if (match[1] === type) {
+          payloads.push(JSON.parse(match[2]) as string);
+        }
+      }
+      return payloads;
+    });
+
+/** 推进批量输出窗口,让 trailing 注入落地(批量契约的测试侧半边)。 */
+const flushOutputBatch = () => {
+  act(() => {
+    jest.advanceTimersByTime(TERMINAL_OUTPUT_FLUSH_MS + 5);
+  });
+};
 
 // The terminal suite lives in a .ts file (no JSX transform) — build elements
 // explicitly instead.
@@ -107,6 +126,7 @@ const renderEmulator = (props: {
 
 describe('TerminalEmulator replay rendering', () => {
   beforeEach(() => {
+    jest.useFakeTimers();
     mockInjectJavaScript = jest.fn();
     mockLastWebViewProps = {};
     mockTimeline = [];
@@ -117,6 +137,7 @@ describe('TerminalEmulator replay rendering', () => {
       unregisterTerminalOutputHandler(id);
       clearPendingTerminalOutput(id);
     }
+    jest.useRealTimers();
   });
 
   it('injects the completed replay before wiring the live feed', () => {
@@ -182,6 +203,8 @@ describe('TerminalEmulator replay rendering', () => {
         }),
       );
     });
+    // Drained backlog joins the output batch (backfill never leads)…
+    flushOutputBatch();
 
     expect(injectTypes()).toEqual([
       'theme',
@@ -295,6 +318,8 @@ describe('TerminalEmulator replay rendering', () => {
     // The swapped-in WebView loads: resize → replay → then the buffered live
     // output is drained strictly behind the replayed scrollback.
     fireWebViewMessage({ type: 'ready', cols: 80, rows: 24 });
+    // Drained backlog + the trailing chunk coalesce into one batch flush.
+    flushOutputBatch();
 
     expect(injectPayloads('replay')).toEqual(['b-history\n']);
     // `a-live` was injected into the OLD WebView before the swap; B's

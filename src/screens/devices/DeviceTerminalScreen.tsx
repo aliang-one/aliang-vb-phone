@@ -58,10 +58,14 @@ import {
   TERMINAL_KEYBOARD_PROXY_VALUE,
   terminalKeyboardProxyChangeAction,
   terminalKeyboardProxyKeyAction,
+  terminalKeyboardProxyNeedsNativeReset,
 } from '../../utils/terminalKeyboardProxy';
 import { terminalShortcutGroups } from '../../utils/terminalKeySequences';
 import { terminalQuotaExitKind } from '../../utils/terminalExitReason';
-import { sendTerminalInput } from '../../utils/terminalInputDispatch';
+import {
+  flushPendingTerminalInput,
+  sendTerminalInputBatched,
+} from '../../utils/terminalInputDispatch';
 import { describeDeviceError } from '../../utils/deviceError';
 import { useAiCommandSuggestions } from '../../hooks/useAiCommandSuggestions';
 import { TerminalSuggestionRow } from '../../components/terminal/TerminalSuggestionRow';
@@ -559,6 +563,20 @@ export const DeviceTerminalScreen: React.FC = () => {
     resetTerminalKeyboardProxyInput(keyboardProxyRef.current);
   }, []);
 
+  // 每键重置治理(2026-10 卡顿修复):原生值仍是哨兵时(方向键/Enter 等不产生
+  // 文本的按键),setNativeProps 重置是纯桥接空转 —— 跳过;真实文本变动必有
+  // change 事件走全量重置兜底。
+  const settleKeyboardProxyInput = useCallback(() => {
+    if (!terminalKeyboardProxyNeedsNativeReset(keyboardProxyStateRef.current)) {
+      return;
+    }
+    resetKeyboardProxyInput();
+  }, [resetKeyboardProxyInput]);
+
+  // 输入合并兜底(2026-10 卡顿修复):屏幕卸载时立即发出合并窗口里的击键,
+  // 不丢最后一击。
+  useEffect(() => () => flushPendingTerminalInput(), []);
+
   useEffect(() => {
     const syncKeyboardInset = (event: {
       endCoordinates?: { height?: number };
@@ -776,7 +794,8 @@ export const DeviceTerminalScreen: React.FC = () => {
     // 开销(WebView 的 'input' 分支不碰 xterm,只回传)。会话 id 从 ref 取,
     // 避免键盘代理回调闭包里的陈旧 state。无会话(attach 未完成)时回退
     // 旧注入路径,由 emulator 的 onMessage 分支处理。
-    if (!sendTerminalInput(attachedTerminalIdRef.current, data)) {
+    // 批量版:突发首键立即出发,窗口内后续击键合并为一条发送(2026-10)。
+    if (!sendTerminalInputBatched(attachedTerminalIdRef.current, data)) {
       terminalBridgeRef.current?.sendText(data, { focus: options?.focus !== false });
     }
     if (options?.focus !== false) terminalBridgeRef.current?.focus();
@@ -829,7 +848,7 @@ export const DeviceTerminalScreen: React.FC = () => {
     );
     keyboardProxyStateRef.current = action.state;
     if (action.input) sendToTerminal(action.input, { focus: false });
-    resetKeyboardProxyInput();
+    settleKeyboardProxyInput();
   };
 
   const handleKeyboardProxyKeyPress = ({
@@ -841,7 +860,7 @@ export const DeviceTerminalScreen: React.FC = () => {
     );
     keyboardProxyStateRef.current = action.state;
     if (action.input) sendToTerminal(action.input, { focus: false });
-    resetKeyboardProxyInput();
+    settleKeyboardProxyInput();
   };
 
   const focusDirectoryFromScroll = (
