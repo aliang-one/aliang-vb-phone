@@ -2,6 +2,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -266,7 +267,11 @@ export const VibeCodingListScreen: React.FC = () => {
     string | undefined
   >();
   const { refreshing, handleRefresh } = useRefreshWithFeedback();
-  const [activeTab, setActiveTab] = useState(0);
+  const [activeTabKey, setActiveTabKey] =
+    useState<VibecodingTab['key']>('vibecoding');
+  const activeTabKeyRef = useRef(activeTabKey);
+  const pendingPageRef = useRef<{ offset: number; animated: boolean } | null>(null);
+  const goalRequestRef = useRef(0);
   const [terminalDevicePickerOpen, setTerminalDevicePickerOpen] =
     useState(false);
   const [terminalDevicePage, setTerminalDevicePage] = useState(0);
@@ -294,8 +299,12 @@ export const VibeCodingListScreen: React.FC = () => {
 
   // Tasks 段数据:goal 快照按设备拉取(全部拉完后 organizeGoalRows 统一整理)。
   const loadGoals = useCallback(async () => {
-    if (devices.length === 0) {
+    const request = ++goalRequestRef.current;
+    const goalDevices = useControlCenterStore.getState().devices;
+    if (goalDevices.length === 0) {
       setGoalRows([]);
+      setGoalLoading(false);
+      setGoalError(undefined);
       setGoalPartialError(undefined);
       return;
     }
@@ -304,12 +313,13 @@ export const VibeCodingListScreen: React.FC = () => {
     setGoalPartialError(undefined);
     try {
       const settled = await Promise.allSettled(
-        devices.map(device => fetchGoals({ deviceId: device.id })),
+        goalDevices.map(device => fetchGoals({ deviceId: device.id })),
       );
+      if (request !== goalRequestRef.current) return;
       const next: GoalRow[] = [];
       let failed = 0;
       settled.forEach((result, index) => {
-        const device = devices[index];
+        const device = goalDevices[index];
         if (result.status === 'rejected') {
           failed += 1;
           return;
@@ -339,11 +349,23 @@ export const VibeCodingListScreen: React.FC = () => {
         );
       }
     } catch (cause) {
-      setGoalError(cause instanceof Error ? cause.message : String(cause));
+      if (request === goalRequestRef.current) {
+        setGoalError(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
-      setGoalLoading(false);
+      if (request === goalRequestRef.current) setGoalLoading(false);
     }
-  }, [devices, t]);
+  }, [t]);
+
+  // Device telemetry changes the array frequently; only membership should
+  // trigger an automatic task fetch. Read the latest device snapshot above.
+  const goalDeviceIds = JSON.stringify(devices.map(device => device.id).sort());
+  useEffect(() => {
+    if (serverMode) void loadGoals();
+    return () => {
+      goalRequestRef.current += 1;
+    };
+  }, [goalDeviceIds, loadGoals, serverMode]);
 
   const hasTasks = goalRows.length > 0;
   const activeGoalCount = useMemo(
@@ -355,19 +377,11 @@ export const VibeCodingListScreen: React.FC = () => {
     [goalRows],
   );
   const tabs = useMemo(() => buildTabs(hasTasks), [hasTasks]);
-  const tasksTabIndex = tabs.findIndex(tab => tab.key === 'tasks');
-  const terminalsTabIndex = tabs.findIndex(tab => tab.key === 'terminals');
-
-  // Tasks 段收起(任务清零)时,若用户正停在 Tasks 页则夹回合法页号。
-  useEffect(() => {
-    if (activeTab > tabs.length - 1) {
-      setActiveTab(tabs.length - 1);
-      pagerRef.current?.scrollTo({
-        x: (tabs.length - 1) * width,
-        animated: false,
-      });
-    }
-  }, [tabs.length, activeTab, width]);
+  const pagerLayoutRef = useRef<{
+    tabs: VibecodingTab[];
+    width: number;
+  } | null>(null);
+  const pagerContentWidthRef = useRef(0);
 
   // Folder-tab activeness driven directly by the horizontal pager's scroll
   // offset, so each tab's card lifts/fades in real time as you swipe (and
@@ -375,6 +389,29 @@ export const VibeCodingListScreen: React.FC = () => {
   const progress = useSharedValue(0);
   const newTermHoldProgress = useSharedValue(0);
   const newTermHoldVisual = useSharedValue(0);
+
+  // Preserve page identity when Tasks is inserted/removed; an index alone can
+  // silently turn the selected Terminals page into Tasks. Re-align after native
+  // content layout too, since DeferredMount may mount the pager after this effect.
+  const syncPagerToTab = useCallback(() => {
+    const index = Math.max(
+      0,
+      tabs.findIndex(tab => tab.key === activeTabKeyRef.current),
+    );
+    const key = tabs[index].key;
+    activeTabKeyRef.current = key;
+    setActiveTabKey(key);
+    progress.value = index;
+    pendingPageRef.current = { offset: index * width, animated: false };
+    pagerRef.current?.scrollTo({ x: index * width, animated: false });
+  }, [tabs, width, progress]);
+
+  useLayoutEffect(() => {
+    const previous = pagerLayoutRef.current;
+    if (previous?.tabs === tabs && previous.width === width) return;
+    pagerLayoutRef.current = { tabs, width };
+    syncPagerToTab();
+  }, [tabs, width, syncPagerToTab]);
 
   const deviceStatusIndex = useMemo(
     () => buildDeviceStatusIndex(devices),
@@ -799,7 +836,11 @@ export const VibeCodingListScreen: React.FC = () => {
   }, [newTerminalDevice]);
 
   const goToTab = (index: number) => {
-    setActiveTab(index);
+    const tab = tabs[index];
+    if (!tab) return;
+    activeTabKeyRef.current = tab.key;
+    setActiveTabKey(tab.key);
+    pendingPageRef.current = { offset: index * width, animated: true };
     setTerminalDevicePickerOpen(false);
     setTerminalDevicePage(0);
     clearNewTermHold(true);
@@ -812,10 +853,22 @@ export const VibeCodingListScreen: React.FC = () => {
     nativeEvent: { contentOffset: { x: number } };
   }) => {
     const offset = event.nativeEvent.contentOffset.x;
-    progress.value = offset / width;
-    const index = Math.round(offset / width);
-    if (index !== activeTab && index >= 0 && index < tabs.length) {
-      setActiveTab(index);
+    const position = Math.max(0, Math.min(tabs.length - 1, offset / width));
+    // A scrollTo can be clamped against the previous content width. Keep the
+    // requested identity until native layout catches up, or a user starts a drag.
+    const pending = pendingPageRef.current;
+    if (pending !== null) {
+      if (Math.abs(offset - pending.offset) > 1) {
+        if (pending.animated) progress.value = position;
+        return;
+      }
+      pendingPageRef.current = null;
+    }
+    progress.value = position;
+    const key = tabs[Math.round(position)].key;
+    if (key !== activeTabKeyRef.current) {
+      activeTabKeyRef.current = key;
+      setActiveTabKey(key);
     }
   };
 
@@ -870,9 +923,9 @@ export const VibeCodingListScreen: React.FC = () => {
               ? !normalizedQuery && filter === 'all'
                 ? historyPage.totalCount ?? filtered.length
                 : filtered.length
-              : index === tasksTabIndex
+              : tab.key === 'tasks'
                 ? activeGoalCount
-                : index === terminalsTabIndex
+                : tab.key === 'terminals'
                   ? activeTerminals.length
                   : undefined}
             onPress={() => goToTab(index)}
@@ -912,269 +965,285 @@ export const VibeCodingListScreen: React.FC = () => {
           showsHorizontalScrollIndicator={false}
           scrollEventThrottle={16}
           onScroll={onPagerScroll}
+          onScrollBeginDrag={() => {
+            pendingPageRef.current = null;
+          }}
           onMomentumScrollEnd={onPagerScroll}
+          onContentSizeChange={contentWidth => {
+            if (contentWidth !== pagerContentWidthRef.current) {
+              pagerContentWidthRef.current = contentWidth;
+              syncPagerToTab();
+            }
+          }}
           style={styles.pager}
         >
-          {/* ---------- Page 1: Vibecoding sessions ---------- */}
-          <View testID="vibecoding-page" style={{ width }}>
-            <ScrollView
-              nestedScrollEnabled
-              contentContainerStyle={[styles.content, { paddingBottom: 40 + tabBarHeight }]}
-              refreshControl={refreshControl}
-            >
-              <View style={styles.sectionHeader}>
-                <Text
-                  style={[
-                    theme.typography.labelCaps,
-                    { color: theme.colors.onSurfaceVariant },
+          {tabs.map(tab => (
+            <View key={tab.key} testID={`${tab.key}-page`} style={{ width }}>
+              {tab.key === 'vibecoding' ? (
+                <ScrollView
+                  nestedScrollEnabled
+                  contentContainerStyle={[
+                    styles.content,
+                    { paddingBottom: 40 + tabBarHeight },
                   ]}
+                  refreshControl={refreshControl}
                 >
-                  VIBECODING SESSIONS
-                </Text>
-                <TouchableOpacity
-                  activeOpacity={0.75}
-                  onPress={() => navigation.navigate('CreateVibeCoding', {})}
-                >
-                  <Text
-                    style={[
-                      theme.typography.codeSm,
-                      { color: theme.colors.primary },
-                    ]}
-                  >
-                    NEW TASK
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.filters}
-              >
-                {filters.map(item => {
-                  const active = filter === item.value;
-                  return (
-                    <TouchableOpacity
-                      key={item.value}
-                      onPress={() => setFilter(item.value)}
+                  <View style={styles.sectionHeader}>
+                    <Text
                       style={[
-                        styles.filterChip,
-                        {
-                          borderRadius: theme.borderRadius.full,
-                          backgroundColor: getFilterChipBackground(
-                            active,
-                            isDark,
-                          ),
-                          borderColor: active
-                            ? theme.colors.primary
-                            : theme.colors.outlineVariant,
-                        },
+                        theme.typography.labelCaps,
+                        { color: theme.colors.onSurfaceVariant },
                       ]}
+                    >
+                      VIBECODING SESSIONS
+                    </Text>
+                    <TouchableOpacity
+                      activeOpacity={0.75}
+                      onPress={() => navigation.navigate('CreateVibeCoding', {})}
                     >
                       <Text
                         style={[
-                          theme.typography.labelSm,
-                          {
-                            color: active
-                              ? theme.colors.primary
-                              : theme.colors.onSurfaceVariant,
-                          },
+                          theme.typography.codeSm,
+                          { color: theme.colors.primary },
                         ]}
                       >
-                        {item.label}
+                        NEW TASK
                       </Text>
                     </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-              {devices.length > 1 ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.filters}
-                >
-                  {[
-                    { id: undefined, name: t('listScreen.allDevices', 'ALL') },
-                    ...devices.map(d => ({ id: d.id, name: d.name })),
-                  ].map(item => {
-                    const active =
-                      deviceFilter === item.id ||
-                      (item.id === undefined && !deviceFilter);
-                    return (
-                      <TouchableOpacity
-                        key={item.id ?? 'all-devices'}
-                        onPress={() => setDeviceFilter(item.id)}
-                        style={[
-                          styles.filterChip,
-                          {
-                            borderRadius: theme.borderRadius.full,
-                            backgroundColor: getFilterChipBackground(
-                              active,
-                              isDark,
-                            ),
-                            borderColor: active
-                              ? theme.colors.primary
-                              : theme.colors.outlineVariant,
-                          },
-                        ]}
-                      >
-                        <Text
+                  </View>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.filters}
+                  >
+                    {filters.map(item => {
+                      const active = filter === item.value;
+                      return (
+                        <TouchableOpacity
+                          key={item.value}
+                          onPress={() => setFilter(item.value)}
                           style={[
-                            theme.typography.labelSm,
+                            styles.filterChip,
                             {
-                              color: active
+                              borderRadius: theme.borderRadius.full,
+                              backgroundColor: getFilterChipBackground(active, isDark),
+                              borderColor: active
                                 ? theme.colors.primary
-                                : theme.colors.onSurfaceVariant,
+                                : theme.colors.outlineVariant,
                             },
                           ]}
                         >
-                          {item.name}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              ) : null}
-              <View style={styles.summary}>
-                <StatusChip
-                  label={`${!normalizedQuery && filter === 'all'
-                    ? historyPage.totalCount ?? filtered.length
-                    : filtered.length} SESSIONS`}
-                  type="info"
-                />
-                <StatusChip
-                  label={`${filteredStats.approvals} APPROVAL`}
-                  type="warning"
-                />
-                <StatusChip
-                  label={`${filteredStats.previews} PREVIEWS`}
-                  type="info"
-                />
-              </View>
-              {sessionList.visibleItems.map(session => (
-                <VibeSessionCard
-                  key={session.id}
-                  session={session}
-                  disabled={isDeviceStatusOffline(
-                    deviceStatusIndex.get(session.deviceId),
-                  )}
-                />
-              ))}
-              <LoadMoreRow
-                visibleCount={sessionList.visibleCount}
-                totalCount={!normalizedQuery && filter === 'all'
-                  ? historyPage.totalCount ?? sessionList.totalCount
-                  : sessionList.totalCount}
-                serverHasMore={historyPage.hasMore}
-                loading={historyPage.loading}
-                error={historyPage.error}
-                onPress={handleShowMoreSessions}
-              />
-              {!filtered.length ? (
-                <Text
-                  style={[
-                    theme.typography.bodySm,
-                    { color: theme.colors.onSurfaceVariant },
-                    styles.emptyText,
-                  ]}
-                >
-                  {normalizedQuery
-                    ? t('listScreen.emptySessionsQuery', { query })
-                    : t('listScreen.emptySessions')}
-                </Text>
-              ) : null}
-            </ScrollView>
-          </View>
-
-          {/* ---------- Page 2: Tasks (Goals) ---------- */}
-          <View testID="tasks-page" style={{ width }}>
-            <ScrollView
-              nestedScrollEnabled
-              contentContainerStyle={[styles.content, { paddingBottom: 40 + tabBarHeight }]}
-              refreshControl={refreshControl}
-            >
-              <View style={styles.sectionHeader}>
-                <Text
-                  style={[
-                    theme.typography.labelCaps,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}
-                >
-                  TASKS
-                </Text>
-              </View>
-              <GoalInboxPanel
-                rows={goalRows}
-                loading={goalLoading}
-                error={goalError}
-                partialError={goalPartialError}
-              />
-            </ScrollView>
-          </View>
-
-          {/* ---------- Page 3: Terminals ---------- */}
-          <View testID="terminals-page" style={{ width }}>
-            <View style={styles.terminalPage}>
-              <ScrollView
-                nestedScrollEnabled
-                contentContainerStyle={[styles.content, { paddingBottom: 40 + tabBarHeight }]}
-                refreshControl={refreshControl}
-              >
-                <View style={styles.sectionHeader}>
-                  <Text
-                    style={[
-                      theme.typography.labelCaps,
-                      { color: theme.colors.onSurfaceVariant },
-                    ]}
-                  >
-                    REMOTE TERMINALS
-                  </Text>
-                  <View style={styles.sectionHeaderRight}>
+                          <Text
+                            style={[
+                              theme.typography.labelSm,
+                              {
+                                color: active
+                                  ? theme.colors.primary
+                                  : theme.colors.onSurfaceVariant,
+                              },
+                            ]}
+                          >
+                            {item.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                  {devices.length > 1 ? (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.filters}
+                    >
+                      {[
+                        { id: undefined, name: t('listScreen.allDevices', 'ALL') },
+                        ...devices.map(d => ({ id: d.id, name: d.name })),
+                      ].map(item => {
+                        const active =
+                          deviceFilter === item.id ||
+                          (item.id === undefined && !deviceFilter);
+                        return (
+                          <TouchableOpacity
+                            key={item.id ?? 'all-devices'}
+                            onPress={() => setDeviceFilter(item.id)}
+                            style={[
+                              styles.filterChip,
+                              {
+                                borderRadius: theme.borderRadius.full,
+                                backgroundColor: getFilterChipBackground(
+                                  active,
+                                  isDark,
+                                ),
+                                borderColor: active
+                                  ? theme.colors.primary
+                                  : theme.colors.outlineVariant,
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                theme.typography.labelSm,
+                                {
+                                  color: active
+                                    ? theme.colors.primary
+                                    : theme.colors.onSurfaceVariant,
+                                },
+                              ]}
+                            >
+                              {item.name}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  ) : null}
+                  <View style={styles.summary}>
                     <StatusChip
-                      label={`${activeTerminals.length} ACTIVE`}
+                      label={`${
+                        !normalizedQuery && filter === 'all'
+                          ? historyPage.totalCount ?? filtered.length
+                          : filtered.length
+                      } SESSIONS`}
+                      type="info"
+                    />
+                    <StatusChip
+                      label={`${filteredStats.approvals} APPROVAL`}
+                      type="warning"
+                    />
+                    <StatusChip
+                      label={`${filteredStats.previews} PREVIEWS`}
                       type="info"
                     />
                   </View>
-                </View>
-                {activeTerminals.map(({ terminal, device }) => (
-                  <TerminalCard
-                    key={terminal.id}
-                    terminal={terminal}
-                    deviceName={device?.name}
-                    disabled={isDeviceStatusOffline(
-                      deviceStatusIndex.get(terminal.deviceId),
-                    )}
-                    onPress={() =>
-                      navigation.navigate('DeviceTerminal', {
-                        deviceId: terminal.deviceId,
-                        terminalId: terminal.id,
-                        directory: terminal.directory,
-                      })
+                  {sessionList.visibleItems.map(session => (
+                    <VibeSessionCard
+                      key={session.id}
+                      session={session}
+                      disabled={isDeviceStatusOffline(
+                        deviceStatusIndex.get(session.deviceId),
+                      )}
+                    />
+                  ))}
+                  <LoadMoreRow
+                    visibleCount={sessionList.visibleCount}
+                    totalCount={
+                      !normalizedQuery && filter === 'all'
+                        ? historyPage.totalCount ?? sessionList.totalCount
+                        : sessionList.totalCount
                     }
-                    onClose={() => {
-                      stopTerminal(terminal.id).catch(() => {});
-                    }}
+                    serverHasMore={historyPage.hasMore}
+                    loading={historyPage.loading}
+                    error={historyPage.error}
+                    onPress={handleShowMoreSessions}
                   />
-                ))}
-                {!activeTerminals.length ? (
-                  <Text
-                    style={[
-                      theme.typography.bodySm,
-                      { color: theme.colors.onSurfaceVariant },
-                      styles.emptyText,
+                  {!filtered.length ? (
+                    <Text
+                      style={[
+                        theme.typography.bodySm,
+                        { color: theme.colors.onSurfaceVariant },
+                        styles.emptyText,
+                      ]}
+                    >
+                      {normalizedQuery
+                        ? t('listScreen.emptySessionsQuery', { query })
+                        : t('listScreen.emptySessions')}
+                    </Text>
+                  ) : null}
+                </ScrollView>
+              ) : tab.key === 'tasks' ? (
+                <ScrollView
+                  nestedScrollEnabled
+                  contentContainerStyle={[
+                    styles.content,
+                    { paddingBottom: 40 + tabBarHeight },
+                  ]}
+                  refreshControl={refreshControl}
+                >
+                  <View style={styles.sectionHeader}>
+                    <Text
+                      style={[
+                        theme.typography.labelCaps,
+                        { color: theme.colors.onSurfaceVariant },
+                      ]}
+                    >
+                      TASKS
+                    </Text>
+                  </View>
+                  <GoalInboxPanel
+                    rows={goalRows}
+                    loading={goalLoading}
+                    error={goalError}
+                    partialError={goalPartialError}
+                  />
+                </ScrollView>
+              ) : (
+                <View style={styles.terminalPage}>
+                  <ScrollView
+                    nestedScrollEnabled
+                    contentContainerStyle={[
+                      styles.content,
+                      { paddingBottom: 40 + tabBarHeight },
                     ]}
+                    refreshControl={refreshControl}
                   >
-                    {normalizedQuery
-                      ? t('listScreen.emptyTerminalsQuery', { query })
-                      : t('listScreen.emptyTerminals')}
-                  </Text>
-                ) : null}
-              </ScrollView>
+                    <View style={styles.sectionHeader}>
+                      <Text
+                        style={[
+                          theme.typography.labelCaps,
+                          { color: theme.colors.onSurfaceVariant },
+                        ]}
+                      >
+                        REMOTE TERMINALS
+                      </Text>
+                      <View style={styles.sectionHeaderRight}>
+                        <StatusChip
+                          label={`${activeTerminals.length} ACTIVE`}
+                          type="info"
+                        />
+                      </View>
+                    </View>
+                    {activeTerminals.map(({ terminal, device }) => (
+                      <TerminalCard
+                        key={terminal.id}
+                        terminal={terminal}
+                        deviceName={device?.name}
+                        disabled={isDeviceStatusOffline(
+                          deviceStatusIndex.get(terminal.deviceId),
+                        )}
+                        onPress={() =>
+                          navigation.navigate('DeviceTerminal', {
+                            deviceId: terminal.deviceId,
+                            terminalId: terminal.id,
+                            directory: terminal.directory,
+                          })
+                        }
+                        onClose={() => {
+                          stopTerminal(terminal.id).catch(() => {});
+                        }}
+                      />
+                    ))}
+                    {!activeTerminals.length ? (
+                      <Text
+                        style={[
+                          theme.typography.bodySm,
+                          { color: theme.colors.onSurfaceVariant },
+                          styles.emptyText,
+                        ]}
+                      >
+                        {normalizedQuery
+                          ? t('listScreen.emptyTerminalsQuery', { query })
+                          : t('listScreen.emptyTerminals')}
+                      </Text>
+                    ) : null}
+                  </ScrollView>
+                </View>
+              )}
             </View>
-          </View>
+          ))}
         </ScrollView>
       </DeferredMount>
 
-      {activeTab === terminalsTabIndex && terminalDevicePickerOpen ? (
+      {activeTabKey === 'terminals' && terminalDevicePickerOpen ? (
         <Pressable
           testID="new-term-device-picker-backdrop"
           style={styles.devicePickerBackdrop}
@@ -1185,7 +1254,7 @@ export const VibeCodingListScreen: React.FC = () => {
         />
       ) : null}
 
-      {activeTab === terminalsTabIndex && terminalDevicePickerOpen ? (
+      {activeTabKey === 'terminals' && terminalDevicePickerOpen ? (
         <View
           testID="new-term-device-picker"
           style={[
@@ -1496,7 +1565,7 @@ export const VibeCodingListScreen: React.FC = () => {
         </View>
       ) : null}
 
-      {activeTab === terminalsTabIndex ? (
+      {activeTabKey === 'terminals' ? (
         <View
           style={[
             styles.newTermFabShadow,
