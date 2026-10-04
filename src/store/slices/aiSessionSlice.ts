@@ -3,6 +3,7 @@ import type { AgentCommandInfo, VibeCodingRun, VibeStatus } from '../../data/pla
 import { platformTransport } from '../../services/platformTransport';
 import { refreshSessionCommands as refreshSessionCommandsApi, serverAiMessageToAgent } from '../../api/sessions';
 import type { ServerAiSession } from '../../api/sessions';
+import { deleteGoal, fetchGoalSnapshot } from '../../api/goals';
 import { normalizeProvider, providerLabel } from '../../utils/modelIntensity';
 import {
   isAuthoritativeRunLive,
@@ -822,7 +823,34 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     if (!get().serverMode) {
       throw new Error('Platform connection is required before deleting a VibeCoding session.');
     }
-    await platformTransport.deleteAiSession(sessionId);
+    // goal 会话走会话删除通道会被服务端 409 goal_managed_session 拒绝(goal
+    // 必须经专用通道删除:软隐藏 goal 消息 + session 降级 chat,见 server
+    // goalDelete.ts / guards.ts)。列表长按删除对 goal 会话转发:先取权威快照
+    // 拿最新 state_version(乐观并发,卡片本地值常滞后),再调 /api/goals/:id/
+    // delete;成功后照常清理本地列表项(服务端同时广播 ai.session.updated)。
+    const knownRun =
+      get().vibeRuns.find(run => run.id === sessionId) ??
+      get().aiSessionHistory.find(item => item.id === sessionId);
+    const isGoalSession =
+      knownRun?.purpose === 'goal' || Boolean(knownRun?.goalSummary);
+    if (isGoalSession) {
+      const goalId = knownRun?.goalSummary?.goalId ?? sessionId;
+      let expectedStateVersion = knownRun?.goalSummary?.stateVersion ?? 0;
+      try {
+        const snapshot = await fetchGoalSnapshot(goalId);
+        if (typeof snapshot.state_version === 'number') {
+          expectedStateVersion = snapshot.state_version;
+        }
+      } catch {
+        // 快照拉不到就用本地已知版本;若已过期服务端会 409,由调用方提示重试。
+      }
+      await deleteGoal(goalId, {
+        expectedStateVersion,
+        idempotencyKey: createId('goal-card-delete'),
+      });
+    } else {
+      await platformTransport.deleteAiSession(sessionId);
+    }
     set(state => {
       const sessionCommands = { ...state.sessionCommands };
       delete sessionCommands[sessionId];
