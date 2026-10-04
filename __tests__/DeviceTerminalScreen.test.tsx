@@ -10,6 +10,18 @@ import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { useControlCenterStore } from '../src/store/controlCenterStore';
 import { TERMINAL_KEYBOARD_PROXY_VALUE } from '../src/utils/terminalKeyboardProxy';
+import { sendTerminalInputBatched } from '../src/utils/terminalInputDispatch';
+
+// 直发后的输入不再经过 emulator 的 sendText(WebView 注入回环)——键盘代理、
+// 快捷键、chips 全部走 terminalInputDispatch 直发入口;a752f33 之后这里钉的
+// 是"路由到了直发入口 + 参数",WS payload 形状由 terminalInputDispatch 自己
+// 的测试钉住。mockTerminalSendText 只剩一个职责:验证直发入口返回 false 时
+// screen 回退旧路径(未 attach 的兜底)。
+jest.mock('../src/utils/terminalInputDispatch', () => ({
+  sendTerminalInputBatched: jest.fn(() => true),
+  flushPendingTerminalInput: jest.fn(),
+}));
+const mockSendTerminalInput = sendTerminalInputBatched as jest.Mock;
 
 const mockTerminalSendText = jest.fn();
 const mockTerminalFocus = jest.fn();
@@ -276,15 +288,9 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       tabButton.props.onPress();
     });
 
-    expect(mockTerminalSendText).toHaveBeenNthCalledWith(1, 'a', {
-      focus: false,
-    });
-    expect(mockTerminalSendText).toHaveBeenNthCalledWith(2, '\r', {
-      focus: false,
-    });
-    expect(mockTerminalSendText).toHaveBeenNthCalledWith(3, '\t', {
-      focus: false,
-    });
+    expect(mockSendTerminalInput).toHaveBeenNthCalledWith(1, 'term-1', 'a');
+    expect(mockSendTerminalInput).toHaveBeenNthCalledWith(2, 'term-1', '\r');
+    expect(mockSendTerminalInput).toHaveBeenNthCalledWith(3, 'term-1', '\t');
     expect(screen!.root.findByProps({ testID: 'terminal-key-Tab' }).props.hitSlop).toEqual({
       top: 6,
       right: 6,
@@ -340,7 +346,7 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       keyboardProxy.props.onChangeText(`${TERMINAL_KEYBOARD_PROXY_VALUE}i`);
     });
 
-    expect(mockTerminalSendText).toHaveBeenCalledWith('i', { focus: false });
+    expect(mockSendTerminalInput).toHaveBeenCalledWith('term-1', 'i');
   });
 
   it('exposes approval center access when the terminal waits for approval', async () => {
@@ -386,9 +392,7 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       keyboardProxy.props.onKeyPress({ nativeEvent: { key: 'ArrowUp' } });
     });
 
-    expect(mockTerminalSendText).toHaveBeenCalledWith('\x1b[A', {
-      focus: false,
-    });
+    expect(mockSendTerminalInput).toHaveBeenCalledWith('term-1', '\x1b[A');
   });
 
   it('offers common terminal navigation shortcuts in the floating key row', async () => {
@@ -408,9 +412,7 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       screen!.root.findByProps({ testID: 'terminal-key-Delete' }).props.onPress();
     });
 
-    expect(mockTerminalSendText).toHaveBeenCalledWith('\x1b[3~', {
-      focus: false,
-    });
+    expect(mockSendTerminalInput).toHaveBeenCalledWith('term-1', '\x1b[3~');
     expect(screen!.root.findByProps({ testID: 'terminal-key-Delete' }).props.hitSlop).toEqual({
       top: 6,
       right: 6,
@@ -441,9 +443,7 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       screen!.root.findByProps({ testID: 'terminal-key-Ctrl+U' }).props.onPress();
     });
 
-    expect(mockTerminalSendText).toHaveBeenCalledWith('\x15', {
-      focus: false,
-    });
+    expect(mockSendTerminalInput).toHaveBeenCalledWith('term-1', '\x15');
     expect(
       screen!.root.findByProps({ testID: 'terminal-key-Ctrl+U' }).props
         .accessibilityLabel,
@@ -473,12 +473,8 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       keyboardProxy.props.onChangeText(`${TERMINAL_KEYBOARD_PROXY_VALUE}x`);
     });
 
-    expect(mockTerminalSendText).toHaveBeenNthCalledWith(1, '\x17', {
-      focus: false,
-    });
-    expect(mockTerminalSendText).toHaveBeenNthCalledWith(2, 'x', {
-      focus: false,
-    });
+    expect(mockSendTerminalInput).toHaveBeenNthCalledWith(1, 'term-1', '\x17');
+    expect(mockSendTerminalInput).toHaveBeenNthCalledWith(2, 'term-1', 'x');
     expect(
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props.style,
     ).toEqual(
@@ -496,6 +492,26 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
         .accessibilityState,
     ).toEqual({ disabled: false, expanded: true });
+  });
+
+  it('falls back to the emulator bridge when the direct-send entry rejects the input', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    const keyboardProxy = screen!.root.findByProps({
+      testID: 'terminal-keyboard-proxy',
+    });
+
+    // 直发入口拒绝(如未 attach:session id 缺位)→ screen 回退旧的
+    // emulator 桥路径,数据不能丢。
+    mockSendTerminalInput.mockReturnValueOnce(false);
+    act(() => {
+      keyboardProxy.props.onChangeText(`${TERMINAL_KEYBOARD_PROXY_VALUE}x`);
+    });
+
+    expect(mockSendTerminalInput).toHaveBeenCalledWith('term-1', 'x');
+    expect(mockTerminalSendText).toHaveBeenCalledWith('x', { focus: false });
   });
 
   it('shows focused keyboard state when the KB control requests soft keyboard focus', async () => {
@@ -543,6 +559,8 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       expect.arrayContaining([expect.objectContaining({ bottom: 300 })]),
     );
     expect(mockTerminalSendText).not.toHaveBeenCalled();
+    // 直发入口同样必须沉默:disabled 状态下输入不得漏进任何一条通道。
+    expect(mockSendTerminalInput).not.toHaveBeenCalled();
   });
 
   it('toggles the soft keyboard from the keyboard button', async () => {
@@ -585,6 +603,8 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
 
     expect(keyboardDismissSpy).toHaveBeenCalledTimes(1);
     expect(mockTerminalSendText).not.toHaveBeenCalled();
+    // 直发入口同样必须沉默:disabled 状态下输入不得漏进任何一条通道。
+    expect(mockSendTerminalInput).not.toHaveBeenCalled();
 
     // OS 完成收起回调 → 开关回到 collapsed(颜色之外的第二指示)。
     act(() => {
@@ -678,6 +698,8 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     });
 
     expect(mockTerminalSendText).not.toHaveBeenCalled();
+    // 直发入口同样必须沉默:disabled 状态下输入不得漏进任何一条通道。
+    expect(mockSendTerminalInput).not.toHaveBeenCalled();
   });
 
   it('syncs a changed route terminal id before enabling input', async () => {
@@ -740,6 +762,8 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
         .accessibilityState,
     ).toEqual({ disabled: true, expanded: false });
     expect(mockTerminalSendText).not.toHaveBeenCalled();
+    // 直发入口同样必须沉默:disabled 状态下输入不得漏进任何一条通道。
+    expect(mockSendTerminalInput).not.toHaveBeenCalled();
   });
 
   it('attaches the most recent active session when route changes without a terminal id', async () => {
@@ -835,6 +859,8 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
         .accessibilityState,
     ).toEqual({ disabled: true, expanded: false });
     expect(mockTerminalSendText).not.toHaveBeenCalled();
+    // 直发入口同样必须沉默:disabled 状态下输入不得漏进任何一条通道。
+    expect(mockSendTerminalInput).not.toHaveBeenCalled();
   });
 
   it('reuses the existing active session when switching to its directory (RCA 切目录收敛)', async () => {
@@ -910,6 +936,8 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     ).toEqual({ disabled: false, selected: true });
 
     expect(mockTerminalSendText).not.toHaveBeenCalled();
+    // 直发入口同样必须沉默:disabled 状态下输入不得漏进任何一条通道。
+    expect(mockSendTerminalInput).not.toHaveBeenCalled();
   });
 
   it('still creates a fresh session when switching to a directory with no active session', async () => {
@@ -950,6 +978,8 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       '~/fresh',
     );
     expect(mockTerminalSendText).not.toHaveBeenCalled();
+    // 直发入口同样必须沉默:disabled 状态下输入不得漏进任何一条通道。
+    expect(mockSendTerminalInput).not.toHaveBeenCalled();
   });
 
   it('keeps suggestions and shortcuts floating above the keyboard', async () => {
@@ -1097,11 +1127,9 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       suggestionButton.props.onPress();
     });
 
-    expect(mockTerminalSendText).toHaveBeenCalledWith(
+    expect(mockSendTerminalInput).toHaveBeenCalledWith(
+      'term-1',
       'git status --short\r',
-      {
-        focus: false,
-      },
     );
     expect(
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props.style,

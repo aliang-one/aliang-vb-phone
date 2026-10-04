@@ -6,6 +6,15 @@ import { DeviceTerminalScreen } from '../src/screens/devices/DeviceTerminalScree
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { useControlCenterStore } from '../src/store/controlCenterStore';
+import { sendTerminalInputBatched } from '../src/utils/terminalInputDispatch';
+
+// initialCommand 经 sendToTerminal 直发(a752f33 后不再走 emulator 的
+// sendText/WebView 注入回环)——这里断言路由到直发入口的参数与次数。
+jest.mock('../src/utils/terminalInputDispatch', () => ({
+  sendTerminalInputBatched: jest.fn(),
+  flushPendingTerminalInput: jest.fn(),
+}));
+const mockSendTerminalInput = sendTerminalInputBatched as jest.Mock;
 
 const mockTerminalSendText = jest.fn();
 const mockTerminalFocus = jest.fn();
@@ -122,6 +131,7 @@ describe('DeviceTerminalScreen initialCommand auto-run', () => {
     jest.clearAllMocks();
     // clearAllMocks wipes the implementation installed above; re-wire so the
     // screen's navigation.setParams actually mutates the live route params.
+    mockSendTerminalInput.mockImplementation(() => true);
     mockSetParams.mockImplementation((next: Record<string, unknown>) => {
       mockRouteParams = { ...mockRouteParams, ...next };
     });
@@ -169,10 +179,11 @@ describe('DeviceTerminalScreen initialCommand auto-run', () => {
       renderScreen();
     });
 
-    expect(mockTerminalSendText).toHaveBeenCalledTimes(1);
-    expect(mockTerminalSendText).toHaveBeenCalledWith('git status --short\r', {
-      focus: false,
-    });
+    expect(mockSendTerminalInput).toHaveBeenCalledTimes(1);
+    expect(mockSendTerminalInput).toHaveBeenCalledWith(
+      'term-1',
+      'git status --short\r',
+    );
     expect(mockSetParams).toHaveBeenCalledWith({ initialCommand: undefined });
     expect(mockRouteParams.initialCommand).toBeUndefined();
   });
@@ -189,7 +200,7 @@ describe('DeviceTerminalScreen initialCommand auto-run', () => {
       renderScreen();
     });
 
-    expect(mockTerminalSendText).toHaveBeenCalledTimes(1);
+    expect(mockSendTerminalInput).toHaveBeenCalledTimes(1);
 
     // Toggle input OFF (device offline -> terminalInputEnabled false), then
     // back ON. ranInitialRef must keep it from firing a second time.
@@ -209,7 +220,7 @@ describe('DeviceTerminalScreen initialCommand auto-run', () => {
       }));
     });
 
-    expect(mockTerminalSendText).toHaveBeenCalledTimes(1);
+    expect(mockSendTerminalInput).toHaveBeenCalledTimes(1);
     expect(mockSetParams).toHaveBeenCalledTimes(1);
   });
 
@@ -225,6 +236,7 @@ describe('DeviceTerminalScreen initialCommand auto-run', () => {
     });
 
     expect(mockTerminalSendText).not.toHaveBeenCalled();
+    expect(mockSendTerminalInput).not.toHaveBeenCalled();
     expect(mockSetParams).not.toHaveBeenCalled();
   });
 

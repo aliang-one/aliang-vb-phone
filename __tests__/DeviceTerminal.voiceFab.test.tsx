@@ -39,6 +39,14 @@ jest.mock('../src/hooks/useAiCommandSuggestions', () => ({
 jest.useFakeTimers();
 
 const mockTerminalSendText = jest.fn();
+// chips 执行经 sendToTerminal 直发(a752f33 后不走 emulator sendText)——
+// 这里断言路由到直发入口的参数与次数。
+jest.mock('../src/utils/terminalInputDispatch', () => ({
+  sendTerminalInputBatched: jest.fn(),
+  flushPendingTerminalInput: jest.fn(),
+}));
+import { sendTerminalInputBatched } from '../src/utils/terminalInputDispatch';
+const mockSendTerminalInput = sendTerminalInputBatched as jest.Mock;
 const mockTerminalFocus = jest.fn();
 const mockTerminalFit = jest.fn();
 const mockSetParams = jest.fn();
@@ -161,6 +169,7 @@ describe('DeviceTerminalScreen in-terminal voice FAB', () => {
     };
     seedStore();
     jest.clearAllMocks();
+    mockSendTerminalInput.mockImplementation(() => true);
     mockSetParams.mockImplementation((next: Record<string, unknown>) => {
       mockRouteParams = { ...mockRouteParams, ...next };
     });
@@ -360,11 +369,12 @@ describe('DeviceTerminalScreen in-terminal voice FAB', () => {
       chip.props.onPress();
     });
 
-    // keepKeyboardProxyFocused is consumed inside sendToTerminal — the
-    // emulator only ever sees { focus: false }.
-    expect(mockTerminalSendText).toHaveBeenCalledWith('git status --short\r', {
-      focus: false,
-    });
+    // keepKeyboardProxyFocused is consumed inside sendToTerminal — 直发入口
+    // 不再经过 emulator sendText。
+    expect(mockSendTerminalInput).toHaveBeenCalledWith(
+      'term-1',
+      'git status --short\r',
+    );
     // Executed commands land in the persistent voice-command banner.
     expect(hasNode('terminal-voice-banner')).toBe(true);
   });
@@ -382,7 +392,7 @@ describe('DeviceTerminalScreen in-terminal voice FAB', () => {
     act(() => {
       chip.props.onPress();
     });
-    expect(mockTerminalSendText).not.toHaveBeenCalled();
+    expect(mockSendTerminalInput).not.toHaveBeenCalled();
 
     // Second tap confirms and executes.
     act(() => {
@@ -390,9 +400,10 @@ describe('DeviceTerminalScreen in-terminal voice FAB', () => {
         .findByProps({ testID: 'terminal-suggestion-rm-rf-tmp-vibe-test' })
         .props.onPress();
     });
-    expect(mockTerminalSendText).toHaveBeenCalledWith('rm -rf /tmp/vibe-test\r', {
-      focus: false,
-    });
+    expect(mockSendTerminalInput).toHaveBeenCalledWith(
+      'term-1',
+      'rm -rf /tmp/vibe-test\r',
+    );
   });
 
   it('empty chips show the hint chip', async () => {
