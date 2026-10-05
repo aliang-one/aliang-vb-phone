@@ -1108,6 +1108,11 @@ export function mergeTerminalSessionSnapshot(
     replayReady: existing.replayReady ?? incoming.replayReady,
     replayStatus: existing.replayStatus ?? incoming.replayStatus,
     replayTruncated: existing.replayTruncated ?? incoming.replayTruncated,
+    // Same for the pending geometry follow (设计 §1): it is realtime-only and
+    // REST snapshots never carry it — the attach flow's snapshot merge runs
+    // exactly when the user re-enters the terminal screen, and the follow
+    // must survive that re-entry instead of silently dropping the badge.
+    geometryFollow: existing.geometryFollow ?? incoming.geometryFollow,
   };
 }
 

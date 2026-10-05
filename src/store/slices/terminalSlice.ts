@@ -33,6 +33,7 @@ type TerminalSlice = Pick<
   | 'executeTerminalCommand'
   | 'clearTerminal'
   | 'resetTerminalReplay'
+  | 'clearTerminalGeometryFollow'
   | 'stopTerminal'
   | 'interruptTerminal'
   | 'respondToPendingChallenge'
@@ -256,6 +257,16 @@ export const createTerminalSlice: StateCreator<
     set(state => ({
       terminalSessions: state.terminalSessions.map(item =>
         item.id === sessionId ? beginTerminalReplayStream(item) : item,
+      ),
+    }));
+  },
+
+  // 几何跟随夺回(设计 §1):本地 emulator fit / 跟随徽章点击 / 回前台都经此
+  // 清掉会话上挂起的 geometryFollow。对未知 sessionId 是幂等 no-op。
+  clearTerminalGeometryFollow: sessionId => {
+    set(state => ({
+      terminalSessions: state.terminalSessions.map(ts =>
+        ts.id === sessionId ? { ...ts, geometryFollow: undefined } : ts,
       ),
     }));
   },

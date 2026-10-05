@@ -133,6 +133,16 @@ export interface TerminalSession {
    * points humanize the quota_* prefixes; other texts keep generic copy.
    */
   exitReason?: string;
+  /**
+   * Pending geometry follow (设计 §1/§2): the last `terminal.geometry_changed`
+   * broadcast that passed the local-resize window (this device's own resize
+   * echoes are filtered out at the dispatcher — see terminalGeometryFollow.ts).
+   * Deliberately stored on the session entry — NOT component state — so
+   * re-entering the terminal screen still shows the follow until the user
+   * takes it back (emulator fit / badge tap / app foreground) via
+   * `clearTerminalGeometryFollow`.
+   */
+  geometryFollow?: { cols: number; rows: number; origin: 'web' | 'phone' };
 }
 
 /**
@@ -457,6 +467,14 @@ export interface ControlCenterState {
    * fresh stream instead of appending to (and duplicating) the previous one.
    */
   resetTerminalReplay: (sessionId: string) => void;
+  /**
+   * Drop the target session's pending geometry follow — the "take it back"
+   * escape hatch for the follow state written by `terminal.geometry_changed`:
+   * the local emulator fit (Task 13 resize), the follow badge tap, or regaining
+   * foreground all reclaim local geometry authority this way. A no-op for
+   * unknown session ids.
+   */
+  clearTerminalGeometryFollow: (sessionId: string) => void;
   stopTerminal: (terminalId: string) => Promise<void>;
   interruptTerminal: (terminalId: string) => void;
   /**

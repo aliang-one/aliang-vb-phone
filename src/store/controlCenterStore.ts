@@ -4,6 +4,10 @@ import type { PreviewLink, VibeCodingRun, VibeStatus } from '../data/platformMod
 import i18n from '../i18n';
 import { classifySessionBusyError } from '../utils/sessionBusyError';
 import { routeTerminalOutputToEmulator } from '../services/terminalOutputRegistry';
+import {
+  forgetTerminalGeometryFollow,
+  isLocalTerminalResizeRecent,
+} from '../services/terminalGeometryFollow';
 import { terminalDisplayUpdate } from '../utils/terminalOutput';
 import { findRecentActiveTerminalSession } from '../utils/terminalInteraction';
 import {
@@ -1106,7 +1110,8 @@ export const useControlCenterStore = create<ControlCenterState>()(
               // running); `exited:true` means only a tombstone existed — the
               // session is completed and its replayChunks stay for rendering.
               // A plain created is a brand-new session: drop any stale replay
-              // state so it can't leak into the fresh terminal.
+              // (and geometry-follow) state so it can't leak into the fresh
+              // terminal.
               const exited = transportEvent.raw.exited === true;
               const resumed = transportEvent.raw.resumed === true;
               set(state => ({
@@ -1138,8 +1143,24 @@ export const useControlCenterStore = create<ControlCenterState>()(
                     replayStatus: undefined,
                     replayTruncated: false,
                     exitReason: undefined,
+                    geometryFollow: undefined,
                   };
                 }),
+              }));
+              return;
+            }
+
+            case 'terminal.geometry_changed': {
+              // 几何跟随(设计 §1/§2):server resize 成功后广播;自己的回显经 2.5s
+              // 自发窗口过滤(服务 mark 见 terminalGeometryFollow.ts)。
+              const { sessionId, cols, rows, origin } = transportEvent;
+              if (isLocalTerminalResizeRecent(sessionId)) return;
+              set(state => ({
+                terminalSessions: state.terminalSessions.map(ts =>
+                  ts.id === sessionId
+                    ? { ...ts, geometryFollow: { cols, rows, origin } }
+                    : ts,
+                ),
               }));
               return;
             }
@@ -1150,6 +1171,10 @@ export const useControlCenterStore = create<ControlCenterState>()(
             // replay buffer is stale now — drop it so a later remount can't
             // render scrollback that no longer matches the closed session.
             case 'terminal.closed':
+              // The PTY is gone, so its local-resize window entry is
+              // meaningless — drop it (bounded-map hygiene, same discipline
+              // as terminalOutputRegistry's dispose on close).
+              forgetTerminalGeometryFollow(transportEvent.sessionId);
               set(state => ({
                 terminalSessions: state.terminalSessions.map(ts =>
                   ts.id === transportEvent.sessionId
