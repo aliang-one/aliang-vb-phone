@@ -15,6 +15,15 @@ import {
   TERMINAL_OUTPUT_FLUSH_MS,
   type TerminalOutputBatcher,
 } from '../../utils/terminalOutputBatcher';
+import { markLocalTerminalResize } from '../../services/terminalGeometryFollow';
+import { useControlCenterStore } from '../../store/controlCenterStore';
+
+/** Geometry-follow descriptor (设计 §1/§2,与 store 的 `geometryFollow` 同构)。 */
+export type TerminalFollowGeometry = {
+  cols: number;
+  rows: number;
+  origin: 'web' | 'phone';
+};
 
 interface TerminalEmulatorProps {
   /** Server-side terminal session ID */
@@ -53,6 +62,19 @@ interface TerminalEmulatorProps {
    * "session ended · history below" banner above the emulator.
    */
   replayStatus?: 'live' | 'exited';
+  /**
+   * Geometry follow (设计 §1/§2): non-null while this session's grid should
+   * follow the pty geometry — the store's `geometryFollow`, set by another
+   * client's `terminal.geometry_changed` and cleared on takeover. Edge
+   * transitions drive the bridge: null→set injects `follow` (grid lock +
+   * font scale), set→null injects `unfollow`; a geometry value change while
+   * set re-injects `follow` (re-lock to the new geometry). While set, a
+   * WebView resize report EQUAL to this geometry is the follow injection's
+   * own echo and is dropped (never a takeover); the ready-time initial
+   * resize also yields to the pending follow so the pty is not yanked back
+   * to the phone geometry.
+   */
+  followGeometry?: TerminalFollowGeometry | null;
 }
 
 export interface TerminalEmulatorHandle {
@@ -78,6 +100,7 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
   replayChunks,
   replayReady,
   replayStatus,
+  followGeometry,
 }) => {
   const { isDark, theme } = useTheme();
   const { t } = useTranslation('terminal');
@@ -95,6 +118,19 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
   const replayConsumedRef = useRef(false);
   // WebView announced readiness — gates the replay injection + live wiring.
   const [webViewReady, setWebViewReady] = useState(false);
+  // Geometry-follow mirror (latest-value ref): onMessage reads the current
+  // follow geometry synchronously without joining it into the callback deps.
+  const followRef = useRef(followGeometry ?? null);
+  followRef.current = followGeometry ?? null;
+  // Previous followGeometry for edge-transition detection in the inject effect.
+  const prevFollowRef = useRef<TerminalFollowGeometry | null>(null);
+  // True once the CURRENT follow state has actually been injected into the
+  // bridge (set by the follow effect's injection branches, cleared on session
+  // change / unfollow). Gates the resize branch: a report arriving while a
+  // follow is pending-but-not-injected is the WebView startup fit's echo of
+  // the phone geometry — mistaking it for a takeover would clear the pending
+  // follow, misjudge the later follow echo too, and storm resizes.
+  const followInjectedRef = useRef(false);
   const [liveWired, setLiveWired] = useState(false);
   // "已回放" badge bit: this mount rendered a non-empty replay.
   const [replayed, setReplayed] = useState(false);
@@ -181,6 +217,12 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
     renderedRef.current = false;
     liveWiredRef.current = false;
     replayConsumedRef.current = false;
+    // The WebView is re-keyed for the new session: its follow state starts
+    // fresh, so a pending followGeometry must be able to inject again — a
+    // stale prev from the previous session would suppress the injection —
+    // and the injected flag must drop with it.
+    prevFollowRef.current = null;
+    followInjectedRef.current = false;
     setWebViewReady(false);
     setLiveWired(false);
     setReplayed(false);
@@ -190,6 +232,55 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
     if (!readyRef.current) return;
     injectTerminalData('theme', terminalThemeJson);
   }, [injectTerminalData, terminalThemeJson]);
+
+  // Geometry follow (设计 §2): edge transitions of followGeometry drive the
+  // bridge — null→set injects `follow` (grid lock + font scale), set→null
+  // injects `unfollow`; a geometry VALUE change while already following
+  // (web resized again → store overwrites geometryFollow) re-injects follow
+  // so the phone re-locks to the new geometry. Injection waits for THIS
+  // WebView's readiness (the `readyRef` guard covers the sessionId-swap
+  // commit where `webViewReady` state is stale-true, same discipline as the
+  // replay handoff below), and this effect is declared ahead of it so the
+  // grid locks before scrollback is written.
+  useEffect(() => {
+    if (!webViewReady || !readyRef.current) return;
+    // Capture the previous value BEFORE updating the ref — the transition
+    // comparisons below must see the pre-change state.
+    const prev = prevFollowRef.current;
+    prevFollowRef.current = followGeometry ?? null;
+    if (followGeometry && !prev) {
+      followInjectedRef.current = true;
+      injectTerminalData(
+        'follow',
+        JSON.stringify({ cols: followGeometry.cols, rows: followGeometry.rows }),
+        'text',
+        false,
+      );
+    } else if (
+      followGeometry &&
+      prev &&
+      (followGeometry.cols !== prev.cols ||
+        followGeometry.rows !== prev.rows)
+    ) {
+      // Non-null → non-null with a different geometry: re-inject follow
+      // directly — the bridge's follow branch is idempotent (it clears the
+      // previous scroll fallback, re-measures and re-locks); no unfollow
+      // needed first. The re-injection's echo equals the NEW followRef
+      // value, so the resize-echo discrimination drops it as usual.
+      followInjectedRef.current = true;
+      injectTerminalData(
+        'follow',
+        JSON.stringify({ cols: followGeometry.cols, rows: followGeometry.rows }),
+        'text',
+        false,
+      );
+    } else if (!followGeometry && prev) {
+      // Follow state is gone: drop the injected flag with it (pure hygiene —
+      // the resize gate consults it only while followRef is non-null).
+      followInjectedRef.current = false;
+      injectTerminalData('unfollow');
+    }
+  }, [followGeometry, webViewReady, injectTerminalData]);
 
   // Replay → live handoff. Order of operations once the WebView is ready:
   //   1. While a replay stream is still in flight (chunks buffered, final
@@ -297,24 +388,65 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
           }
           break;
 
-        case 'resize':
+        case 'resize': {
           // Forward resize to server
           if (payload.cols && payload.rows) {
-            platformTransport.send({
-              type: 'terminal.resize',
-              session_id: sessionId,
-              cols: payload.cols,
-              rows: payload.rows,
-            });
+            // Startup-fit gate (设计 §2,与桥侧 100ms 启动 fit 防护成对): a
+            // follow can be pending but not yet injected — the WebView's
+            // startup fit fires at ~100ms while the follow injection lands at
+            // the next commit. Until it lands, any report is the startup fit
+            // echoing the phone geometry: yield like the ready branch does
+            // (no mark, no clear, no send), else the pending follow is
+            // cleared, the subsequent follow echo is then misjudged against a
+            // null followRef, and resizes storm.
+            if (followRef.current && !followInjectedRef.current) {
+              break;
+            }
+            // Follow-echo discrimination (设计 §2): while following, a report
+            // EQUAL to the follow geometry is the bridge's own term.resize
+            // echoing back (follow injection → onResize). Treating it as a
+            // takeover would unfollow ourselves — drop it; an equal takeover
+            // would be a no-op anyway (the grid is already at that geometry).
+            // Anything else (user fit, rotation — in follow state the grid is
+            // locked to the pty geometry, so a spontaneous fit yields the
+            // phone's own geometry) is a genuine takeover: mark the
+            // self-resize window and clear the pending follow so the
+            // geometry_changed echo cannot re-follow.
+            const follow = followRef.current;
+            const isFollowEcho =
+              follow !== null &&
+              payload.cols === follow.cols &&
+              payload.rows === follow.rows;
+            if (!isFollowEcho) {
+              markLocalTerminalResize(sessionId);
+              useControlCenterStore
+                .getState()
+                .clearTerminalGeometryFollow(sessionId);
+              platformTransport.send({
+                type: 'terminal.resize',
+                session_id: sessionId,
+                cols: payload.cols,
+                rows: payload.rows,
+              });
+            }
           }
           break;
+        }
 
-        case 'ready':
+        case 'ready': {
           readyRef.current = true;
           injectTerminalData('theme', terminalThemeJson);
-          if (payload.cols && payload.rows) {
+          // While a geometry follow is pending (store-preserved re-entry), the
+          // follow injection below locks the grid to the pty geometry — an
+          // initial resize here would race ahead of it, yank the pty back to
+          // the phone's own geometry and clear the follow. Skip it entirely
+          // (no send, no mark, no clear); only the follow-free path reports
+          // the initial fit — and marks it, since it is a self-originated
+          // resize whose geometry_changed echo must be filtered.
+          if (payload.cols && payload.rows && !followRef.current) {
             // Resize first: the agent re-renders the TUI at the new size, so
             // the replayed scrollback and live stream land in the right shape.
+            markLocalTerminalResize(sessionId);
             platformTransport.send({
               type: 'terminal.resize',
               session_id: sessionId,
@@ -324,6 +456,7 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
           }
           setWebViewReady(true);
           break;
+        }
 
         case 'rendered':
           if (!renderedRef.current) {
