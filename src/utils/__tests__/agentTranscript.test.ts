@@ -125,3 +125,49 @@ describe('buildDisplayTranscript — system 工件噪音行显示层兜底', () 
     expect(out.map(m => m.id)).toEqual(['a1']);
   });
 });
+
+describe('buildDisplayTranscript — harness 信封消息重分类为 system', () => {
+  const taskNotice = [
+    '<task-notification>',
+    '<task-id>b876t1utc</task-id>',
+    '<tool-use-id>call_0ec7</tool-use-id>',
+    '<output-file>/tmp/b876t1utc.output</output-file>',
+    '<status>completed</status>',
+    '<summary>Background command "Release 构建" completed (exit code 0)</summary>',
+    '</task-notification>',
+  ].join('\n');
+
+  it('纯 task-notification 的 user 消息 → system 角色(灰条可展开,不占用户气泡)', () => {
+    const out = buildDisplayTranscript([msg({ id: 't1', role: 'user', content: taskNotice })]);
+    expect(out).toHaveLength(1);
+    expect(out[0].role).toBe('system');
+  });
+
+  it('命令簇(user 触发的 /command 记录) → system 角色', () => {
+    const cluster = '<command-message>review</command-message>\n<command-name>/review</command-name>\n<command-args></command-args>';
+    const out = buildDisplayTranscript([msg({ id: 'c1', role: 'user', content: cluster })]);
+    expect(out[0].role).toBe('system');
+  });
+
+  it('散文 + 信封混合 → 保持 user 角色(不能吞掉真话)', () => {
+    const out = buildDisplayTranscript([
+      msg({ id: 'm1', role: 'user', content: `帮我看看这个\n<system-reminder>ctx</system-reminder>` }),
+    ]);
+    expect(out[0].role).toBe('user');
+  });
+
+  it('连续信封消息合并进同一个 system 气泡', () => {
+    const out = buildDisplayTranscript([
+      msg({ id: 't1', role: 'user', content: taskNotice }),
+      msg({ id: 't2', role: 'user', content: taskNotice.replace('b876t1utc', 'aaaa2zzzz') }),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].role).toBe('system');
+    expect(out[0].sourceMessageIds).toEqual(['t1', 't2']);
+  });
+
+  it('真用户消息不受影响', () => {
+    const out = buildDisplayTranscript([msg({ id: 'u1', role: 'user', content: '你好' })]);
+    expect(out[0].role).toBe('user');
+  });
+});

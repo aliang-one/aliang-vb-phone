@@ -237,6 +237,21 @@ const tagRegistry: Record<string, TagConfig> = {
     title: 'Approval request',
     tone: 'warning',
   },
+  'task-notification': {
+    display: 'callout',
+    title: 'Background task',
+    tone: 'info',
+  },
+  'harness-command': {
+    display: 'callout',
+    title: 'Slash command',
+    tone: 'neutral',
+  },
+  'cross-session-message': {
+    display: 'callout',
+    title: 'Cross-session message',
+    tone: 'info',
+  },
   'approval-requested': {
     display: 'callout',
     title: 'Approval request',
@@ -296,6 +311,57 @@ const formatAliangOptionsFence = (body: string) => {
     return cleanText(body) || 'The assistant is waiting for your approval.';
   }
 };
+
+// --- Claude Code harness 信封格式化 -----------------------------------------
+// harness 会把后台任务通知、斜杠命令记录等以 XML 信封形态注入 user 消息流
+// （生产 ai_messages 实证：task-notification 71 条全裸奔、命令簇 86 条零碎
+// 三段）。这里把信封正文化为可读卡片内容；标签本身交给 tagRegistry 呈现。
+
+const harnessField = (body: string, field: string): string => {
+  const match = new RegExp(`<${field}>\\s*([\\s\\S]*?)\\s*</${field}>`).exec(body);
+  return match ? match[1].trim() : '';
+};
+
+const formatTaskNotificationBody = (body: string): string => {
+  const status = harnessField(body, 'status');
+  const summary = harnessField(body, 'summary');
+  const outputFile = harnessField(body, 'output-file');
+  // task-id / tool-use-id / note 是纯管线字段，对手机读者只是噪音。
+  if (!status && !summary && !outputFile) return cleanText(body);
+  const glyph = status === 'completed' ? '✅' : status === 'failed' ? '❌' : 'ℹ️';
+  const lines: string[] = [];
+  const headline = [glyph, status, summary].filter(Boolean).join(status && summary ? ' — ' : ' ');
+  if (headline.trim()) lines.push(headline);
+  if (outputFile) lines.push(`\`${outputFile}\``);
+  return lines.join('\n');
+};
+
+const replaceTaskNotificationEnvelope = (content: string) =>
+  content.replace(
+    /<task-notification>\s*([\s\S]*?)\s*<\/task-notification>/gi,
+    (_match, body) =>
+      `\n<task-notification>${formatTaskNotificationBody(String(body ?? ''))}</task-notification>\n`,
+  );
+
+// 斜杠命令簇：<command-message>+<command-name>+<command-args>(+<skill-format>)
+// 相邻出现时合并为一张 Slash command 卡片，替代"零碎三段"。
+const HARNESS_COMMAND_TAG = 'command-message|command-name|command-args|skill-format|command-contents';
+const HARNESS_COMMAND_CLUSTER = new RegExp(
+  `(?:\\s*<(?:${HARNESS_COMMAND_TAG})>[\\s\\S]*?</(?:${HARNESS_COMMAND_TAG})>)+`,
+  'gi',
+);
+
+const replaceHarnessCommandCluster = (content: string) =>
+  content.replace(HARNESS_COMMAND_CLUSTER, cluster => {
+    const name = harnessField(cluster, 'command-name');
+    if (!name) return cluster;
+    const args = harnessField(cluster, 'command-args');
+    const label = name.startsWith('/') ? name : `/${name}`;
+    return `\n<harness-command>${args ? `${label} ${args}` : label}</harness-command>\n`;
+  });
+
+const formatHarnessEnvelopes = (content: string) =>
+  replaceHarnessCommandCluster(replaceTaskNotificationEnvelope(content));
 
 const replaceAliangOptionsFences = (rawContent: string) => {
   const content = rawContent.replace(
@@ -1070,7 +1136,7 @@ const collectMarkdownCodeRanges = (content: string) => {
 };
 
 const tokenizeAgentMarkup = (rawContent: string): AgentMarkupToken[] => {
-  const content = replaceAliangOptionsFences(rawContent)
+  const content = replaceAliangOptionsFences(formatHarnessEnvelopes(rawContent))
     .replace(ansiRegex, '')
     .replace(/\r\n/g, '\n');
   const codeRanges = collectMarkdownCodeRanges(content);

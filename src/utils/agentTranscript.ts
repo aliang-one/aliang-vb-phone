@@ -80,6 +80,22 @@ const isSystemToolStatusNoise = (message: AgentMessage): boolean =>
   message.role === 'system' &&
   SYSTEM_TOOL_STATUS_NOISE.test((message.content ?? '').replace(/^\s+/, ''));
 
+// harness 信封：Claude Code 把后台任务通知、/命令执行记录、系统提醒等以 XML
+// 信封形态注入 user 消息流（生产 ai_messages 实证：task-notification 71 条、
+// 命令簇 86 条，全是 user 角色）。纯信封消息不是用户说的话——显示层重分类为
+// system，吃现成的灰条折叠 UI，不占用用户气泡。混合（散文+信封）保持 user。
+const HARNESS_ENVELOPE_TAG =
+  'task-notification|system-reminder|local-command-stdout|local-command-stderr|local-command-caveat|local-command-status|command-message|command-name|command-args|command-contents|command-output|command-stdout|command-stderr|command-status|skill-format';
+const HARNESS_ENVELOPE_RE = new RegExp(
+  `<(?:${HARNESS_ENVELOPE_TAG})>[\\s\\S]*?</(?:${HARNESS_ENVELOPE_TAG})>`,
+  'gi',
+);
+
+const isPureHarnessEnvelope = (content: string): boolean => {
+  if (!content.includes('<')) return false;
+  return content.replace(HARNESS_ENVELOPE_RE, '').trim() === '';
+};
+
 export const parseTranscriptSegments = (
   message: AgentMessage,
 ): TranscriptSegment[] => {
@@ -150,8 +166,12 @@ export const buildDisplayTranscript = (
     // 被丢的行不占去重状态（否则中间夹一条噪音会误吞/漏判相邻重复）、不进
     // segmentCache（省掉整段 markdown 解析）。
     if (isSystemToolStatusNoise(message)) continue;
-    const role = message.role;
     const normalized = (message.content ?? '').trim();
+    // 纯 harness 信封的 user 消息按 system 展示（灰条折叠，不占用户气泡）。
+    const role =
+      message.role === 'user' && isPureHarnessEnvelope(normalized)
+        ? 'system'
+        : message.role;
     if (
       role === lastRole &&
       normalized !== '' &&

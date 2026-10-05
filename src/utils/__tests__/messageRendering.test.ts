@@ -259,3 +259,64 @@ describe('parseMessageContentSegments — aliang-options 丢围栏兜底', () =>
     expect(calloutTags(json.slice(0, Math.floor(json.length / 2)))).toEqual([]);
   });
 });
+
+describe('parseMessageContentSegments — harness 信封渲染', () => {
+  const taskNotice = [
+    '<task-notification>',
+    '<task-id>b876t1utc</task-id>',
+    '<tool-use-id>call_0ec7</tool-use-id>',
+    '<output-file>/private/tmp/claude-502/tasks/b876t1utc.output</output-file>',
+    '<status>completed</status>',
+    '<summary>Background command "Release 构建" completed (exit code 0)</summary>',
+    '</task-notification>',
+  ].join('\n');
+
+  const segmentsOf = (content: string) => parseMessageContentSegments('m', content);
+  const calloutsOf = (content: string) =>
+    segmentsOf(content).filter(s => s.kind === 'callout') as Array<
+      Extract<ReturnType<typeof parseMessageContentSegments>[number], { kind: 'callout' }>
+    >;
+
+  it('task-notification → Background task 卡片:状态+摘要正文化,管线字段不再裸奔', () => {
+    const callouts = calloutsOf(taskNotice);
+    expect(callouts).toHaveLength(1);
+    expect(callouts[0].title).toBe('Background task');
+    expect(callouts[0].content).toContain('completed');
+    expect(callouts[0].content).toContain('Release 构建');
+    expect(callouts[0].content).toContain('/private/tmp/claude-502/tasks/b876t1utc.output');
+    expect(callouts[0].content).not.toContain('<task-id>');
+    expect(callouts[0].content).not.toContain('<tool-use-id>');
+    expect(callouts[0].content).not.toContain('<status>');
+  });
+
+  it('task-notification 失败态带 ❌;无 summary 也能出卡', () => {
+    const failed = taskNotice
+      .replace('<status>completed</status>', '<status>failed</status>')
+      .replace(/<summary>[\s\S]*?<\/summary>\n?/, '');
+    const callouts = calloutsOf(failed);
+    expect(callouts).toHaveLength(1);
+    expect(callouts[0].content).toContain('failed');
+  });
+
+  it('命令簇合并为单张 Slash command 卡片(不再三段零碎)', () => {
+    const cluster = '<command-message>review</command-message>\n<command-name>/review</command-name>\n<command-args>high</command-args>';
+    const callouts = calloutsOf(cluster);
+    expect(callouts).toHaveLength(1);
+    expect(callouts[0].title).toBe('Slash command');
+    expect(callouts[0].content).toContain('/review high');
+  });
+
+  it('无斜杠前缀的 skill 名自动补 /', () => {
+    const cluster = '<command-message>workflow-authoring</command-message>\n<command-name>workflow-authoring</command-name>\n<skill-format>true</skill-format>';
+    const callouts = calloutsOf(cluster);
+    expect(callouts).toHaveLength(1);
+    expect(callouts[0].content).toContain('/workflow-authoring');
+  });
+
+  it('task-notification 混在散文中只替换信封本身', () => {
+    const mixed = `构建结果来了：\n${taskNotice}\n请看下日志。`;
+    const segs = segmentsOf(mixed);
+    expect(segs.some(s => s.kind === 'callout' && (s as { title: string }).title === 'Background task')).toBe(true);
+    expect(segs.some(s => s.kind === 'text')).toBe(true);
+  });
+});
