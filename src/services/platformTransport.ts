@@ -179,6 +179,7 @@ export type PlatformTransportEvent =
   | { type: 'terminal.created'; sessionId: string; raw: Record<string, unknown> }
   | { type: 'terminal.closed'; sessionId: string; raw: Record<string, unknown> }
   | { type: 'terminal.exit'; sessionId: string; failed: boolean; reason?: string; raw: Record<string, unknown> }
+  | { type: 'terminal.geometry_changed'; sessionId: string; cols: number; rows: number; origin: 'web' | 'phone'; raw: Record<string, unknown> }
   | { type: 'terminal.quota.challenge'; challengeId: string; sessionId: string; seq: number; terminalName?: string; usedBytes: number; killAtBytes: number; maxBytes: number; raw: Record<string, unknown> }
   | { type: 'terminal.quota.challenge_resolved'; challengeId: string; verdict: string; raw: Record<string, unknown> }
   | { type: 'approval.requested'; approval: PlatformApprovalSnapshot; raw: Record<string, unknown> }
@@ -777,6 +778,29 @@ class PlatformTransport {
         reason: asString(message.error),
         raw: message,
       };
+    }
+
+    // 几何跟随(设计 §1):server 在 resize 成功后广播 terminal.geometry_changed
+    // (snake_case,与 agent-relayed terminal.* 同组)。缺 cols/rows 或 origin 不在
+    // 'web' | 'phone' 闭集内时不 return —— 按闭合 union 惯例落到 raw 通道。
+    if (type === 'terminal.geometry_changed') {
+      const cols = num(message.cols);
+      const rows = num(message.rows);
+      const origin = message.origin;
+      if (
+        cols !== undefined &&
+        rows !== undefined &&
+        (origin === 'web' || origin === 'phone')
+      ) {
+        return {
+          type: 'terminal.geometry_changed',
+          sessionId: String(message.session_id ?? ''),
+          cols,
+          rows,
+          origin,
+          raw: message,
+        };
+      }
     }
 
     // Server-generated events (modules/challenge/service.ts publishes them

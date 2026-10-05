@@ -4,6 +4,10 @@ import type { PreviewLink, VibeCodingRun, VibeStatus } from '../data/platformMod
 import i18n from '../i18n';
 import { classifySessionBusyError } from '../utils/sessionBusyError';
 import { routeTerminalOutputToEmulator } from '../services/terminalOutputRegistry';
+import {
+  forgetTerminalGeometryFollow,
+  isLocalTerminalResizeRecent,
+} from '../services/terminalGeometryFollow';
 import { terminalDisplayUpdate } from '../utils/terminalOutput';
 import { findRecentActiveTerminalSession } from '../utils/terminalInteraction';
 import {
@@ -1106,7 +1110,8 @@ export const useControlCenterStore = create<ControlCenterState>()(
               // running); `exited:true` means only a tombstone existed — the
               // session is completed and its replayChunks stay for rendering.
               // A plain created is a brand-new session: drop any stale replay
-              // state so it can't leak into the fresh terminal.
+              // (and geometry-follow) state so it can't leak into the fresh
+              // terminal.
               const exited = transportEvent.raw.exited === true;
               const resumed = transportEvent.raw.resumed === true;
               set(state => ({
@@ -1117,6 +1122,10 @@ export const useControlCenterStore = create<ControlCenterState>()(
                   if (exited) {
                     // Tombstone attach: keep any exitReason captured when the
                     // kill frame was observed — the banner survives re-entry.
+                    // 不清 replayPending 属有意:新 agent 的回放末帧(终结)
+                    // 先于本事件到达,finalize 已清;流中途死掉(末帧永不
+                    // 到)时闸保持挂起属已知,自愈 = 重新进屏 re-attach /
+                    // plain-created(见 TerminalEmulator 残余注释)。
                     return {
                       ...ts,
                       status: 'completed' as TerminalSessionStatus,
@@ -1137,9 +1146,29 @@ export const useControlCenterStore = create<ControlCenterState>()(
                     replayReady: false,
                     replayStatus: undefined,
                     replayTruncated: false,
+                    // 老 agent 把 attach 当普通 create(server 侧不设
+                    // capability 闸),永不发 replay 末帧——挂起标志必须随
+                    // 新生会话复位,否则实时流永远接不上(Bug D ②的闸)。
+                    replayPending: false,
                     exitReason: undefined,
+                    geometryFollow: undefined,
                   };
                 }),
+              }));
+              return;
+            }
+
+            case 'terminal.geometry_changed': {
+              // 几何跟随(设计 §1/§2):server resize 成功后广播;自己的回显经 2.5s
+              // 自发窗口过滤(服务 mark 见 terminalGeometryFollow.ts)。
+              const { sessionId, cols, rows, origin } = transportEvent;
+              if (isLocalTerminalResizeRecent(sessionId)) return;
+              set(state => ({
+                terminalSessions: state.terminalSessions.map(ts =>
+                  ts.id === sessionId
+                    ? { ...ts, geometryFollow: { cols, rows, origin } }
+                    : ts,
+                ),
               }));
               return;
             }
@@ -1150,6 +1179,10 @@ export const useControlCenterStore = create<ControlCenterState>()(
             // replay buffer is stale now — drop it so a later remount can't
             // render scrollback that no longer matches the closed session.
             case 'terminal.closed':
+              // The PTY is gone, so its local-resize window entry is
+              // meaningless — drop it (bounded-map hygiene, same discipline
+              // as terminalOutputRegistry's dispose on close).
+              forgetTerminalGeometryFollow(transportEvent.sessionId);
               set(state => ({
                 terminalSessions: state.terminalSessions.map(ts =>
                   ts.id === transportEvent.sessionId
@@ -1160,6 +1193,8 @@ export const useControlCenterStore = create<ControlCenterState>()(
                         replayReady: false,
                         replayStatus: undefined,
                         replayTruncated: false,
+                        // 会话已死,回放挂起随之解除(终路径清 replayPending)。
+                        replayPending: false,
                       }
                     : ts,
                 ),

@@ -1,6 +1,10 @@
 import type { StateCreator } from 'zustand';
 import { platformTransport } from '../../services/platformTransport';
-import { disposeTerminalOutput } from '../../services/terminalOutputRegistry';
+import { markLocalTerminalResize } from '../../services/terminalGeometryFollow';
+import {
+  clearPendingTerminalOutput,
+  disposeTerminalOutput,
+} from '../../services/terminalOutputRegistry';
 import type {
   ControlCenterState,
   TerminalCommandHistoryItem,
@@ -33,6 +37,7 @@ type TerminalSlice = Pick<
   | 'executeTerminalCommand'
   | 'clearTerminal'
   | 'resetTerminalReplay'
+  | 'clearTerminalGeometryFollow'
   | 'stopTerminal'
   | 'interruptTerminal'
   | 'respondToPendingChallenge'
@@ -147,6 +152,14 @@ export const createTerminalSlice: StateCreator<
         };
       }
       addedPlaceholder = true;
+      // 冷 attach 的占位创建就是 attach 开始(首帧落地前 window 的起点):
+      // 与 beginTerminalReplayStream 同一承诺 —— ①清掉 registry 为该 id
+      // 暂存的 pre-attach 输出(routeTerminalOutputToEmulator 对任意
+      // sessionId 都暂存,无论会话是否已在 terminalSessions 里;回放滚动
+      // 区会原样重放这段字节,不清则同段字节写两次),②挂起 replayPending
+      // 闸,否则首帧未到时 chunks 为空、模拟器旧闸放行,实时流先接、历史
+      // 晚到再追加(Bug D ①②,审计 §2-1/2)。
+      clearPendingTerminalOutput(sessionId);
       const attachedAt = nowTime();
       return {
         terminalSessions: [
@@ -162,6 +175,7 @@ export const createTerminalSlice: StateCreator<
             replayChunks: [],
             replayReady: false,
             replayTruncated: false,
+            replayPending: true,
           },
           ...state.terminalSessions,
         ],
@@ -256,6 +270,16 @@ export const createTerminalSlice: StateCreator<
     set(state => ({
       terminalSessions: state.terminalSessions.map(item =>
         item.id === sessionId ? beginTerminalReplayStream(item) : item,
+      ),
+    }));
+  },
+
+  // 几何跟随夺回(设计 §1):本地 emulator fit / 跟随徽章点击 / 回前台都经此
+  // 清掉会话上挂起的 geometryFollow。对未知 sessionId 是幂等 no-op。
+  clearTerminalGeometryFollow: sessionId => {
+    set(state => ({
+      terminalSessions: state.terminalSessions.map(ts =>
+        ts.id === sessionId ? { ...ts, geometryFollow: undefined } : ts,
       ),
     }));
   },
@@ -421,6 +445,11 @@ export const createTerminalSlice: StateCreator<
   },
 
   resizeTerminal: (sessionId, cols, rows) => {
+    // 自发 resize 防抖打点(复审 F-4 防坑):terminal.resize 的回显会以
+    // geometry_changed 广播回手机,不打点会被 dispatcher 当成外部跟随写入
+    // geometryFollow(自跟随陷阱)。当前无调用方(存活 resize 走 emulator
+    // 桥的直发路径,那里已各自打点),保留 action 供未来调用者并先堵陷阱。
+    markLocalTerminalResize(sessionId);
     platformTransport.send({
       type: 'terminal.resize',
       session_id: sessionId,

@@ -11,14 +11,21 @@ import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { platformTransport } from '../src/services/platformTransport';
 import { getTerminalThemePalette } from '../src/components/terminal/terminalHtml';
 import {
+  clearPendingTerminalOutput,
   registerTerminalOutputHandler,
   routeTerminalOutputToEmulator,
   unregisterTerminalOutputHandler,
 } from '../src/services/terminalOutputRegistry';
+// 自发 resize 打点走真实服务(mark 的可观测效应 = 防抖窗口开启)。
+import {
+  isLocalTerminalResizeRecent,
+  resetTerminalGeometryFollowForTests,
+} from '../src/services/terminalGeometryFollow';
 
 const mockWebViewInjectJavaScript = jest.fn();
 const mockWebViewMount = jest.fn();
 const mockWebViewUnmount = jest.fn();
+const mockClearTerminalGeometryFollow = jest.fn();
 
 jest.mock('react-native-webview', () => {
   const MockReact = require('react');
@@ -41,6 +48,16 @@ jest.mock('react-native-webview', () => {
 jest.mock('../src/services/platformTransport', () => ({
   platformTransport: {
     send: jest.fn(),
+  },
+}));
+
+// 几何跟随(Task 13):组件只在 resize 接管时经 getState() 调
+// clearTerminalGeometryFollow —— mock 掉整个 store,真实 store 不进本测试图。
+jest.mock('../src/store/controlCenterStore', () => ({
+  useControlCenterStore: {
+    getState: () => ({
+      clearTerminalGeometryFollow: mockClearTerminalGeometryFollow,
+    }),
   },
 }));
 
@@ -436,5 +453,440 @@ describe('TerminalEmulator output batching', () => {
       { data: 'pending-1', encoding: 'text' },
       { data: 'pending-2', encoding: 'text' },
     ]);
+  });
+});
+
+// 几何跟随装配(Task 13):followGeometry prop 翻转驱动桥注入(follow/
+// unfollow);follow 态下 WebView 的 resize 回报区分「follow 注入自身的回声」
+// (同几何,丢弃)与「真实接管」(异几何,mark+清跟随+转发);ready 初始
+// resize 在跟随挂起时让位给随后的 follow 注入(防抢先把 pty 拉回手机几何)。
+describe('TerminalEmulator geometry follow', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockWebViewInjectJavaScript.mockClear();
+    mockWebViewMount.mockClear();
+    mockWebViewUnmount.mockClear();
+    resetTerminalGeometryFollowForTests();
+  });
+
+  const lightProvider = (element: React.ReactElement) => (
+    <ThemeContext.Provider
+      value={{
+        theme: utilityMinimalist,
+        mode: 'light',
+        setMode: jest.fn(),
+        isDark: false,
+      }}
+    >
+      {element}
+    </ThemeContext.Provider>
+  );
+
+  const injectScriptsContaining = (needle: string) =>
+    mockWebViewInjectJavaScript.mock.calls
+      .map(call => String(call[0]))
+      .filter(script => script.includes(needle));
+
+  it('injects follow with the pty geometry when followGeometry appears after ready', () => {
+    const tree = renderTerminal();
+    const webview = tree.root.findByType(WebView);
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+    mockWebViewInjectJavaScript.mockClear();
+
+    act(() => {
+      tree.update(
+        lightProvider(
+          <TerminalEmulator
+            sessionId="term-1"
+            enabled
+            followGeometry={{ cols: 100, rows: 30, origin: 'web' }}
+          />,
+        ),
+      );
+    });
+
+    const followScripts = injectScriptsContaining('injectTerminalData("follow"');
+    expect(followScripts).toHaveLength(1);
+    expect(followScripts[0]).toContain(
+      JSON.stringify(JSON.stringify({ cols: 100, rows: 30 })),
+    );
+  });
+
+  it('injects unfollow when followGeometry clears', () => {
+    const tree = renderTerminal({
+      followGeometry: { cols: 100, rows: 30, origin: 'web' },
+    });
+    const webview = tree.root.findByType(WebView);
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+    expect(injectScriptsContaining('injectTerminalData("follow"')).toHaveLength(
+      1,
+    );
+
+    mockWebViewInjectJavaScript.mockClear();
+    act(() => {
+      tree.update(lightProvider(<TerminalEmulator sessionId="term-1" enabled />));
+    });
+
+    expect(
+      injectScriptsContaining('injectTerminalData("unfollow"'),
+    ).toHaveLength(1);
+  });
+
+  it('re-injects follow when the followed geometry changes while active', () => {
+    const tree = renderTerminal({
+      followGeometry: { cols: 120, rows: 30, origin: 'web' },
+    });
+    const webview = tree.root.findByType(WebView);
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+    expect(injectScriptsContaining('injectTerminalData("follow"')).toHaveLength(
+      1,
+    );
+
+    // 跟随中 web 端再 resize → server 广播新几何 → store 覆写(非空→非空):
+    // 必须重注入 follow 锁新几何,否则手机锁死旧几何。
+    mockWebViewInjectJavaScript.mockClear();
+    act(() => {
+      tree.update(
+        lightProvider(
+          <TerminalEmulator
+            sessionId="term-1"
+            enabled
+            followGeometry={{ cols: 100, rows: 26, origin: 'web' }}
+          />,
+        ),
+      );
+    });
+
+    const followScripts = injectScriptsContaining('injectTerminalData("follow"');
+    expect(followScripts).toHaveLength(1);
+    expect(followScripts[0]).toContain(
+      JSON.stringify(JSON.stringify({ cols: 100, rows: 26 })),
+    );
+  });
+
+  it('does not re-inject follow when only the object identity changes', () => {
+    const tree = renderTerminal({
+      followGeometry: { cols: 120, rows: 30, origin: 'web' },
+    });
+    const webview = tree.root.findByType(WebView);
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+    mockWebViewInjectJavaScript.mockClear();
+
+    // 等值新对象(store 重写/父重渲):引用变、几何值不变 → 不重注入。
+    act(() => {
+      tree.update(
+        lightProvider(
+          <TerminalEmulator
+            sessionId="term-1"
+            enabled
+            followGeometry={{ cols: 120, rows: 30, origin: 'phone' }}
+          />,
+        ),
+      );
+    });
+
+    expect(injectScriptsContaining('injectTerminalData("follow"')).toHaveLength(
+      0,
+    );
+    expect(
+      injectScriptsContaining('injectTerminalData("unfollow"'),
+    ).toHaveLength(0);
+  });
+
+  it('drops the follow injection resize echo instead of taking over', () => {
+    const tree = renderTerminal({
+      followGeometry: { cols: 100, rows: 30, origin: 'web' },
+    });
+    const webview = tree.root.findByType(WebView);
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+
+    // 桥内 term.resize(100,30) → onResize 回报同几何 = follow 注入自身的回声。
+    act(() => {
+      webview.props.onMessage(message('resize', { cols: 100, rows: 30 }));
+    });
+
+    expect(platformTransport.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'terminal.resize' }),
+    );
+    expect(mockClearTerminalGeometryFollow).not.toHaveBeenCalled();
+    expect(isLocalTerminalResizeRecent('term-1')).toBe(false);
+  });
+
+  // 启动 fit 竞态(质量审查 Issue 1 的 RN 侧闸):桥的 100ms 启动 fit 在挂起
+  // 跟随注入落地之前回报手机几何 —— jsdom 不执行桥内 setTimeout,测试以消息
+  // 次序构造同一竞态窗口(挂起未注入时到达的 resize 回报)。视同 ready 让位:
+  // 不 mark、不清跟随、不转发,防三连 resize 风暴(误接管 → 清跟随 → 注入
+  // echo 二次误判)。
+  it('drops the startup-fit resize report while a pending follow is not yet injected', () => {
+    const tree = renderTerminal({
+      followGeometry: { cols: 100, rows: 30, origin: 'web' },
+    });
+    const webview = tree.root.findByType(WebView);
+
+    // 启动 fit 回报手机几何(≠ 挂起的 follow 几何),注入尚未发出。
+    act(() => {
+      webview.props.onMessage(message('resize', { cols: 80, rows: 24 }));
+    });
+
+    expect(platformTransport.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'terminal.resize' }),
+    );
+    expect(mockClearTerminalGeometryFollow).not.toHaveBeenCalled();
+    expect(isLocalTerminalResizeRecent('term-1')).toBe(false);
+
+    // 注入完成后,既有 echo 判别照常工作:同几何回声仍被丢弃。
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+    expect(injectScriptsContaining('injectTerminalData("follow"')).toHaveLength(
+      1,
+    );
+
+    act(() => {
+      webview.props.onMessage(message('resize', { cols: 100, rows: 30 }));
+    });
+    expect(platformTransport.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'terminal.resize' }),
+    );
+    expect(mockClearTerminalGeometryFollow).not.toHaveBeenCalled();
+  });
+
+  it('treats a differing resize while following as a takeover', () => {
+    const tree = renderTerminal({
+      followGeometry: { cols: 100, rows: 30, origin: 'web' },
+    });
+    const webview = tree.root.findByType(WebView);
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+
+    // 用户/布局发起的真实 resize(几何 ≠ follow)→ 接管:打点 + 清跟随 + 转发。
+    act(() => {
+      webview.props.onMessage(message('resize', { cols: 80, rows: 24 }));
+    });
+
+    expect(isLocalTerminalResizeRecent('term-1')).toBe(true);
+    expect(mockClearTerminalGeometryFollow).toHaveBeenCalledWith('term-1');
+    expect(platformTransport.send).toHaveBeenCalledWith({
+      type: 'terminal.resize',
+      session_id: 'term-1',
+      cols: 80,
+      rows: 24,
+    });
+  });
+
+  // Minor 2(质量审查):DeviceTerminalScreen 在挂载态 emulator 上换 sessionId
+  // (WebView 重键);followGeometry 跨会话保持时,新 WebView 的 ready 必须重新
+  // 注入 follow —— prevFollowRef/injected 闸随 sessionId 重置,否则上一会话
+  // 遗留的 prev 会压掉注入。
+  it('re-injects follow for the swapped-in session WebView when followGeometry persists', () => {
+    const tree = renderTerminal({
+      sessionId: 'term-1',
+      followGeometry: { cols: 100, rows: 30, origin: 'web' },
+    });
+    const webview = tree.root.findByType(WebView);
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+    expect(injectScriptsContaining('injectTerminalData("follow"')).toHaveLength(
+      1,
+    );
+
+    mockWebViewInjectJavaScript.mockClear();
+    act(() => {
+      tree.update(
+        lightProvider(
+          <TerminalEmulator
+            sessionId="term-2"
+            enabled
+            followGeometry={{ cols: 100, rows: 30, origin: 'web' }}
+          />,
+        ),
+      );
+    });
+
+    // 交换的 stale commit:新 WebView 仍在加载,不得注入。
+    expect(injectScriptsContaining('injectTerminalData("follow"')).toHaveLength(
+      0,
+    );
+
+    // 新 WebView ready:挂起的跟随重新注入(且 ready 初始 resize 仍让位)。
+    act(() => {
+      tree.root
+        .findByType(WebView)
+        .props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+    const followScripts = injectScriptsContaining('injectTerminalData("follow"');
+    expect(followScripts).toHaveLength(1);
+    expect(followScripts[0]).toContain(
+      JSON.stringify(JSON.stringify({ cols: 100, rows: 30 })),
+    );
+    expect(platformTransport.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'terminal.resize' }),
+    );
+  });
+
+  it('skips the ready initial resize while a follow is pending, locking via follow instead', () => {
+    const tree = renderTerminal({
+      followGeometry: { cols: 100, rows: 30, origin: 'web' },
+    });
+    const webview = tree.root.findByType(WebView);
+
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+
+    // store 保真重进:ready 的手机初始几何(80x24)不得抢在 follow 注入前
+    // 把 pty 拉回手机几何 —— 不发、不 mark、不 clear,由 follow 锁网格。
+    expect(platformTransport.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'terminal.resize' }),
+    );
+    expect(isLocalTerminalResizeRecent('term-1')).toBe(false);
+    expect(mockClearTerminalGeometryFollow).not.toHaveBeenCalled();
+    expect(injectScriptsContaining('injectTerminalData("follow"')).toHaveLength(
+      1,
+    );
+  });
+
+  it('still sends the ready initial resize when no follow is pending', () => {
+    const tree = renderTerminal();
+    const webview = tree.root.findByType(WebView);
+
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+
+    expect(platformTransport.send).toHaveBeenCalledWith({
+      type: 'terminal.resize',
+      session_id: 'term-1',
+      cols: 80,
+      rows: 24,
+    });
+    // ready 的初始 resize 也是手机自发 resize —— 打点开防抖窗口滤自回显。
+    expect(isLocalTerminalResizeRecent('term-1')).toBe(true);
+  });
+});
+
+// 交接闸门(Bug D ②,审计 §2-2):attach 已宣告(replayPending=true)但首帧
+// 未到(replayChunks 仍空)时,旧闸 `!replayReady && chunks.length > 0` 拦不住
+// —— 旧 pending 被提前放行、实时流先接,历史晚到再追加,顺序错乱(探针
+// 捕获顺序 output → replay → replay)。新闸在 replayPending 期间保持等待。
+describe('TerminalEmulator replay handoff gate (replayPending)', () => {
+  const wrapLight = (element: React.ReactElement) => (
+    <ThemeContext.Provider
+      value={{
+        theme: utilityMinimalist,
+        mode: 'light',
+        setMode: jest.fn(),
+        isDark: false,
+      }}
+    >
+      {element}
+    </ThemeContext.Provider>
+  );
+
+  /** 逐注入提取 injectTerminalData 的 type 序列(一次注入可能带多个调用)。 */
+  const injectTypes = () =>
+    mockWebViewInjectJavaScript.mock.calls.flatMap(call =>
+      String(call[0])
+        .match(/injectTerminalData\("([^"]+)"/g)
+        ?.map(m => m.match(/"([^"]+)"/)?.[1] ?? 'unknown') ?? [],
+    );
+
+  const injectPayloads = (type: string) =>
+    mockWebViewInjectJavaScript.mock.calls
+      .map(call => String(call[0]))
+      .flatMap(script => {
+        const payloads: string[] = [];
+        const pattern = /injectTerminalData\("([^"]+)", ("(?:[^"\\]|\\.)*")/g;
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(script)) !== null) {
+          if (match[1] === type) {
+            payloads.push(JSON.parse(match[2]) as string);
+          }
+        }
+        return payloads;
+      });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockWebViewInjectJavaScript.mockClear();
+    mockWebViewMount.mockClear();
+    mockWebViewUnmount.mockClear();
+    unregisterTerminalOutputHandler('term-1');
+    clearPendingTerminalOutput('term-1');
+  });
+
+  afterEach(() => {
+    unregisterTerminalOutputHandler('term-1');
+    clearPendingTerminalOutput('term-1');
+    jest.useRealTimers();
+  });
+
+  it('holds the live handoff while the stream is announced but no frame arrived yet', () => {
+    const tree = renderTerminal({ replayPending: true, replayChunks: [] });
+    const webview = tree.root.findByType(WebView);
+
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+
+    // 首帧未到:不注入 replay,也不注册实时 handler —— 路由继续走暂存
+    // (false = 未直达模拟器)。旧闸此窗口会放行并接实时流(Bug D ②)。
+    expect(injectPayloads('replay')).toEqual([]);
+    expect(routeTerminalOutputToEmulator('term-1', 'live-1\n')).toBe(false);
+  });
+
+  it('hands off once the final frame lands: replay injected, then live delivered', () => {
+    jest.useFakeTimers();
+    const tree = renderTerminal({
+      replayPending: true,
+      replayChunks: ['head\n'],
+    });
+    const webview = tree.root.findByType(WebView);
+
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+    // 流在途(chunks 有但末帧未到):同样不接实时流,输出进暂存。
+    expect(routeTerminalOutputToEmulator('term-1', 'early\n')).toBe(false);
+
+    // 末帧落地(store:replayPending 清除 + replayReady 置位)→ 注入回放、
+    // 接实时流,暂存的 early 输出排在回放之后补放。
+    act(() => {
+      tree.update(
+        wrapLight(
+          <TerminalEmulator
+            sessionId="term-1"
+            enabled
+            terminalRef={undefined}
+            replayPending={false}
+            replayReady
+            replayChunks={['head\n', 'tail\n']}
+          />,
+        ),
+      );
+    });
+    act(() => {
+      jest.advanceTimersByTime(60);
+    });
+
+    expect(injectPayloads('replay')).toEqual(['head\n', 'tail\n']);
+    expect(injectPayloads('output')).toEqual(['early\n']);
+    // 顺序契约:回放先于任何 output 注入(交接闸的全部意义)。
+    const types = injectTypes();
+    expect(types.indexOf('replay')).toBeLessThan(types.indexOf('output'));
+    // 接入后新 live 块直达模拟器。
+    expect(routeTerminalOutputToEmulator('term-1', 'after\n')).toBe(true);
   });
 });

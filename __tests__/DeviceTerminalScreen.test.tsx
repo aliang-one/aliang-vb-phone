@@ -1,5 +1,11 @@
 import React from 'react';
-import { Keyboard, Platform, Text, type KeyboardEvent } from 'react-native';
+import {
+  AppState,
+  Keyboard,
+  Platform,
+  Text,
+  type KeyboardEvent,
+} from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import {
@@ -29,6 +35,24 @@ const mockTerminalFit = jest.fn();
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
 let mockAutoRenderTerminal = true;
+// Latest props the mocked TerminalEmulator was rendered with — pins the
+// followGeometry wiring (store → screen prop), matching the passthrough mock.
+let mockLastEmulatorProps: Record<string, unknown> = {};
+
+type AppStateChangeHandler = (state: string) => void;
+let appStateChangeHandlers: AppStateChangeHandler[] = [];
+// RN 的 jest AppState mock 里 currentState 是 undefined;生产中屏幕挂载时
+// app 必为 active。按 useBackgroundNotifications.typeSwitch.test.tsx 的惯例
+// 用 defineProperty 钉住,让「active→active 非边沿」语义可测。
+let mockAppState: string = 'active';
+let originalAppStateDescriptor: PropertyDescriptor | undefined;
+// Drive the captured AppState 'change' handlers (the screen subscribes on
+// mount for the geometry-follow foreground takeover). Convention borrowed
+// from settingsNotifications.test.tsx.
+const emitAppState = (state: string) => {
+  mockAppState = state;
+  for (const handler of appStateChangeHandlers) handler(state);
+};
 
 // The AI-suggest hook is stubbed: these tests own keyboard/proxy/chip EXECUTION
 // wiring, not the STT/commandGen machinery (covered by the hook's own tests).
@@ -74,17 +98,16 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 jest.mock('../src/components/terminal/TerminalEmulator', () => ({
-  TerminalEmulator: ({
-    terminalRef,
-    onFocusRequest,
-    onRendered,
-  }: {
+  TerminalEmulator: (props: {
     terminalRef?: React.MutableRefObject<unknown>;
     onFocusRequest?: () => void;
     onRendered?: () => void;
+    followGeometry?: unknown;
   }) => {
     const MockReact = require('react');
     const { View } = require('react-native');
+    const { terminalRef, onFocusRequest, onRendered } = props;
+    mockLastEmulatorProps = props;
     MockReact.useEffect(() => {
       if (mockAutoRenderTerminal) onRendered?.();
     }, []);
@@ -111,6 +134,25 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     keyboardListeners = {};
     screen = null;
     mockAutoRenderTerminal = true;
+    mockLastEmulatorProps = {};
+    appStateChangeHandlers = [];
+    mockAppState = 'active';
+    originalAppStateDescriptor = Object.getOwnPropertyDescriptor(
+      AppState,
+      'currentState',
+    );
+    Object.defineProperty(AppState, 'currentState', {
+      get: () => mockAppState,
+      configurable: true,
+    });
+    jest
+      .spyOn(AppState, 'addEventListener')
+      .mockImplementation(
+        (((event: string, handler: AppStateChangeHandler) => {
+          if (event === 'change') appStateChangeHandlers.push(handler);
+          return { remove: jest.fn() };
+        }) as unknown) as typeof AppState.addEventListener,
+      );
     keyboardDismissSpy = jest.spyOn(Keyboard, 'dismiss').mockImplementation();
     jest.spyOn(Keyboard, 'addListener').mockImplementation((event, callback) => {
       const listener = callback as (event?: KeyboardEvent) => void;
@@ -197,6 +239,13 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
       screen?.unmount();
     });
     screen = null;
+    if (originalAppStateDescriptor) {
+      Object.defineProperty(
+        AppState,
+        'currentState',
+        originalAppStateDescriptor,
+      );
+    }
     jest.restoreAllMocks();
   });
 
@@ -1509,5 +1558,117 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     ).toEqual(
       expect.arrayContaining([expect.objectContaining({ paddingBottom: 440 })]),
     );
+  });
+
+  it('renders the follow badge with geometry and takes over on tap', async () => {
+    useControlCenterStore.setState(state => ({
+      terminalSessions: state.terminalSessions.map(item =>
+        item.id === 'term-1'
+          ? {
+              ...item,
+              geometryFollow: {
+                cols: 120,
+                rows: 30,
+                origin: 'web' as const,
+              },
+            }
+          : item,
+      ),
+    }));
+
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    const badge = screen!.root.findByProps({ testID: 'terminal-follow-badge' });
+    expect(badge.props.accessibilityRole).toBe('button');
+    // jest 锁 zh(见 jest.setup.js):徽章文案 = 已跟随网页 120×30 · 点击接管。
+    expect(
+      screen!.root
+        .findAllByType(Text)
+        .some(node => String(node.props.children).includes('120×30')),
+    ).toBe(true);
+    expect(mockLastEmulatorProps.followGeometry).toEqual({
+      cols: 120,
+      rows: 30,
+      origin: 'web',
+    });
+
+    act(() => {
+      badge.props.onPress();
+    });
+
+    expect(
+      useControlCenterStore
+        .getState()
+        .terminalSessions.find(item => item.id === 'term-1')?.geometryFollow,
+    ).toBeUndefined();
+    expect(mockLastEmulatorProps.followGeometry).toBeNull();
+    expect(
+      screen!.root.findAllByProps({ testID: 'terminal-follow-badge' }).length,
+    ).toBe(0);
+  });
+
+  it('does not render the follow badge without a pending geometry follow', async () => {
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    expect(
+      screen!.root.findAllByProps({ testID: 'terminal-follow-badge' }).length,
+    ).toBe(0);
+    expect(mockLastEmulatorProps.followGeometry).toBeNull();
+  });
+
+  it('reclaims geometry follow when the app returns to the foreground', async () => {
+    useControlCenterStore.setState(state => ({
+      terminalSessions: state.terminalSessions.map(item =>
+        item.id === 'term-1'
+          ? {
+              ...item,
+              geometryFollow: {
+                cols: 120,
+                rows: 30,
+                origin: 'web' as const,
+              },
+            }
+          : item,
+      ),
+    }));
+
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-follow-badge' }),
+    ).toBeTruthy();
+
+    // active→active 不是边沿:不夺回(跟随仍在)。
+    act(() => {
+      emitAppState('active');
+    });
+    expect(
+      screen!.root.findByProps({ testID: 'terminal-follow-badge' }),
+    ).toBeTruthy();
+
+    // 退后台再回前台 = 手机用户回来,自动夺回几何控制(clear → prop 翻转
+    // → emulator 注 unfollow;真机 smoke 覆盖后续链路)。
+    act(() => {
+      emitAppState('background');
+    });
+    act(() => {
+      emitAppState('active');
+    });
+
+    expect(
+      useControlCenterStore
+        .getState()
+        .terminalSessions.find(item => item.id === 'term-1')?.geometryFollow,
+    ).toBeUndefined();
+    expect(mockLastEmulatorProps.followGeometry).toBeNull();
+    expect(
+      screen!.root.findAllByProps({ testID: 'terminal-follow-badge' }).length,
+    ).toBe(0);
   });
 });

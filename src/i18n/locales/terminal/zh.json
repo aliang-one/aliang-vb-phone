@@ -92,5 +92,10 @@
     "resuming": "正在恢复会话…",
     "oldAgentNotice": "此设备 Agent 版本较旧，断开后无法恢复终端历史输出"
 
+  },
+  "follow": {
+    "badge": "已跟随{{source}} {{cols}}×{{rows}} · 点击接管",
+    "sourceWeb": "网页",
+    "sourceDevice": "其他设备"
   }
 }

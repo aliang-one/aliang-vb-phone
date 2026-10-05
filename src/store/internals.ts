@@ -28,6 +28,7 @@ import {
   type PlatformRealtimeEventSnapshot,
   type PlatformTerminalSessionSnapshot,
 } from '../services/platformTransport';
+import { clearPendingTerminalOutput } from '../services/terminalOutputRegistry';
 import { serverAiMessageToAgent } from '../api/sessions';
 import {
   isAuthoritativeDetail,
@@ -1103,11 +1104,18 @@ export function mergeTerminalSessionSnapshot(
     ...incoming,
     lines: existing.lines.length ? existing.lines : incoming.lines,
     // Replay state is buffered by the realtime stream, not the snapshot: a
-    // rehydration must never drop unconsumed replayChunks.
+    // rehydration must never drop unconsumed replayChunks — nor an in-flight
+    // replayPending (the attach REST response lands mid-stream all the time).
     replayChunks: existing.replayChunks ?? incoming.replayChunks,
     replayReady: existing.replayReady ?? incoming.replayReady,
     replayStatus: existing.replayStatus ?? incoming.replayStatus,
     replayTruncated: existing.replayTruncated ?? incoming.replayTruncated,
+    replayPending: existing.replayPending ?? incoming.replayPending,
+    // Same for the pending geometry follow (设计 §1): it is realtime-only and
+    // REST snapshots never carry it — the attach flow's snapshot merge runs
+    // exactly when the user re-enters the terminal screen, and the follow
+    // must survive that re-entry instead of silently dropping the badge.
+    geometryFollow: existing.geometryFollow ?? incoming.geometryFollow,
   };
 }
 
@@ -1139,16 +1147,39 @@ export const utf8ByteLength = (value: string): number => {
  * a non-final frame landing on an already-finalized buffer) and exposed as
  * the `resetTerminalReplay` store action for the attach flow — so a re-attach
  * replaces the previous scrollback instead of duplicating it.
+ *
+ * Attach-seam hygiene (Bug D,审计 §2-1/2): beginning a stream ALSO drops the
+ * terminalOutputRegistry's pending buffer for the session. That buffer holds
+ * live chunks received while no emulator was mounted (up to 200) — the
+ * replayed scrollback re-covers exactly those bytes, so draining them after
+ * wiring would write the same bytes twice (probe: one prompt painted into
+ * the WebView twice). `replayPending: true` announces the in-flight stream
+ * so the emulator holds the live handoff until the final frame: without it
+ * the old gate (`!replayReady && chunks.length > 0`) passes before the FIRST
+ * replay frame lands (chunks still empty) and the late history gets appended
+ * on top of already-wired live output (probe order: output → replay →
+ * replay).
+ *
+ * Known residual, honestly out of scope here (needs a watermark/sequence
+ * scheme as future independent work): live bytes arriving BETWEEN the attach
+ * start and the finalize still buffer into the registry pending and are
+ * drained behind the replay — they can overlap the scrollback's tail because
+ * the agent's replay snapshot was taken at attach time. The cold-attach
+ * placeholder (session unknown locally, terminalSlice) does not run this
+ * function but performs the same two steps itself at placeholder creation,
+ * closing its pre-first-frame window; the residual above is all that remains.
  */
 export function beginTerminalReplayStream(
   session: TerminalSession,
 ): TerminalSession {
+  clearPendingTerminalOutput(session.id);
   return {
     ...session,
     replayChunks: [],
     replayReady: false,
     replayStatus: undefined,
     replayTruncated: false,
+    replayPending: true,
   };
 }
 
@@ -1197,6 +1228,7 @@ export function appendTerminalReplayChunk(
  * `status` maps to replayStatus (anything but "exited" means the session was
  * live). The agent's `truncated` flag is OR-ed with any locally observed
  * truncation — either side losing scrollback means the buffer is incomplete.
+ * Clearing `replayPending` releases the emulator's handoff hold (Bug D ②).
  */
 export function finalizeTerminalReplay(
   session: TerminalSession,
@@ -1208,6 +1240,7 @@ export function finalizeTerminalReplay(
     replayStatus: frame?.status === 'exited' ? 'exited' : 'live',
     replayTruncated:
       frame?.truncated === true || (session.replayTruncated ?? false),
+    replayPending: false,
   };
 }
 
