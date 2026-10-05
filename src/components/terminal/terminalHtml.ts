@@ -134,6 +134,8 @@ export function getTerminalHtml(isDark: boolean): string {
       var terminalRoot = document.getElementById('terminal-root');
       var pendingTouchStart = null;
       var TOUCH_END_MAX_OFFSET = 8;
+      // Geometry-follow scratch state: active flag + measured font metrics.
+      var followState = { active: false };
 
       function configureHelperTextarea() {
         var textarea = terminalRoot.querySelector('.xterm-helper-textarea');
@@ -240,7 +242,13 @@ export function getTerminalHtml(isDark: boolean): string {
         term.refresh(0, term.rows - 1);
         announceRendered();
       }, 100);
-      window.addEventListener('resize', function() { fitAddon.fit(); });
+      // While geometry-follow is active the grid is locked to the pty size, so
+      // a window resize (device rotation) must not fit() — that would recompute
+      // cols/rows while the font stays shrunk, leaving a half-followed state.
+      window.addEventListener('resize', function() {
+        if (followState.active) return;
+        fitAddon.fit();
+      });
 
       // Resize → RN
       term.onResize(function(size) {
@@ -301,6 +309,44 @@ export function getTerminalHtml(isDark: boolean): string {
               term.resize(size.cols, size.rows);
               fitAddon.fit();
             }
+          } else if (type === 'follow') {
+            // Geometry follow (design §2): lock the grid to the pty geometry and
+            // scale the font so cols fill the holder width. When even 8px cannot
+            // fit, keep the 8px floor and fall back to horizontal scrolling.
+            // Never call fit() here — fit recomputes cols from the holder and
+            // would clobber the followed geometry.
+            var geo = JSON.parse(payload);
+            if (geo && geo.cols && geo.rows) {
+              followState.active = true;
+              followState.prevFontSize = 13;
+              // Reset any scroll fallback from a previous follow before
+              // re-measuring, so repeated follow payloads stay idempotent.
+              terminalRoot.style.overflowX = '';
+              term.element().style.minWidth = '';
+              var holderWidth = terminalRoot.clientWidth || window.innerWidth;
+              var mCanvas = followState.cv || (followState.cv = document.createElement('canvas'));
+              var mCtx = mCanvas.getContext('2d');
+              mCtx.font = '13px Menlo, Monaco, "Courier New", monospace';
+              var charW = mCtx.measureText('M').width || 7.8;
+              var scaled = Math.floor(holderWidth / (geo.cols * charW / 13));
+              var fontSize = Math.max(8, Math.min(13, scaled));
+              term.options.fontSize = fontSize;
+              var minPx = Math.ceil(geo.cols * charW * 8 / 13);
+              if (fontSize <= 8 && minPx > holderWidth) {
+                terminalRoot.style.overflowX = 'auto';
+                term.element().style.minWidth = minPx + 'px';
+              }
+              term.resize(geo.cols, geo.rows);
+            }
+          } else if (type === 'unfollow') {
+            // Leave follow: restore the base font size and holder styles, then
+            // fit() — the grid change fires onResize → RN hears the takeover.
+            followState.active = false;
+            term.options.fontSize = followState.prevFontSize || 13;
+            terminalRoot.style.overflowX = '';
+            term.element().style.minWidth = '';
+            fitAddon.fit();
+            configureHelperTextarea();
           } else if (type === 'input') {
             var input = encoding === 'base64'
               ? decodeBase64Utf8(payload)

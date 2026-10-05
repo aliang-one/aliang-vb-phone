@@ -73,4 +73,18 @@ describe('terminalHtml', () => {
     expect(html).not.toContain("type: 'binary'");
     expect(html).not.toContain('encodeBase64Utf8');
   });
+
+  it('injectTerminalData 支持 follow/unfollow 分支(字号钳制与恢复)', () => {
+    const html = getTerminalHtml(true);
+
+    expect(html).toContain("} else if (type === 'follow') {");
+    expect(html).toContain("} else if (type === 'unfollow') {");
+    // 字号钳制:8px 保底、13px 上限(钉住本分支字面量——xterm bundle 自带 Math.max)
+    expect(html).toContain('Math.max(8, Math.min(13, scaled))');
+    // 横滚兜底:8px 仍塞不下时给 xterm 元素设 minWidth
+    expect(html).toContain('term.element().style.minWidth');
+    // 跟随态下 window resize 跳过 fit(防半跟随),unfollow 再恢复
+    expect(html).toContain('if (followState.active) return');
+    expect(html).toContain('followState.active = false');
+  });
 });
