@@ -388,6 +388,18 @@ export const DeviceTerminalScreen: React.FC = () => {
   const quotaExitText = quotaExitKind
     ? tExit(`exitReason.${quotaExitKind}`)
     : null;
+  // 跟随徽章文案(设计 §3):可见文案与显式 a11y label 同参复用(本文件
+  // 兄弟 touchable 均显式 label,不让读屏只念内联 Text)。
+  const followBadgeText = terminal?.geometryFollow
+    ? tReplay('follow.badge', {
+        source:
+          terminal.geometryFollow.origin === 'web'
+            ? tReplay('follow.sourceWeb')
+            : tReplay('follow.sourceDevice'),
+        cols: terminal.geometryFollow.cols,
+        rows: terminal.geometryFollow.rows,
+      })
+    : undefined;
   const terminalDeadWithoutReplay = Boolean(
     terminal &&
       !terminalEnded &&
@@ -1708,6 +1720,8 @@ export const DeviceTerminalScreen: React.FC = () => {
                     testID="terminal-follow-badge"
                     activeOpacity={0.76}
                     accessibilityRole="button"
+                    accessibilityLabel={followBadgeText}
+                    hitSlop={terminalControlHitSlop}
                     style={[
                       styles.followBadge,
                       {
@@ -1723,14 +1737,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                         { color: theme.colors.onSurfaceVariant },
                       ]}
                     >
-                      {tReplay('follow.badge', {
-                        source:
-                          terminal.geometryFollow.origin === 'web'
-                            ? tReplay('follow.sourceWeb')
-                            : tReplay('follow.sourceDevice'),
-                        cols: terminal.geometryFollow.cols,
-                        rows: terminal.geometryFollow.rows,
-                      })}
+                      {followBadgeText}
                     </Text>
                   </TouchableOpacity>
                 ) : null}
