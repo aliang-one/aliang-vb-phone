@@ -92,5 +92,10 @@
     "resuming": "Resuming session…",
     "oldAgentNotice": "This device's agent is older — terminal history won't survive disconnects"
 
+  },
+  "follow": {
+    "badge": "Following {{source}} {{cols}}×{{rows}} · tap to take over",
+    "sourceWeb": "web",
+    "sourceDevice": "another device"
   }
 }

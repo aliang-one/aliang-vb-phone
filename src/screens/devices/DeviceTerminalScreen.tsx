@@ -8,6 +8,8 @@ import React, {
 import {
   LayoutAnimation,
   ActivityIndicator,
+  AppState,
+  AppStateStatus,
   Keyboard,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -239,6 +241,9 @@ export const DeviceTerminalScreen: React.FC = () => {
   // ran so background churn can't re-attach (and restart the replay) forever.
   const attachedTerminalIdRef = useRef<string | null>(null);
   const directoryPathRef = useRef<ScrollView>(null);
+  // AppState 回前台接管的边沿检测:记录上一次 AppState(参照
+  // usePresenceHeartbeat 的 previousAppStateRef 模式)。
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const createTerminalSession = useControlCenterStore(
     state => state.createTerminalSession,
   );
@@ -249,6 +254,9 @@ export const DeviceTerminalScreen: React.FC = () => {
     state => state.loadTerminalCommandHistory,
   );
   const serverMode = useControlCenterStore(state => state.serverMode);
+  const clearTerminalGeometryFollow = useControlCenterStore(
+    state => state.clearTerminalGeometryFollow,
+  );
   const [terminalId, setTerminalId] = useState(route.params.terminalId);
   const [terminalOpening, setTerminalOpening] = useState(false);
   const [renderedTerminalId, setRenderedTerminalId] = useState('');
@@ -297,6 +305,14 @@ export const DeviceTerminalScreen: React.FC = () => {
     ? device.capabilities.includes('terminal_replay')
     : true;
   const terminal = useTerminalSession(terminalId);
+  // 几何跟随(设计 §1):latest-value ref for the AppState takeover listener
+  // (订阅只挂一次)——持有当前会话跟随中的 session id,否则 null。写法与本
+  // 文件 recordingBottomOffsetRef 的 latest-ref 惯例一致:terminal 快照高频
+  // 变化不重挂监听。
+  const followTakeoverSessionRef = useRef<string | null>(null);
+  followTakeoverSessionRef.current = terminal?.geometryFollow
+    ? terminal.id
+    : null;
   const directory = terminal?.directory ?? route.params.directory ?? '~';
   const terminalInteraction = getTerminalInteractionState({
     terminalStatus: terminal?.status,
@@ -426,6 +442,29 @@ export const DeviceTerminalScreen: React.FC = () => {
   useEffect(() => {
     aiSuggest.reset();
   }, [terminalId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // AppState 回前台接管(设计 §1):跟随中回到前台 = 手机用户本人回来了,
+  // 自动夺回几何控制 —— clearTerminalGeometryFollow → followGeometry prop
+  // 翻转为 null → emulator 注 unfollow → 自发 fit 上报手机几何。只在非
+  // active→active 的边沿触发(参照 usePresenceHeartbeat);当前跟随会话经
+  // 上方 latest-ref 读取。
+  useEffect(() => {
+    const handleChange = (nextState: AppStateStatus) => {
+      const previousState = appStateRef.current;
+      appStateRef.current = nextState;
+      if (nextState !== 'active' || previousState === 'active') {
+        return;
+      }
+      const sessionId = followTakeoverSessionRef.current;
+      if (sessionId) {
+        clearTerminalGeometryFollow(sessionId);
+      }
+    };
+    const subscription = AppState.addEventListener('change', handleChange);
+    return () => {
+      subscription.remove();
+    };
+  }, [clearTerminalGeometryFollow]);
 
   const cancelKeyboardProxyFocusRetry = useCallback(() => {
     if (keyboardProxyFocusRetryRef.current) {
@@ -1495,6 +1534,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                   replayChunks={terminal.replayChunks}
                   replayReady={terminal.replayReady}
                   replayStatus={terminal.replayStatus}
+                  followGeometry={terminal.geometryFollow ?? null}
                 />
                 {!terminalRendered && !terminalRenderErrorMessage ? (
                   <View
@@ -1663,6 +1703,37 @@ export const DeviceTerminalScreen: React.FC = () => {
                 }
                 style={[styles.floatingControls, { bottom: stableControlsBottomOffset }]}
               >
+                {terminal?.geometryFollow ? (
+                  <TouchableOpacity
+                    testID="terminal-follow-badge"
+                    activeOpacity={0.76}
+                    accessibilityRole="button"
+                    style={[
+                      styles.followBadge,
+                      {
+                        backgroundColor: elevatedSurfaceColor,
+                        borderColor: outlineColor,
+                      },
+                    ]}
+                    onPress={() => clearTerminalGeometryFollow(terminal.id)}
+                  >
+                    <Text
+                      style={[
+                        theme.typography.codeSm,
+                        { color: theme.colors.onSurfaceVariant },
+                      ]}
+                    >
+                      {tReplay('follow.badge', {
+                        source:
+                          terminal.geometryFollow.origin === 'web'
+                            ? tReplay('follow.sourceWeb')
+                            : tReplay('follow.sourceDevice'),
+                        cols: terminal.geometryFollow.cols,
+                        rows: terminal.geometryFollow.rows,
+                      })}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
                 {aiSuggest.phase !== 'idle' || aiSuggest.textMode ? (
                   <TerminalAiStatusStrip
                     phase={aiSuggest.phase}
@@ -2184,6 +2255,16 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
+  },
+  // 跟随徽章(设计 §3):自参照 exitReasonBar/capabilityHintBar 的条形
+  // 风格,挂在浮动控制栏内(TerminalAiStatusStrip 同级槽位,onLayout 自动
+  // 撑 viewport inset 是既有机制)。
+  followBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
   },
   floatingControls: {
     position: 'absolute',

@@ -130,6 +130,7 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
   // follow is pending-but-not-injected is the WebView startup fit's echo of
   // the phone geometry — mistaking it for a takeover would clear the pending
   // follow, misjudge the later follow echo too, and storm resizes.
+  // 语义注意:闸在 dispatch 时置位,非 WebView 执行时——注入还在原生桥队列中时到达的 resize 回报不会被闸拦(病态时序,自愈于下一条 geometry_changed;见 Task 13 复审记录)。
   const followInjectedRef = useRef(false);
   const [liveWired, setLiveWired] = useState(false);
   // "已回放" badge bit: this mount rendered a non-empty replay.
