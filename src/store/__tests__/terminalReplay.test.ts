@@ -3,6 +3,7 @@ jest.mock('../../services/platformTransport', () => ({
     loadSnapshot: jest.fn(),
     disconnect: jest.fn(),
     connect: jest.fn(),
+    attachTerminalSession: jest.fn(),
   },
 }));
 
@@ -16,7 +17,14 @@ import {
   serverTerminalSessionToClient,
 } from '../internals';
 import { useControlCenterStore } from '../controlCenterStore';
-import { drainPendingTerminalOutput } from '../../services/terminalOutputRegistry';
+import { platformTransport } from '../../services/platformTransport';
+import {
+  clearPendingTerminalOutput,
+  drainPendingTerminalOutput,
+  registerTerminalOutputHandler,
+  routeTerminalOutputToEmulator,
+  unregisterTerminalOutputHandler,
+} from '../../services/terminalOutputRegistry';
 import type { ControlCenterState, TerminalSession } from '../types';
 import type { PlatformTerminalSessionSnapshot } from '../../services/platformTransport';
 
@@ -70,6 +78,11 @@ const getTerminal = (id: string) =>
   useControlCenterStore
     .getState()
     .terminalSessions.find(ts => ts.id === id) as TerminalSession;
+
+// 顶部 jest.mock 工厂里的 transport mock(cold-attach 用例会挂起实现;
+// Bug D describe 的 afterEach mockReset,防后续追加的测试继承永不 resolve
+// 的实现)。
+const attachTerminalSessionMock = platformTransport.attachTerminalSession as unknown as jest.Mock;
 
 const snapshotSession = (
   over: Partial<PlatformTerminalSessionSnapshot> & {
@@ -495,5 +508,158 @@ describe('finalizeTerminalReplay (pure)', () => {
       truncated: false,
     });
     expect(finalized.replayTruncated).toBe(true);
+  });
+});
+
+// Bug D(手机 pending 与历史重叠 + 实时流提前接入,审计 §2-1/2):
+//  ① attach 开始新回放流那一刻必须清掉 registry 的暂存 pending —— 那里面是
+//     模拟器未挂载期间到达的 live 块(封顶 200),回放滚动区会原样重放这段
+//     字节,不清则 register 后同一段字节写两次(探针:一个提示符进 WebView
+//     两次)。
+//  ② 会话挂起 replayPending:首帧未到时 replayChunks 还是空的,旧闸
+//     `!replayReady && chunks.length > 0` 拦不住,实时流先接、历史晚到再
+//     追加 → 顺序错乱(探针捕获顺序 output → replay → replay)。
+describe('replayPending + registry pending hygiene (attach seam, Bug D)', () => {
+  beforeEach(() => {
+    seedStore([makeSession({ id: 'term-1' })]);
+    // registry 是模块级单例:用例间清残留,避免上一用例的 handler/pending 串场。
+    unregisterTerminalOutputHandler('term-1');
+    clearPendingTerminalOutput('term-1');
+  });
+
+  afterEach(() => {
+    unregisterTerminalOutputHandler('term-1');
+    clearPendingTerminalOutput('term-1');
+    // cold-attach 用例给 transport mock 挂起实现(REST 永不 resolve)——
+    // reset 掉,后续追加的测试不得继承它。
+    attachTerminalSessionMock.mockReset();
+  });
+
+  it('a new replay stream drops pre-mount pending output and marks replayPending', () => {
+    // 模拟器未挂载期间 live 输出进了 registry 暂存。
+    routeTerminalOutputToEmulator('term-1', 'stale-1\n');
+    routeTerminalOutputToEmulator('term-1', 'stale-2\n');
+
+    // seq 0 = 新流开始:暂存块已过期(回放会重放这段字节)必须丢弃;会话
+    // 挂起 replayPending,末帧未到前模拟器不得接实时流。
+    dispatch(replayFrame({ sessionId: 'term-1', data: '$ ls\r\n', seq: 0 }));
+
+    expect(getTerminal('term-1').replayPending).toBe(true);
+    // register handler 拿到空批次——不再有与回放重叠的旧 pending。
+    expect(registerTerminalOutputHandler('term-1', () => {})).toEqual([]);
+  });
+
+  it('the final frame clears replayPending so the emulator handoff may proceed', () => {
+    dispatch(replayFrame({ sessionId: 'term-1', data: '$ ls\r\n', seq: 0 }));
+    expect(getTerminal('term-1').replayPending).toBe(true);
+
+    dispatch(
+      replayFrame({ sessionId: 'term-1', seq: 1, final: true, status: 'live' }),
+    );
+
+    const session = getTerminal('term-1');
+    expect(session.replayPending).toBe(false);
+    expect(session.replayReady).toBe(true);
+  });
+
+  it('beginTerminalReplayStream (attach/re-attach entry) resets replayPending and drops pending', () => {
+    routeTerminalOutputToEmulator('term-pure', 'stale\n');
+    const session = makeSession({
+      id: 'term-pure',
+      replayChunks: ['old\n'],
+      replayReady: true,
+      replayStatus: 'live',
+    });
+
+    const next = beginTerminalReplayStream(session);
+
+    expect(next.replayPending).toBe(true);
+    expect(next.replayReady).toBe(false);
+    // Registry 暂存随流开始一并丢弃(attach 热路径与 dispatcher 共用本函数)。
+    expect(drainPendingTerminalOutput('term-pure')).toEqual([]);
+  });
+
+  it('finalizing a pure stream clears replayPending', () => {
+    const begun = beginTerminalReplayStream(makeSession({ id: 'term-1' }));
+    const finalized = finalizeTerminalReplay(begun, { status: 'live' });
+    expect(begun.replayPending).toBe(true);
+    expect(finalized.replayPending).toBe(false);
+  });
+
+  it('terminal.closed clears replayPending with the rest of the replay state', () => {
+    seedStore([makeSession({ id: 'term-1', replayPending: true })]);
+
+    dispatch({ type: 'terminal.closed', sessionId: 'term-1', raw: {} });
+
+    expect(getTerminal('term-1').replayPending).toBe(false);
+  });
+
+  it('a plain terminal.created clears replayPending (old agent answers attach as a plain create)', () => {
+    // 老 agent(无 terminal_replay)把 attach 当普通 create(server 侧明示
+    // 不设 capability 闸),永不发 replay 末帧 —— 挂起标志必须随 plain
+    // created 复位,否则实时流永远接不上。
+    seedStore([makeSession({ id: 'term-1', replayPending: true })]);
+
+    dispatch({ type: 'terminal.created', sessionId: 'term-1', raw: {} });
+
+    expect(getTerminal('term-1').replayPending).toBe(false);
+  });
+
+  it('a snapshot merge preserves an in-flight replayPending (REST attach response)', () => {
+    const existing = makeSession({
+      id: 'term-1',
+      replayChunks: ['head'],
+      replayPending: true,
+    });
+
+    const merged = mergeTerminalSessionSnapshot(
+      existing,
+      serverTerminalSessionToClient(snapshotSession({ session_id: 'term-1' })),
+    );
+
+    expect(merged.replayPending).toBe(true);
+  });
+
+  it('a cold-attach placeholder announces the stream and drops pre-existing pending at attach start', async () => {
+    // 冷 attach:本地无此会话,但 registry 可能已为该 id 暂存了输出
+    // (routeTerminalOutputToEmulator 对任意 sessionId 都暂存,无论是否在
+    // terminalSessions 里)——占位创建即 attach 开始,清暂存/挂闸两件事
+    // 不得等到首帧落地才做(否则①②两病在占位窗口仍可复现)。
+    routeTerminalOutputToEmulator('term-cold', 'stale-cold\n');
+
+    // REST 响应挂起:占位期即断言 attach 开始瞬间的状态。
+    let resolveAttach!: (value: unknown) => void;
+    attachTerminalSessionMock.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveAttach = resolve;
+        }),
+    );
+
+    const attached = useControlCenterStore
+      .getState()
+      .attachTerminalSession('term-cold', { deviceId: 'device-1' });
+
+    // 占位已建:与热路径同一承诺——暂存丢弃、pending 闸挂起。
+    expect(getTerminal('term-cold').replayPending).toBe(true);
+    expect(registerTerminalOutputHandler('term-cold', () => {})).toEqual([]);
+    unregisterTerminalOutputHandler('term-cold');
+
+    // 流推进:首帧(begin)保持闸;末帧解除。
+    dispatch(replayFrame({ sessionId: 'term-cold', data: 'first\r\n', seq: 0 }));
+    expect(getTerminal('term-cold').replayChunks).toEqual(['first\r\n']);
+    expect(getTerminal('term-cold').replayPending).toBe(true);
+    dispatch(
+      replayFrame({ sessionId: 'term-cold', seq: 1, final: true, status: 'live' }),
+    );
+    expect(getTerminal('term-cold').replayPending).toBe(false);
+
+    // REST 响应落地:快照合并不丢闸终态。
+    resolveAttach(snapshotSession({ session_id: 'term-cold' }));
+    await attached;
+    expect(getTerminal('term-cold').replayPending).toBe(false);
+    expect(getTerminal('term-cold').replayReady).toBe(true);
+
+    clearPendingTerminalOutput('term-cold');
   });
 });

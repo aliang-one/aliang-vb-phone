@@ -58,6 +58,14 @@ interface TerminalEmulatorProps {
    */
   replayReady?: boolean;
   /**
+   * True while an attach replay stream has BEGUN but no frame has landed yet
+   * (the store's `replayPending`). The handoff waits on it too: before the
+   * first frame `replayChunks` is still empty, so chunks-based waiting alone
+   * would wire the live feed during the attach window and the late history
+   * would be appended on top of live output (Bug D ②).
+   */
+  replayPending?: boolean;
+  /**
    * Status carried by the final replay frame. `'exited'` renders the
    * "session ended · history below" banner above the emulator.
    */
@@ -99,6 +107,7 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
   onRenderError,
   replayChunks,
   replayReady,
+  replayPending,
   replayStatus,
   followGeometry,
 }) => {
@@ -284,14 +293,28 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
   }, [followGeometry, webViewReady, injectTerminalData]);
 
   // Replay → live handoff. Order of operations once the WebView is ready:
-  //   1. While a replay stream is still in flight (chunks buffered, final
-  //      frame not arrived) the live feed is NOT wired yet — the agent's
-  //      output gate guarantees no live bytes flow before the final frame,
-  //      so waiting only ever buffers into the registry, never drops.
+  //   1. While a replay stream is still in flight — chunks buffered, final
+  //      frame not arrived, OR merely announced (`replayPending`, first
+  //      frame not landed so chunks are still empty) — the live feed is NOT
+  //      wired yet. Waiting on the announcement closes the attach window
+  //      where the chunks condition alone passes and stale pending output
+  //      would be released into the emulator before the history (Bug D ②,
+  //      probe order output → replay → replay); the agent's output gate
+  //      guarantees no live bytes flow before the final frame, so waiting
+  //      only ever buffers into the registry, never drops.
   //   2. A completed, non-empty replay is injected as `replay` chunks (the
   //      WebView writes them verbatim into xterm) and marks the badge bit.
   //   3. Only then is the live feed claimed, and the registry's pending
   //      buffer drained behind the replay (see liveWired effect below).
+  //
+  //   Residual window (Bug D, knowingly out of scope — needs the watermark/
+  //   sequence scheme): bytes arriving between the attach's stream begin and
+  //   the finalize still land in the registry pending and are drained behind
+  //   the replay, where they can overlap the scrollback's tail (the agent's
+  //   replay snapshot was taken at attach time). Related known: an ABANDONED
+  //   stream (WS drops mid-stream, final never arrives) leaves the gate held
+  //   — self-heal = re-entry re-attach / plain terminal.created / the
+  //   reaper's terminal.closed, all of which clear the flag.
   //
   // The `readyRef.current` check guards the sessionId-change commit: state
   // (`webViewReady`) is stale-true there while the WebView is already re-keyed
@@ -304,7 +327,14 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
     const chunks = replayChunks ?? [];
     const streamComplete = replayReady === true;
 
-    if (!liveWiredRef.current && !streamComplete && chunks.length > 0) {
+    // A merely-ANNOUNCED stream (replayPending) must hold the handoff even
+    // with zero buffered chunks — the chunks condition alone passes in that
+    // window (Bug D ②).
+    if (
+      !liveWiredRef.current &&
+      !streamComplete &&
+      (chunks.length > 0 || replayPending === true)
+    ) {
       return;
     }
 
@@ -323,7 +353,7 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
       liveWiredRef.current = true;
       setLiveWired(true);
     }
-  }, [webViewReady, replayReady, replayChunks, injectTerminalData]);
+  }, [webViewReady, replayReady, replayChunks, replayPending, injectTerminalData]);
 
   // Register/unregister the live output handler on the global socket
   // listener — only after replay consumption claimed the feed. The registry

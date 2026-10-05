@@ -127,6 +127,17 @@ export interface TerminalSession {
   /** True when part of the scrollback was dropped (agent ring eviction or the client byte cap). */
   replayTruncated?: boolean;
   /**
+   * True while an attach replay stream has BEGUN but its final frame hasn't
+   * arrived (set by beginTerminalReplayStream; cleared by
+   * finalizeTerminalReplay and the session-reset paths). The emulator's
+   * replay→live handoff waits on it: before the FIRST frame lands
+   * `replayChunks` is still empty, so waiting on chunks alone would wire the
+   * live feed during the attach window and the late history would be
+   * appended on top of live output (Bug D ②). Realtime-only — REST snapshots
+   * never carry it.
+   */
+  replayPending?: boolean;
+  /**
    * Raw kill/exit reason from the agent's `terminal.error` frame (verbatim,
    * e.g. "quota_unanswered: output quota exhausted …"). Set when the session
    * dies with an error, cleared when it is created/resumed again. Display

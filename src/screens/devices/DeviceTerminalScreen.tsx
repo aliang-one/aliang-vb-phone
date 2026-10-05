@@ -504,7 +504,16 @@ export const DeviceTerminalScreen: React.FC = () => {
       attachedTerminalIdRef.current = terminalId;
       let cancelled = false;
       setTerminalOpening(true);
-      attachTerminalSession(terminalId, { deviceId, rows: 24, cols: 80 })
+      // 跟随挂起时 attach 传跟随几何(复审 F-1):server 的 driveAgentAttach
+      // 会用这里的几何覆写 session 并重驱 agent resize,且该路径没有
+      // geometry_changed 广播——若仍传固定 24×80,pty 被拉回 80×24 而双端
+      // 网格锁在跟随几何,错位要等任一端下次 resize 才自愈。无跟随路径
+      // 行为不变(24/80 兜底)。
+      attachTerminalSession(terminalId, {
+        deviceId,
+        rows: terminal?.geometryFollow?.rows ?? 24,
+        cols: terminal?.geometryFollow?.cols ?? 80,
+      })
         .then(() => {
           if (!cancelled) {
             setTerminalOpenError(null);
@@ -1545,6 +1554,7 @@ export const DeviceTerminalScreen: React.FC = () => {
                   }
                   replayChunks={terminal.replayChunks}
                   replayReady={terminal.replayReady}
+                  replayPending={terminal.replayPending}
                   replayStatus={terminal.replayStatus}
                   followGeometry={terminal.geometryFollow ?? null}
                 />

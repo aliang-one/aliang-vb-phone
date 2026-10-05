@@ -11,6 +11,7 @@ import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { platformTransport } from '../src/services/platformTransport';
 import { getTerminalThemePalette } from '../src/components/terminal/terminalHtml';
 import {
+  clearPendingTerminalOutput,
   registerTerminalOutputHandler,
   routeTerminalOutputToEmulator,
   unregisterTerminalOutputHandler,
@@ -773,5 +774,119 @@ describe('TerminalEmulator geometry follow', () => {
     });
     // ready 的初始 resize 也是手机自发 resize —— 打点开防抖窗口滤自回显。
     expect(isLocalTerminalResizeRecent('term-1')).toBe(true);
+  });
+});
+
+// 交接闸门(Bug D ②,审计 §2-2):attach 已宣告(replayPending=true)但首帧
+// 未到(replayChunks 仍空)时,旧闸 `!replayReady && chunks.length > 0` 拦不住
+// —— 旧 pending 被提前放行、实时流先接,历史晚到再追加,顺序错乱(探针
+// 捕获顺序 output → replay → replay)。新闸在 replayPending 期间保持等待。
+describe('TerminalEmulator replay handoff gate (replayPending)', () => {
+  const wrapLight = (element: React.ReactElement) => (
+    <ThemeContext.Provider
+      value={{
+        theme: utilityMinimalist,
+        mode: 'light',
+        setMode: jest.fn(),
+        isDark: false,
+      }}
+    >
+      {element}
+    </ThemeContext.Provider>
+  );
+
+  /** 逐注入提取 injectTerminalData 的 type 序列(一次注入可能带多个调用)。 */
+  const injectTypes = () =>
+    mockWebViewInjectJavaScript.mock.calls.flatMap(call =>
+      String(call[0])
+        .match(/injectTerminalData\("([^"]+)"/g)
+        ?.map(m => m.match(/"([^"]+)"/)?.[1] ?? 'unknown') ?? [],
+    );
+
+  const injectPayloads = (type: string) =>
+    mockWebViewInjectJavaScript.mock.calls
+      .map(call => String(call[0]))
+      .flatMap(script => {
+        const payloads: string[] = [];
+        const pattern = /injectTerminalData\("([^"]+)", ("(?:[^"\\]|\\.)*")/g;
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(script)) !== null) {
+          if (match[1] === type) {
+            payloads.push(JSON.parse(match[2]) as string);
+          }
+        }
+        return payloads;
+      });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockWebViewInjectJavaScript.mockClear();
+    mockWebViewMount.mockClear();
+    mockWebViewUnmount.mockClear();
+    unregisterTerminalOutputHandler('term-1');
+    clearPendingTerminalOutput('term-1');
+  });
+
+  afterEach(() => {
+    unregisterTerminalOutputHandler('term-1');
+    clearPendingTerminalOutput('term-1');
+    jest.useRealTimers();
+  });
+
+  it('holds the live handoff while the stream is announced but no frame arrived yet', () => {
+    const tree = renderTerminal({ replayPending: true, replayChunks: [] });
+    const webview = tree.root.findByType(WebView);
+
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+
+    // 首帧未到:不注入 replay,也不注册实时 handler —— 路由继续走暂存
+    // (false = 未直达模拟器)。旧闸此窗口会放行并接实时流(Bug D ②)。
+    expect(injectPayloads('replay')).toEqual([]);
+    expect(routeTerminalOutputToEmulator('term-1', 'live-1\n')).toBe(false);
+  });
+
+  it('hands off once the final frame lands: replay injected, then live delivered', () => {
+    jest.useFakeTimers();
+    const tree = renderTerminal({
+      replayPending: true,
+      replayChunks: ['head\n'],
+    });
+    const webview = tree.root.findByType(WebView);
+
+    act(() => {
+      webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
+    // 流在途(chunks 有但末帧未到):同样不接实时流,输出进暂存。
+    expect(routeTerminalOutputToEmulator('term-1', 'early\n')).toBe(false);
+
+    // 末帧落地(store:replayPending 清除 + replayReady 置位)→ 注入回放、
+    // 接实时流,暂存的 early 输出排在回放之后补放。
+    act(() => {
+      tree.update(
+        wrapLight(
+          <TerminalEmulator
+            sessionId="term-1"
+            enabled
+            terminalRef={undefined}
+            replayPending={false}
+            replayReady
+            replayChunks={['head\n', 'tail\n']}
+          />,
+        ),
+      );
+    });
+    act(() => {
+      jest.advanceTimersByTime(60);
+    });
+
+    expect(injectPayloads('replay')).toEqual(['head\n', 'tail\n']);
+    expect(injectPayloads('output')).toEqual(['early\n']);
+    // 顺序契约:回放先于任何 output 注入(交接闸的全部意义)。
+    const types = injectTypes();
+    expect(types.indexOf('replay')).toBeLessThan(types.indexOf('output'));
+    // 接入后新 live 块直达模拟器。
+    expect(routeTerminalOutputToEmulator('term-1', 'after\n')).toBe(true);
   });
 });

@@ -198,19 +198,42 @@ describe('DeviceTerminalScreen attach flow', () => {
       screen = renderScreen();
     });
 
+    // 无跟随:attach 传固定的默认几何(现状不变)。
     expect(mockAttach).toHaveBeenCalledWith('term-1', {
       deviceId: 'device-1',
       rows: 24,
       cols: 80,
     });
-    // eslint-disable-next-line no-console
-    console.log('SIBLING_VIEWPORTS:', screen!.root.findAllByProps({ testID: 'terminal-viewport' }).length);
     expect(mockCreate).not.toHaveBeenCalled();
     // The session renders and stays interactive.
     expect(
       screen!.root.findByProps({ testID: 'terminal-keyboard-focus' }).props
         .disabled,
     ).toBe(false);
+  });
+
+  it('attaches with the pending follow geometry so the pty re-locks to it (F-1)', async () => {
+    mockRouteParams = { deviceId: 'device-1', directory: '~/project', terminalId: 'term-1' };
+    // 挂起跟随:server 的 driveAgentAttach 用 attach 几何覆写 session 且该
+    // 路径无 geometry_changed 广播——必须传跟随几何,否则 pty 停在 80×24
+    // 而双端网格锁 120×30,持续错位。
+    useControlCenterStore.setState({
+      terminalSessions: [
+        makeSession({
+          geometryFollow: { cols: 120, rows: 30, origin: 'web' },
+        }),
+      ],
+    });
+
+    await act(async () => {
+      screen = renderScreen();
+    });
+
+    expect(mockAttach).toHaveBeenCalledWith('term-1', {
+      deviceId: 'device-1',
+      rows: 30,
+      cols: 120,
+    });
   });
 
   it('shows the old-agent notice when the device lacks terminal_replay', async () => {

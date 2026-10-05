@@ -1122,6 +1122,10 @@ export const useControlCenterStore = create<ControlCenterState>()(
                   if (exited) {
                     // Tombstone attach: keep any exitReason captured when the
                     // kill frame was observed — the banner survives re-entry.
+                    // 不清 replayPending 属有意:新 agent 的回放末帧(终结)
+                    // 先于本事件到达,finalize 已清;流中途死掉(末帧永不
+                    // 到)时闸保持挂起属已知,自愈 = 重新进屏 re-attach /
+                    // plain-created(见 TerminalEmulator 残余注释)。
                     return {
                       ...ts,
                       status: 'completed' as TerminalSessionStatus,
@@ -1142,6 +1146,10 @@ export const useControlCenterStore = create<ControlCenterState>()(
                     replayReady: false,
                     replayStatus: undefined,
                     replayTruncated: false,
+                    // 老 agent 把 attach 当普通 create(server 侧不设
+                    // capability 闸),永不发 replay 末帧——挂起标志必须随
+                    // 新生会话复位,否则实时流永远接不上(Bug D ②的闸)。
+                    replayPending: false,
                     exitReason: undefined,
                     geometryFollow: undefined,
                   };
@@ -1185,6 +1193,8 @@ export const useControlCenterStore = create<ControlCenterState>()(
                         replayReady: false,
                         replayStatus: undefined,
                         replayTruncated: false,
+                        // 会话已死,回放挂起随之解除(终路径清 replayPending)。
+                        replayPending: false,
                       }
                     : ts,
                 ),
