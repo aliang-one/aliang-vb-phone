@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/useTheme';
@@ -23,6 +23,15 @@ export const NotificationTypesSheet: React.FC<{
   const { t } = useTranslation('settings');
   const notificationPrefs = useSessionStore(s => s.notificationPrefs);
   const setNotificationPrefs = useSessionStore(s => s.setNotificationPrefs);
+  // The press closes the sheet, but it stays mounted ~256ms while sliding out
+  // — a second tap in that window must not fire a duplicate send. Re-arm on
+  // the next open.
+  const sendFiredRef = useRef(false);
+  useEffect(() => {
+    if (open) {
+      sendFiredRef.current = false;
+    }
+  }, [open]);
 
   return (
     <BottomSheet open={open} onClose={onClose} title={t('notifications.typesTitle')}>
@@ -77,6 +86,10 @@ export const NotificationTypesSheet: React.FC<{
             <GlowButton
               title={t('notifications.sendTest')}
               onPress={() => {
+                if (sendFiredRef.current) {
+                  return;
+                }
+                sendFiredRef.current = true;
                 onClose();
                 onSendTest();
               }}

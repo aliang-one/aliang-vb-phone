@@ -88,7 +88,65 @@ describe('NotificationTypesSheet', () => {
 
     // BottomSheet is a native Modal covering the root ToastViewport — the
     // handler must close the sheet BEFORE firing so the result toast is seen.
+    // Pin the ORDER, not just the counts: swapping the two lines reintroduces
+    // the toast-hidden-behind-Modal bug with an otherwise green suite.
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onSendTest).toHaveBeenCalledTimes(1);
+    expect(onClose.mock.invocationCallOrder[0]).toBeLessThan(
+      onSendTest.mock.invocationCallOrder[0],
+    );
+  });
+
+  test('send-test button ignores a second press during the slide-out window', () => {
+    const onSendTest = jest.fn();
+    const onClose = jest.fn();
+    let r!: ReactTestRenderer.ReactTestRenderer;
+    act(() => { r = renderSheet({ onSendTest, onClose }); });
+
+    const testBtn = findButtonByText(r.root, '发送测试通知');
+    expect(testBtn).toBeDefined();
+    // The sheet stays mounted ~256ms while animating out, so the button is
+    // still hittable after the first press — it must be a one-shot.
+    act(() => { testBtn!.props.onPress(); });
+    act(() => { testBtn!.props.onPress(); });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onSendTest).toHaveBeenCalledTimes(1);
+  });
+
+  test('send-test button re-arms when the sheet is reopened', () => {
+    const onSendTest = jest.fn();
+    let r!: ReactTestRenderer.ReactTestRenderer;
+    const rerender = (open: boolean) =>
+      act(() => {
+        r.update(
+          <ThemeContext.Provider
+            value={{ theme: utilityMinimalist, mode: 'light', setMode: () => undefined, isDark: false }}
+          >
+            <SafeAreaProvider
+              initialMetrics={{ frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, right: 0, bottom: 0, left: 0 } }}
+            >
+              <NotificationTypesSheet
+                open={open}
+                onClose={() => undefined}
+                onSendTest={onSendTest}
+              />
+            </SafeAreaProvider>
+          </ThemeContext.Provider>,
+        );
+      });
+
+    act(() => { r = renderSheet({ onSendTest, onClose: () => undefined }); });
+    const btn1 = findButtonByText(r.root, '发送测试通知');
+    act(() => { btn1!.props.onPress(); });
+    expect(onSendTest).toHaveBeenCalledTimes(1);
+
+    // Close (unmounts the animated sheet) then reopen: the guard must reset.
+    rerender(false);
+    rerender(true);
+    const btn2 = findButtonByText(r.root, '发送测试通知');
+    expect(btn2).toBeDefined();
+    act(() => { btn2!.props.onPress(); });
+    expect(onSendTest).toHaveBeenCalledTimes(2);
   });
 });
