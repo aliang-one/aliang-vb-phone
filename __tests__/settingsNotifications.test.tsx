@@ -74,6 +74,17 @@ const findButtonByText = (
       node.findAllByType(Text).some(t => String(t.props.children) === title),
     );
 
+// The SEND TEST button lives inside the notification-types sheet now — open it
+// before looking for sheet-only controls.
+const openTypesSheet = async (r: ReactTestRenderer.ReactTestRenderer) => {
+  const entry = findButtonByText(r.root, '通知类型');
+  expect(entry).toBeDefined();
+  await act(async () => {
+    (entry!.props as { onPress: () => void }).onPress();
+    await flush();
+  });
+};
+
 type AppStateChangeHandler = (state: string) => void;
 let appStateChangeHandlers: AppStateChangeHandler[] = [];
 // Drive the captured AppState 'change' handlers (the screen subscribes on mount).
@@ -151,12 +162,17 @@ describe('SettingsScreen notification panel', () => {
     jest.restoreAllMocks();
   });
 
-  test('the SEND TEST button is tappable (NOT disabled) when permission is denied', async () => {
+  test('SEND TEST is hidden from the Me page; inside the TYPES sheet it stays tappable when permission is denied', async () => {
     let r!: ReactTestRenderer.ReactTestRenderer;
     act(() => {
       r = renderScreen();
     });
     await flush();
+
+    // Hidden from the page: the diagnostic button only lives in the sheet.
+    expect(findButtonByText(r.root, '发送测试通知')).toBeUndefined();
+
+    await openTypesSheet(r);
 
     // jest locks i18n to zh (see app-i18n memory), so titles render in Chinese.
     const testBtn = findButtonByText(r.root, '发送测试通知');
@@ -198,6 +214,7 @@ describe('SettingsScreen notification panel', () => {
     emitAppState('active');
     await flush();
 
+    await openTypesSheet(r);
     const testBtn = findButtonByText(r.root, '发送测试通知');
     expect(testBtn).toBeDefined();
     await act(async () => {
@@ -221,7 +238,9 @@ describe('SettingsScreen notification panel', () => {
     });
     await flush();
 
+    await openTypesSheet(r);
     const testBtn = findButtonByText(r.root, '发送测试通知');
+    expect(testBtn).toBeDefined();
     await act(async () => {
       (testBtn!.props as { onPress: () => void }).onPress();
       await flush();

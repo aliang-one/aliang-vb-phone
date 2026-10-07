@@ -619,24 +619,6 @@ export const SettingsScreen: React.FC = () => {
             </GlassPanel>
 
             <GlassPanel style={styles.panel}>
-              <View style={styles.settingRow}>
-                <View style={styles.settingCopy}>
-                  <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                    {t('notifications.testTitle')}
-                  </Text>
-                  <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                    {t('notifications.testCaption')}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.serviceActionsInset}>
-                <GlowButton
-                  title={t('notifications.sendTest')}
-                  onPress={() => void handleSendTestNotification()}
-                  variant="secondary"
-                  style={styles.serviceButton}
-                />
-              </View>
               <TouchableOpacity
                 style={styles.settingRow}
                 onPress={() => setTypesSheetOpen(true)}
@@ -662,6 +644,7 @@ export const SettingsScreen: React.FC = () => {
               <NotificationTypesSheet
                 open={typesSheetOpen}
                 onClose={() => setTypesSheetOpen(false)}
+                onSendTest={() => void handleSendTestNotification()}
               />
             </GlassPanel>
 

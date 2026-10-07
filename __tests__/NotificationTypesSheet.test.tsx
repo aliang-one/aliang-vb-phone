@@ -1,13 +1,13 @@
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
-import { Switch, Text } from 'react-native';
+import { Switch, Text, TouchableOpacity } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { useSessionStore } from '../stores/useSettingsStore';
 import { NotificationTypesSheet } from '../src/components/settings/NotificationTypesSheet';
 
-const renderSheet = () =>
+const renderSheet = (overrides?: { onSendTest?: () => void; onClose?: () => void }) =>
   ReactTestRenderer.create(
     <ThemeContext.Provider
       value={{ theme: utilityMinimalist, mode: 'light', setMode: () => undefined, isDark: false }}
@@ -15,10 +15,24 @@ const renderSheet = () =>
       <SafeAreaProvider
         initialMetrics={{ frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, right: 0, bottom: 0, left: 0 } }}
       >
-        <NotificationTypesSheet open onClose={() => undefined} />
+        <NotificationTypesSheet
+          open
+          onClose={overrides?.onClose ?? (() => undefined)}
+          onSendTest={overrides?.onSendTest}
+        />
       </SafeAreaProvider>
     </ThemeContext.Provider>,
   );
+
+const findButtonByText = (
+  root: ReactTestRenderer.ReactTestInstance,
+  title: string,
+) =>
+  root
+    .findAllByType(TouchableOpacity)
+    .find(node =>
+      node.findAllByType(Text).some(t => String(t.props.children) === title),
+    );
 
 describe('NotificationTypesSheet', () => {
   beforeEach(() => {
@@ -51,5 +65,30 @@ describe('NotificationTypesSheet', () => {
     expect(offlineSwitch).toBeDefined();
     act(() => { offlineSwitch!.props.onValueChange(false); });
     expect(useSessionStore.getState().notificationPrefs.device_offline).toBe(false);
+  });
+
+  test('hides the send-test section when no onSendTest handler is passed', () => {
+    let r!: ReactTestRenderer.ReactTestRenderer;
+    act(() => { r = renderSheet(); });
+    const labels = r.root.findAllByType(Text).map(t => String(t.props.children ?? ''));
+    expect(labels).not.toContain('发送测试通知');
+    expect(findButtonByText(r.root, '发送测试通知')).toBeUndefined();
+  });
+
+  test('send-test button: pressing closes the sheet and fires onSendTest (toast lives behind the Modal)', () => {
+    const onSendTest = jest.fn();
+    const onClose = jest.fn();
+    let r!: ReactTestRenderer.ReactTestRenderer;
+    act(() => { r = renderSheet({ onSendTest, onClose }); });
+
+    const testBtn = findButtonByText(r.root, '发送测试通知');
+    expect(testBtn).toBeDefined();
+    expect((testBtn!.props as { disabled?: boolean }).disabled).toBe(false);
+    act(() => { testBtn!.props.onPress(); });
+
+    // BottomSheet is a native Modal covering the root ToastViewport — the
+    // handler must close the sheet BEFORE firing so the result toast is seen.
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onSendTest).toHaveBeenCalledTimes(1);
   });
 });
