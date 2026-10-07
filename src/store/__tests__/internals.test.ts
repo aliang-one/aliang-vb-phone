@@ -19,7 +19,9 @@ import {
   removeDeviceFromState,
   resolveRefreshAction,
   isConnectionFailed,
+  serverAiSessionToVibeRun,
 } from '../internals';
+import type { PlatformAiSessionSnapshot } from '../../services/platformTransport';
 
 // Minimal run mock — only fields the helpers touch. Cast through unknown so we
 // don't materialize the full VibeCodingRun literal.
@@ -841,5 +843,48 @@ describe('mergeVibeRunSnapshot — snapshot 的 detailRefreshStatus 重 resolve 
     const existing = makeRun({ id: 's', detailState: { kind: 'empty' }, transcript: [], transcriptCount: 0 });
     const snap = makeRun({ id: 's', detailRefreshStatus: undefined, transcript: [], transcriptCount: 0, lastActivityMs: 2000 });
     expect(mergeVibeRunSnapshot(existing, snap).detailState).toEqual({ kind: 'empty' });
+  });
+});
+
+describe('serverAiSessionToVibeRun — 最新提问跳过 CC meta 行', () => {
+  const makeSnapshot = (transcript: unknown[]) =>
+    ({
+      session_id: 's1',
+      kind: 'ai',
+      user_id: 'u1',
+      device_id: 'dev1',
+      status: 'idle',
+      mode: 'vibe',
+      provider: 'claude',
+      transcript,
+    }) as unknown as PlatformAiSessionSnapshot;
+
+  it('transcript 尾部是 skill 注入行 → lastUserMessage 回退到真实提问', () => {
+    const run = serverAiSessionToVibeRun(
+      makeSnapshot([
+        { id: 'm1', role: 'user', content: '真实提问', timestamp: '2026-10-07T00:00:00Z' },
+        { id: 'm2', role: 'assistant', content: '回答', timestamp: '2026-10-07T00:01:00Z' },
+        {
+          id: 'm3',
+          role: 'user',
+          content: 'Base directory for this skill: /x/skills/y\n\n正文',
+          timestamp: '2026-10-07T00:02:00Z',
+        },
+      ]),
+      [],
+      [],
+    );
+    expect(run.lastUserMessage?.content).toBe('真实提问');
+  });
+
+  it('没有真实提问时 → lastUserMessage 为 undefined(不再让 skill 正文冒充)', () => {
+    const run = serverAiSessionToVibeRun(
+      makeSnapshot([
+        { id: 'm1', role: 'user', content: '<local-command-stdout>Set effort level to max</local-command-stdout>', timestamp: '2026-10-07T00:00:00Z' },
+      ]),
+      [],
+      [],
+    );
+    expect(run.lastUserMessage).toBeUndefined();
   });
 });

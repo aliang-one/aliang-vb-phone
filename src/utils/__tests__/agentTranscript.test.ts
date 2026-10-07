@@ -171,3 +171,63 @@ describe('buildDisplayTranscript — harness 信封消息重分类为 system', (
     expect(out[0].role).toBe('user');
   });
 });
+
+describe('buildDisplayTranscript — CC skill 注入(纯散文 meta)重分类为 system', () => {
+  const skillDump = [
+    'Base directory for this skill: /Users/mac/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.5/skills/systematic-debugging',
+    '',
+    '# Systematic Debugging',
+    '',
+    'NO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST.',
+  ].join('\n');
+
+  it('skill 正文注入(无 XML 信封,无 < 字符)→ system 角色', () => {
+    const out = buildDisplayTranscript([msg({ id: 'sk1', role: 'user', content: skillDump })]);
+    expect(out).toHaveLength(1);
+    expect(out[0].role).toBe('system');
+  });
+
+  it('用户引用该短语但无路径 → 保持 user(不能吞真话)', () => {
+    const out = buildDisplayTranscript([
+      msg({ id: 'u2', role: 'user', content: 'Base directory for this skill: 是什么意思？' }),
+    ]);
+    expect(out[0].role).toBe('user');
+  });
+
+  it('skill 注入正文 + 尾部信封混合 → system(整体是注入物)', () => {
+    const out = buildDisplayTranscript([
+      msg({ id: 'm2', role: 'user', content: `${skillDump}\n<system-reminder>x</system-reminder>` }),
+    ]);
+    expect(out[0].role).toBe('system');
+  });
+
+  it('正文开头才是判定依据：中段提及该短语不受影响', () => {
+    const out = buildDisplayTranscript([
+      msg({ id: 'u3', role: 'user', content: `帮我看看为什么会有 "Base directory for this skill: /x" 这行` }),
+    ]);
+    expect(out[0].role).toBe('user');
+  });
+});
+
+describe('buildDisplayTranscript — 截断信封（无闭合标签）也按注入处理', () => {
+  it('4000 截断切掉闭合标签的 <local-command-stdout> → system', () => {
+    const out = buildDisplayTranscript([
+      msg({ id: 't9', role: 'user', content: '<local-command-stdout>Set effort level to max (this session only): Maximum capability with deepest reasoning. …' }),
+    ]);
+    expect(out[0].role).toBe('system');
+  });
+
+  it('未闭合 <system-reminder> → system', () => {
+    const out = buildDisplayTranscript([
+      msg({ id: 't10', role: 'user', content: '<system-reminder> The user named this session "x". ' }),
+    ]);
+    expect(out[0].role).toBe('system');
+  });
+
+  it('正文开头才是判定：中段出现未闭合标签不受影响', () => {
+    const out = buildDisplayTranscript([
+      msg({ id: 'u9', role: 'user', content: '日志里有一行 <local-command-stdout> 没闭合，帮我看看' }),
+    ]);
+    expect(out[0].role).toBe('user');
+  });
+});

@@ -670,6 +670,12 @@ export interface AgentMessage {
    * Absent means the message is still visible.
    */
   hiddenAt?: string;
+  /**
+   * Server-owned goal 软删镜像（wire `hidden = Boolean(hiddenAt)`，goal 被删
+   * 除/放弃后置位）。仅补全 wire 模型——phone 的折叠展示消费的是
+   * `hiddenAt` + `goalId` 对，不直接读本字段；它不是 CC 注入抑制位。
+   */
+  hidden?: boolean;
 }
 
 export interface AgentTranscriptPage {

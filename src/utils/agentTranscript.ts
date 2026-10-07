@@ -96,6 +96,33 @@ const isPureHarnessEnvelope = (content: string): boolean => {
   return content.replace(HARNESS_ENVELOPE_RE, '').trim() === '';
 };
 
+// CC 技能注入：Skill 工具把 skill 全文以 user 消息注入，开头是
+// "Base directory for this skill: <路径>" 的纯散文——没有 XML 信封，
+// isPureHarnessEnvelope 的 '<' 快速门挡不住（生产 ai_import 会话实证：
+// 4000 字符里 0 个 '<'）。要求短语后跟含 '/' 的路径 token：用户引用/
+// 追问这个短语本身（无路径）不算注入。
+const CC_SKILL_INJECTION_RE = /^base directory for this skill:\s+\S*\/\S*/i;
+
+// 截断信封：transcript 内容按 4000 rune 截断会切掉闭合标签，
+// isPureHarnessEnvelope 的整信封匹配兜不住。行首前缀兜底（与 server 端
+// CC_META_CONTENT_PREFIXES 同源；只碰行首，正文"提及"标签不受影响）。
+const CC_META_UNCLOSED_PREFIX_RE =
+  /^<(?:command-name|command-message|local-command-caveat|local-command-stdout|system-reminder)>/;
+
+/**
+ * CC 写进 user 流、但不是用户话语的 meta 内容（纯信封 / 截断信封 / 技能注入
+ * 散文）。buildDisplayTranscript 用它把这类行重分类为 system；会话卡"最新
+ * 提问"预览（lastUserMessageOf）用它跳过冒充用户的注入行。
+ */
+export const isClaudeCodeMetaUserContent = (content: string): boolean => {
+  const trimmed = (content ?? '').trimStart();
+  return (
+    isPureHarnessEnvelope(trimmed) ||
+    CC_SKILL_INJECTION_RE.test(trimmed) ||
+    CC_META_UNCLOSED_PREFIX_RE.test(trimmed)
+  );
+};
+
 export const parseTranscriptSegments = (
   message: AgentMessage,
 ): TranscriptSegment[] => {
@@ -167,9 +194,10 @@ export const buildDisplayTranscript = (
     // segmentCache（省掉整段 markdown 解析）。
     if (isSystemToolStatusNoise(message)) continue;
     const normalized = (message.content ?? '').trim();
-    // 纯 harness 信封的 user 消息按 system 展示（灰条折叠，不占用户气泡）。
+    // 纯 harness 信封 / CC 技能注入（纯散文 meta）的 user 消息按 system 展示
+    // （灰条折叠，不占用户气泡）。
     const role =
-      message.role === 'user' && isPureHarnessEnvelope(normalized)
+      message.role === 'user' && isClaudeCodeMetaUserContent(normalized)
         ? 'system'
         : message.role;
     if (

@@ -48,6 +48,13 @@ export interface ServerAiMessage {
    * Matches `hidden_at` from server Task 8.
    */
   hidden_at?: string;
+  /**
+   * Server-owned goal 软删镜像：server 侧 `hidden = Boolean(hiddenAt)`（goal
+   * 被删除/放弃后置位，行仍随 payload 下发是为了可折叠展示）。生产 payload
+   * 一直在发，此前未声明而被 field-by-field 拷贝静默丢弃。注意它不是 CC
+   * 注入抑制位——CC 工件在 server 侧入库即拦、存量走开机清理。
+   */
+  hidden?: boolean;
 }
 
 export interface ServerGoalSummary {
@@ -98,6 +105,7 @@ export const serverAiMessageToAgent = (m: ServerAiMessage): AgentMessage => ({
   index: m.index,
   goalId: m.goal_id,
   hiddenAt: m.hidden_at,
+  hidden: m.hidden,
 });
 
 export interface ServerAiSession {

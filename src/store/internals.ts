@@ -14,6 +14,7 @@ import i18n from '../i18n';
 import { normalizeProvider, providerLabel } from '../utils/modelIntensity';
 import { sameRemotePath } from '../utils/remotePath';
 import { normalizeFileStatus } from '../utils/fileStatus';
+import { isClaudeCodeMetaUserContent } from '../utils/agentTranscript';
 import { decodeTerminalData } from '../utils/terminalOutput';
 import {
   platformTransport,
@@ -434,7 +435,8 @@ export function aiSessionModelLabel(session: PlatformAiSessionSnapshot) {
 
 // The most recent user-role message in a transcript (newest-first scan), or
 // `fallback` when the transcript holds no user message. Backs the session
-// card's "最新提问" preview — the latest thing the user asked.
+// card's "最新提问" preview — the latest thing the user asked. CC 注入行
+// （skill 全文 / 命令回显 / 系统提醒）不是用户的提问，跳过不冒充。
 const lastUserMessageOf = (
   messages: ReadonlyArray<VibeCodingRun['lastMessage']> | undefined,
   fallback: VibeCodingRun['lastMessage'] | undefined,
@@ -442,7 +444,7 @@ const lastUserMessageOf = (
   if (messages) {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
-      if (m && m.role === 'user') {
+      if (m && m.role === 'user' && !isClaudeCodeMetaUserContent(m.content ?? '')) {
         return m;
       }
     }
@@ -492,9 +494,14 @@ export function serverAiSessionToVibeRun(
   // real user turn from the transcript; fall back to last_message when it is
   // itself a user message (the common list-snapshot case, which omits the
   // transcript). The UI further falls back to `objective` when this is unset.
+  // 兜底同样要过 CC meta 过滤——list 快照里 last_message 可能正是注入行。
   const lastUserMessage = lastUserMessageOf(
     transcript,
-    lastMessage && lastMessage.role === 'user' ? lastMessage : undefined,
+    lastMessage &&
+      lastMessage.role === 'user' &&
+      !isClaudeCodeMetaUserContent(lastMessage.content ?? '')
+      ? lastMessage
+      : undefined,
   );
   const goalSummary: GoalSummary | undefined = session.goal_summary
     ? {
