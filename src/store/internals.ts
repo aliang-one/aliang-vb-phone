@@ -262,9 +262,33 @@ export function mergeEarlierAgentMessages(
 ): VibeCodingRun['transcript'] {
   if (!earlier.length) return existing;
   const byId = new Map<string, VibeCodingRun['transcript'][number]>();
-  for (const message of [...earlier, ...existing]) {
-    byId.set(message.id, { ...byId.get(message.id), ...message });
-  }
+  // 值语义与旧的 [...earlier, ...existing] 顺序 fold({ ...acc, ...message })
+  // 逐值一致(首现定位、后者字段覆盖),但值未变化的消息保留原引用:
+  // agentTranscript 的 markdown 解析缓存(segmentCache WeakMap)按消息对象
+  // 引用命中,加载更早一页若把整个已加载历史重建对象,缓存会全量 miss,
+  // 每翻一页都在 JS 线程同步重解析全部历史(浏览历史卡顿的直接根因)。
+  const put = (incoming: VibeCodingRun['transcript'][number]) => {
+    const current = byId.get(incoming.id);
+    if (!current) {
+      byId.set(incoming.id, incoming);
+      return;
+    }
+    // 目标值 = { ...current, ...incoming }。incoming 对 current 的每个键都
+    // 给出相同值时,展开结果逐值等于 incoming,直接复用 incoming 引用。
+    let identical = true;
+    for (const key in current) {
+      if (
+        (incoming as unknown as Record<string, unknown>)[key] !==
+        (current as unknown as Record<string, unknown>)[key]
+      ) {
+        identical = false;
+        break;
+      }
+    }
+    byId.set(incoming.id, identical ? incoming : { ...current, ...incoming });
+  };
+  for (const message of earlier) put(message);
+  for (const message of existing) put(message);
   const merged = Array.from(byId.values());
   const allHaveIndex = merged.every(message => typeof message.index === 'number');
   if (allHaveIndex) {

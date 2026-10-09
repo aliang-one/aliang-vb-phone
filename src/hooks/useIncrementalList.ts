@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 interface IncrementalListOptions {
   initialCount?: number;
@@ -6,6 +6,19 @@ interface IncrementalListOptions {
   resetKey?: string | number | boolean;
   from?: 'start' | 'end';
 }
+
+export interface RevealGraduallyOptions {
+  chunkSize?: number;
+  gapMs?: number;
+  onSettled?: () => void;
+}
+
+// 分批揭示(浏览长历史防单帧巨挂载)。一次 setState 揭示过多条目会在单个
+// React commit 里同步挂载全部内容(Fabric 一个 mount 事务),长历史上翻
+// "加载更早"或 scrubber 跳转时把 JS 线程与主线程同时打满。拆成小批 +
+// 宏任务间隔,给每批的 commit→mount→layout 留出呼吸窗口。
+const DEFAULT_REVEAL_CHUNK_SIZE = 4;
+const DEFAULT_REVEAL_CHUNK_GAP_MS = 32;
 
 export const useIncrementalList = <T,>(
   items: T[],
@@ -17,10 +30,25 @@ export const useIncrementalList = <T,>(
   }: IncrementalListOptions = {},
 ) => {
   const [visibleCount, setVisibleCount] = useState(initialCount);
+  // 分批揭示的批间定时器;窗口镜像 ref 供绝对式分批在调用时取起点。
+  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const visibleCountRef = useRef(visibleCount);
+  visibleCountRef.current = visibleCount;
+
+  const cancelReveal = useCallback(() => {
+    if (revealTimerRef.current !== null) {
+      clearTimeout(revealTimerRef.current);
+      revealTimerRef.current = null;
+    }
+  }, []);
+
+  // 卸载与 resetKey 重置都必须取消在途批次,避免旧会话的批次写进新窗口。
+  useEffect(() => cancelReveal, [cancelReveal]);
 
   useEffect(() => {
     setVisibleCount(initialCount);
-  }, [initialCount, resetKey]);
+    cancelReveal();
+  }, [initialCount, resetKey, cancelReveal]);
 
   const visibleItems = useMemo(
     () =>
@@ -52,6 +80,69 @@ export const useIncrementalList = <T,>(
       setVisibleCount(current => Math.max(current, neededVisibleCount)),
     [],
   );
+  // 分批版 showMore:与 showMore 同义(+step),把 step 拆成 chunkSize 一批、
+  // 批间 gapMs 揭示。每批函数式 setState 读最新窗口,调用方在 await 之后
+  // 调用也不会踩过期闭包。
+  const showMoreGradually = useCallback(
+    (options: RevealGraduallyOptions = {}) => {
+      const {
+        chunkSize = DEFAULT_REVEAL_CHUNK_SIZE,
+        gapMs = DEFAULT_REVEAL_CHUNK_GAP_MS,
+        onSettled,
+      } = options;
+      cancelReveal();
+      let remaining = step;
+      const tick = () => {
+        const chunk = Math.min(chunkSize, remaining);
+        remaining -= chunk;
+        setVisibleCount(current => current + chunk);
+        if (remaining > 0) {
+          revealTimerRef.current = setTimeout(tick, gapMs);
+        } else {
+          revealTimerRef.current = null;
+          onSettled?.();
+        }
+      };
+      tick();
+    },
+    [cancelReveal, step],
+  );
+  // 分批版 revealThrough(绝对目标、绝不回缩)。目标在调用时可同步算出时使用
+  // (scrubber commit 无 await):以调用时窗口为起点分批走到目标;窗口已到达
+  // 目标则直接 settle。批内用函数式 setState 钳到目标,并发扩窗不会回缩。
+  const revealThroughGradually = useCallback(
+    (neededVisibleCount: number, options: RevealGraduallyOptions = {}) => {
+      const {
+        chunkSize = DEFAULT_REVEAL_CHUNK_SIZE,
+        gapMs = DEFAULT_REVEAL_CHUNK_GAP_MS,
+        onSettled,
+      } = options;
+      cancelReveal();
+      const remaining = Math.max(
+        neededVisibleCount - visibleCountRef.current,
+        0,
+      );
+      if (remaining === 0) {
+        onSettled?.();
+        return;
+      }
+      let done = 0;
+      const tick = () => {
+        done = Math.min(done + chunkSize, remaining);
+        setVisibleCount(current =>
+          Math.max(current, Math.min(current + chunkSize, neededVisibleCount)),
+        );
+        if (done < remaining) {
+          revealTimerRef.current = setTimeout(tick, gapMs);
+        } else {
+          revealTimerRef.current = null;
+          onSettled?.();
+        }
+      };
+      tick();
+    },
+    [cancelReveal],
+  );
 
   return {
     visibleItems,
@@ -61,5 +152,8 @@ export const useIncrementalList = <T,>(
     showMore,
     showAll,
     revealThrough,
+    showMoreGradually,
+    revealThroughGradually,
+    cancelReveal,
   };
 };
