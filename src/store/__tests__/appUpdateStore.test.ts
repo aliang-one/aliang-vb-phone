@@ -121,6 +121,42 @@ describe('appUpdateStore', () => {
     expect(s.lastError).toBeTruthy();
   });
 
+  it('forced 后重查失败 → 保持 forced(断网/失败不可绕过强制更新)', async () => {
+    mockedFetch.mockResolvedValue(latest({ force: true }));
+    await useAppUpdateStore.getState().checkNow();
+    expect(useAppUpdateStore.getState().status).toBe('forced');
+
+    mockedFetch.mockRejectedValue(new Error('airplane mode'));
+    await useAppUpdateStore.getState().checkNow();
+    const s = useAppUpdateStore.getState();
+    expect(s.status).toBe('forced');
+    expect(s.info?.latestVersion).toBe('v1.0.7');
+    expect(s.lastError).toBeTruthy();
+  });
+
+  it('forced 期间重查进行中 → status 保持 forced(Gate 不闪断)', async () => {
+    mockedFetch.mockResolvedValue(latest({ force: true }));
+    await useAppUpdateStore.getState().checkNow();
+    expect(useAppUpdateStore.getState().status).toBe('forced');
+
+    let resolveRetry!: (v: ReturnType<typeof latest>) => void;
+    mockedFetch.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveRetry = resolve;
+        }),
+    );
+    void useAppUpdateStore.getState().checkNow({ manual: true });
+    for (let i = 0; i < 10 && !resolveRetry; i += 1) {
+      await Promise.resolve();
+    }
+    // 重查在途:状态不得翻成 checking(否则全屏 Gate 卸载,用户瞬间逃逸)。
+    expect(useAppUpdateStore.getState().status).toBe('forced');
+    resolveRetry?.(latest({ force: true }));
+    await Promise.resolve();
+    expect(useAppUpdateStore.getState().status).toBe('forced');
+  });
+
   it('本机版本读不到 → 完全静默,不发起请求', async () => {
     mockVersionName = null;
     await useAppUpdateStore.getState().checkNow();

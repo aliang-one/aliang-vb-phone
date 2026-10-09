@@ -22,6 +22,13 @@ describe('normalizeAppVersion', () => {
     expect(normalizeAppVersion(null)).toBeNull();
     expect(normalizeAppVersion(undefined)).toBeNull();
   });
+
+  it('rejects non-string payloads (misconfigured server responses)', () => {
+    // 坏配置形态:JSON 数字/数组/对象。必须静默 null,不能抛 TypeError。
+    expect(normalizeAppVersion(1.07 as unknown as string)).toBeNull();
+    expect(normalizeAppVersion(['v1.0.7'] as unknown as string)).toBeNull();
+    expect(normalizeAppVersion({ latest: 'v1.0.7' } as unknown as string)).toBeNull();
+  });
 });
 
 describe('compareAppVersions', () => {

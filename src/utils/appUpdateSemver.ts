@@ -11,8 +11,10 @@
 const APP_VERSION_PATTERN = /^v(\d+)\.(\d+)\.(\d+)$/;
 const BARE_VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
 
-export function normalizeAppVersion(raw: string | null | undefined): string | null {
-  if (!raw) return null;
+export function normalizeAppVersion(raw: unknown): string | null {
+  // 服务端坏配置可能给出非字符串(数字/数组/对象)——一律按不可判定静默
+  // 处理,绝不抛错(抛错会污染上层 error 态)。
+  if (typeof raw !== 'string') return null;
   const trimmed = raw.trim();
   // 缺 v 前缀则补齐(参考 alianggate normalizeVersionString);其余非法形态
   // 一律 null——服务端对不合规版本直接 400,不要把坏值发出去。
@@ -51,12 +53,13 @@ export interface UpdateDecision {
  */
 export function resolveUpdateDecision(
   clientRaw: string | null | undefined,
-  serverLatest: string | null | undefined,
-  serverForceFlag: boolean | undefined,
+  serverLatest: unknown,
+  serverForceFlag: unknown,
 ): UpdateDecision | null {
   const client = normalizeAppVersion(clientRaw);
   const latest = normalizeAppVersion(serverLatest);
   if (!client || !latest) return null;
   const needsUpdate = compareAppVersions(client, latest) < 0;
   return { needsUpdate, forceUpdate: needsUpdate && serverForceFlag === true };
+
 }

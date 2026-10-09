@@ -13,7 +13,24 @@ jest.mock('../../../native/AppVersion', () => ({
   getInstalledAppVersion: () => ({ versionName: 'v1.0.6', versionCode: '3' }),
 }));
 
+const mockedFetch = jest.fn();
+jest.mock('../../../api/appUpdate', () => ({
+  APP_UPDATE_SOFTWARE_NAME: 'aliang-vibe-phone',
+  fetchUpdateCheck: (...args: unknown[]) => mockedFetch(...args),
+}));
+
+const latest = (over: { version?: string; force?: boolean } = {}) => ({
+  latestVersion: over.version ?? 'v1.0.7',
+  downloadUrl: 'https://www.aliang.one/download',
+  changelog: '- 修复若干问题',
+  serverForceFlag: over.force ?? false,
+});
+
 const openLink = Linking.openURL as jest.MockedFunction<typeof Linking.openURL>;
+
+beforeEach(() => {
+  mockedFetch.mockReset();
+});
 
 beforeEach(() => {
   jest.mocked(Linking.openURL).mockReset();
@@ -105,5 +122,30 @@ describe('ForceUpdateGate', () => {
     const changelog = String(findText(renderer.root, 'force-update-changelog'));
     expect(changelog.length).toBeGreaterThan(0);
     expect(changelog).not.toBe('   ');
+  });
+
+  it('重试检查触发 manual checkNow;服务端撤掉 force 后 Gate 解除', async () => {
+    mockedFetch.mockReset();
+    mockedFetch
+      .mockResolvedValueOnce(latest({ force: true }))
+      // 运维修正:撤行后 latest 回到本机版本(force 标志仍在也无法强推相同版本)。
+      .mockResolvedValueOnce(latest({ version: 'v1.0.6', force: true }));
+
+    await act(async () => {
+      await useAppUpdateStore.getState().checkNow();
+    });
+    expect(useAppUpdateStore.getState().status).toBe('forced');
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(<ForceUpdateGate />);
+    });
+    const retry = renderer.root.findByProps({ testID: 'force-update-retry' });
+    await act(async () => {
+      await retry.props.onPress();
+    });
+    // 成功检查判定无需更新 → Gate 消失(粘滞强制仅挡失败,不挡成功判定)。
+    expect(useAppUpdateStore.getState().status).toBe('upToDate');
+    expect(renderer.toJSON()).toBeNull();
   });
 });

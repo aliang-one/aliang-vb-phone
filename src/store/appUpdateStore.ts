@@ -109,13 +109,17 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
         return;
       }
 
-      set(state => ({ status: 'checking', lastError: null }));
+      // 粘滞强制:已判定 forced 后的重查,过程态不得翻 checking/失败不得翻
+      // error——否则全屏 Gate 卸载,断网/失败反而成了绕过强制更新的通道。
+      set(state => ({
+        status: state.status === 'forced' ? 'forced' : 'checking',
+        lastError: null,
+      }));
       try {
         const result = await fetchUpdateCheck(
           updatePlatform(),
           installed.versionName,
         );
-        lastCheckedAtMs = Date.now();
         if (!result) {
           // 404 无行/格式不可判:按已最新处理(不提示)。
           set({ status: 'upToDate', info: null });
@@ -147,10 +151,19 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
             !manual && dismissedVersion === result.latestVersion,
         });
       } catch (error) {
-        // 失败保留上次成功快照;status=error 仅驱动设置页文案,绝不锁 UI。
-        set({
-          status: 'error',
-          lastError: error instanceof Error ? error.message : String(error),
+        // 失败保留上次成功快照。非 forced 落 error 仅驱动设置页文案,绝不锁
+        // UI;forced 保持 forced——失败/断网不能把已锁定的用户放出去,唯一
+        // 解除方式仍是一次"成功的检查"判定无需更新。
+        set(state => {
+          if (state.status === 'forced') {
+            return {
+              lastError: error instanceof Error ? error.message : String(error),
+            };
+          }
+          return {
+            status: 'error',
+            lastError: error instanceof Error ? error.message : String(error),
+          };
         });
       } finally {
         lastCheckedAtMs = Date.now();
