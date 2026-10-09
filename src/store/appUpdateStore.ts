@@ -49,6 +49,11 @@ interface AppUpdateState {
 const DISMISS_STORAGE_KEY = 'appUpdate.dismissedVersion';
 /** 前台恢复重查的最小间隔。 */
 export const FOREGROUND_RECHECK_INTERVAL_MS = 30 * 60 * 1000;
+/**
+ * 单次检查的硬死线:HTTP 客户端的超时只护到响应头,慢速滴漏的响应体可以让
+ * await 永不 settle → inFlight 单飞锁永久锁死(检查更新永远卡 checking)。
+ */
+const CHECK_HARD_DEADLINE_MS = 30_000;
 
 function updatePlatform(): AppUpdatePlatform {
   return Platform.OS === 'android' ? 'android' : 'ios';
@@ -88,6 +93,22 @@ async function persistDismissed(version: string) {
   }
 }
 
+/** 总预算死线:响应体阶段不受 HTTP 客户端超时保护,这里兜底。 */
+async function withDeadline<T>(promise: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error('app update check timed out')),
+      CHECK_HARD_DEADLINE_MS,
+    );
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
   status: 'idle',
   info: null,
@@ -109,13 +130,16 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
         return;
       }
 
-      set(state => ({ status: 'checking', lastError: null }));
+      // 粘滞强制:已判定 forced 后的重查,过程态不得翻 checking/失败不得翻
+      // error——否则全屏 Gate 卸载,断网/失败反而成了绕过强制更新的通道。
+      set(state => ({
+        status: state.status === 'forced' ? 'forced' : 'checking',
+        lastError: null,
+      }));
       try {
-        const result = await fetchUpdateCheck(
-          updatePlatform(),
-          installed.versionName,
+        const result = await withDeadline(
+          fetchUpdateCheck(updatePlatform(), installed.versionName),
         );
-        lastCheckedAtMs = Date.now();
         if (!result) {
           // 404 无行/格式不可判:按已最新处理(不提示)。
           set({ status: 'upToDate', info: null });
@@ -147,10 +171,19 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
             !manual && dismissedVersion === result.latestVersion,
         });
       } catch (error) {
-        // 失败保留上次成功快照;status=error 仅驱动设置页文案,绝不锁 UI。
-        set({
-          status: 'error',
-          lastError: error instanceof Error ? error.message : String(error),
+        // 失败保留上次成功快照。非 forced 落 error 仅驱动设置页文案,绝不锁
+        // UI;forced 保持 forced——失败/断网不能把已锁定的用户放出去,唯一
+        // 解除方式仍是一次"成功的检查"判定无需更新。
+        set(state => {
+          if (state.status === 'forced') {
+            return {
+              lastError: error instanceof Error ? error.message : String(error),
+            };
+          }
+          return {
+            status: 'error',
+            lastError: error instanceof Error ? error.message : String(error),
+          };
         });
       } finally {
         lastCheckedAtMs = Date.now();

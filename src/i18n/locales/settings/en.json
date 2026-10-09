@@ -143,7 +143,9 @@
       "updateNow": "Update Now",
       "later": "Later",
       "upToDateToast": "You're on the latest version.",
-      "checkFailedToast": "Update check failed, try again later."
+      "checkFailedToast": "Update check failed, try again later.",
+      "retryCheck": "Retry check",
+      "checking": "Checking…"
     }
   },
   "dangerZone": {

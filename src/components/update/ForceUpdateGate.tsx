@@ -6,7 +6,7 @@
  * onRequestClose 为 no-op),用户升级到新版本后,下次检查本地版本号变化,
  * 判定自动通过、Gate 自然消失——没有"解除"操作。
  */
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/useTheme';
@@ -20,11 +20,25 @@ export const ForceUpdateGate: React.FC = () => {
   const { t } = useTranslation('settings');
   const status = useAppUpdateStore(s => s.status);
   const info = useAppUpdateStore(s => s.info);
+  const checkNow = useAppUpdateStore(s => s.checkNow);
+  const [retrying, setRetrying] = useState(false);
 
   const handleUpdate = useCallback(() => {
     const url = info?.downloadUrl || APP_UPDATE_FALLBACK_URL;
     void Linking.openURL(url).catch(() => {});
   }, [info?.downloadUrl]);
+
+  // 重试检查:服务端配置被运维修正(撤掉 force/换对 download_url)后,用户
+  // 不必等 30 分钟前台节流——立即可解锁。粘滞语义下重查失败仍保持 forced。
+  const handleRetry = useCallback(async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      await checkNow({ manual: true });
+    } finally {
+      setRetrying(false);
+    }
+  }, [checkNow, retrying]);
 
   if (status !== 'forced' || !info) {
     return null;
@@ -90,6 +104,20 @@ export const ForceUpdateGate: React.FC = () => {
               {t('update.updateNow')}
             </Text>
           </Pressable>
+          <Pressable
+            testID="force-update-retry"
+            accessibilityRole="button"
+            accessibilityLabel={t('update.retryCheck')}
+            onPress={() => {
+              void handleRetry();
+            }}
+            disabled={retrying}
+            style={styles.retryButton}
+          >
+            <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+              {retrying ? t('update.checking') : t('update.retryCheck')}
+            </Text>
+          </Pressable>
         </GlassPanel>
       </View>
     </Modal>
@@ -125,5 +153,9 @@ const styles = StyleSheet.create({
   updateButton: {
     alignItems: 'center',
     paddingVertical: 12,
+  },
+  retryButton: {
+    alignItems: 'center',
+    paddingVertical: 6,
   },
 });
