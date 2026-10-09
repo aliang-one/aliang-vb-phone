@@ -220,4 +220,20 @@ describe('appUpdateStore', () => {
     expect(s.status).toBe('available');
     expect(s.promptSuppressed).toBe(true);
   });
+
+  it('检查硬死线:响应体悬挂 30s 判失败且 inFlight 解锁(可再次检查)', async () => {
+    mockedFetch.mockImplementation(() => new Promise(() => {}));
+    const pending = useAppUpdateStore.getState().checkNow();
+    await jest.advanceTimersByTimeAsync(30_000);
+    await pending;
+    const s = useAppUpdateStore.getState();
+    expect(s.status).toBe('error');
+    expect(s.lastError).toContain('timed out');
+
+    // inFlight 必须已清:下一次检查真正发起(软提醒可达)。
+    mockedFetch.mockResolvedValue(latest());
+    await useAppUpdateStore.getState().checkNow();
+    expect(useAppUpdateStore.getState().status).toBe('available');
+    expect(mockedFetch).toHaveBeenCalledTimes(2);
+  });
 });

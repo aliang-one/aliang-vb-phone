@@ -8,8 +8,10 @@
  * 的防呆做法)。
  */
 
-const APP_VERSION_PATTERN = /^v(\d+)\.(\d+)\.(\d+)$/;
-const BARE_VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
+// \d{1,9}:版本段限长——"v"+一百万个数字的恶意 latest_version 也能过裸 \d+,
+// 会在版本徽章里渲染(检查更新 2026-10-09 对抗审计)。
+const APP_VERSION_PATTERN = /^v(\d{1,9})\.(\d{1,9})\.(\d{1,9})$/;
+const BARE_VERSION_PATTERN = /^\d{1,9}\.\d{1,9}\.\d{1,9}$/;
 
 export function normalizeAppVersion(raw: unknown): string | null {
   // 服务端坏配置可能给出非字符串(数字/数组/对象)——一律按不可判定静默

@@ -29,6 +29,11 @@ describe('normalizeAppVersion', () => {
     expect(normalizeAppVersion(['v1.0.7'] as unknown as string)).toBeNull();
     expect(normalizeAppVersion({ latest: 'v1.0.7' } as unknown as string)).toBeNull();
   });
+
+  it('rejects absurdly long digit runs ( MB 级版本串不得进渲染)', () => {
+    expect(normalizeAppVersion(`v${'1'.repeat(100)}.0.0`)).toBeNull();
+    expect(normalizeAppVersion(`v1.${'0'.repeat(100000)}.0`)).toBeNull();
+  });
 });
 
 describe('compareAppVersions', () => {
