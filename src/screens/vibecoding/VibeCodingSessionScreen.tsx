@@ -749,13 +749,24 @@ export const VibeCodingSessionScreen: React.FC = () => {
     };
   }, [messageLayouts, visibleTurns, preserveFocusRef]);
 
+  // 分批揭示进行中:preserve 锚点跨批保持。每批新内容都 prepend 在焦点消息
+  // 上方,把它的 layout.top 再往下推——锚定 effect 必须逐批校正,不能在第一
+  // 批校正后就清掉锚点(否则后续批次的 prepend 会让视口逐批下坠)。
+  const revealHoldRef = useRef(false);
+
   const handleLoadEarlierMessages = useCallback(async () => {
     if (!targetSessionId || loadingEarlier) return;
     if (turnList.hasMore) {
       // Reveal more of the locally-held transcript (no network). Pin first so
       // the newly revealed older messages appear above without a viewport jump.
+      // 分批揭示:一批 4 个 turn,单 commit 巨挂载拆成多个小挂载。
       capturePreserveFocus();
-      turnList.showMore();
+      revealHoldRef.current = true;
+      turnList.showMoreGradually({
+        onSettled: () => {
+          revealHoldRef.current = false;
+        },
+      });
       return;
     }
     if (hasServerEarlierMessages) {
@@ -764,8 +775,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
       setDetailError('');
       try {
         await loadEarlierAgentMessages(targetSessionId);
-        turnList.showMore();
+        revealHoldRef.current = true;
+        turnList.showMoreGradually({
+          onSettled: () => {
+            revealHoldRef.current = false;
+          },
+        });
       } catch (error) {
+        revealHoldRef.current = false;
         preserveFocusRef.current = null;
         setDetailError(
           error instanceof Error
@@ -831,6 +848,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
     resetScroll();
     pendingScrollToEndRef.current = true;
     setNoMoreEarlierHint(false);
+    // 切会话:解除分批揭示的锚点保持(hook 内部也会取消在途批次)。
+    revealHoldRef.current = false;
   }, [targetSessionId, resetScroll]);
 
   // Self-heal for the "top bar DONE, conversation blank" case. The run snapshot
@@ -864,6 +883,22 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // below so a dead target can't leave a pending jump hanging forever.
   const jumpRequestedAtRef = useRef(0);
 
+  // 跳转所需的窗口扩宽:需要揭示的 turn 数超过阈值时分批走到目标——跳向
+  // 会话前部≈一帧挂载大半会话,是冻结形态之一。小揭示保持同步,不为几个
+  // turn 付出批间隔延迟。目标 turn 在最后一批挂载,jump effect 本就等它的
+  // layout 再滚动,分批不影响落点。
+  const REVEAL_BATCH_MIN_TURNS = 8;
+  const revealTurnsForJump = useCallback(
+    (neededVisibleCount: number) => {
+      if (neededVisibleCount - turnList.visibleCount > REVEAL_BATCH_MIN_TURNS) {
+        turnList.revealThroughGradually(neededVisibleCount);
+        return;
+      }
+      revealTurnsThrough(neededVisibleCount);
+    },
+    [revealTurnsThrough, turnList],
+  );
+
   // User settled on a scrubber stop → jump there. The rail spans the WHOLE
   // conversation, so the target turn may sit outside the mounted window: widen
   // the window just enough to mount it (targeted, not showAll) and let the jump
@@ -875,12 +910,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
         turn => turn.id === stopId,
       );
       if (turnIndex >= 0) {
-        revealTurnsThrough(conversationTurns.length - turnIndex);
+        revealTurnsForJump(conversationTurns.length - turnIndex);
       }
       jumpRequestedAtRef.current = Date.now();
       setPendingJumpId(stopId);
     },
-    [conversationTurns, followTailRef, revealTurnsThrough, setPendingJumpId],
+    [conversationTurns, followTailRef, revealTurnsForJump, setPendingJumpId],
   );
 
   useEffect(() => {
@@ -917,6 +952,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // stale pre-prepend offset; a session change clears the ref outright above.
   // followTail is already false when pulling at the top, so the tail-follow
   // effect can't fight this.
+  // 分批揭示期间(revealHoldRef)锚点跨批保持:每批 prepend 都把焦点消息的
+  // top 再往下推,本 effect 逐批以新偏移为基准继续校正;批次收尾
+  // (onSettled 翻下 hold)后走原有的一次性清除路径。
   useEffect(() => {
     const focus = preserveFocusRef.current;
     if (!focus) return;
@@ -927,7 +965,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
       0,
       conversationTop + layout.top - focus.distance,
     );
-    preserveFocusRef.current = null;
+    focus.prevTop = layout.top;
+    if (!revealHoldRef.current) {
+      preserveFocusRef.current = null;
+    }
     scrollViewRef.current?.scrollTo({ y: targetY, animated: false });
   // eslint-disable-next-line react-hooks/exhaustive-deps -- refs are stable
   }, [messageLayouts, conversationTop, visibleTurnLayoutKey]);
