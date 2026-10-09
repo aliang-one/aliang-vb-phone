@@ -11,7 +11,10 @@ import { RootNavigator } from './src/app/navigation/RootNavigator';
 import { navigationRef } from './src/app/navigation/navigationRef';
 import { ToastViewport } from './src/components/shared/ToastViewport';
 import { ChallengeModal } from './src/components/ChallengeModal';
+import { ForceUpdateGate } from './src/components/update/ForceUpdateGate';
+import { UpdateAvailableSheet } from './src/components/update/UpdateAvailableSheet';
 import { usePresenceHeartbeat } from './src/hooks/usePresenceHeartbeat';
+import { useAppUpdateLifecycle } from './src/hooks/useAppUpdateLifecycle';
 import { useBackgroundNotifications } from './src/hooks/useBackgroundNotifications';
 import {
   cancelNotification,
@@ -36,6 +39,9 @@ function AppContent({ debugDeviceTerminal }: AppInitialProps = {}) {
   // App-level presence: keeps the user's terminals alive while the app is in the
   // foreground (the server's idle reaper closes them after N min of no activity).
   usePresenceHeartbeat();
+  // 检查更新:冷启延迟 + 前台恢复(30 分钟节流),直连官网 check 端点,
+  // 与主 server 快照成败解耦(主 server 挂了也能拦强制升级)。
+  useAppUpdateLifecycle();
   // Android 后台本地通知:后台收到 approval / 回合结算 → 弹系统通知;点击跳会话。
   // iOS / 未 rebuild → 降级 no-op(见 services/localNotifications)。
   const hasHydrated = useSessionStore(state => state.hasHydrated);
@@ -181,6 +187,9 @@ function AppContent({ debugDeviceTerminal }: AppInitialProps = {}) {
       <ToastViewport />
       {/* 终端输出配额挑战:全局队列头部弹窗(见 store pendingChallenges)。 */}
       <ChallengeModal />
+      {/* 版本更新:强制=全屏门(不可关);软提醒=BottomSheet(可稍后再说)。 */}
+      <ForceUpdateGate />
+      <UpdateAvailableSheet />
     </>
   );
 }

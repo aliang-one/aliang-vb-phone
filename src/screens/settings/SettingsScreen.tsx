@@ -55,6 +55,8 @@ import {
   NOTIFIABLE_EVENT_TYPES,
 } from '../../utils/notificationDeliveryPolicy';
 import { NotificationTypesSheet } from '../../components/settings/NotificationTypesSheet';
+import { getInstalledAppVersion } from '../../native/AppVersion';
+import { useAppUpdateStore } from '../../store/appUpdateStore';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -86,6 +88,21 @@ export const SettingsScreen: React.FC = () => {
   const refreshAccountData = useSessionStore(state => state.refreshAccountData);
   const clearSavedCredentials = useSessionStore(state => state.clearSavedCredentials);
   const show = useToastStore(s => s.show);
+  const appUpdateChecking = useAppUpdateStore(s => s.status === 'checking');
+  const checkAppUpdate = useAppUpdateStore(s => s.checkNow);
+  const installedVersion = getInstalledAppVersion();
+
+  // 手动「检查更新」:await 完成后按终态给反馈;有新版时不 toast——
+  // Sheet(软提醒)/全屏 Gate(强制)自己会上屏。
+  const handleCheckAppUpdate = useCallback(async () => {
+    await checkAppUpdate({ manual: true });
+    const status = useAppUpdateStore.getState().status;
+    if (status === 'upToDate') {
+      show(t('about.update.upToDateToast'), 'success');
+    } else if (status === 'error') {
+      show(t('about.update.checkFailedToast'), 'error');
+    }
+  }, [checkAppUpdate, show, t]);
   const notificationPrefs = useSessionStore(s => s.notificationPrefs);
   const disconnectFromServer = useControlCenterStore(state => state.disconnectFromServer);
   const resetSessionData = useControlCenterStore(state => state.resetSessionData);
@@ -793,6 +810,42 @@ export const SettingsScreen: React.FC = () => {
 
             {renderSectionTitle(t('about.title'))}
             <GlassPanel style={styles.panel}>
+              <View style={styles.settingRow}>
+                <View style={styles.settingCopy}>
+                  <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                    {t('about.version')}
+                  </Text>
+                  <Text
+                    testID="settings-app-version"
+                    style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}
+                    numberOfLines={1}>
+                    {installedVersion
+                      ? `${installedVersion.versionName} (${installedVersion.versionCode})`
+                      : '-'}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.settingRow}
+                onPress={() => {
+                  void handleCheckAppUpdate();
+                }}
+                disabled={appUpdateChecking}
+                accessibilityRole="button"
+                testID="settings-check-update-row">
+                <View style={styles.settingCopy}>
+                  <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                    {t('about.checkUpdate')}
+                  </Text>
+                </View>
+                {appUpdateChecking ? (
+                  <StatusChip label="…" type="neutral" />
+                ) : (
+                  <Text style={[theme.typography.labelMd, { color: theme.colors.primary }]}>
+                    ›
+                  </Text>
+                )}
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.settingRow}
                 onPress={() => {

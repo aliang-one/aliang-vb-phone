@@ -129,7 +129,22 @@
   "clearCredentialsConfirm": "Saved login cleared.",
   "about": {
     "title": "ABOUT",
-    "privacyPolicy": "Privacy Policy"
+    "privacyPolicy": "Privacy Policy",
+    "version": "Version",
+    "checkUpdate": "Check for Updates",
+    "update": {
+      "title": "New version available",
+      "forceTitle": "Update required",
+      "forceNotice": "The current version is no longer supported. Update to the latest version to keep using the app.",
+      "current": "Current",
+      "latest": "Latest",
+      "changelogTitle": "What's new",
+      "changelogEmpty": "No release notes for this version.",
+      "updateNow": "Update Now",
+      "later": "Later",
+      "upToDateToast": "You're on the latest version.",
+      "checkFailedToast": "Update check failed, try again later."
+    }
   },
   "dangerZone": {
     "title": "DANGER ZONE",
