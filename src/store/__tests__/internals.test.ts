@@ -15,6 +15,7 @@ import {
   EVENT_DETAIL_CACHE_MAX,
   IDLE_DEMOTE_MS,
   mergeAgentMessages,
+  mergeEarlierAgentMessages,
   mergeVibeRunSnapshot,
   removeDeviceFromState,
   resolveRefreshAction,
@@ -530,6 +531,81 @@ describe('mergeAgentMessages', () => {
     const kept = merged.find(m => m.id === 'opt_2');
     expect(kept).toBeDefined();
     expect(kept?.failed).toBe(true);
+  });
+});
+
+describe('mergeEarlierAgentMessages — 引用复用(浏览历史卡顿修复)', () => {
+  const msg = (id: string, content: string, index?: number): AgentMessage => ({
+    id,
+    role: 'assistant',
+    content,
+    timestamp: `t-${id}`,
+    ...(index === undefined ? {} : { index }),
+  });
+
+  // 核心验收:agentTranscript 的 segmentCache 是 WeakMap<AgentMessage, ...>,
+  // 按消息对象引用命中。加载更早一页若把"完全没变的旧消息"也重建对象,
+  // 整个已加载历史的 markdown 解析缓存就会全量失效(每翻一页全量重解析)。
+  it('keeps object identity of unchanged existing messages after loading an earlier page', () => {
+    const old1 = msg('old_1', '较早回复一');
+    const old2 = msg('old_2', '较早回复二');
+    const newer = msg('new_1', '较新回复');
+    const earlierPage = [msg('pre_1', '更早的一'), msg('pre_2', '更早的二')];
+
+    const merged = mergeEarlierAgentMessages([old1, old2, newer], earlierPage);
+
+    expect(merged.find(m => m.id === 'old_1')).toBe(old1);
+    expect(merged.find(m => m.id === 'old_2')).toBe(old2);
+    expect(merged.find(m => m.id === 'new_1')).toBe(newer);
+  });
+
+  it('keeps identity of earlier-page messages too (no pointless copies)', () => {
+    const pre1 = msg('pre_1', '更早的一');
+    const merged = mergeEarlierAgentMessages([msg('old_1', '旧')], [pre1]);
+    expect(merged.find(m => m.id === 'pre_1')).toBe(pre1);
+  });
+
+  it('preserves value semantics when an id exists on both sides (existing fields win)', () => {
+    const earlierCopy: AgentMessage = {
+      id: 'dup',
+      role: 'assistant',
+      content: '旧内容',
+      timestamp: 't-old',
+      mode: 'text',
+    };
+    const existingCopy: AgentMessage = {
+      id: 'dup',
+      role: 'assistant',
+      content: '新内容(可能被流式补全过)',
+      timestamp: 't-new',
+    };
+    const merged = mergeEarlierAgentMessages([existingCopy], [earlierCopy]);
+    const kept = merged.find(m => m.id === 'dup');
+    // existing 的字段覆盖 earlier;earlier 独有键(mode)保留 —— 与旧
+    // {...earlier, ...existing} 展开语义逐值一致。
+    expect(kept?.content).toBe(existingCopy.content);
+    expect(kept?.timestamp).toBe(existingCopy.timestamp);
+    expect(kept?.mode).toBe('text');
+    // 值被合并修改时必须产生新对象,不能就地改动任何一侧输入。
+    expect(kept).not.toBe(earlierCopy);
+    expect(kept).not.toBe(existingCopy);
+    expect(earlierCopy.content).toBe('旧内容');
+    expect(existingCopy.mode).toBeUndefined();
+  });
+
+  it('sorts by index when every merged message has one, otherwise keeps first-seen order', () => {
+    const withIndexes = mergeEarlierAgentMessages(
+      [msg('b', '二', 2), msg('a', '一', 1)],
+      [msg('c', '三', 3)],
+    );
+    expect(withIndexes.map(m => m.id)).toEqual(['a', 'b', 'c']);
+
+    const noIndexes = mergeEarlierAgentMessages(
+      [msg('z', '现有末尾')],
+      [msg('y', '更早一'), msg('x', '更早二')],
+    );
+    // 首现顺序:earlier 页先入,再接 existing 独有 —— 与旧实现一致。
+    expect(noIndexes.map(m => m.id)).toEqual(['y', 'x', 'z']);
   });
 });
 
