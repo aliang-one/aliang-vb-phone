@@ -2,6 +2,84 @@ import {
   mergeEarlierAgentMessages,
   serverAiSessionToVibeRun,
 } from '../src/store/internals';
+import { useControlCenterStore } from '../src/store/controlCenterStore';
+import { platformTransport } from '../src/services/platformTransport';
+import { encodeClientAiMessageCursor } from '../src/utils/aiMessageCursor';
+import type {
+  AgentMessage,
+  VibeCodingRun,
+} from '../src/data/platformModels';
+
+jest.mock('../src/services/platformTransport', () => ({
+  platformTransport: {
+    disconnect: jest.fn(),
+    loadSnapshot: jest.fn(),
+    connect: jest.fn(),
+    sendAiMessage: jest.fn(),
+    loadAiSession: jest.fn(),
+    loadAiSessionMessages: jest.fn(),
+  },
+}));
+
+const mockedLoadMessages = platformTransport.loadAiSessionMessages as jest.Mock;
+
+const run = (transcript: VibeCodingRun['transcript']): VibeCodingRun =>
+  ({
+    id: 's1',
+    title: 'run-s1',
+    deviceId: 'device-1',
+    projectId: 'project-1',
+    directory: '~/proj',
+    status: 'running',
+    objective: '',
+    model: 'Claude Code',
+    risk: 'medium',
+    currentStep: '',
+    branch: 'main',
+    lastActivityMs: 0,
+    updatedAt: '',
+    suggestions: [],
+    transcript,
+    events: [],
+    structuredEvents: [],
+    transcriptCount: transcript.length,
+  }) as unknown as VibeCodingRun;
+
+const msg = (id: string, index: number): AgentMessage => ({
+  id,
+  role: index % 2 === 0 ? 'user' : 'assistant',
+  content: `c-${id}`,
+  timestamp: '2026-10-01T00:00:00.000Z',
+  index,
+});
+
+const range = (from: number, to: number): AgentMessage[] => {
+  const list: AgentMessage[] = [];
+  for (let i = from; i <= to; i += 1) list.push(msg(`m${i}`, i));
+  return list;
+};
+
+const wirePage = (from: number, to: number, extra: Record<string, unknown> = {}) => ({
+  session_id: 's1',
+  messages: range(from, to).map(m => ({
+    id: m.id,
+    role: m.role,
+    content: m.content,
+    timestamp: m.timestamp,
+    index: m.index,
+  })),
+  page: {
+    limit: 40,
+    count: to - from + 1,
+    total_count: 720,
+    has_more: false,
+    ...extra,
+  },
+  detail_refresh: { status: 'server_ledger' },
+});
+
+const currentRun = () =>
+  useControlCenterStore.getState().vibeRuns.find(r => r.id === 's1')!;
 
 describe('AI history pagination', () => {
   it('prepends earlier pages and preserves index order when present', () => {
@@ -84,5 +162,203 @@ describe('AI history pagination', () => {
       nextBeforeMessageId: 'm40',
     });
     expect(run.transcript[0]).toMatchObject({ id: 'm41', index: 41 });
+  });
+});
+
+describe('trimTranscript 分页失效修复(审计问题6,端到端)', () => {
+  const seedAuditScenario = () => {
+    // 审计场景的等价形态:热窗 460 条(m200..m659),分页状态是 hasMore=false
+    // (用户此前已把服务端给的历史翻完),服务端 cursor 是陈旧值。
+    useControlCenterStore.setState({
+      serverMode: true,
+      vibeRuns: [
+        {
+          ...run(range(200, 659)),
+          transcriptCount: 660,
+          transcriptPage: {
+            limit: 40,
+            count: 40,
+            totalCount: 660,
+            hasMore: false,
+            nextBeforeCursor: 'stale-cursor',
+            nextBeforeMessageId: 'm199',
+          },
+        },
+      ],
+      devices: [],
+      projects: [],
+    });
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('catch-up 触发 trim 后,hasMore=false 不再判死:自编码游标逐页回到更早历史', async () => {
+    seedAuditScenario();
+    // catch-up #1:补 60 条(m660..m719),合并后本地 520 > 500 → commitBatch
+    // tail-500 裁掉 m200..m219。transcriptPage 不被 catch-up 触碰——仍是
+    // hasMore=false,旧行为在这里把会话永久判死。
+    mockedLoadMessages.mockResolvedValueOnce(
+      wirePage(660, 719, {
+        total_count: 720,
+        anchor_found: true,
+      }),
+    );
+    await useControlCenterStore.getState().catchUpAgentMessages('s1', 720);
+
+    let state = currentRun();
+    expect(state.transcript[0]?.id).toBe('m220'); // tail-500 已裁
+    expect(state.transcriptPage?.hasMore).toBe(false); // 陈旧分页状态仍在
+
+    // 修复点 1:hasEarlierForRun 以 total(720) > 本地(500) 为真,不再吃
+    // hasMore=false 的亏;修复点 2:游标用本地头部自编码,陈旧 cursor 只兜底。
+    mockedLoadMessages.mockResolvedValueOnce(
+      wirePage(180, 219, {
+        total_count: 720,
+        has_more: true,
+        next_before_cursor: 'server-cursor-m179',
+        next_before_message_id: 'm179',
+        anchor_found: true,
+      }),
+    );
+    await useControlCenterStore.getState().loadEarlierAgentMessages('s1');
+
+    expect(mockedLoadMessages).toHaveBeenLastCalledWith('s1', {
+      limit: 40,
+      before: encodeClientAiMessageCursor({
+        id: 'm220',
+        timestamp: '2026-10-01T00:00:00.000Z',
+      }),
+    });
+
+    // 修复点 3(跑步机):合并后 540 条,水位地板保护已加载头部——不裁回 500。
+    state = currentRun();
+    expect(state.transcript).toHaveLength(540);
+    expect(state.transcript[0]?.id).toBe('m180');
+    expect(state.transcriptPage).toMatchObject({
+      hasMore: true,
+      nextBeforeMessageId: 'm179',
+      oldestLoadedId: 'm180',
+    });
+
+    // 继续翻,仍不裁;地板随头部推进。
+    mockedLoadMessages.mockResolvedValueOnce(
+      wirePage(140, 179, {
+        total_count: 720,
+        has_more: true,
+        next_before_message_id: 'm139',
+        anchor_found: true,
+      }),
+    );
+    await useControlCenterStore.getState().loadEarlierAgentMessages('s1');
+    state = currentRun();
+    expect(state.transcript).toHaveLength(580);
+    expect(state.transcript[0]?.id).toBe('m140');
+    expect(mockedLoadMessages).toHaveBeenLastCalledWith('s1', {
+      limit: 40,
+      before: encodeClientAiMessageCursor({
+        id: 'm180',
+        timestamp: '2026-10-01T00:00:00.000Z',
+      }),
+    });
+  });
+
+  it('服务端 anchor_found=false:不合并该页,标记 anchor_lost', async () => {
+    seedAuditScenario();
+    mockedLoadMessages.mockResolvedValueOnce(
+      wirePage(660, 719, { total_count: 720, has_more: true, anchor_found: true }),
+    );
+    await useControlCenterStore.getState().catchUpAgentMessages('s1', 720);
+
+    mockedLoadMessages.mockResolvedValueOnce({
+      ...wirePage(680, 719, { anchor_found: false }),
+      page: {
+        limit: 40,
+        count: 40,
+        total_count: 720,
+        has_more: false,
+        anchor_found: false,
+      },
+    });
+    await useControlCenterStore.getState().loadEarlierAgentMessages('s1');
+
+    const state = currentRun();
+    // 锚点丢失的页(静默降级的最新页)不被合并:窗口与地板保持原样。
+    expect(state.transcript[0]?.id).toBe('m220');
+    expect(state.transcript).toHaveLength(500);
+    expect(state.transcriptPage?.oldestLoadedId).toBeUndefined();
+    expect(state.detailRefreshStatus).toBe('anchor_lost');
+    // 再次点击仍会重试(anchor_lost 不是永久闸门),但不会出网死循环地吞页。
+  });
+
+  it('在途去重:并发第二次 loadEarlier 不出网', async () => {
+    seedAuditScenario();
+    mockedLoadMessages.mockResolvedValueOnce(
+      wirePage(660, 719, { total_count: 720, has_more: true, anchor_found: true }),
+    );
+    await useControlCenterStore.getState().catchUpAgentMessages('s1', 720);
+
+    let releaseFirst!: (value: unknown) => void;
+    mockedLoadMessages.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          releaseFirst = resolve;
+        }),
+    );
+    const first = useControlCenterStore.getState().loadEarlierAgentMessages('s1');
+    const second = useControlCenterStore.getState().loadEarlierAgentMessages('s1');
+    releaseFirst(
+      wirePage(180, 219, {
+        total_count: 720,
+        has_more: true,
+        next_before_message_id: 'm179',
+        anchor_found: true,
+      }),
+    );
+    await Promise.all([first, second]);
+    expect(mockedLoadMessages).toHaveBeenCalledTimes(2); // catch-up + 1 次 loadEarlier
+  });
+
+  it('mergeServerTranscriptPage:游标过浅的 WS 页被拒,更深的被收下且地板保留', async () => {
+    seedAuditScenario();
+    mockedLoadMessages.mockResolvedValueOnce(
+      wirePage(660, 719, { total_count: 720, has_more: true, anchor_found: true }),
+    );
+    await useControlCenterStore.getState().catchUpAgentMessages('s1', 720);
+
+    // 用户翻了一页更早历史 → 本地头部 m180、地板 m180。
+    mockedLoadMessages.mockResolvedValueOnce(
+      wirePage(180, 219, {
+        total_count: 720,
+        has_more: true,
+        next_before_message_id: 'm179',
+        anchor_found: true,
+      }),
+    );
+    await useControlCenterStore.getState().loadEarlierAgentMessages('s1');
+
+    // WS 快照把页游标拨回服务端热窗起点 m500(本地窗口 index>0)→ 拒绝。
+    useControlCenterStore.getState().mergeServerTranscriptPage('s1', {
+      limit: 40,
+      count: 40,
+      totalCount: 720,
+      hasMore: true,
+      nextBeforeMessageId: 'm500',
+    });
+    expect(currentRun().transcriptPage?.nextBeforeMessageId).toBe('m179');
+
+    // 服务端页游标比本地更深(m100)→ 收下,地板/窗口事实保留。
+    useControlCenterStore.getState().mergeServerTranscriptPage('s1', {
+      limit: 40,
+      count: 40,
+      totalCount: 720,
+      hasMore: true,
+      nextBeforeMessageId: 'm100',
+    });
+    expect(currentRun().transcriptPage).toMatchObject({
+      nextBeforeMessageId: 'm100',
+      oldestLoadedId: 'm180',
+    });
   });
 });

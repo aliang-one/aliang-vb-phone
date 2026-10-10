@@ -687,6 +687,22 @@ export interface AgentTranscriptPage {
   nextBeforeMessageId?: string;
   cacheStatus?: string;
   fetchedAt?: string;
+  /**
+   * before 模式锚点存在性(服务端 2026-10 起返回;老服务端 undefined 视为
+   * 存在)。服务端拿到 before 游标却解析不到锚点时会显式回 anchor_found=false
+   * (此前是静默落回最新页伪装成功)——客户端必须拒绝合并这种页,否则会把
+   * 一页"最新消息"当更早历史吞掉,且页状态被错误推进。
+   */
+  anchorFound?: boolean;
+  /**
+   * 本地窗口事实(客户端自维护,服务端永不下发):本地保留窗口最老一条
+   * 服务端确认消息的 id/timestamp。trim/加载更早/快照水合路径原子维护。
+   * 「加载更早」用 encodeClientAiMessageCursor(它)自编码游标,服务端下发
+   * 的 nextBeforeCursor 只是参考——trim 之后它可能指向已被裁掉或早已加载
+   * 过的消息。undefined 表示用户从未在本机加载过更早历史(纯热窗)。
+   */
+  oldestLoadedId?: string;
+  oldestLoadedTimestamp?: string;
 }
 
 export interface AgentEvent {

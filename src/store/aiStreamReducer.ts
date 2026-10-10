@@ -1,7 +1,7 @@
 import type { VibeCodingRun, VibeStatus } from '../data/platformModels';
 import { applyDeltasToRun, type DeltaUpdate } from '../utils/deltaBatch';
 import type { AiStreamTransportEvent } from './aiStreamBatching';
-import { formatActivityLabel, trimTranscript } from './internals';
+import { formatActivityLabel, trimTranscriptWithWindow } from './internals';
 import { applyStructuredEventsToRun } from './slices/structuredSlice';
 
 export function applyAiStreamEventsToRuns(
@@ -64,8 +64,18 @@ export function applyAiStreamEventsToRuns(
       }
     }
 
-    const transcript = trimTranscript(next.transcript);
-    if (transcript !== next.transcript) next = { ...next, transcript };
+    // 水位地板裁剪(统一收口 trimTranscriptWithWindow):已加载历史不被流式
+    // 写入裁掉;头部被裁时窗口事实与 transcript 同帧更新。
+    const trimmed = trimTranscriptWithWindow(next.transcript, next.transcriptPage);
+    if (trimmed.transcript !== next.transcript || trimmed.pageDelta) {
+      next = {
+        ...next,
+        transcript: trimmed.transcript,
+        ...(trimmed.pageDelta && next.transcriptPage
+          ? { transcriptPage: { ...next.transcriptPage, ...trimmed.pageDelta } }
+          : {}),
+      };
+    }
     changed = changed || next !== run;
     return next;
   });

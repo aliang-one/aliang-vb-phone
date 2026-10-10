@@ -1,6 +1,7 @@
 import type {
   AgentCommandScope,
   AgentEvent,
+  AgentTranscriptPage,
   Device,
   GoalSummary,
   PreviewLink,
@@ -31,6 +32,7 @@ import {
 } from '../services/platformTransport';
 import { clearPendingTerminalOutput } from '../services/terminalOutputRegistry';
 import { serverAiMessageToAgent } from '../api/sessions';
+import type { ServerAiTranscriptPage } from '../api/sessions';
 import {
   isAuthoritativeDetail,
   mergeDetailState,
@@ -116,6 +118,9 @@ export const MAX_RUN_EVENTS = 200; // per AI session lifecycle events
 export const MAX_SESSION_DETAIL = 8; // LRU: full transcripts held for at most this many sessions
 export const MAX_VIBE_RUNS = 50; // Maximum number of AI sessions kept in memory
 export const MAX_TRANSCRIPT_LENGTH = 500; // Maximum messages per session transcript (hot window)
+// 已加载历史(用户主动「加载更早」翻进来的头部)的硬上限。水位地板生效期间
+// tail-500 停止裁剪,窗口靠这个上限兜底;触顶按真值截断并同步窗口元数据。
+export const MAX_LOADED_TRANSCRIPT_LENGTH = 2000;
 export const MAX_EVENTS = 120; // Global event log limit
 export const MAX_NOTIFICATIONS = 120; // Notification list limit
 export const MAX_APPROVALS = 50; // Pending/resolved approvals limit
@@ -254,6 +259,178 @@ export function evictOverflowVibeRuns(runs: VibeCodingRun[]): VibeCodingRun[] {
  */
 export function trimTranscript(transcript: VibeCodingRun['transcript']): VibeCodingRun['transcript'] {
   return tail(transcript, MAX_TRANSCRIPT_LENGTH);
+}
+
+/**
+ * 本地窗口是否还有更早历史可加载(「加载更早」的闸门真值)。
+ *
+ * 真值来源是服务端 total_count 与本地窗口长度的差,而不是服务端下发的
+ * has_more:
+ * - catch-up 走 after 模式,它的 has_more 语义是"更新方向还有更多"(与
+ *   before 相反),混用会把能翻页的会话误判为到头;
+ * - trim 之后本地窗口变短,而服务端热窗快照的 has_more 描述的是服务端自己的
+ *   窗口——审计问题6的复现场景(hasMore=false + catch-up 大量新增 + trim)
+ *   就是因为只看 has_more 才把仍可翻页的会话永久判死。
+ * total 未知(老快照/纯本地)时才退回 hasMore,页都不存在时保守返回 false
+ * (与旧行为等价:没有游标也没有理由认为有更早历史)。
+ */
+export function hasEarlierForRun(run: {
+  transcript: VibeCodingRun['transcript'];
+  transcriptPage?: AgentTranscriptPage;
+  transcriptCount?: number;
+}): boolean {
+  // total 数的是服务端确认过的消息;本地未确认的乐观气泡(pending/failed)不
+  // 在其中,参与比较会让 hasEarlier 在流式期间闪断。
+  const confirmedLocal = run.transcript.reduce(
+    (count, message) =>
+      message.pending || message.failed ? count : count + 1,
+    0,
+  );
+  const totals = [
+    run.transcriptPage?.totalCount,
+    typeof run.transcriptCount === 'number' && run.transcriptCount > 0
+      ? run.transcriptCount
+      : undefined,
+  ].filter((value): value is number => typeof value === 'number');
+  if (totals.length) {
+    return Math.max(...totals) > confirmedLocal;
+  }
+  return run.transcriptPage ? run.transcriptPage.hasMore !== false : false;
+}
+
+/**
+ * 统一的 transcript 裁剪收口:tail-500 语义不变,但用户通过「加载更早」拉进
+ * 来的已加载历史(oldestLoadedId 标记的窗口头部)受水位地板保护——否则活跃
+ * 会话的排水提交每 2 页 trim 一次,刚翻到的头部历史下一轮就被裁掉,分页成
+ * 跑步机(每加载 40 条同时被裁 40 条,永远回不到 index 0)。
+ *
+ * 地板生效期间窗口可以超过 500,由 MAX_LOADED_TRANSCRIPT_LENGTH 兜底;触顶
+ * 时按真值截断(最老的已加载页开始让位,窗口元数据同步重算,用户仍能继续
+ * 向前翻,只是不再净前进——这是有界内存与可达性的换手点)。
+ *
+ * 返回的 pageDelta 非空表示头部被裁(或首次盖戳),调用方必须把它原子合并进
+ * 同一个 set 里(窗口事实与 transcript 永远同帧更新)。
+ */
+export function trimTranscriptWithWindow(
+  transcript: VibeCodingRun['transcript'],
+  page: AgentTranscriptPage | undefined,
+): {
+  transcript: VibeCodingRun['transcript'];
+  pageDelta?: Pick<AgentTranscriptPage, 'oldestLoadedId' | 'oldestLoadedTimestamp'>;
+} {
+  if (transcript.length <= MAX_TRANSCRIPT_LENGTH) {
+    return { transcript };
+  }
+  // 地板保护只在"用户确实加载过更早历史、且它仍是窗口头部"时生效。
+  const floorActive =
+    !!page?.oldestLoadedId && transcript[0]?.id === page.oldestLoadedId;
+  if (!floorActive) {
+    const trimmed = tail(transcript, MAX_TRANSCRIPT_LENGTH);
+    if (trimmed === transcript) return { transcript };
+    return {
+      transcript: trimmed,
+      // 只有地板身份本已存在(但已不是窗口头部——被其它路径裁掉/水合错位)才
+      // 刷新盖戳。绝不能凭空盖戳:纯热窗会话一旦被盖戳,下一次 trim 就会误判
+      // "有地板"而停摆,500 上限形同虚设。地板身份只由「加载更早」建立。
+      pageDelta: page?.oldestLoadedId
+        ? {
+            oldestLoadedId: trimmed[0]?.id,
+            oldestLoadedTimestamp: trimmed[0]?.timestamp,
+          }
+        : undefined,
+    };
+  }
+  if (transcript.length <= MAX_LOADED_TRANSCRIPT_LENGTH) {
+    return { transcript };
+  }
+  const trimmed = tail(transcript, MAX_LOADED_TRANSCRIPT_LENGTH);
+  return {
+    transcript: trimmed,
+    pageDelta: {
+      oldestLoadedId: trimmed[0]?.id,
+      oldestLoadedTimestamp: trimmed[0]?.timestamp,
+    },
+  };
+}
+
+/**
+ * 服务端下发的 transcript_page 的位置感知合并(mergeVibeRunSnapshot 的
+ * `incoming ?? existing` 整体覆写是审计问题6自愈路径上的反噬:WS 快照会把
+ * 客户端已翻历史的游标整体顶回服务端热窗起点,下一次「加载更早」就重翻已
+ * 加载区域)。
+ *
+ * 规则:服务端页的 before 游标目标若落在本地窗口 index>0 处,说明本地已经
+ * 加载了比它更早的历史——这页比本地浅,拒绝,保留本地;其余(目标不在本地
+ * 窗口里/正是本地头部/本地没有页)收下服务端(它更新鲜)。oldestLoadedId
+ * 是本地事实,无论谁赢都保留;服务端页收下时以服务端字段为准、本地窗口
+ * 事实回填。
+ */
+export function acceptServerTranscriptPage(
+  existing: AgentTranscriptPage | undefined,
+  incoming: AgentTranscriptPage | undefined,
+  localTranscript: VibeCodingRun['transcript'],
+): AgentTranscriptPage | undefined {
+  if (!incoming) return existing;
+  if (!existing) {
+    return {
+      ...incoming,
+      oldestLoadedId: localTranscript[0]?.id,
+      oldestLoadedTimestamp: localTranscript[0]?.timestamp,
+    };
+  }
+  const incomingAnchorId =
+    incoming.nextBeforeMessageId ?? decodeCursorId(incoming.nextBeforeCursor);
+  if (incomingAnchorId) {
+    const anchorIndex = localTranscript.findIndex(
+      message => message.id === incomingAnchorId,
+    );
+    // index 0 = 恰是本地头部(等价边界);>0 = 本地已越过它(服务端页过浅)。
+    if (anchorIndex > 0) return existing;
+  }
+  return {
+    ...incoming,
+    oldestLoadedId: existing.oldestLoadedId ?? localTranscript[0]?.id,
+    oldestLoadedTimestamp:
+      existing.oldestLoadedTimestamp ?? localTranscript[0]?.timestamp,
+  };
+}
+
+/**
+ * snake_case wire 页元数据 → camelCase 本地页模型(唯一映射,服务端快照与
+ * useSessionCatchUp 触发1 自愈共用)。
+ */
+export function serverTranscriptPageToAgent(
+  page: ServerAiTranscriptPage,
+): AgentTranscriptPage {
+  return {
+    limit: page.limit,
+    count: page.count,
+    totalCount: page.total_count,
+    hasMore: page.has_more,
+    nextBeforeCursor: page.next_before_cursor,
+    nextBeforeMessageId: page.next_before_message_id,
+    anchorFound: page.anchor_found,
+    cacheStatus: page.cache_status,
+    fetchedAt: page.fetched_at,
+  };
+}
+
+/**
+ * 从 base64url(JSON({id, ...})) 游标里取 id(只用于位置比较,失败返回
+ * undefined)。与服务端 decodeAiMessageCursor 同构,但这里不校验业务语义。
+ */
+function decodeCursorId(cursor: string | undefined): string | undefined {
+  if (!cursor) return undefined;
+  try {
+    const normalized = cursor.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+    const parsed = JSON.parse(globalThis.atob(padded)) as { id?: unknown };
+    return typeof parsed.id === 'string' && parsed.id.trim()
+      ? parsed.id
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function mergeEarlierAgentMessages(
@@ -605,16 +782,7 @@ export function serverAiSessionToVibeRun(
     ),
     transcriptCount: session.transcript_count ?? transcript.length,
     transcriptPage: session.transcript_page
-      ? {
-          limit: session.transcript_page.limit,
-          count: session.transcript_page.count,
-          totalCount: session.transcript_page.total_count,
-          hasMore: session.transcript_page.has_more,
-          nextBeforeCursor: session.transcript_page.next_before_cursor,
-          nextBeforeMessageId: session.transcript_page.next_before_message_id,
-          cacheStatus: session.transcript_page.cache_status,
-          fetchedAt: session.transcript_page.fetched_at,
-        }
+      ? serverTranscriptPageToAgent(session.transcript_page)
       : undefined,
     eventCount: session.event_count ?? events.length,
     filesTouchedCount: session.files_touched_count,
@@ -941,7 +1109,14 @@ export function mergeVibeRunSnapshot(
     // keep the existing value — otherwise every ai.session.updated / snapshot
     // merge would wipe it and break idle demotion immediately.
     lastViewedAt: existing.lastViewedAt,
-    transcriptPage: incoming.transcriptPage ?? existing.transcriptPage,
+    // 位置感知合并(见 acceptServerTranscriptPage):`incoming ?? existing`
+    // 的整体覆写会把客户端已翻历史的游标整体顶回服务端热窗起点——审计问题6
+    // 自愈路径上的反噬。undefined 的 incoming(列表快照不带页)保持旧行为。
+    transcriptPage: acceptServerTranscriptPage(
+      existing.transcriptPage,
+      incoming.transcriptPage,
+      transcript,
+    ),
     // effective_model_config is only attached to detail snapshots; keep the last
     // known value when a partial list snapshot omits it, so the session-settings
     // "当前有效" hint survives reconnect refreshes.
@@ -1800,7 +1975,18 @@ export function stateFromSnapshot(
       // screen. mergeVibeRunSnapshot already guards against a stale snapshot
       // demoting content; honour that instead of clobbering it.
       const merged = mergeVibeRunSnapshot(previousRunsById.get(run.id), run);
-      return { ...merged, transcript: trimTranscript(merged.transcript) };
+      const trimmed = trimTranscriptWithWindow(
+        merged.transcript,
+        merged.transcriptPage,
+      );
+      if (trimmed.pageDelta && merged.transcriptPage) {
+        return {
+          ...merged,
+          transcript: trimmed.transcript,
+          transcriptPage: { ...merged.transcriptPage, ...trimmed.pageDelta },
+        };
+      }
+      return { ...merged, transcript: trimmed.transcript };
     }),
   );
   const devices = attachDeviceRelations(baseDevices, projects, mergedVibeRuns);

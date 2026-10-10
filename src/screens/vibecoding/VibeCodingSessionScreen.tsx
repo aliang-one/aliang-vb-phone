@@ -457,6 +457,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
     cancelCatchUp: useControlCenterStore(
       state => state.cancelAiSessionCatchUp,
     ),
+    // 触发1 自愈:元数据响应里现成的 transcript_page 不再被掐掉(审计问题6)。
+    mergeServerTranscriptPage: useControlCenterStore(
+      state => state.mergeServerTranscriptPage,
+    ),
     fetchServerSessionMeta: fetchAiSession,
   });
   useFocusEffect(

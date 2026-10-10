@@ -56,7 +56,7 @@ import {
   shortTime,
   STRUCTURED_EVENTS_CAP,
   tail,
-  trimTranscript,
+  trimTranscriptWithWindow,
   upsertNotification,
   enteredWaitingApproval,
   mapSessionStatus,
@@ -956,10 +956,31 @@ export const useControlCenterStore = create<ControlCenterState>()(
                 // re-render every chat screen subscribed via useVibeRun.
                 const vibeRuns = evictOverflowVibeRuns(
                   rawVibeRuns.map(run => {
-                    const transcript = trimTranscript(run.transcript);
-                    return transcript === run.transcript
-                      ? run
-                      : { ...run, transcript };
+                    // 水位地板裁剪(统一收口 trimTranscriptWithWindow),保持
+                    // 上述 identity-stable 纪律:transcript 与窗口事实都没变
+                    // 时复用 run 对象。
+                    const trimmed = trimTranscriptWithWindow(
+                      run.transcript,
+                      run.transcriptPage,
+                    );
+                    if (
+                      trimmed.transcript === run.transcript &&
+                      !trimmed.pageDelta
+                    ) {
+                      return run;
+                    }
+                    return {
+                      ...run,
+                      transcript: trimmed.transcript,
+                      ...(trimmed.pageDelta && run.transcriptPage
+                        ? {
+                            transcriptPage: {
+                              ...run.transcriptPage,
+                              ...trimmed.pageDelta,
+                            },
+                          }
+                        : {}),
+                    };
                   }),
                 );
                 return {

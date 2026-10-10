@@ -16,6 +16,7 @@ import { buildDisplayTranscript } from '../../utils/agentTranscript';
 import { buildConversationTurns, type ConversationTurn } from '../../utils/conversationTurns';
 import { buildGoalFolds, type GoalFoldGroup } from '../../utils/goalFolds';
 import { isDeviceLinkReleaseNotice } from '../../utils/conversationTimeline';
+import { hasEarlierForRun } from '../../store/internals';
 import { useThrottledValue } from '../../hooks/useThrottledValue';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 
@@ -162,10 +163,12 @@ export function useConversationTranscript(
   const visibleAgentEvents = agentEventList.visibleItems;
   const latestAgentEvent =
     visibleSessionEvents[visibleSessionEvents.length - 1];
-  const hasServerEarlierMessages = Boolean(
-    session?.transcriptPage?.hasMore &&
-      session?.transcriptPage?.nextBeforeCursor,
-  );
+  // 闸门真值 = total_count 对比(hasEarlierForRun):`hasMore && nextBeforeCursor`
+  // 的旧判定在 trim 之后把仍可翻页的会话误判为到头(审计问题6),且自编码
+  // 游标让"必须已有服务端 cursor"这个前提不再成立。
+  const hasServerEarlierMessages = session
+    ? hasEarlierForRun(session)
+    : false;
   const visibleTurnLayoutKey = useMemo(
     () => visibleTurns.map(turn => turn.id).join('|'),
     [visibleTurns],
