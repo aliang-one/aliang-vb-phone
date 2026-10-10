@@ -74,3 +74,33 @@ export function latestServerConfirmedMessageId(
   }
   return undefined;
 }
+
+/**
+ * before 游标锚点:窗口头部第一条 server 确认消息。头部可能是客户端私有的
+ * failed/pending 气泡(离线首条失败后,历史经 WS/补齐合并到它后面)——这类
+ * id 没有服务端对应行,拿去当 before 游标必然锚点丢失。全窗口无确认消息
+ * 返回 undefined(调用方放弃:没有可翻页的基准)。
+ */
+export function firstServerConfirmedMessage(
+  transcript: AgentMessage[],
+): AgentMessage | undefined {
+  for (const message of transcript) {
+    if (isServerConfirmedMessage(message)) return message;
+  }
+  return undefined;
+}
+
+/**
+ * 服务端确认(真实入库)消息数。transcriptCount 写入与 hasEarlierForRun 的
+ * 比较必须用这个口径:pending/failed 气泡永不进服务端 total_count,混进
+ * transcriptCount 会让闸门永久膨胀(历史翻到底后「加载更早」变成无限空转)。
+ */
+export function countServerConfirmedMessages(
+  transcript: AgentMessage[],
+): number {
+  let count = 0;
+  for (const message of transcript) {
+    if (isServerConfirmedMessage(message)) count += 1;
+  }
+  return count;
+}

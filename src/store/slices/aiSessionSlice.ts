@@ -32,6 +32,8 @@ import {
 } from '../internals';
 import { encodeClientAiMessageCursor } from '../../utils/aiMessageCursor';
 import {
+  countServerConfirmedMessages,
+  firstServerConfirmedMessage,
   isSessionBehindTranscript,
   latestServerConfirmedMessageId,
 } from '../../utils/sessionCatchUp';
@@ -549,7 +551,10 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     // `!before || hasMore === false` 在 trim 之后把仍可翻页的会话永久判死
     // (审计问题6)——has_more 语义不含"本地窗口比服务端短"这层事实。
     if (!hasEarlierForRun(current)) return;
-    const oldest = current.transcript[0];
+    // 游标锚点必须是 server 确认消息:头部可能是客户端私有的 failed/pending
+    // 气泡(离线首条失败后历史合并到其后),私有 id 拿去当 before 游标必然
+    // 锚点丢失(老服务端还会把最新页当更早历史返回,打乱会话顺序)。
+    const oldest = firstServerConfirmedMessage(current.transcript);
     if (!oldest) return;
     // 游标优先用本地自编码(永远与本地窗口边界一致);服务端下发的
     // nextBeforeCursor 在 trim/快照合并之后可能指向已被裁掉或早已加载过的
@@ -567,7 +572,8 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       });
       // 服务端显式报告锚点丢失(老服务端 undefined = 放行):这页是静默降级的
       // 最新页而非更早历史,合并会把新消息当历史吞掉并错误推进页状态。保持
-      // 本地窗口原样,翻可见的失败反馈交由 detailRefreshStatus 通道。
+      // 本地窗口原样;抛错走屏幕既有 setDetailError 通道给可见反馈('anchor_lost'
+      // 无 UI 消费者,静默 return 会让用户在零反馈里无限重试同一注定失败的请求)。
       if (response.page.anchor_found === false) {
         set(state => ({
           vibeRuns: state.vibeRuns.map(run =>
@@ -576,7 +582,9 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
               : run,
           ),
         }));
-        return;
+        throw new Error(
+          'HISTORY_ANCHOR_LOST: 服务端已找不到本地窗口头部的对应消息,无法继续加载更早历史',
+        );
       }
       const earlierMessages = response.messages.map(serverAiMessageToAgent);
 
@@ -626,10 +634,13 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
             ...run,
             transcript,
             transcriptPage,
+            // 确认口径(server 入库数):transcript.length 含 pending/failed
+            // 乐观气泡,而它们永不进服务端 total_count——混进水位会让
+            // hasEarlierForRun 在历史翻到底后仍恒真(永久空转)。
             transcriptCount: Math.max(
               run.transcriptCount ?? 0,
               response.page.total_count ?? 0,
-              transcript.length,
+              countServerConfirmedMessages(transcript),
             ),
             detailRefreshStatus:
               response.detail_refresh?.status ?? run.detailRefreshStatus,

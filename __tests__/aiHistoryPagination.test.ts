@@ -1,5 +1,6 @@
 import {
   mergeEarlierAgentMessages,
+  mergeVibeRunSnapshot,
   serverAiSessionToVibeRun,
 } from '../src/store/internals';
 import { useControlCenterStore } from '../src/store/controlCenterStore';
@@ -264,7 +265,7 @@ describe('trimTranscript 分页失效修复(审计问题6,端到端)', () => {
     });
   });
 
-  it('服务端 anchor_found=false:不合并该页,标记 anchor_lost', async () => {
+  it('服务端 anchor_found=false:不合并该页,抛错走可见反馈通道', async () => {
     seedAuditScenario();
     mockedLoadMessages.mockResolvedValueOnce(
       wirePage(660, 719, { total_count: 720, has_more: true, anchor_found: true }),
@@ -281,7 +282,12 @@ describe('trimTranscript 分页失效修复(审计问题6,端到端)', () => {
         anchor_found: false,
       },
     });
-    await useControlCenterStore.getState().loadEarlierAgentMessages('s1');
+    // 抛错(而非静默 return):屏幕 handleLoadEarlierMessages 的 catch 会把
+    // error.message 写进 setDetailError——'anchor_lost' 无 UI 消费者,静默
+    // 会让用户在零反馈里无限重试同一注定失败的请求。
+    await expect(
+      useControlCenterStore.getState().loadEarlierAgentMessages('s1'),
+    ).rejects.toThrow('HISTORY_ANCHOR_LOST');
 
     const state = currentRun();
     // 锚点丢失的页(静默降级的最新页)不被合并:窗口与地板保持原样。
@@ -289,7 +295,111 @@ describe('trimTranscript 分页失效修复(审计问题6,端到端)', () => {
     expect(state.transcript).toHaveLength(500);
     expect(state.transcriptPage?.oldestLoadedId).toBeUndefined();
     expect(state.detailRefreshStatus).toBe('anchor_lost');
-    // 再次点击仍会重试(anchor_lost 不是永久闸门),但不会出网死循环地吞页。
+  });
+
+  it('纯热窗会话(从未加载更早):多次 catch-up trim 照常在 500 收口,窗口不被凭空盖戳', async () => {
+    seedAuditScenario();
+    // 两轮 catch-up,每轮 +60 条并 trim 回 500:窗口头部持续被裁,但
+    // transcriptPage.oldestLoadedId 必须保持 undefined——一旦被快照/裁剪盖戳,
+    // 水位地板会误钉,tail-500 停摆到 2000(内存上界 4 倍化 + 悬崖式截断)。
+    for (let round = 0; round < 2; round += 1) {
+      mockedLoadMessages.mockResolvedValueOnce(
+        wirePage(660 + round * 60, 719 + round * 60, {
+          total_count: 720 + (round + 1) * 60,
+          anchor_found: true,
+        }),
+      );
+      await useControlCenterStore
+        .getState()
+        .catchUpAgentMessages('s1', 720 + (round + 1) * 60);
+    }
+    const state = currentRun();
+    expect(state.transcript).toHaveLength(500);
+    expect(state.transcript[0]?.id).toBe('m280');
+    expect(state.transcriptPage?.oldestLoadedId).toBeUndefined();
+    expect(state.transcriptPage?.oldestLoadedTimestamp).toBeUndefined();
+  });
+
+  it('头部是客户端私有气泡(failed)时,游标取第一条 server 确认消息', async () => {
+    seedAuditScenario();
+    mockedLoadMessages.mockResolvedValueOnce(
+      wirePage(660, 719, { total_count: 720, has_more: true, anchor_found: true }),
+    );
+    await useControlCenterStore.getState().catchUpAgentMessages('s1', 720);
+
+    // 模拟"离线首条失败后历史合并到其后":头部插入 failed 私有气泡。
+    const failedBubble: AgentMessage = {
+      id: 'msg-1700000000000-abc',
+      role: 'user',
+      content: 'offline first',
+      timestamp: '2026-10-01T00:00:00.000Z',
+      failed: true,
+    };
+    useControlCenterStore.setState(state => ({
+      vibeRuns: state.vibeRuns.map(r =>
+        r.id === 's1'
+          ? { ...r, transcript: [failedBubble, ...r.transcript] }
+          : r,
+      ),
+    }));
+
+    mockedLoadMessages.mockResolvedValueOnce(
+      wirePage(180, 219, {
+        total_count: 720,
+        has_more: true,
+        next_before_message_id: 'm179',
+        anchor_found: true,
+      }),
+    );
+    await useControlCenterStore.getState().loadEarlierAgentMessages('s1');
+
+    // 游标锚在 m220(第一条确认消息),不是 failed 私有 id。
+    expect(mockedLoadMessages).toHaveBeenLastCalledWith('s1', {
+      limit: 40,
+      before: encodeClientAiMessageCursor({
+        id: 'm220',
+        timestamp: '2026-10-01T00:00:00.000Z',
+      }),
+    });
+  });
+
+  it('mergeVibeRunSnapshot 接线:WS 快照的浅游标页被拒,本地已翻历史页保留', async () => {
+    seedAuditScenario();
+    mockedLoadMessages.mockResolvedValueOnce(
+      wirePage(660, 719, { total_count: 720, has_more: true, anchor_found: true }),
+    );
+    await useControlCenterStore.getState().catchUpAgentMessages('s1', 720);
+
+    // 用户翻一页更早 → 本地页游标 m179 + 地板 m180。
+    mockedLoadMessages.mockResolvedValueOnce(
+      wirePage(180, 219, {
+        total_count: 720,
+        has_more: true,
+        next_before_message_id: 'm179',
+        anchor_found: true,
+      }),
+    );
+    await useControlCenterStore.getState().loadEarlierAgentMessages('s1');
+    const beforeMerge = currentRun().transcriptPage;
+
+    // WS 快照(mergeVibeRunSnapshot 路径)把页拨回服务端热窗起点 m500 → 拒绝。
+    const snapshotRun = {
+      ...run(range(500, 719)),
+      transcriptPage: {
+        limit: 40,
+        count: 40,
+        totalCount: 720,
+        hasMore: true,
+        nextBeforeMessageId: 'm500',
+      },
+    } as VibeCodingRun;
+    useControlCenterStore.setState(state => ({
+      vibeRuns: state.vibeRuns.map(r =>
+        r.id === 's1' ? mergeVibeRunSnapshot(r, snapshotRun) : r,
+      ),
+    }));
+
+    expect(currentRun().transcriptPage).toBe(beforeMerge);
   });
 
   it('在途去重:并发第二次 loadEarlier 不出网', async () => {

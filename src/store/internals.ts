@@ -16,6 +16,7 @@ import { normalizeProvider, providerLabel } from '../utils/modelIntensity';
 import { sameRemotePath } from '../utils/remotePath';
 import { normalizeFileStatus } from '../utils/fileStatus';
 import { isClaudeCodeMetaUserContent } from '../utils/agentTranscript';
+import { countServerConfirmedMessages } from '../utils/sessionCatchUp';
 import { decodeTerminalData } from '../utils/terminalOutput';
 import {
   platformTransport,
@@ -280,12 +281,9 @@ export function hasEarlierForRun(run: {
   transcriptCount?: number;
 }): boolean {
   // total 数的是服务端确认过的消息;本地未确认的乐观气泡(pending/failed)不
-  // 在其中,参与比较会让 hasEarlier 在流式期间闪断。
-  const confirmedLocal = run.transcript.reduce(
-    (count, message) =>
-      message.pending || message.failed ? count : count + 1,
-    0,
-  );
+  // 在其中,参与比较会让 hasEarlier 在流式期间闪断。口径单一来源:
+  // countServerConfirmedMessages(与 transcriptCount 写入同口径)。
+  const confirmedLocal = countServerConfirmedMessages(run.transcript);
   const totals = [
     run.transcriptPage?.totalCount,
     typeof run.transcriptCount === 'number' && run.transcriptCount > 0
@@ -371,13 +369,7 @@ export function acceptServerTranscriptPage(
   localTranscript: VibeCodingRun['transcript'],
 ): AgentTranscriptPage | undefined {
   if (!incoming) return existing;
-  if (!existing) {
-    return {
-      ...incoming,
-      oldestLoadedId: localTranscript[0]?.id,
-      oldestLoadedTimestamp: localTranscript[0]?.timestamp,
-    };
-  }
+  if (!existing) return { ...incoming };
   const incomingAnchorId =
     incoming.nextBeforeMessageId ?? decodeCursorId(incoming.nextBeforeCursor);
   if (incomingAnchorId) {
@@ -387,11 +379,13 @@ export function acceptServerTranscriptPage(
     // index 0 = 恰是本地头部(等价边界);>0 = 本地已越过它(服务端页过浅)。
     if (anchorIndex > 0) return existing;
   }
+  // 只透传本地已有地板,绝不凭空盖戳:oldestLoadedId 的唯一建立者是
+  // 「加载更早」;服务端快照若给纯热窗会话盖戳,水位地板会被误钉,
+  // tail-500 停摆到 2000 硬上限才一次性截断。
   return {
     ...incoming,
-    oldestLoadedId: existing.oldestLoadedId ?? localTranscript[0]?.id,
-    oldestLoadedTimestamp:
-      existing.oldestLoadedTimestamp ?? localTranscript[0]?.timestamp,
+    oldestLoadedId: existing.oldestLoadedId,
+    oldestLoadedTimestamp: existing.oldestLoadedTimestamp,
   };
 }
 

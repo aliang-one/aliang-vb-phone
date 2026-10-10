@@ -61,15 +61,17 @@ describe('hasEarlierForRun', () => {
     expect(hasEarlierForRun(run)).toBe(false);
   });
 
-  it('乐观气泡不计入本地窗口数(流式期间不闪断)', () => {
+  it('乐观气泡不计入本地窗口数(判别性 fixture:去掉过滤本例即翻 false)', () => {
+    // total=42,本地 40 条确认 + 2 条气泡:计入气泡 42>42=false(错),
+    // 排除气泡 42>40=true(对)——断言钉住过滤行为本身。
     const run = {
       transcript: [
-        ...range(460, 499),
-        { ...msg('pending-1', 500), pending: true },
-        { ...msg('failed-1', 501), failed: true },
+        ...range(0, 39),
+        { ...msg('pending-1', 40), pending: true },
+        { ...msg('failed-1', 41), failed: true },
       ],
-      transcriptPage: page({ totalCount: 500 }),
-      transcriptCount: 500,
+      transcriptPage: page({ totalCount: 42 }),
+      transcriptCount: 42,
     };
     expect(hasEarlierForRun(run)).toBe(true);
   });
@@ -196,10 +198,23 @@ describe('acceptServerTranscriptPage', () => {
     expect(merged?.nextBeforeMessageId).toBe('m140');
   });
 
-  it('本地无页:收下并以本地头部盖戳窗口事实', () => {
+  it('index 0 收下走的是比较分支而非 !existing 早返回(existing 存在时同样收下)', () => {
+    const existing = page({ nextBeforeMessageId: 'm139' });
+    const incoming = page({ hasMore: true, nextBeforeMessageId: 'm140' });
+    const merged = acceptServerTranscriptPage(existing, incoming, local);
+    expect(merged).not.toBe(existing);
+    expect(merged?.nextBeforeMessageId).toBe('m140');
+    // 收下的同时保留本地地板(本例 existing 无地板 → 不凭空盖戳)
+    expect(merged?.oldestLoadedId).toBeUndefined();
+  });
+
+  it('本地无页:收下但绝不凭空盖戳(地板唯一建立者是「加载更早」)', () => {
     const incoming = page({ hasMore: true, nextBeforeMessageId: 'm500' });
     const merged = acceptServerTranscriptPage(undefined, incoming, local);
-    expect(merged?.oldestLoadedId).toBe('m140');
+    expect(merged?.nextBeforeMessageId).toBe('m500');
+    // 若在此盖戳,纯热窗会话的地板会被误钉:tail-500 停摆到 2000 硬上限
+    expect(merged?.oldestLoadedId).toBeUndefined();
+    expect(merged?.oldestLoadedTimestamp).toBeUndefined();
   });
 
   it('incoming 为 undefined → 保持 existing(列表快照不带页的旧行为)', () => {
