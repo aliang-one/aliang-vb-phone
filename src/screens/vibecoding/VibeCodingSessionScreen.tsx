@@ -764,13 +764,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
       // Reveal more of the locally-held transcript (no network). Pin first so
       // the newly revealed older messages appear above without a viewport jump.
       // 分批揭示:一批 4 个 turn,单 commit 巨挂载拆成多个小挂载。
+      // await 整个揭示期:handleRefresh 的转轮据此覆盖到揭示收尾(修复转轮
+      // 在揭示中途提前复位的脱钩);被 scrubber 跳转顶掉时按 superseded 跳过
+      // 清除,hold 由新一轮揭示接管(根修 cancel 竞态的挂起)。
       capturePreserveFocus();
       revealHoldRef.current = true;
-      turnList.showMoreGradually({
-        onSettled: () => {
-          revealHoldRef.current = false;
-        },
-      });
+      const done = await turnList.showMoreGradually();
+      if (!done.superseded) revealHoldRef.current = false;
       return;
     }
     if (hasServerEarlierMessages) {
@@ -780,11 +780,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
       try {
         await loadEarlierAgentMessages(targetSessionId);
         revealHoldRef.current = true;
-        turnList.showMoreGradually({
-          onSettled: () => {
-            revealHoldRef.current = false;
-          },
-        });
+        const done = await turnList.showMoreGradually();
+        if (!done.superseded) revealHoldRef.current = false;
       } catch (error) {
         revealHoldRef.current = false;
         preserveFocusRef.current = null;
