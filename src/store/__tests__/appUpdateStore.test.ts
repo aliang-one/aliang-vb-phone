@@ -68,7 +68,7 @@ describe('appUpdateStore', () => {
     expect(s.status).toBe('forced');
     expect(s.info?.latestVersion).toBe('v1.0.7');
     expect(mockAsyncStorage.size).toBe(0);
-    expect(mockedFetch).toHaveBeenCalledWith('ios', 'v1.0.6');
+    expect(mockedFetch).toHaveBeenCalledWith('ios', 'v1.0.6', expect.anything());
   });
 
   it('落后 + 非 force → available 可弹;dismiss 落盘并抑制自动弹窗', async () => {
@@ -221,14 +221,22 @@ describe('appUpdateStore', () => {
     expect(s.promptSuppressed).toBe(true);
   });
 
-  it('检查硬死线:响应体悬挂 30s 判失败且 inFlight 解锁(可再次检查)', async () => {
-    mockedFetch.mockImplementation(() => new Promise(() => {}));
+  it('检查硬死线:响应体悬挂 30s 判失败、abort 底层请求且 inFlight 解锁', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    mockedFetch.mockImplementation(
+      (_platform: unknown, _version: unknown, signal?: AbortSignal) => {
+        capturedSignal = signal;
+        return new Promise(() => {});
+      },
+    );
     const pending = useAppUpdateStore.getState().checkNow();
     await jest.advanceTimersByTimeAsync(30_000);
     await pending;
     const s = useAppUpdateStore.getState();
     expect(s.status).toBe('error');
     expect(s.lastError).toContain('timed out');
+    // 死线必须真正取消底层请求(不留悬挂 fetch 累积)。
+    expect(capturedSignal?.aborted).toBe(true);
 
     // inFlight 必须已清:下一次检查真正发起(软提醒可达)。
     mockedFetch.mockResolvedValue(latest());

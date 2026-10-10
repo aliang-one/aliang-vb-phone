@@ -141,7 +141,13 @@ export async function apiFetch<T = unknown>(
   path: string,
   options: ApiFetchOptions = {}
 ): Promise<T> {
-  const { headers: optionHeaders, timeoutMs, skipRefreshRetry, ...fetchOptions } = options;
+  const {
+    headers: optionHeaders,
+    timeoutMs,
+    skipRefreshRetry,
+    baseUrl: explicitBaseUrl,
+    ...fetchOptions
+  } = options;
   // Build request options FRESH on each send: the access token is NOT stable
   // across a refresh — refreshSession rotates it in the store — so a retry must
   // re-read the provider. Capturing the token once and reusing the headers on
@@ -200,6 +206,14 @@ export async function apiFetch<T = unknown>(
   };
 
   const perform = async (): Promise<T> => {
+    // 显式 baseUrl = 跨域直连(官网等):跳过主平台发现,直发该 host。成功不
+    // remember、失败不 mark——平台 host 的发现/缓存语义只属于主平台链路,
+    // 否则官网会把主平台标记为可达/不可达,双向污染。
+    // (2026-10-09 之前 baseUrl 被静默丢弃,请求实际打到主平台,404 又被
+    // 调用方"未配置→静默"吞掉——跨域调用无声断裂,见对抗审计。)
+    if (explicitBaseUrl) {
+      return requestJson<T>(explicitBaseUrl, path, buildRequestOptions(), timeoutMs);
+    }
     const baseUrl = await resolveBaseUrl();
     try {
       return await sendTo(baseUrl);

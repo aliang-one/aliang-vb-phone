@@ -93,14 +93,18 @@ async function persistDismissed(version: string) {
   }
 }
 
-/** 总预算死线:响应体阶段不受 HTTP 客户端超时保护,这里兜底。 */
-async function withDeadline<T>(promise: Promise<T>): Promise<T> {
+/** 总预算死线:响应体阶段不受 HTTP 客户端超时保护,这里兜底;到点同时
+ * abort 底层 fetch(不留悬挂请求累积)。 */
+async function withDeadline<T>(
+  promise: Promise<T>,
+  onTimeout: () => void,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error('app update check timed out')),
-      CHECK_HARD_DEADLINE_MS,
-    );
+    timer = setTimeout(() => {
+      onTimeout();
+      reject(new Error('app update check timed out'));
+    }, CHECK_HARD_DEADLINE_MS);
   });
   try {
     return await Promise.race([promise, timeout]);
@@ -136,9 +140,15 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
         status: state.status === 'forced' ? 'forced' : 'checking',
         lastError: null,
       }));
+      const controller = new AbortController();
       try {
         const result = await withDeadline(
-          fetchUpdateCheck(updatePlatform(), installed.versionName),
+          fetchUpdateCheck(
+            updatePlatform(),
+            installed.versionName,
+            controller.signal,
+          ),
+          () => controller.abort(),
         );
         if (!result) {
           // 404 无行/格式不可判:按已最新处理(不提示)。
