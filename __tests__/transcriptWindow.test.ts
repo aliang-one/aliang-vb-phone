@@ -193,8 +193,9 @@ describe('acceptServerTranscriptPage', () => {
   });
 
   it('游标恰为本地头部(index 0)→ 等价边界,收下', () => {
+    const existing = page({ nextBeforeMessageId: 'm139' });
     const incoming = page({ hasMore: true, nextBeforeMessageId: 'm140' });
-    const merged = acceptServerTranscriptPage(undefined, incoming, local);
+    const merged = acceptServerTranscriptPage(existing, incoming, local);
     expect(merged?.nextBeforeMessageId).toBe('m140');
   });
 

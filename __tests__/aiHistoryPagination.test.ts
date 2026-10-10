@@ -297,6 +297,56 @@ describe('trimTranscript 分页失效修复(审计问题6,端到端)', () => {
     expect(state.detailRefreshStatus).toBe('anchor_lost');
   });
 
+  it('后续成功的空页也刷新页状态并清除旧 anchor_lost', async () => {
+    seedAuditScenario();
+    mockedLoadMessages.mockResolvedValueOnce(
+      wirePage(660, 719, { total_count: 720, has_more: true, anchor_found: true }),
+    );
+    await useControlCenterStore.getState().catchUpAgentMessages('s1', 720);
+    useControlCenterStore.setState(state => ({
+      vibeRuns: state.vibeRuns.map(r =>
+        r.id === 's1'
+          ? {
+              ...r,
+              transcript: [
+                {
+                  id: 'msg-1700000000000-failed',
+                  role: 'user' as const,
+                  content: 'failed bubble',
+                  timestamp: '2026-10-01T00:00:00.000Z',
+                  failed: true,
+                },
+                ...r.transcript,
+              ],
+              transcriptCount: 721,
+              detailRefreshStatus: 'anchor_lost',
+            }
+          : r,
+      ),
+    }));
+
+    mockedLoadMessages.mockResolvedValueOnce({
+      ...wirePage(0, -1, {
+        total_count: 720,
+        has_more: false,
+        anchor_found: true,
+      }),
+      messages: [],
+      page: {
+        limit: 40,
+        count: 0,
+        total_count: 720,
+        has_more: false,
+        anchor_found: true,
+      },
+    });
+    await useControlCenterStore.getState().loadEarlierAgentMessages('s1');
+
+    expect(currentRun().transcriptPage?.hasMore).toBe(false);
+    expect(currentRun().transcriptCount).toBe(720);
+    expect(currentRun().detailRefreshStatus).toBe('server_ledger');
+  });
+
   it('纯热窗会话(从未加载更早):多次 catch-up trim 照常在 500 收口,窗口不被凭空盖戳', async () => {
     seedAuditScenario();
     // 两轮 catch-up,每轮 +60 条并 trim 回 500:窗口头部持续被裁,但

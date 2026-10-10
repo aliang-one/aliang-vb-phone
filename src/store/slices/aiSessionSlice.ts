@@ -519,9 +519,9 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
               ? {
                   ...run,
                   transcriptCount: Math.max(
-                    run.transcriptCount ?? 0,
                     lastPageTotal,
                     serverCount,
+                    countServerConfirmedMessages(run.transcript),
                   ),
                 }
               : run,
@@ -626,7 +626,8 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
             priorPage.nextBeforeCursor === transcriptPage.nextBeforeCursor &&
             priorPage.cacheStatus === transcriptPage.cacheStatus &&
             priorPage.fetchedAt === transcriptPage.fetchedAt &&
-            priorPage.oldestLoadedId === transcriptPage.oldestLoadedId
+            priorPage.oldestLoadedId === transcriptPage.oldestLoadedId &&
+            run.detailRefreshStatus !== 'anchor_lost'
           ) {
             return run;
           }
@@ -637,13 +638,20 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
             // 确认口径(server 入库数):transcript.length 含 pending/failed
             // 乐观气泡,而它们永不进服务端 total_count——混进水位会让
             // hasEarlierForRun 在历史翻到底后仍恒真(永久空转)。
-            transcriptCount: Math.max(
-              run.transcriptCount ?? 0,
-              response.page.total_count ?? 0,
-              countServerConfirmedMessages(transcript),
-            ),
-            detailRefreshStatus:
-              response.detail_refresh?.status ?? run.detailRefreshStatus,
+            transcriptCount:
+              response.page.total_count !== undefined
+                ? Math.max(
+                    response.page.total_count,
+                    countServerConfirmedMessages(transcript),
+                  )
+                : Math.max(
+                    run.transcriptCount ?? 0,
+                    countServerConfirmedMessages(transcript),
+                  ),
+            // A successful page proves the previous anchor_lost state is stale.
+            // Do not retain a transient failure when the response omits a
+            // detail_refresh status.
+            detailRefreshStatus: response.detail_refresh?.status,
             // Loading earlier messages delivered content → authoritative ready.
             detailState: { kind: 'ready' as const },
           };
@@ -1056,7 +1064,10 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
           lastActivityMs: activityNowMs(),
           updatedAt: formatActivityLabel(activityNowMs()),
           transcript,
-          transcriptCount: Math.max(run.transcriptCount ?? 0, transcript.length),
+          transcriptCount: Math.max(
+            run.transcriptPage?.totalCount ?? run.transcriptCount ?? 0,
+            countServerConfirmedMessages(run.transcript),
+          ),
           lastMessage: optimisticMessage,
         };
       });
@@ -1138,7 +1149,10 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
               return {
                 ...withAcceptedRun,
                 transcript,
-                transcriptCount: Math.max(run.transcriptCount ?? 0, transcript.length),
+                transcriptCount: Math.max(
+                  run.transcriptPage?.totalCount ?? run.transcriptCount ?? 0,
+                  countServerConfirmedMessages(transcript),
+                ),
                 lastMessage:
                   withAcceptedRun.lastMessage?.id === optimisticId
                     ? transcript[transcript.length - 1]
@@ -1273,7 +1287,16 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         return {
           ...item,
           transcript,
-          transcriptCount: Math.max((item.transcriptCount ?? 1) - 1, 0),
+          transcriptCount:
+            item.transcriptPage?.totalCount !== undefined
+              ? Math.max(
+                  item.transcriptPage.totalCount,
+                  countServerConfirmedMessages(transcript),
+                )
+              : Math.max(
+                  (item.transcriptCount ?? 1) - 1,
+                  countServerConfirmedMessages(transcript),
+                ),
         };
       }),
     }));
@@ -1292,7 +1315,16 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         return {
           ...item,
           transcript,
-          transcriptCount: Math.max((item.transcriptCount ?? 1) - 1, 0),
+          transcriptCount:
+            item.transcriptPage?.totalCount !== undefined
+              ? Math.max(
+                  item.transcriptPage.totalCount,
+                  countServerConfirmedMessages(transcript),
+                )
+              : Math.max(
+                  (item.transcriptCount ?? 1) - 1,
+                  countServerConfirmedMessages(transcript),
+                ),
         };
       }),
     }));
