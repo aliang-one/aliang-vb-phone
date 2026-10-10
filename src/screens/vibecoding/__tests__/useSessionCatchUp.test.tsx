@@ -18,8 +18,26 @@ const makeDeps = () => ({
     .fn<Promise<SessionCatchUpResult>, [string, number]>()
     .mockResolvedValue({ mode: 'skipped', reason: 'fresh' }),
   fetchMeta: jest
-    .fn<Promise<{ transcript_count?: number } | undefined>, [string]>()
+    .fn<
+      Promise<
+        {
+          transcript_count?: number;
+          transcript_page?: {
+            limit: number;
+            count: number;
+            total_count?: number;
+            has_more: boolean;
+            next_before_cursor?: string;
+            next_before_message_id?: string;
+            anchor_found?: boolean;
+          };
+        }
+        | undefined
+      >,
+      [string]
+    >()
     .mockResolvedValue(undefined),
+  mergePage: jest.fn<void, [string, unknown]>(),
   cancelCatchUp: jest.fn<void, [string]>(),
 });
 
@@ -43,6 +61,7 @@ const renderHook = (
         transcriptCount: props.transcriptCount,
         catchUpAgentMessages: hookDeps.catchUp,
         fetchServerSessionMeta: hookDeps.fetchMeta,
+        mergeServerTranscriptPage: hookDeps.mergePage,
         cancelCatchUp: hookDeps.cancelCatchUp,
       });
       return null;
@@ -68,6 +87,55 @@ describe('useSessionCatchUp', () => {
 
     expect(deps.fetchMeta).toHaveBeenCalledWith('s1');
     expect(deps.catchUp).toHaveBeenCalledWith('s1', 5);
+    renderer.unmount();
+  });
+
+  it('触发1 自愈:元数据携带的 transcript_page 转发给 mergeServerTranscriptPage', async () => {
+    deps.fetchMeta.mockResolvedValue({
+      transcript_count: 5,
+      transcript_page: {
+        limit: 40,
+        count: 40,
+        total_count: 640,
+        has_more: true,
+        next_before_cursor: 'cur',
+        next_before_message_id: 'm600',
+        anchor_found: true,
+      },
+    });
+
+    const renderer = renderHook(
+      { sessionId: 's1', transcriptCount: 2 },
+      deps,
+    );
+    await act(async () => {
+      await drain();
+    });
+
+    expect(deps.mergePage).toHaveBeenCalledWith('s1', {
+      limit: 40,
+      count: 40,
+      totalCount: 640,
+      hasMore: true,
+      nextBeforeCursor: 'cur',
+      nextBeforeMessageId: 'm600',
+      anchorFound: true,
+      cacheStatus: undefined,
+      fetchedAt: undefined,
+    });
+    renderer.unmount();
+  });
+
+  it('元数据无 transcript_page 时以 undefined 调用(纯计数对账不受伤)', async () => {
+    deps.fetchMeta.mockResolvedValue({ transcript_count: 5 });
+    const renderer = renderHook(
+      { sessionId: 's1', transcriptCount: 2 },
+      deps,
+    );
+    await act(async () => {
+      await drain();
+    });
+    expect(deps.mergePage).toHaveBeenCalledWith('s1', undefined);
     renderer.unmount();
   });
 
@@ -169,6 +237,7 @@ describe('useSessionCatchUp', () => {
             catchUpAgentMessages: deps.catchUp,
             cancelCatchUp: deps.cancelCatchUp,
             fetchServerSessionMeta: deps.fetchMeta,
+            mergeServerTranscriptPage: deps.mergePage,
           });
           return null;
         }),
@@ -194,6 +263,7 @@ describe('useSessionCatchUp', () => {
         catchUpAgentMessages: deps.catchUp,
         cancelCatchUp: deps.cancelCatchUp,
         fetchServerSessionMeta: deps.fetchMeta,
+        mergeServerTranscriptPage: deps.mergePage,
       });
       return null;
     };
@@ -251,6 +321,7 @@ describe('useSessionCatchUp', () => {
           catchUpAgentMessages: deps.catchUp,
           cancelCatchUp: deps.cancelCatchUp,
           fetchServerSessionMeta: deps.fetchMeta,
+          mergeServerTranscriptPage: deps.mergePage,
         });
         captured = refreshLatestCount;
         return null;
@@ -424,6 +495,7 @@ describe('useSessionCatchUp', () => {
           catchUpAgentMessages: deps.catchUp,
           cancelCatchUp: deps.cancelCatchUp,
           fetchServerSessionMeta: deps.fetchMeta,
+          mergeServerTranscriptPage: deps.mergePage,
         }),
       );
       return null;

@@ -10,7 +10,9 @@ import {
   isSessionTurnActive,
 } from '../../utils/sessionPhase';
 import type { AgentProvider, ControlCenterState } from '../types';
+import type { AgentTranscriptPage } from '../../data/platformModels';
 import {
+  acceptServerTranscriptPage,
   activityNowMs,
   attachDeviceRelations,
   capEventDetailCache,
@@ -20,14 +22,18 @@ import {
   evictStaleSessionDetail,
   fileNameFromPath,
   formatActivityLabel,
+  hasEarlierForRun,
   mergeAgentMessages,
   mergeEarlierAgentMessages,
   mergeIds,
   mergeVibeRunSnapshot,
   serverAiSessionToVibeRun,
-  trimTranscript,
+  trimTranscriptWithWindow,
 } from '../internals';
+import { encodeClientAiMessageCursor } from '../../utils/aiMessageCursor';
 import {
+  countServerConfirmedMessages,
+  firstServerConfirmedMessage,
   isSessionBehindTranscript,
   latestServerConfirmedMessageId,
 } from '../../utils/sessionCatchUp';
@@ -48,6 +54,7 @@ type AiSessionSlice = Pick<
   | 'startAgentSession' | 'loadAgentSessionDetail' | 'catchUpAgentMessages' | 'cancelAiSessionCatchUp' | 'pauseAgentSession'
   | 'interruptAgentSession' | 'resumeAgentSession' | 'terminateAgentSession' | 'updateAgentSession'
   | 'deleteAgentSession' | 'appendAgentMessage' | 'loadEarlierAgentMessages'
+  | 'mergeServerTranscriptPage'
   | 'loadAiSessionHistory'
   | 'hydrateSessionHistory'
   | 'retryAgentMessage' | 'dismissFailedMessage' | 'cacheStructuredDetail'
@@ -59,6 +66,9 @@ const pendingMessageSends = new Set<string>();
 // In-flight catch-up dedup: a snapshot burst can trigger several attempts for
 // the same session; only the first hits the network.
 const catchUpsInFlight = new Set<string>();
+// 「加载更早」在途去重:连点/双入口(按钮+下拉)并发时只有第一发真正出网,
+// 其余直接 no-op——竞态的双页 prepend 会把 transcriptPage 推进两次。
+const loadEarlierInFlight = new Set<string>();
 // 生命周期取消(P1 审计):卸载/切会话时由 hook 置位,在途排水在下一个
 // 页边界检测到即停。attempt 开始时清除(取消先于新尝试属正常时序)。
 const cancelledCatchUps = new Set<string>();
@@ -418,12 +428,23 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
             // Id-union merge (mergeAgentMessages): duplicates collapse, the
             // optimistic pending bubble gets confirmed by its server copy, and
             // an anchorMissing tail window is absorbed as a full refresh.
-            const transcript = trimTranscript(
+            // 水位地板裁剪(见 trimTranscriptWithWindow):已加载历史不被排水
+            // 裁掉(分页跑步机),窗口事实与 transcript 同帧原子更新。
+            const merged = trimTranscriptWithWindow(
               mergeAgentMessages(run.transcript, pending),
+              run.transcriptPage,
             );
+            const transcriptPage =
+              merged.pageDelta && run.transcriptPage
+                ? { ...run.transcriptPage, ...merged.pageDelta }
+                : run.transcriptPage;
+            if (merged.transcript === run.transcript && transcriptPage === run.transcriptPage) {
+              return run;
+            }
             return {
               ...run,
-              transcript,
+              transcript: merged.transcript,
+              transcriptPage,
               // Delivered content is authoritative (mirrors loadEarlierAgentMessages).
               detailState: hadContent
                 ? { kind: 'ready' as const }
@@ -522,47 +543,137 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     if (!get().serverMode) {
       throw new Error('Platform connection is required before loading VibeCoding history.');
     }
+    // 在途去重:连点只出一次网(见 loadEarlierInFlight)。
+    if (loadEarlierInFlight.has(sessionId)) return;
     const current = get().vibeRuns.find(run => run.id === sessionId);
-    const before = current?.transcriptPage?.nextBeforeCursor;
-    if (!before || current?.transcriptPage?.hasMore === false) return;
-
-    const response = await platformTransport.loadAiSessionMessages(sessionId, {
-      limit: current.transcriptPage?.limit || 40,
-      before,
-    });
-    const earlierMessages = response.messages.map(serverAiMessageToAgent);
-
-    set(state => {
-      const vibeRuns = state.vibeRuns.map(run => {
-        if (run.id !== sessionId) return run;
-        const transcript = mergeEarlierAgentMessages(
-          run.transcript,
-          earlierMessages,
+    if (!current) return;
+    // 闸门真值改为 total_count 对比(hasEarlierForRun):旧守卫
+    // `!before || hasMore === false` 在 trim 之后把仍可翻页的会话永久判死
+    // (审计问题6)——has_more 语义不含"本地窗口比服务端短"这层事实。
+    if (!hasEarlierForRun(current)) return;
+    // 游标锚点必须是 server 确认消息:头部可能是客户端私有的 failed/pending
+    // 气泡(离线首条失败后历史合并到其后),私有 id 拿去当 before 游标必然
+    // 锚点丢失(老服务端还会把最新页当更早历史返回,打乱会话顺序)。
+    const oldest = firstServerConfirmedMessage(current.transcript);
+    if (!oldest) return;
+    // 游标优先用本地自编码(永远与本地窗口边界一致);服务端下发的
+    // nextBeforeCursor 在 trim/快照合并之后可能指向已被裁掉或早已加载过的
+    // 消息。自编码格式与服务端 cursor.ts 字节兼容(server 侧 decode 只强制
+    // 非空 id),且带 timestamp 供 agent 转发路径定位 imported 历史。
+    const before =
+      encodeClientAiMessageCursor(oldest) ??
+      current.transcriptPage?.nextBeforeCursor;
+    if (!before) return;
+    loadEarlierInFlight.add(sessionId);
+    try {
+      const response = await platformTransport.loadAiSessionMessages(sessionId, {
+        limit: current.transcriptPage?.limit || 40,
+        before,
+      });
+      // 服务端显式报告锚点丢失(老服务端 undefined = 放行):这页是静默降级的
+      // 最新页而非更早历史,合并会把新消息当历史吞掉并错误推进页状态。保持
+      // 本地窗口原样;抛错走屏幕既有 setDetailError 通道给可见反馈('anchor_lost'
+      // 无 UI 消费者,静默 return 会让用户在零反馈里无限重试同一注定失败的请求)。
+      if (response.page.anchor_found === false) {
+        set(state => ({
+          vibeRuns: state.vibeRuns.map(run =>
+            run.id === sessionId && run.detailRefreshStatus !== 'anchor_lost'
+              ? { ...run, detailRefreshStatus: 'anchor_lost' }
+              : run,
+          ),
+        }));
+        throw new Error(
+          'HISTORY_ANCHOR_LOST: 服务端已找不到本地窗口头部的对应消息,无法继续加载更早历史',
         );
-        return {
-          ...run,
-          transcript,
-          transcriptPage: {
+      }
+      const earlierMessages = response.messages.map(serverAiMessageToAgent);
+
+      set(state => {
+        const vibeRuns = state.vibeRuns.map(run => {
+          if (run.id !== sessionId) return run;
+          const transcript = mergeEarlierAgentMessages(
+            run.transcript,
+            earlierMessages,
+          );
+          // 加载更早是唯一把窗口头部推向更历史的路径:先以新头部建立地板页,
+          // 再交给裁剪——地板必须先于 trim 生效,否则 tail-500 会把刚加载的
+          // 这一页连同学过的历史一起裁掉(加载 40 裁 40 的跑步机)。
+          const basePage: AgentTranscriptPage = {
             limit: response.page.limit,
             count: response.page.count,
             totalCount: response.page.total_count,
             hasMore: response.page.has_more,
             nextBeforeCursor: response.page.next_before_cursor,
             nextBeforeMessageId: response.page.next_before_message_id,
+            anchorFound: response.page.anchor_found,
             cacheStatus: response.page.cache_status,
             fetchedAt: response.page.fetched_at,
-          },
-          transcriptCount: Math.max(
-            run.transcriptCount ?? 0,
-            response.page.total_count ?? 0,
-            transcript.length,
-          ),
-          detailRefreshStatus:
-            response.detail_refresh?.status ?? run.detailRefreshStatus,
-          // Loading earlier messages delivered content → authoritative ready.
-          detailState: { kind: 'ready' as const },
+            oldestLoadedId: transcript[0]?.id,
+            oldestLoadedTimestamp: transcript[0]?.timestamp,
+          };
+          const merged = trimTranscriptWithWindow(transcript, basePage);
+          const transcriptPage: AgentTranscriptPage = merged.pageDelta
+            ? { ...basePage, ...merged.pageDelta }
+            : basePage;
+          const priorPage = run.transcriptPage;
+          if (
+            transcript === run.transcript &&
+            priorPage &&
+            priorPage.limit === transcriptPage.limit &&
+            priorPage.count === transcriptPage.count &&
+            priorPage.totalCount === transcriptPage.totalCount &&
+            priorPage.hasMore === transcriptPage.hasMore &&
+            priorPage.nextBeforeCursor === transcriptPage.nextBeforeCursor &&
+            priorPage.cacheStatus === transcriptPage.cacheStatus &&
+            priorPage.fetchedAt === transcriptPage.fetchedAt &&
+            priorPage.oldestLoadedId === transcriptPage.oldestLoadedId
+          ) {
+            return run;
+          }
+          return {
+            ...run,
+            transcript,
+            transcriptPage,
+            // 确认口径(server 入库数):transcript.length 含 pending/failed
+            // 乐观气泡,而它们永不进服务端 total_count——混进水位会让
+            // hasEarlierForRun 在历史翻到底后仍恒真(永久空转)。
+            transcriptCount: Math.max(
+              run.transcriptCount ?? 0,
+              response.page.total_count ?? 0,
+              countServerConfirmedMessages(transcript),
+            ),
+            detailRefreshStatus:
+              response.detail_refresh?.status ?? run.detailRefreshStatus,
+            // Loading earlier messages delivered content → authoritative ready.
+            detailState: { kind: 'ready' as const },
+          };
+        });
+        return {
+          vibeRuns,
+          devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
         };
       });
+    } finally {
+      loadEarlierInFlight.delete(sessionId);
+    }
+  },
+
+  mergeServerTranscriptPage: (sessionId, page) => {
+    if (!page) return;
+    set(state => {
+      const vibeRuns = state.vibeRuns.map(run => {
+        if (run.id !== sessionId) return run;
+        // 位置感知合并:游标比本地窗口浅的服务端页被拒(本地已翻过更深的
+        // 历史,收下会让游标退回服务端热窗起点,下一次加载更早重翻已加载页)。
+        const transcriptPage = acceptServerTranscriptPage(
+          run.transcriptPage,
+          page,
+          run.transcript,
+        );
+        if (transcriptPage === run.transcriptPage) return run;
+        return { ...run, transcriptPage };
+      });
+      if (vibeRuns === state.vibeRuns) return state;
       return {
         vibeRuns,
         devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),

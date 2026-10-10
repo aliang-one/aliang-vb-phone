@@ -1,5 +1,6 @@
 import type {
   AgentCommandInfo,
+  AgentTranscriptPage,
   Device,
   PreviewLink,
   Project,
@@ -531,6 +532,16 @@ export interface ControlCenterState {
    * but the watermark is never claimed by a cancelled run.
    */
   cancelAiSessionCatchUp: (sessionId: string) => void;
+  /**
+   * 触发1 自愈(useSessionCatchUp):把轻量元数据(fetchedAiSession)携带的
+   * 服务端 transcript_page 位置感知合并进会话(见 acceptServerTranscriptPage
+   * ——游标比本地窗口浅的页被拒,防止已翻历史被顶回服务端热窗起点)。
+   * incoming.page 为 undefined 时是 no-op。
+   */
+  mergeServerTranscriptPage: (
+    sessionId: string,
+    page: AgentTranscriptPage | undefined,
+  ) => void;
   loadEarlierAgentMessages: (sessionId: string) => Promise<void>;
   loadAiSessionHistory: (options?: {
     reset?: boolean;

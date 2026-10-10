@@ -19,7 +19,9 @@
  * 的重查由会话屏已有的 useFocusEffect 调用本 hook 返回的 refreshLatestCount。
  */
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import type { AgentTranscriptPage } from '../../data/platformModels';
 import type { ServerAiSession } from '../../api/sessions';
+import { serverTranscriptPageToAgent } from '../../store/internals';
 import type { SessionCatchUpResult } from '../../store/types';
 
 const FAILURE_RETRY_COOLDOWN_MS = 10_000;
@@ -46,7 +48,18 @@ export interface SessionCatchUpInput {
   /** 注入点(测试替身):轻量元数据拉取,生产传 fetchAiSession(缓存优先)。 */
   fetchServerSessionMeta: (
     sessionId: string,
-  ) => Promise<Pick<ServerAiSession, 'transcript_count'> | undefined>;
+  ) => Promise<
+    Pick<ServerAiSession, 'transcript_count' | 'transcript_page'> | undefined
+  >;
+  /**
+   * 注入点:把元数据携带的服务端 transcript_page 位置感知合并进 store
+   * (触发1 自愈的后半段——服务端响应里现成的分页元数据此前被 Pick 掐掉,
+   * trim 后 hasMore=false 的会话错过唯一的自愈机会,见审计问题6)。
+   */
+  mergeServerTranscriptPage: (
+    sessionId: string,
+    page: AgentTranscriptPage | undefined,
+  ) => void;
 }
 
 export interface SessionCatchUpController {
@@ -63,6 +76,7 @@ export function useSessionCatchUp(
     catchUpAgentMessages,
     cancelCatchUp,
     fetchServerSessionMeta,
+    mergeServerTranscriptPage,
   } = input;
 
   // Per-session failure cooldown survives session switches within this screen
@@ -153,6 +167,15 @@ export function useSessionCatchUp(
         // 元数据迟到的闸门(P1 生命周期审计):卸载或已切走后,不得再凭
         // 迟到的计数启动一轮新补齐。
         if (!mountedRef.current || sessionIdRef.current !== id) return;
+        // 触发1 自愈(审计问题6):响应里现成的 transcript_page 不再被掐掉。
+        // 位置感知合并在 store 侧 acceptServerTranscriptPage——本地已翻更深
+        // 历史时服务端页被拒,游标不会被顶回热窗起点。
+        mergeServerTranscriptPage(
+          id,
+          meta?.transcript_page
+            ? serverTranscriptPageToAgent(meta.transcript_page)
+            : undefined,
+        );
         await attempt(meta?.transcript_count);
       } catch {
         // Meta fetch itself failed (offline / 404) — the count-driven trigger
@@ -160,7 +183,7 @@ export function useSessionCatchUp(
         // already apply; nothing to surface on a silent recovery path.
       }
     })();
-  }, [attempt, fetchServerSessionMeta, sessionId]);
+  }, [attempt, fetchServerSessionMeta, mergeServerTranscriptPage, sessionId]);
 
   useEffect(() => {
     refreshLatestCount();
