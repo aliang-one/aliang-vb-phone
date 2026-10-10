@@ -81,10 +81,14 @@ function lenientBool(value: unknown): boolean {
 /**
  * 查一次更新。返回 null = 无可判定信息(website 未配置该软件行 404 / 版本
  * 格式非法),调用方一律按"不提示"处理,绝不当错误抛。
+ *
+ * signal:调用方硬死线用——到点中止底层 fetch,不留悬挂请求累积
+ * (accountClient 的超时只包住 fetch() 响应头,响应体阶段靠这里取消)。
  */
 export async function fetchUpdateCheck(
   platform: AppUpdatePlatform,
   clientVersion: string,
+  signal?: AbortSignal,
 ): Promise<UpdateCheckResult | null> {
   const version = normalizeAppVersion(clientVersion);
   if (!version) return null;
@@ -96,7 +100,7 @@ export async function fetchUpdateCheck(
   try {
     payload = await accountGet<WebsiteCheckPayload>(
       `/api/public/downloads/check${query}`,
-      { baseUrl: ALIANG_ACCOUNT_BASE_URL },
+      { baseUrl: ALIANG_ACCOUNT_BASE_URL, signal },
     );
   } catch (error) {
     // 404 = 该 platform+software 无任何行:官网还没配置本 app,静默当无更新。

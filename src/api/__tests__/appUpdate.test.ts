@@ -46,6 +46,14 @@ describe('fetchUpdateCheck', () => {
     expect((options as { baseUrl: string }).baseUrl).toBe('https://www.aliang.one');
   });
 
+  it('signal 透传给底层调用(死线到点可真正取消请求)', async () => {
+    mockedAccountGet.mockResolvedValue({ latest_version: 'v1.0.7' });
+    const controller = new AbortController();
+    await fetchUpdateCheck('ios', 'v1.0.6', controller.signal);
+    const [, options] = mockedAccountGet.mock.calls[0];
+    expect((options as { signal?: AbortSignal }).signal).toBe(controller.signal);
+  });
+
   it('latest_version 非字符串/非法格式 → null 静默(不抛)', async () => {
     mockedAccountGet.mockResolvedValue({ latest_version: 123, force_update: true });
     await expect(fetchUpdateCheck('ios', 'v1.0.6')).resolves.toBeNull();
