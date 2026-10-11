@@ -764,26 +764,36 @@ export const VibeCodingSessionScreen: React.FC = () => {
       // Reveal more of the locally-held transcript (no network). Pin first so
       // the newly revealed older messages appear above without a viewport jump.
       // 分批揭示:一批 4 个 turn,单 commit 巨挂载拆成多个小挂载。
-      // await 整个揭示期:handleRefresh 的转轮据此覆盖到揭示收尾(修复转轮
-      // 在揭示中途提前复位的脱钩);被 scrubber 跳转顶掉时按 superseded 跳过
-      // 清除,hold 由新一轮揭示接管(根修 cancel 竞态的挂起)。
+      // 转轮(refreshing)的所有权在本函数:入口置 true、仅当本次揭示自然
+      // 收尾(!superseded)才复位——被 scrubber 跳转/按钮连点顶掉时,转轮与
+      // hold 一并由接管方负责,旧调用方的 finally 不再互踩(修复"按钮在下拉
+      // 揭示中点击→新一轮揭示的转轮被旧 finally 提前熄灭")。
       capturePreserveFocus();
       revealHoldRef.current = true;
+      setRefreshing(true);
       const done = await turnList.showMoreGradually();
-      if (!done.superseded) revealHoldRef.current = false;
+      if (!done.superseded) {
+        revealHoldRef.current = false;
+        setRefreshing(false);
+      }
       return;
     }
     if (hasServerEarlierMessages) {
       capturePreserveFocus();
       setLoadingEarlier(true);
+      setRefreshing(true);
       setDetailError('');
       try {
         await loadEarlierAgentMessages(targetSessionId);
         revealHoldRef.current = true;
         const done = await turnList.showMoreGradually();
-        if (!done.superseded) revealHoldRef.current = false;
+        if (!done.superseded) {
+          revealHoldRef.current = false;
+          setRefreshing(false);
+        }
       } catch (error) {
         revealHoldRef.current = false;
+        setRefreshing(false);
         preserveFocusRef.current = null;
         setDetailError(
           error instanceof Error
@@ -816,16 +826,19 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const handleRefresh = useCallback(async () => {
     if (!targetSessionId) return;
     if (turnList.hasMore || hasServerEarlierMessages) {
-      setRefreshing(true);
-      try {
-        await handleLoadEarlierMessages();
-      } finally {
-        setRefreshing(false);
-      }
+      // 转轮由 handleLoadEarlierMessages 持有(覆盖揭示期,且与 hold 同一生
+      // 命周期)——这里不再自带 setRefreshing,否则按钮路径顶掉揭示时旧
+      // finally 会把新一轮的转轮熄灭。
+      await handleLoadEarlierMessages();
       return;
     }
     if ((session?.transcript.length ?? 0) > 0) {
+      // Android 原生 RefreshControl 只在 refreshing 属性翻转时收起转轮:
+      // 提示分支若不碰状态,手势触发的原生转轮会永久转下去(转圈卡死)。
+      // 走一次 true→false 翻转让原生复位;两段写必须落在不同 commit。
       setNoMoreEarlierHint(true);
+      setRefreshing(true);
+      setTimeout(() => setRefreshing(false), 50);
       return;
     }
     setRefreshing(true);
@@ -849,8 +862,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
     resetScroll();
     pendingScrollToEndRef.current = true;
     setNoMoreEarlierHint(false);
-    // 切会话:解除分批揭示的锚点保持(hook 内部也会取消在途批次)。
+    // 切会话:解除分批揭示的锚点保持(hook 内部也会取消在途批次)。在途揭示
+    // 被顶掉走 superseded 路径时,持有方会跳过清理——转轮必须在这里显式熄灭,
+    // 否则泄漏到新会话上永久转圈。
     revealHoldRef.current = false;
+    setRefreshing(false);
   }, [targetSessionId, resetScroll]);
 
   // Self-heal for the "top bar DONE, conversation blank" case. The run snapshot
