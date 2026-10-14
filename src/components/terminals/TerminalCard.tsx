@@ -1,6 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Circle, Path } from 'react-native-svg';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../theme/useTheme';
 import { GlassPanel } from '../shared/GlassPanel';
 import { StatusChip } from '../shared/StatusChip';
@@ -9,13 +11,16 @@ import { useNowTick } from '../../hooks/useNowTick';
 import { formatActivityLabel } from '../../store/internals';
 import { getTerminalStatusChip } from '../../utils/terminalInteraction';
 import { useControlCenterStore } from '../../store/controlCenterStore';
+import { useSessionStore } from '../../../stores/useSettingsStore';
 import type { TerminalSession } from '../../store/types';
+import { RootStackParamList } from '../../app/navigation/types';
+import { TerminalCardMenuSheet } from './TerminalCardMenuSheet';
 import { useTranslation } from 'react-i18next';
 
 interface TerminalCardProps {
   terminal: TerminalSession;
   deviceName?: string;
-  /** 设备离线时置灰并禁用 Resume/Close。 */
+  /** 设备离线时置灰并禁用 Resume;菜单里的"删除"同样禁用。 */
   disabled?: boolean;
   onPress?: () => void;
   onClose?: () => void;
@@ -30,14 +35,17 @@ const exitState = (exitCode?: number | null): ExitState =>
 /**
  * Two-column terminal card. Left: directory / device / live status + a recent
  * command-history strip (loaded per-session from the platform). Right: a slim
- * action rail — Resume (reopens the same PTY) and Close (kills it). The layout
- * deliberately keeps the action rail narrow so the left has room to surface
- * more of what was actually run.
+ * action rail — Resume (reopens the same PTY) and a "⋯" menu (delete / web-pair
+ * scan / info sheet). The layout deliberately keeps the action rail narrow so
+ * the left has room to surface more of what was actually run.
  */
 export const TerminalCard = React.memo<TerminalCardProps>(
   ({ terminal, deviceName, disabled = false, onPress, onClose }) => {
     const { theme, isDark } = useTheme();
     const { t } = useTranslation('terminals');
+    const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+    const accountUser = useSessionStore(state => state.user);
+    const [menuOpen, setMenuOpen] = useState(false);
     // Re-render on the shared 30s cadence so relative time labels stay fresh.
     useNowTick();
     const sessionHistory = useControlCenterStore(
@@ -79,6 +87,7 @@ export const TerminalCard = React.memo<TerminalCardProps>(
     const faded = disabled ? 0.4 : 1;
 
     return (
+      <>
       <GlassPanel style={styles.card}>
         <View style={styles.body}>
           {/* ---- Left: identity + recent commands ---- */}
@@ -205,35 +214,54 @@ export const TerminalCard = React.memo<TerminalCardProps>(
 
             <View style={styles.actionSpacer} />
 
+            {/* 菜单按钮:删除/扫码/简介。不随设备离线置灰——扫码与简介不
+                依赖终端存续,只有菜单里的"删除"条目跟随 disabled。 */}
             <TouchableOpacity
               activeOpacity={0.7}
-              disabled={disabled}
-              onPress={onClose}
-              style={[
-                styles.actionBtn,
-                styles.closeBtn,
-                { borderColor: theme.colors.outline, opacity: faded },
-              ]}>
-              <Svg width={12} height={12} viewBox="0 0 24 24">
-                <Path
-                  d="M6 6l12 12M18 6L6 18"
-                  stroke={theme.colors.onSurfaceVariant}
-                  strokeWidth={2.4}
-                  strokeLinecap="round"
-                />
+              accessibilityRole="button"
+              accessibilityLabel={t('menu.title')}
+              testID="terminal-card-menu"
+              onPress={() => setMenuOpen(true)}
+              style={[styles.actionBtn, styles.closeBtn, { borderColor: theme.colors.outline }]}>
+              <Svg width={14} height={14} viewBox="0 0 24 24">
+                <Circle cx={5} cy={12} r={1.7} fill={theme.colors.onSurfaceVariant} />
+                <Circle cx={12} cy={12} r={1.7} fill={theme.colors.onSurfaceVariant} />
+                <Circle cx={19} cy={12} r={1.7} fill={theme.colors.onSurfaceVariant} />
               </Svg>
             </TouchableOpacity>
             <Text
               style={[
                 theme.typography.labelSm,
                 styles.actionLabel,
-                { color: theme.colors.onSurfaceVariant, opacity: faded },
+                { color: theme.colors.onSurfaceVariant },
               ]}>
-              {t('card.close')}
+              {t('card.more')}
             </Text>
           </View>
         </View>
       </GlassPanel>
+      <TerminalCardMenuSheet
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        terminal={terminal}
+        deviceName={deviceName}
+        deleteDisabled={disabled}
+        createdBy={accountUser?.username || accountUser?.email}
+        onDelete={() => {
+          setMenuOpen(false);
+          onClose?.();
+        }}
+        onScan={() => {
+          setMenuOpen(false);
+          navigation.navigate('DeviceCameraScanner', {
+            mode: 'terminalWebPair',
+            deviceId: terminal.deviceId,
+            terminalId: terminal.id,
+            directory: terminal.directory,
+          });
+        }}
+      />
+      </>
     );
   },
   (prev, next) =>

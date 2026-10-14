@@ -16,9 +16,29 @@
   "card": {
     "resume": "RESUME",
     "close": "CLOSE",
+    "more": "MORE",
     "recent": "RECENT",
     "offlineSuffix": " · Offline",
     "emptyHistory": "(no commands yet)"
+  },
+  "menu": {
+    "title": "Terminal actions",
+    "delete": "Delete terminal",
+    "deleteOffline": "Device offline — cannot delete",
+    "scan": "Scan to pair",
+    "scanHint": "Scan the terminal.aliang.one QR code",
+    "info": "Terminal info"
+  },
+  "info": {
+    "title": "Terminal info",
+    "createdAt": "Created",
+    "createdBy": "Created by",
+    "device": "Device",
+    "shell": "Shell",
+    "directory": "Directory",
+    "status": "Status",
+    "lastActive": "Last active",
+    "back": "Back"
   },
   "quotaChallenge": {
     "title": "Terminal output quota",

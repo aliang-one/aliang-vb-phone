@@ -16,9 +16,29 @@
   "card": {
     "resume": "RESUME",
     "close": "CLOSE",
+    "more": "更多",
     "recent": "RECENT",
     "offlineSuffix": " · 离线",
     "emptyHistory": "（暂无指令）"
+  },
+  "menu": {
+    "title": "终端操作",
+    "delete": "删除终端",
+    "deleteOffline": "设备离线，无法删除",
+    "scan": "扫码配对",
+    "scanHint": "扫 terminal.aliang.one 页面二维码",
+    "info": "终端简介"
+  },
+  "info": {
+    "title": "终端简介",
+    "createdAt": "创建时间",
+    "createdBy": "创建人",
+    "device": "设备",
+    "shell": "Shell",
+    "directory": "工作目录",
+    "status": "状态",
+    "lastActive": "最近活动",
+    "back": "返回"
   },
   "quotaChallenge": {
     "title": "终端输出配额确认",

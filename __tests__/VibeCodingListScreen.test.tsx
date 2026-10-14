@@ -143,7 +143,6 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
     expect(joinedText).not.toContain('old');
 
     const resumeButton = findTerminalActionButton(screen!.root, 'RESUME');
-    const closeButton = findTerminalActionButton(screen!.root, 'CLOSE');
 
     act(() => {
       resumeButton?.props.onPress();
@@ -154,15 +153,25 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
       directory: '~/project',
     });
 
+    // 删除走 "⋯" 菜单:terminal-card-menu → terminal-menu-delete → stopTerminal。
+    const menuButton = findByTestId(screen!.root, 'terminal-card-menu')[0];
+    act(() => {
+      menuButton?.props.onPress();
+    });
+    await act(async () => {});
+    const deleteRow = findByTestId(screen!.root, 'terminal-menu-delete')[0];
+    act(() => {
+      deleteRow?.props.onPress();
+    });
     await act(async () => {
-      closeButton?.props.onPress();
+      void useControlCenterStore.getState().stopTerminal;
     });
     expect(useControlCenterStore.getState().stopTerminal).toHaveBeenCalledWith(
       'term-active',
     );
   });
 
-  it('disables remote terminal actions when the owning device is offline', () => {
+  it('disables remote terminal actions when the owning device is offline', async () => {
     useControlCenterStore.setState({
       devices: [device('device-1', 'MacBook', 'offline')],
     });
@@ -174,8 +183,16 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
     expect(
       findTerminalActionButton(screen!.root, 'RESUME')?.props.disabled,
     ).toBe(true);
+    // 菜单按钮本身不随离线置灰,置灰的是菜单里的"删除"条目。
+    expect(findByTestId(screen!.root, 'terminal-card-menu')[0]?.props.disabled)
+      .toBeFalsy();
+
+    act(() => {
+      findByTestId(screen!.root, 'terminal-card-menu')[0]?.props.onPress();
+    });
+    await act(async () => {});
     expect(
-      findTerminalActionButton(screen!.root, 'CLOSE')?.props.disabled,
+      findByTestId(screen!.root, 'terminal-menu-delete')[0]?.props.disabled,
     ).toBe(true);
   });
 

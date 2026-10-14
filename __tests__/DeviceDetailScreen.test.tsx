@@ -187,8 +187,10 @@ describe('DeviceDetailScreen', () => {
     expect(textContent).toContain('~/project');
     expect(textContent).not.toContain('~/old');
 
-    // TerminalCard wires onPress (resume → navigate) and onClose (→ stopTerminal).
-    // Call ALL TouchableOpacity onPress handlers; verify the two side effects.
+    // TerminalCard wires onPress (resume → navigate); 删除走 "⋯" 菜单
+    // (terminal-card-menu → terminal-menu-delete → stopTerminal)。
+    // Call ALL TouchableOpacity onPress handlers; the menu button opens the
+    // menu sheet, the rest are inert here.
     const buttons = screen!.root.findAllByType(TouchableOpacity);
     for (const btn of buttons) {
       act(() => {
@@ -200,6 +202,16 @@ describe('DeviceDetailScreen', () => {
       deviceId: 'device-1',
       terminalId: 'term-active',
       directory: '~/project',
+    });
+
+    // 菜单已随上面的 tap 打开:点菜单里的"删除"触发 stopTerminal。
+    await act(async () => {});
+    const deleteRow = screen!.root
+      .findAllByType(TouchableOpacity)
+      .find(btn => btn.props.testID === 'terminal-menu-delete');
+    expect(deleteRow).toBeTruthy();
+    act(() => {
+      deleteRow!.props.onPress?.();
     });
 
     await act(async () => {
