@@ -174,9 +174,13 @@ export function TerminalCardMenuSheet({
                   ]}>
                   {row.label}
                 </Text>
+                {/* flex 收缩 + 换行:目录/账号可能很长(简介要让用户看全),
+                    不约束会横向溢出卡片(numberOfLines={1} 救不了无收缩的 Text)。 */}
                 <Text
-                  numberOfLines={1}
-                  style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                  style={[
+                    theme.typography.bodyMd,
+                    { color: theme.colors.onSurface, flex: 1, textAlign: 'right' },
+                  ]}>
                   {row.value}
                 </Text>
               </View>

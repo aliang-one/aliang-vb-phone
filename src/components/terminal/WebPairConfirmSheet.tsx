@@ -65,9 +65,13 @@ export function WebPairConfirmSheet({
                 style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
                 {row.label}
               </Text>
+              {/* flex 收缩 + 换行:目录可能很长(授权确认要让用户看全路径),
+                  不约束会横向溢出卡片(numberOfLines={1} 救不了无收缩的 Text)。 */}
               <Text
-                numberOfLines={1}
-                style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                style={[
+                  theme.typography.bodyMd,
+                  { color: theme.colors.onSurface, flex: 1, textAlign: 'right' },
+                ]}>
                 {row.value}
               </Text>
             </View>

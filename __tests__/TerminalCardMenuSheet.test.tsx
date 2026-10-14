@@ -151,6 +151,17 @@ describe('TerminalCardMenuSheet', () => {
       '最近活动',
     ]));
 
+    // 信息行 value 有 flex 收缩且可换行:长目录/账号不得横向溢出卡片。
+    const dirValue = renderer!
+      .root.findAllByType(Text)
+      .find(t => t.props.children === '/home/mac/proj');
+    expect(dirValue).toBeTruthy();
+    const style = dirValue!.props.style as Array<
+      Record<string, unknown> | undefined
+    >;
+    expect(style.some(s => s && s.flex === 1)).toBe(true);
+    expect(dirValue!.props.numberOfLines).toBeUndefined();
+
     // 返回菜单首页。
     tap(buttonBy(renderer, { testID: 'terminal-menu-back' }));
     await act(async () => {});

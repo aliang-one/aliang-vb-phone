@@ -234,12 +234,13 @@ const DetailRow: React.FC<DetailRowProps> = ({ label, value }) => {
       >
         {label}
       </Text>
+      {/* flex 收缩 + 换行:URL(shortUrl/targetUrl)很长,无收缩约束会
+          横向溢出行(numberOfLines={1} 在 Text 不可收缩时不生效于布局)。 */}
       <Text
         style={[
           theme.typography.codeSm,
-          { color: theme.colors.onSurfaceVariant },
+          { color: theme.colors.onSurfaceVariant, flex: 1, textAlign: 'right' },
         ]}
-        numberOfLines={1}
       >
         {value}
       </Text>

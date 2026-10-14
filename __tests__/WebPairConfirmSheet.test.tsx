@@ -147,6 +147,22 @@ describe('WebPairConfirmSheet', () => {
     expect(deny.props.disabled).toBe(true);
   });
 
+  it('信息行 value 有 flex 收缩且可换行(长目录不得横向溢出)', async () => {
+    renderer = await wrap(
+      <WebPairConfirmSheet {...BASE_PROPS} onAllow={jest.fn()} onDeny={jest.fn()} />,
+    );
+    const valueNode = renderer.root.findAllByType(Text).find(
+      t => t.props.children === '~/work',
+    );
+    expect(valueNode).toBeTruthy();
+    const style = valueNode!.props.style as Array<
+      Record<string, unknown> | undefined
+    >;
+    expect(style.some(s => s && s.flex === 1)).toBe(true);
+    // 去掉了 numberOfLines:目录要换行展示,截断会看不到完整路径。
+    expect(valueNode!.props.numberOfLines).toBeUndefined();
+  });
+
   it('visible=false 时不渲染内容', async () => {
     renderer = await wrap(
       <WebPairConfirmSheet
