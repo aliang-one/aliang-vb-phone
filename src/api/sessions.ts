@@ -43,6 +43,12 @@ export interface ServerAiMessage {
    */
   goal_id?: string;
   /**
+   * 该条消息进入 server 的通道: 'phone' = 手机 REST/WS 派发(server 造币
+   * msg_ 前缀), 'tui' = agent 扫盘/详情合并带入。undefined = 来源未知
+   * (存量 agent 原生 id / managed 上报不可分辨), 显示侧回落会话级 origin。
+   */
+  origin?: 'phone' | 'tui';
+  /**
    * ISO timestamp the server marked this message hidden (folded) — e.g. once
    * the owning Goal is abandoned/completed. Absent means still visible.
    * Matches `hidden_at` from server Task 8.
@@ -106,6 +112,7 @@ export const serverAiMessageToAgent = (m: ServerAiMessage): AgentMessage => ({
   goalId: m.goal_id,
   hiddenAt: m.hidden_at,
   hidden: m.hidden,
+  origin: m.origin,
 });
 
 export interface ServerAiSession {
@@ -114,6 +121,13 @@ export interface ServerAiSession {
   user_id: string;
   device_id: string;
   status: 'creating' | 'active' | 'idle' | 'running' | 'paused' | 'closed' | 'error';
+  /**
+   * 会话发起来源(server origin 列): 'phone' = 手机 REST/WS 建会话,
+   * 'tui' = agent 扫盘导入的终端会话。老 server 不发 → 映射层按
+   * ai_import_ 前缀兜底(见 serverAiSessionToVibeRun)。≠ device_id
+   * (跑在哪台机器), ≠ source_session_id(CLI 原生 --resume id)。
+   */
+  origin?: 'phone' | 'tui';
   /**
    * Server-authoritative display phase (drives the phone's top-level status).
    * Preferred over locally deriving phase from status + a silence window, so

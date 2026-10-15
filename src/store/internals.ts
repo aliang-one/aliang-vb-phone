@@ -793,6 +793,11 @@ export function serverAiSessionToVibeRun(
     lastMessage,
     lastUserMessage,
     sourceSessionId: session.source_session_id || undefined,
+    // 会话发起来源: wire origin 优先; 老 server 不发时按 ai_import_ 前缀兜底
+    // (与 server 侧 publicAiSession 的兜底同源), 保证模型上该字段总被打满。
+    origin:
+      session.origin ??
+      (session.session_id.startsWith('ai_import_') ? 'tui' : 'phone'),
     // Mark detail-resolved only when there is actual content. An empty array is
     // truthy in JS, so the old `session.transcript || session.events` form
     // marked a snapshot whose arrays were `[]` as "loaded" and suppressed the
@@ -1137,6 +1142,8 @@ export function mergeVibeRunSnapshot(
     // transcript-less list snapshot omits it, so keep the last known value
     // rather than letting the spread wipe it.
     sourceSessionId: incoming.sourceSessionId ?? existing.sourceSessionId,
+    // 来源(诞生地)不可变: 映射层总会打满, incoming 优先即可。
+    origin: incoming.origin ?? existing.origin,
     purpose: incoming.purpose ?? existing.purpose,
     goalSummary,
   };

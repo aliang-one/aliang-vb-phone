@@ -273,17 +273,32 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                 iconSize={21}
               />
               <View style={styles.titleBlock}>
-                <Text
-                  style={[
-                    homeFocus
-                      ? theme.typography.titleLg
-                      : theme.typography.titleMd,
-                    { color: theme.colors.onSurface },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {displayTitle}
-                </Text>
+                <View style={styles.titleRow}>
+                  <Text
+                    style={[
+                      homeFocus
+                        ? theme.typography.titleLg
+                        : theme.typography.titleMd,
+                      { color: theme.colors.onSurface },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {displayTitle}
+                  </Text>
+                  {session.origin === 'tui' ? (
+                    <View style={styles.originTuiBadge}>
+                      <Text
+                        style={[
+                          theme.typography.labelSm,
+                          { color: theme.colors.primary },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {t('sessionCard.originTui')}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
                 {homeFocus ? (
                   <View style={styles.lastActiveRow}>
                     <View
@@ -726,6 +741,23 @@ const styles = StyleSheet.create({
   titleBlock: {
     flex: 1,
     gap: 2,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  // 「电脑发起」badge: 只标 TUI 异类(手机发起是默认态, 不占位); 主色蓝
+  // (avoid-green 规约——非成功态一律默认蓝系)。
+  originTuiBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(59,130,246,0.45)',
+    backgroundColor: 'rgba(59,130,246,0.10)',
+    alignSelf: 'flex-start',
+    flexShrink: 0,
   },
   lastActiveRow: {
     flexDirection: 'row',

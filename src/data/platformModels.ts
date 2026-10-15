@@ -439,6 +439,13 @@ export interface VibeCodingRun {
    */
   sourceSessionId?: string;
   /**
+   * 会话发起来源: 'phone' = 手机发起, 'tui' = 电脑终端(TUI)发起/扫盘导入。
+   * 由 serverAiSessionToVibeRun 从 wire origin 映射, 老 server 无该字段时按
+   * ai_import_ 前缀兜底, 因此模型上该字段总被打满。列表卡片据此给 TUI 会话
+   * 挂「电脑发起」badge; 会话详情页 TUI 共用横幅判据同源。
+   */
+  origin?: 'phone' | 'tui';
+  /**
    * Typed detail-loading state for this session — the canonical replacement
    * for the legacy `detailLoadedAt` timestamp. `undefined` = never fetched
    * (the run only has list-snapshot metadata). Resolved by the session-detail
@@ -676,6 +683,12 @@ export interface AgentMessage {
    * `hiddenAt` + `goalId` 对，不直接读本字段；它不是 CC 注入抑制位。
    */
   hidden?: boolean;
+  /**
+   * 该条消息进入 server 的通道: 'phone' = 手机派发, 'tui' = agent 扫盘带入。
+   * undefined = 未知(老 server / 存量 agent 原生 id)。仅透传 wire 契约,
+   * 当前无 UI 消费(会话级 origin 已覆盖展示需求)。
+   */
+  origin?: 'phone' | 'tui';
 }
 
 export interface AgentTranscriptPage {
