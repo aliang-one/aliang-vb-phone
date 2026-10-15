@@ -29,7 +29,7 @@ import {
 } from '../../store/controlCenterStore';
 import { formatActivityLabel } from '../../store/internals';
 import { useNowTick } from '../../hooks/useNowTick';
-import { IconBadge } from '../visual/IconBadge';
+import { IconBadge, IconGlyph } from '../visual/IconBadge';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { providerLabel } from '../../utils/modelIntensity';
 
@@ -53,6 +53,32 @@ interface VibeSessionCardProps {
   /** 设备离线时置灰并禁用点击/长按菜单。 */
   disabled?: boolean;
 }
+
+/**
+ * 会话发起来源小图标: phone=智能手机字形 / tui=终端字形, 挂在卡片底部元信息
+ * 行(上次激活时间旁)。两端都显示(手机是默认态, 同排弱色不抢焦点); a11y 读
+ * originPhone/originTui 文案。数据来自 server 下发的 origin(映射层带
+ * ai_import_ 前缀兜底, 模型上总被打满)。
+ */
+const SessionOriginIcon: React.FC<{
+  session: VibeCodingRun;
+  color: string;
+}> = ({ session, color }) => {
+  const { t } = useTranslation('vibecoding');
+  const isTui = session.origin === 'tui';
+  return (
+    <View
+      accessibilityRole="image"
+      accessibilityLabel={t(
+        isTui ? 'sessionCard.originTui' : 'sessionCard.originPhone',
+      )}
+      testID="session-origin-icon"
+      style={styles.originIconWrap}
+    >
+      <IconGlyph name={isTui ? 'terminal' : 'phone'} size={13} color={color} />
+    </View>
+  );
+};
 
 export const VibeSessionCard = React.memo<VibeSessionCardProps>(
   ({
@@ -273,36 +299,17 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                 iconSize={21}
               />
               <View style={styles.titleBlock}>
-                <View style={styles.titleRow}>
-                  <Text
-                    style={[
-                      homeFocus
-                        ? theme.typography.titleLg
-                        : theme.typography.titleMd,
-                      { color: theme.colors.onSurface },
-                      // RN 默认 flexShrink:0——长标题会按整行宽度测量, 把右侧
-                      // badge 顶出可视区(badge 的目标场景恰是标题常偏长的 TUI
-                      // 导入会话)。允许标题收缩保 badge(TopAppBar 同坑先例)。
-                      { flexShrink: 1 },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {displayTitle}
-                  </Text>
-                  {session.origin === 'tui' ? (
-                    <View style={styles.originTuiBadge}>
-                      <Text
-                        style={[
-                          theme.typography.labelSm,
-                          { color: theme.colors.primary },
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {t('sessionCard.originTui')}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
+                <Text
+                  style={[
+                    homeFocus
+                      ? theme.typography.titleLg
+                      : theme.typography.titleMd,
+                    { color: theme.colors.onSurface },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {displayTitle}
+                </Text>
                 {homeFocus ? (
                   <View style={styles.lastActiveRow}>
                     <View
@@ -322,6 +329,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                     >
                       {t('sessionCard.lastActive', { label: activityLabel })}
                     </Text>
+                    <SessionOriginIcon session={session} color={theme.colors.onSurfaceVariant} />
                   </View>
                 ) : (
                   <Text
@@ -489,6 +497,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                   >
                     {activityLabel}
                   </Text>
+                  <SessionOriginIcon session={session} color={theme.colors.onSurfaceVariant} />
                 </View>
               </>
             )}
@@ -746,21 +755,10 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
-  titleRow: {
-    flexDirection: 'row',
+  // 来源图标容器: 与 labelSm 文本同排(≈16px 行高), 居中对齐。
+  originIconWrap: {
     alignItems: 'center',
-    gap: 6,
-  },
-  // 「电脑发起」badge: 只标 TUI 异类(手机发起是默认态, 不占位); 主色蓝
-  // (avoid-green 规约——非成功态一律默认蓝系)。
-  originTuiBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(59,130,246,0.45)',
-    backgroundColor: 'rgba(59,130,246,0.10)',
-    alignSelf: 'flex-start',
+    justifyContent: 'center',
     flexShrink: 0,
   },
   lastActiveRow: {

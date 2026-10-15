@@ -258,6 +258,7 @@
     "empty": "该 Agent 暂未上报可用命令或 Skill。"
   },
   "sessionCard": {
+    "originPhone": "手机发起",
     "originTui": "电脑发起",
     "lastActive": "上次激活 {{label}}",
     "deviceOffline": " · 设备离线",

@@ -258,6 +258,7 @@
     "empty": "This agent has not reported any available commands or Skills yet."
   },
   "sessionCard": {
+    "originPhone": "Phone",
     "originTui": "Desktop",
     "lastActive": "Last active {{label}}",
     "deviceOffline": " · Device offline",
