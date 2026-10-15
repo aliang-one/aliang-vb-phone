@@ -128,7 +128,8 @@
   "clearCredentialsLabel": "清除保存的登录信息",
   "clearCredentialsConfirm": "已清除保存的登录信息。",
   "about": {
-    "title": "关于 ABOUT",
+    "entry": "关于",
+    "appbarTitle": "关于",
     "privacyPolicy": "隐私政策",
     "version": "版本",
     "checkUpdate": "检查更新",
@@ -145,7 +146,8 @@
       "upToDateToast": "已是最新版本。",
       "checkFailedToast": "检查更新失败,请稍后重试。",
       "retryCheck": "重试检查",
-      "checking": "检查中…"
+      "checking": "检查中…",
+    "openFailed": "无法打开下载链接,请重试。"
     }
   },
   "dangerZone": {

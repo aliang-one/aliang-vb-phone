@@ -69,9 +69,35 @@ describe('ForceUpdateGate', () => {
       });
       renderer = TestRenderer.create(<ForceUpdateGate />);
     });
+    // i18n 键位错位时这里会渲染裸 key("about.update.forceTitle"),锁死真键。
+    expect(findText(renderer.root, 'force-update-title')).toBe('需要更新后才能继续');
     expect(findText(renderer.root, 'force-update-current')).toBe('v1.0.6');
     expect(findText(renderer.root, 'force-update-latest')).toBe('v1.0.7');
     expect(String(findText(renderer.root, 'force-update-changelog'))).toContain('性能优化');
+  });
+
+  it('openURL 失败 → 页内错误提示(Gate 是 Modal,toast 不可见)', async () => {
+    openLink.mockRejectedValueOnce(new Error('no handler'));
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      useAppUpdateStore.setState({
+        status: 'forced',
+        info: { latestVersion: 'v1.0.7', downloadUrl: '', changelog: '' },
+      });
+      renderer = TestRenderer.create(<ForceUpdateGate />);
+    });
+    expect(
+      renderer.root.findAllByProps({ testID: 'force-update-open-error' }),
+    ).toHaveLength(0);
+    const button = renderer.root.find(
+      node => node.props.testID === 'force-update-button',
+    );
+    await act(async () => {
+      button.props.onPress();
+    });
+    expect(
+      String(renderer.root.findByProps({ testID: 'force-update-open-error' }).props.children),
+    ).toBe('无法打开下载链接,请重试。');
   });
 
   it('更新按钮跳服务端 download_url', () => {

@@ -74,6 +74,8 @@ export type RootStackParamList = {
   ApprovalCenter: undefined;
   NotificationCenter: undefined;
   Preview: { previewId: string };
+  // Me 页「关于」子页:版本/检查更新/隐私政策/删除账号集中页(Me 页只留入口)。
+  About: undefined;
 };
 
 export type MainTabParamList = {

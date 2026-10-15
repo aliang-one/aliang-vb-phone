@@ -9,11 +9,8 @@ import {
   AppState,
   ActivityIndicator,
   Image,
-  Linking,
-  Modal,
   View,
   Text,
-  TextInput,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
@@ -42,7 +39,6 @@ import { useToastStore } from '../../store/toastStore';
 import { ratioPercent, daysUntil, formatDate } from '../../utils/format';
 import type { AccountSubscription } from '../../api/account';
 import { UserModelDefaultCard } from '../../components/account/UserModelDefaultCard';
-import { ApiResponseError } from '../../api/client';
 import {
   displayNotification,
   getNotificationPermissionStatus,
@@ -56,13 +52,8 @@ import {
 } from '../../utils/notificationDeliveryPolicy';
 import { NotificationTypesSheet } from '../../components/settings/NotificationTypesSheet';
 import { getInstalledAppVersion } from '../../native/AppVersion';
-import { useAppUpdateStore } from '../../store/appUpdateStore';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
-
-// Apple 5.1.1(i): the privacy policy must be reachable from inside the app,
-// not only on the website.
-const PRIVACY_POLICY_URL = 'https://www.aliang.one/privacy';
 
 const ratio = (value: number, total: number) =>
   total > 0 ? Math.min(100, (value / total) * 100) : 0;
@@ -82,27 +73,13 @@ export const SettingsScreen: React.FC = () => {
   const notifications = useControlCenterStore(state => state.notifications);
   const user = useSessionStore(state => state.user);
   const logout = useSessionStore(state => state.logout);
-  const deleteAccount = useSessionStore(state => state.deleteAccount);
   const operatorName = useSessionStore(state => state.operatorName);
   const accountData = useSessionStore(state => state.accountData);
   const refreshAccountData = useSessionStore(state => state.refreshAccountData);
   const clearSavedCredentials = useSessionStore(state => state.clearSavedCredentials);
   const show = useToastStore(s => s.show);
-  const appUpdateChecking = useAppUpdateStore(s => s.status === 'checking');
-  const checkAppUpdate = useAppUpdateStore(s => s.checkNow);
+  // 「关于」入口行的版本号(页面本体已迁去 AboutScreen)。
   const installedVersion = getInstalledAppVersion();
-
-  // 手动「检查更新」:await 完成后按终态给反馈;有新版时不 toast——
-  // Sheet(软提醒)/全屏 Gate(强制)自己会上屏。
-  const handleCheckAppUpdate = useCallback(async () => {
-    await checkAppUpdate({ manual: true });
-    const status = useAppUpdateStore.getState().status;
-    if (status === 'upToDate') {
-      show(t('about.update.upToDateToast'), 'success');
-    } else if (status === 'error') {
-      show(t('about.update.checkFailedToast'), 'error');
-    }
-  }, [checkAppUpdate, show, t]);
   const notificationPrefs = useSessionStore(s => s.notificationPrefs);
   const disconnectFromServer = useControlCenterStore(state => state.disconnectFromServer);
   const resetSessionData = useControlCenterStore(state => state.resetSessionData);
@@ -114,13 +91,6 @@ export const SettingsScreen: React.FC = () => {
   const [updatingNotificationPermission, setUpdatingNotificationPermission] =
     useState(false);
   const [typesSheetOpen, setTypesSheetOpen] = useState(false);
-  // Delete-account confirm dialog (Apple 5.1.1(v)): password-gated, errors are
-  // surfaced inside the modal — a failed attempt must NOT close it or clear
-  // the session.
-  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [deletePassword, setDeletePassword] = useState('');
-  const [deletingAccount, setDeletingAccount] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const refreshNotificationPermission = useCallback(() => {
     void getNotificationPermissionStatus().then(setNotificationPermission);
@@ -257,42 +227,6 @@ export const SettingsScreen: React.FC = () => {
     disconnectFromServer();
     resetSessionData();
     await logout();
-  };
-
-  const openDeleteModal = () => {
-    setDeletePassword('');
-    setDeleteError(null);
-    setDeleteModalOpen(true);
-  };
-
-  // Mid-request dismissal is blocked so the in-flight DELETE can't be orphaned.
-  const closeDeleteModal = () => {
-    if (deletingAccount) return;
-    setDeleteModalOpen(false);
-  };
-
-  const handleDeleteAccount = async () => {
-    setDeletingAccount(true);
-    setDeleteError(null);
-    try {
-      // Same realtime teardown as logout; the session wipe inside the store
-      // clears the token, which flips RootNavigator to Login.
-      disconnectFromServer();
-      resetSessionData();
-      await deleteAccount(deletePassword);
-      setDeleteModalOpen(false);
-      show(t('dangerZone.deleteSuccess'));
-    } catch (error) {
-      // 401 = wrong password — say so plainly instead of the raw HTTP error.
-      // Anything else (network down, 5xx) surfaces the server/client message.
-      if (error instanceof ApiResponseError && error.status === 401) {
-        setDeleteError(t('dangerZone.wrongPassword'));
-      } else {
-        setDeleteError(error instanceof Error ? error.message : String(error));
-      }
-    } finally {
-      setDeletingAccount(false);
-    }
   };
 
   const handleNotificationPermission = async () => {
@@ -808,81 +742,26 @@ export const SettingsScreen: React.FC = () => {
               style={styles.logoutBtn}
             />
 
-            {renderSectionTitle(t('about.title'))}
-            <GlassPanel style={styles.panel}>
-              <View style={styles.settingRow}>
+            {/* 「关于」子页入口:版本/检查更新/隐私政策/删除账号已集中迁移。 */}
+            <GlassPanel style={[styles.panel, styles.aboutEntryPanel]}>
+              <TouchableOpacity
+                style={styles.settingRow}
+                onPress={() => navigation.navigate('About')}
+                accessibilityRole="button"
+                testID="settings-about-entry">
                 <View style={styles.settingCopy}>
                   <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                    {t('about.version')}
+                    {t('about.entry')}
                   </Text>
+                </View>
+                {installedVersion ? (
                   <Text
-                    testID="settings-app-version"
                     style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}
                     numberOfLines={1}>
-                    {installedVersion
-                      ? `${installedVersion.versionName} (${installedVersion.versionCode})`
-                      : '-'}
+                    {installedVersion.versionName}
                   </Text>
-                </View>
-              </View>
-              <TouchableOpacity
-                style={styles.settingRow}
-                onPress={() => {
-                  void handleCheckAppUpdate();
-                }}
-                disabled={appUpdateChecking}
-                accessibilityRole="button"
-                testID="settings-check-update-row">
-                <View style={styles.settingCopy}>
-                  <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                    {t('about.checkUpdate')}
-                  </Text>
-                </View>
-                {appUpdateChecking ? (
-                  <StatusChip label="…" type="neutral" />
-                ) : (
-                  <Text style={[theme.typography.labelMd, { color: theme.colors.primary }]}>
-                    ›
-                  </Text>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.settingRow}
-                onPress={() => {
-                  // Best-effort: no in-app browser to fall back to; ignore.
-                  Linking.openURL(PRIVACY_POLICY_URL).catch(() => {});
-                }}
-                accessibilityRole="button">
-                <View style={styles.settingCopy}>
-                  <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
-                    {t('about.privacyPolicy')}
-                  </Text>
-                  <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
-                    {PRIVACY_POLICY_URL}
-                  </Text>
-                </View>
+                ) : null}
                 <Text style={[theme.typography.labelMd, { color: theme.colors.primary }]}>
-                  ›
-                </Text>
-              </TouchableOpacity>
-            </GlassPanel>
-
-            {renderSectionTitle(t('dangerZone.title'))}
-            <GlassPanel style={styles.panel}>
-              <TouchableOpacity
-                style={styles.settingRow}
-                onPress={openDeleteModal}
-                accessibilityRole="button"
-                testID="settings-delete-account-row">
-                <View style={styles.settingCopy}>
-                  <Text style={[theme.typography.bodyMd, { color: theme.colors.error }]}>
-                    {t('dangerZone.deleteAccountTitle')}
-                  </Text>
-                  <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-                    {t('dangerZone.deleteAccountSubtitle')}
-                  </Text>
-                </View>
-                <Text style={[theme.typography.labelMd, { color: theme.colors.error }]}>
                   ›
                 </Text>
               </TouchableOpacity>
@@ -890,69 +769,6 @@ export const SettingsScreen: React.FC = () => {
           </>
         </DeferredMount>
       </ScrollView>
-
-      <Modal
-        visible={deleteModalOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={closeDeleteModal}>
-        <View style={styles.modalOverlay}>
-          {/* opaque: the translucent glass fill lets the dimmed screen bleed
-          through inside a Modal — see GlassPanel.opaque. */}
-          <GlassPanel opaque style={styles.deletePanel}>
-            <View style={styles.deleteBody}>
-              <Text style={[theme.typography.titleMd, { color: theme.colors.onSurface }]}>
-                {t('dangerZone.deleteModalTitle')}
-              </Text>
-              <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-                {t('dangerZone.deleteModalBody')}
-              </Text>
-              {deleteError ? (
-                <Text
-                  testID="settings-delete-error"
-                  style={[theme.typography.bodySm, { color: theme.colors.error }]}>
-                  {deleteError}
-                </Text>
-              ) : null}
-              <TextInput
-                testID="settings-delete-password"
-                value={deletePassword}
-                onChangeText={setDeletePassword}
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder={t('dangerZone.deletePasswordPlaceholder')}
-                placeholderTextColor={theme.colors.onSurfaceVariant}
-                style={[
-                  theme.typography.bodyMd,
-                  styles.deleteInput,
-                  {
-                    color: theme.colors.onSurface,
-                    borderColor: theme.colors.outlineVariant,
-                  },
-                ]}
-              />
-              <View style={styles.deleteActions}>
-                <GlowButton
-                  title={t('dangerZone.deleteCancel')}
-                  onPress={closeDeleteModal}
-                  variant="outline"
-                  disabled={deletingAccount}
-                  style={styles.deleteButton}
-                />
-                <GlowButton
-                  title={t('dangerZone.deleteConfirm')}
-                  onPress={() => void handleDeleteAccount()}
-                  loading={deletingAccount}
-                  disabled={deletingAccount || !deletePassword.trim()}
-                  style={[styles.deleteButton, { backgroundColor: theme.colors.error }]}
-                  testID="settings-delete-confirm"
-                />
-              </View>
-            </View>
-          </GlassPanel>
-        </View>
-      </Modal>
     </SafeAreaWrapper>
   );
 };
@@ -1118,36 +934,7 @@ const styles = StyleSheet.create({
   logoutBtn: {
     marginTop: 10,
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  deletePanel: {
-    width: '100%',
-    maxWidth: 380,
-    padding: 18,
-    borderRadius: 16,
-  },
-  deleteBody: {
-    gap: 12,
-  },
-  deleteInput: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  deleteActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 8,
-    marginTop: 4,
-  },
-  deleteButton: {
-    flex: 1,
+  aboutEntryPanel: {
+    marginTop: 14,
   },
 });

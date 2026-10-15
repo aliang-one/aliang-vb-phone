@@ -22,10 +22,16 @@ export const ForceUpdateGate: React.FC = () => {
   const info = useAppUpdateStore(s => s.info);
   const checkNow = useAppUpdateStore(s => s.checkNow);
   const [retrying, setRetrying] = useState(false);
+  // 「立即更新」打开失败时的页内错误提示。Gate 是原生 Modal,盖在全局
+  // ToastViewport 之上——toast 在这里不可见,必须用页内文案。
+  const [openFailed, setOpenFailed] = useState(false);
 
   const handleUpdate = useCallback(() => {
     const url = info?.downloadUrl || APP_UPDATE_FALLBACK_URL;
-    void Linking.openURL(url).catch(() => {});
+    setOpenFailed(false);
+    Linking.openURL(url).catch(() => {
+      setOpenFailed(true);
+    });
   }, [info?.downloadUrl]);
 
   // 重试检查:服务端配置被运维修正(撤掉 force/换对 download_url)后,用户
@@ -55,14 +61,14 @@ export const ForceUpdateGate: React.FC = () => {
             testID="force-update-title"
             style={[theme.typography.titleMd, { color: theme.colors.error }]}
           >
-            {t('update.forceTitle')}
+            {t('about.update.forceTitle')}
           </Text>
           <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-            {t('update.forceNotice')}
+            {t('about.update.forceNotice')}
           </Text>
           <View style={styles.versionRow}>
             <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
-              {t('update.current')}
+              {t('about.update.current')}
             </Text>
             <Text
               testID="force-update-current"
@@ -73,7 +79,7 @@ export const ForceUpdateGate: React.FC = () => {
           </View>
           <View style={styles.versionRow}>
             <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
-              {t('update.latest')}
+              {t('about.update.latest')}
             </Text>
             <Text
               testID="force-update-latest"
@@ -87,13 +93,13 @@ export const ForceUpdateGate: React.FC = () => {
               testID="force-update-changelog"
               style={[theme.typography.bodySm, { color: theme.colors.onSurface }]}
             >
-              {info.changelog.trim() || t('update.changelogEmpty')}
+              {info.changelog.trim() || t('about.update.changelogEmpty')}
             </Text>
           </ScrollView>
           <Pressable
             testID="force-update-button"
             accessibilityRole="button"
-            accessibilityLabel={t('update.updateNow')}
+            accessibilityLabel={t('about.update.updateNow')}
             onPress={handleUpdate}
             style={[
               styles.updateButton,
@@ -101,13 +107,21 @@ export const ForceUpdateGate: React.FC = () => {
             ]}
           >
             <Text style={[theme.typography.labelMd, { color: theme.colors.onPrimary }]}>
-              {t('update.updateNow')}
+              {t('about.update.updateNow')}
             </Text>
           </Pressable>
+          {openFailed ? (
+            <Text
+              testID="force-update-open-error"
+              style={[theme.typography.bodySm, { color: theme.colors.error }]}
+            >
+              {t('about.update.openFailed')}
+            </Text>
+          ) : null}
           <Pressable
             testID="force-update-retry"
             accessibilityRole="button"
-            accessibilityLabel={t('update.retryCheck')}
+            accessibilityLabel={t('about.update.retryCheck')}
             onPress={() => {
               void handleRetry();
             }}
@@ -115,7 +129,7 @@ export const ForceUpdateGate: React.FC = () => {
             style={styles.retryButton}
           >
             <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
-              {retrying ? t('update.checking') : t('update.retryCheck')}
+              {retrying ? t('about.update.checking') : t('about.update.retryCheck')}
             </Text>
           </Pressable>
         </GlassPanel>

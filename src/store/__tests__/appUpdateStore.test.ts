@@ -244,4 +244,77 @@ describe('appUpdateStore', () => {
     expect(useAppUpdateStore.getState().status).toBe('available');
     expect(mockedFetch).toHaveBeenCalledTimes(2);
   });
+
+  it('版本读不到的检查不得锁死 inFlight:恢复后检查照常发起', async () => {
+    mockVersionName = null;
+    await useAppUpdateStore.getState().checkNow();
+    expect(useAppUpdateStore.getState().status).toBe('idle');
+
+    // 版本恢复可读后(原生桥延迟就绪/测试注入),下一次检查必须真正执行——
+    // 提前 return 跳过 finally 的旧实现会让 inFlight 永久挂死,后续全部 no-op。
+    mockVersionName = 'v1.0.6';
+    mockedFetch.mockResolvedValue(latest());
+    await useAppUpdateStore.getState().checkNow();
+    expect(useAppUpdateStore.getState().status).toBe('available');
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('手动点击撞上进行中的自动检查:加入并发且视为手动(不被「稍后再说」吞掉)', async () => {
+    mockAsyncStorage.set('appUpdate.dismissedVersion', 'v1.0.7');
+    let resolveFetch: ((v: ReturnType<typeof latest>) => void) | undefined;
+    mockedFetch.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveFetch = resolve;
+        }),
+    );
+
+    const auto = useAppUpdateStore.getState().checkNow();
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    const joined = useAppUpdateStore.getState().checkNow({ manual: true });
+    resolveFetch?.(latest());
+    await Promise.all([auto, joined]);
+
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+    const s = useAppUpdateStore.getState();
+    expect(s.status).toBe('available');
+    // 关键: dismissed 记忆命中,但因为是手动检查,抑制必须不生效(强制可见)。
+    expect(s.promptSuppressed).toBe(false);
+  });
+
+  it('forced + 404/不可判定 → 保持 forced 且 info 不丢(运维修行不得成为绕过通道)', async () => {
+    mockedFetch.mockResolvedValue(latest({ force: true }));
+    await useAppUpdateStore.getState().checkNow();
+    expect(useAppUpdateStore.getState().status).toBe('forced');
+
+    // 404:官网配置行被删/不可判 → null。Gate 的渲染条件是 forced && info,
+    // info 一并保留,门不得卸载。
+    mockedFetch.mockResolvedValue(null as never);
+    await useAppUpdateStore.getState().checkNow();
+    expect(useAppUpdateStore.getState().status).toBe('forced');
+    expect(useAppUpdateStore.getState().info?.latestVersion).toBe('v1.0.7');
+
+    // latest_version 非法格式(resolveUpdateDecision → null)同理粘滞。
+    mockedFetch.mockResolvedValue({
+      ...latest(),
+      latestVersion: 'not-a-version',
+    } as ReturnType<typeof latest>);
+    await useAppUpdateStore.getState().checkNow({ manual: true });
+    expect(useAppUpdateStore.getState().status).toBe('forced');
+    expect(useAppUpdateStore.getState().info).not.toBeNull();
+  });
+
+  it('非 forced + 404 → 静默 upToDate 且 lastCheckDecided=false(没查成不说成已最新)', async () => {
+    mockedFetch.mockResolvedValue(null as never);
+    await useAppUpdateStore.getState().checkNow({ manual: true });
+    const s = useAppUpdateStore.getState();
+    expect(s.status).toBe('upToDate');
+    expect(s.lastCheckDecided).toBe(false);
+
+    // 真实比较做出的 upToDate 才算 decided(手动反馈据此区分两种文案)。
+    mockVersionName = 'v1.0.7';
+    mockedFetch.mockResolvedValue(latest({ version: 'v1.0.7' }));
+    await useAppUpdateStore.getState().checkNow({ manual: true });
+    expect(useAppUpdateStore.getState().lastCheckDecided).toBe(true);
+  });
 });
