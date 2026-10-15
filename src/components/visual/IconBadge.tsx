@@ -42,7 +42,8 @@ export type IconName =
   | 'chevron'
   | 'settings'
   | 'close'
-  | 'fingerprint';
+  | 'fingerprint'
+  | 'phone';
 
 type Tone =
   | 'primary'
@@ -126,6 +127,21 @@ interface IconShapeProps {
   stroke: string;
 }
 
+/**
+ * Bare glyph (no badge container) — for inline metadata rows where the 44px
+ * circular badge is too heavy (e.g. session-card origin icon beside the
+ * last-active label). Same 24-grid stroke shapes as IconBadge.
+ */
+export const IconGlyph: React.FC<{
+  name: IconName;
+  size?: number;
+  color: string;
+}> = ({ name, size = 13, color }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <IconShape name={name} stroke={color} />
+  </Svg>
+);
+
 const common = {
   strokeWidth: 1.9,
   strokeLinecap: 'round' as const,
@@ -165,6 +181,14 @@ const IconShape: React.FC<IconShapeProps> = ({ name, stroke }) => {
         <>
           <Rect x="4" y="5" width="16" height="14" rx="3" stroke={stroke} {...common} />
           <Path d="m8 10 3 2.5L8 15M13 15h3" stroke={stroke} {...common} />
+        </>
+      );
+    case 'phone':
+      // 智能手机(竖屏圆角矩形 + 底部 home 短线)——会话发起来源的 phone 端标识。
+      return (
+        <>
+          <Rect x="7" y="2.5" width="10" height="19" rx="2.5" stroke={stroke} {...common} />
+          <Path d="M11 18.5h2" stroke={stroke} {...common} />
         </>
       );
     case 'approval':
