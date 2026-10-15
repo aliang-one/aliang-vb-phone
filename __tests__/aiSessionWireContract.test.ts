@@ -178,6 +178,39 @@ describe('wire contract — 会话身份与状态映射', () => {
   });
 });
 
+describe('wire contract — 会话发起来源 origin(手机 vs 电脑 TUI)', () => {
+  // server 侧 publicAiSession 现在带 origin('phone'|'tui'); 列表卡片据此给
+  // TUI 会话挂「电脑发起」badge, 会话详情页的 TUI 共用横幅判据也迁移过来。
+  // 老 server 不发 origin → 映射层按 ai_import_ 前缀兜底, 新 App 不退化。
+  it("origin: 'tui' 透传(TUI 扫盘导入会话)", () => {
+    const run = serverAiSessionToVibeRun(
+      wire({ session_id: 'ai_import_abc', origin: 'tui' }),
+      [],
+      [],
+    );
+    expect(run.origin).toBe('tui');
+  });
+
+  it("origin: 'phone' 透传(手机发起会话)", () => {
+    const run = serverAiSessionToVibeRun(wire({ origin: 'phone' }), [], []);
+    expect(run.origin).toBe('phone');
+  });
+
+  it('origin 缺失(老 server)且 ai_import_ 前缀 → 前缀兜底 tui', () => {
+    const run = serverAiSessionToVibeRun(
+      wire({ session_id: 'ai_import_deadbeefcafe0123', origin: undefined }),
+      [],
+      [],
+    );
+    expect(run.origin).toBe('tui');
+  });
+
+  it('origin 缺失(老 server)且普通 id → 前缀兜底 phone', () => {
+    const run = serverAiSessionToVibeRun(wire({ origin: undefined }), [], []);
+    expect(run.origin).toBe('phone');
+  });
+});
+
 // --- 真正的跨端 golden contract: 读服务端 publicAiSession 的实际输出 ---
 
 const GOLDEN_PATH = path.resolve(
