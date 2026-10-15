@@ -44,6 +44,9 @@ describe('fetchUpdateCheck', () => {
     expect(path).toContain('software=aliang-vibe-phone');
     expect(path).toContain('platform=ios');
     expect((options as { baseUrl: string }).baseUrl).toBe('https://www.aliang.one');
+    // 公开免鉴权端点绝不参与会话 refresh/拆除链(否则 website 侧意外 401
+    // 会把用户从主平台登出——2026-10-15 审计)。
+    expect((options as { skipRefreshRetry?: boolean }).skipRefreshRetry).toBe(true);
   });
 
   it('signal 透传给底层调用(死线到点可真正取消请求)', async () => {
@@ -112,6 +115,27 @@ describe('sanitizeDownloadUrl', () => {
     expect(sanitizeDownloadUrl(`https://www.aliang.one/${'a'.repeat(3000)}`)).toBe('');
     expect(sanitizeDownloadUrl(42 as unknown as string)).toBe('');
   });
+
+  it('itms-services 是任意 manifest 的 OTA 通道,整条不放行(2026-10-15 审计)', () => {
+    expect(
+      sanitizeDownloadUrl(
+        'itms-services://?action=download-manifest&url=https://evil.com/p.plist',
+      ),
+    ).toBe('');
+    expect(
+      sanitizeDownloadUrl(
+        'itms-services://www.aliang.one/app.plist',
+      ),
+    ).toBe('');
+  });
+
+  it('itms-apps 只放行官方商店主机;market:// 只放行 details?id= 形态', () => {
+    expect(sanitizeDownloadUrl('itms-apps://evil.com/app')).toBe('');
+    expect(sanitizeDownloadUrl('itms-apps://itunes.apple.com/app/id1')).toBe(
+      'itms-apps://itunes.apple.com/app/id1',
+    );
+    expect(sanitizeDownloadUrl('market://search?q=evil')).toBe('');
+  });
 });
 
 describe('sanitizeChangelog', () => {
@@ -124,6 +148,11 @@ describe('sanitizeChangelog', () => {
   it('剥离控制字符与 BiDi 覆写符(防视觉欺骗)', () => {
     const out = sanitizeChangelog('ok\u0000\u001F‮evil‮⁦x⁩');
     expect(out).toBe('okevilx');
+  });
+
+  it('剥离 LRM/RLM/U+061C 定向符与 DEL/C1 控制段(2026-10-15 审计补全)', () => {
+    const out = sanitizeChangelog('a‎b‏c؜d\u007Fe\u0085f\u009F');
+    expect(out).toBe('abcdef');
   });
 
   it('非字符串/空串安全', () => {

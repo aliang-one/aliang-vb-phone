@@ -12,6 +12,7 @@ import { BottomSheet } from '../shared/BottomSheet';
 import { GlowButton } from '../shared/GlowButton';
 import { useTheme } from '../../theme/useTheme';
 import { useAppUpdateStore } from '../../store/appUpdateStore';
+import { useToastStore } from '../../store/toastStore';
 import { APP_UPDATE_FALLBACK_URL } from '../../config/appUpdate';
 
 export const UpdateAvailableSheet: React.FC = () => {
@@ -21,23 +22,31 @@ export const UpdateAvailableSheet: React.FC = () => {
   const info = useAppUpdateStore(s => s.info);
   const promptSuppressed = useAppUpdateStore(s => s.promptSuppressed);
   const dismiss = useAppUpdateStore(s => s.dismiss);
+  const show = useToastStore(s => s.show);
 
   const open = status === 'available' && Boolean(info) && !promptSuppressed;
   // BottomSheet 关闭动画期间 children 仍挂载约 240ms;内容随 open 立即收起,
   // 让调用方与测试都能同步断言「已关闭」(参考 ModelConfirmSheet 的门控注释)。
   const visible = open;
 
-  const handleUpdate = useCallback(() => {
+  const handleUpdate = useCallback(async () => {
     const url = info?.downloadUrl || APP_UPDATE_FALLBACK_URL;
-    void Linking.openURL(url).catch(() => {});
+    try {
+      await Linking.openURL(url);
+    } catch {
+      // 打不开(无浏览器/被拦截)就留在弹层里给错误反馈——旧行为是静默吞掉
+      // 后仍然 dismiss 并把该版本写进「稍后再说」抑制,等于一次失败永久静音。
+      show(t('about.update.openFailed'), 'error');
+      return;
+    }
     dismiss();
-  }, [info?.downloadUrl, dismiss]);
+  }, [info?.downloadUrl, dismiss, show, t]);
 
   return (
     <BottomSheet
       open={open}
       onClose={dismiss}
-      title={t('update.title')}
+      title={t('about.update.title')}
       badge={visible && info ? { label: info.latestVersion, tone: 'info' } : undefined}
     >
       {visible && info ? (
@@ -46,24 +55,26 @@ export const UpdateAvailableSheet: React.FC = () => {
             testID="update-changelog"
             style={[theme.typography.bodySm, { color: theme.colors.onSurface }]}
           >
-            {info.changelog.trim() || t('update.changelogEmpty')}
+            {info.changelog.trim() || t('about.update.changelogEmpty')}
           </Text>
           <View style={styles.footerRow}>
             <Pressable
               testID="update-later-button"
               accessibilityRole="button"
-              accessibilityLabel={t('update.later')}
+              accessibilityLabel={t('about.update.later')}
               onPress={dismiss}
               style={styles.textBtn}
             >
               <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
-                {t('update.later')}
+                {t('about.update.later')}
               </Text>
             </Pressable>
             <GlowButton
               testID="update-now-button"
-              title={t('update.updateNow')}
-              onPress={handleUpdate}
+              title={t('about.update.updateNow')}
+              onPress={() => {
+                void handleUpdate();
+              }}
               style={styles.updateButton}
             />
           </View>

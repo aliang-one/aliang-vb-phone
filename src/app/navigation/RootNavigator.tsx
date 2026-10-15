@@ -27,6 +27,7 @@ import { ApprovalCenterScreen } from '../../screens/operations/ApprovalCenterScr
 import { EventStreamScreen } from '../../screens/operations/EventStreamScreen';
 import { NotificationCenterScreen } from '../../screens/operations/NotificationCenterScreen';
 import { PreviewScreen } from '../../screens/preview/PreviewScreen';
+import { AboutScreen } from '../../screens/settings/AboutScreen';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import type { TerminalCommandHistoryItem, TerminalSession } from '../../store/types';
 import { useTheme } from '../../theme/useTheme';
@@ -271,6 +272,7 @@ export const RootNavigator = ({ debugDeviceTerminal }: RootNavigatorProps) => {
           <Stack.Screen name="ApprovalCenter" component={ApprovalCenterScreen} />
           <Stack.Screen name="NotificationCenter" component={NotificationCenterScreen} />
           <Stack.Screen name="Preview" component={PreviewScreen} />
+          <Stack.Screen name="About" component={AboutScreen} />
         </>
       )}
     </Stack.Navigator>

@@ -128,7 +128,8 @@
   "clearCredentialsLabel": "Clear saved login",
   "clearCredentialsConfirm": "Saved login cleared.",
   "about": {
-    "title": "ABOUT",
+    "entry": "About",
+    "appbarTitle": "About",
     "privacyPolicy": "Privacy Policy",
     "version": "Version",
     "checkUpdate": "Check for Updates",
@@ -145,7 +146,8 @@
       "upToDateToast": "You're on the latest version.",
       "checkFailedToast": "Update check failed, try again later.",
       "retryCheck": "Retry check",
-      "checking": "Checking…"
+      "checking": "Checking…",
+    "openFailed": "Couldn't open the download link, please try again."
     }
   },
   "dangerZone": {

@@ -49,24 +49,34 @@ const DOWNLOAD_URL_MAX_LENGTH = 2_048;
  * 下载地址白名单:仅放行 https + 自有域(*.aliang.one / aliang.one)与系统
  * 商店 scheme。强制更新门是一个不可关闭的全屏按钮——域被劫持/配置错乱时,
  * 不能让它变成指哪打哪的钓鱼入口;不合规则回退空串(UI 用兜底落地页)。
+ *
+ * 商店 scheme 收紧(2026-10-15 审计):itms-services 是「任意 manifest URL」
+ * 的企业 OTA 通道——只看前缀放行等于让强制更新门可以指向任意 plist 安装
+ * 包,整条移除(iOS 走 App Store,itms-apps 只放行官方商店主机);market://
+ * 只放行 Play 商店的 details?id= 形态。
  */
 export function sanitizeDownloadUrl(raw: unknown): string {
   if (typeof raw !== 'string') return '';
   const trimmed = raw.trim();
   if (!trimmed || trimmed.length > DOWNLOAD_URL_MAX_LENGTH) return '';
   const ownHttps = /^https:\/\/([\w-]+\.)*aliang\.one(:\d+)?(\/|$)/i.test(trimmed);
-  const storeScheme = /^(itms-apps|itms-services|market):\/\//i.test(trimmed);
-  return ownHttps || storeScheme ? trimmed : '';
+  const appStore = /^itms-apps:\/\/(itunes\.apple\.com|apps\.apple\.com)(\/|$)/i.test(
+    trimmed,
+  );
+  const playStore = /^market:\/\/details\?id=/i.test(trimmed);
+  return ownHttps || appStore || playStore ? trimmed : '';
 }
 
 /**
- * 更新说明消毒:剥离控制字符与 BiDi 覆写符(U+202A-E/2066-9,防视觉欺骗),
+ * 更新说明消毒:剥离控制字符与 BiDi 覆写/定向符(U+202A-E/2066-9;LRM/RLM
+ * U+200E/F 与 U+061C 不改视觉顺序但可携带隐藏指令,一并剥离;DEL/C1 控制段),
  * 截断到 8KB——MB 级文本在"不可关闭的全屏门"里渲染会把 JS 线程打满。
+ * (2026-10-15 审计补全字符类。)
  */
 export function sanitizeChangelog(raw: unknown): string {
   if (typeof raw !== 'string') return '';
   const cleaned = raw.replace(
-    /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u202A-\u202E\u2066-\u2069]/g,
+    /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u0080-\u009F\u200E\u200F\u061C\u202A-\u202E\u2066-\u2069]/g,
     '',
   );
   if (cleaned.length <= CHANGELOG_MAX_LENGTH) return cleaned;
@@ -100,7 +110,14 @@ export async function fetchUpdateCheck(
   try {
     payload = await accountGet<WebsiteCheckPayload>(
       `/api/public/downloads/check${query}`,
-      { baseUrl: ALIANG_ACCOUNT_BASE_URL, signal },
+      {
+        baseUrl: ALIANG_ACCOUNT_BASE_URL,
+        signal,
+        // 这是公开免鉴权端点,不是会话基础设施:绝不参与 accountFetch 的
+        // refresh/重试/notifySessionInvalidated 链——website 侧意外 401 时,
+        // 否则一次「检查更新」能把用户从主平台登出(2026-10-15 审计)。
+        skipRefreshRetry: true,
+      },
     );
   } catch (error) {
     // 404 = 该 platform+software 无任何行:官网还没配置本 app,静默当无更新。
