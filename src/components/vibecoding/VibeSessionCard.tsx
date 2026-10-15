@@ -280,6 +280,10 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                         ? theme.typography.titleLg
                         : theme.typography.titleMd,
                       { color: theme.colors.onSurface },
+                      // RN 默认 flexShrink:0——长标题会按整行宽度测量, 把右侧
+                      // badge 顶出可视区(badge 的目标场景恰是标题常偏长的 TUI
+                      // 导入会话)。允许标题收缩保 badge(TopAppBar 同坑先例)。
+                      { flexShrink: 1 },
                     ]}
                     numberOfLines={1}
                   >
