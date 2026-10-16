@@ -73,10 +73,20 @@ describe('ai.run.progress keeps the turn alive (quiet-gap heartbeat)', () => {
     });
   });
 
-  it('refreshes lastActivityMs to the wire event clock so the stale-demotion guard has a current timestamp', () => {
-    // 事件钟契约(2026-10-15 事故):心跳把 lastActivityMs 刷到 broker 信封的
-    // created_at(服务端发送时刻=会话真实活跃时刻),而不是手机本地钟——
-    // "收到事件"不等于"会话此刻活跃"。守卫目的不变:时间戳保持新鲜。
+  it('refreshes lastActivityMs so the stale-demotion guard has a current timestamp', () => {
+    // 历史契约(心跳保活):老信封无 created_at(现网 wire 只发 payload)时
+    // 回退本地 now,守卫基线保持新鲜——否则 mid-turn 的陈旧 idle 快照会把
+    // 进行中的回合降级成"已完成"。
+    jest.setSystemTime(20_000);
+    progress();
+    expect(
+      useControlCenterStore.getState().vibeRuns[0].lastActivityMs,
+    ).toBeGreaterThanOrEqual(20_000);
+  });
+
+  it('refreshes lastActivityMs to the wire event clock when the envelope carries created_at', () => {
+    // 事件钟契约(服务端配套把 broker created_at 写入 payload 后生效):
+    // 心跳刷到服务端发送时刻,而非手机本地钟。
     const wireTs = '2026-10-15T05:15:34.000Z';
     useControlCenterStore.getState().handleTransportEvent({
       type: 'ai.run.progress',
@@ -86,16 +96,6 @@ describe('ai.run.progress keeps the turn alive (quiet-gap heartbeat)', () => {
     expect(
       useControlCenterStore.getState().vibeRuns[0].lastActivityMs,
     ).toBe(Date.parse(wireTs));
-  });
-
-  it('keeps the existing timestamp when the envelope carries no clock (no fabrication)', () => {
-    // 信封缺 created_at(极老服务端):宁可不刷新,也不拿本地 now 伪造——
-    // 伪造值会被 mergeVibeRunSnapshot 的棘轮钉死(事故链第二环)。
-    jest.setSystemTime(20_000);
-    progress();
-    expect(
-      useControlCenterStore.getState().vibeRuns[0].lastActivityMs,
-    ).toBe(1_000);
   });
 
   it('keeps a running turn running (no mid-run demotion)', () => {
@@ -133,7 +133,15 @@ describe('ai.run.started marks the turn running', () => {
     });
   });
 
-  it('flips idle → running and refreshes lastActivityMs to the wire clock', () => {
+  it('flips idle → running and refreshes lastActivityMs (legacy wire: local clock)', () => {
+    jest.setSystemTime(20_000);
+    started();
+    const s = useControlCenterStore.getState().vibeRuns[0];
+    expect(s.status).toBe('running');
+    expect(s.lastActivityMs).toBeGreaterThanOrEqual(20_000);
+  });
+
+  it('flips idle → running and refreshes lastActivityMs to the wire clock when present', () => {
     const wireTs = '2026-10-15T05:15:34.000Z';
     useControlCenterStore.getState().handleTransportEvent({
       type: 'ai.run.started',

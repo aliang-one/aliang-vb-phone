@@ -644,14 +644,18 @@ export const useControlCenterStore = create<ControlCenterState>()(
             // (failed/completed) and waiting_approval are preserved.
             case 'ai.run.started':
             case 'ai.run.progress': {
-              // 事件钟:消费 broker 信封 created_at,而非本地 Date.now()——
-              // "收到事件"不等于"会话此刻活跃"(迟到/重放事件会把死会话顶成
-              // just now,2026-10-15 事故)。信封无钟(极老服务端)维持原值。
+              // 事件钟:信封 created_at(服务端 2026-10 配套入 payload)优先,
+              // 心跳刷新到事件的真实时刻;老信封无钟 → 回退本地 now,与历史
+              // 契约逐字节一致(心跳保活:stale-demotion 守卫需要新鲜基线)。
+              // 有钟后,"收到事件"才真正等于"会话此刻活跃"。
               const wireMs = wireEventMs(transportEvent.raw);
               set(state => ({
                 vibeRuns: state.vibeRuns.map(item => {
                   if (item.id !== transportEvent.sessionId) return item;
-                  const activityMs = Math.max(item.lastActivityMs ?? 0, wireMs ?? 0);
+                  const activityMs = Math.max(
+                    item.lastActivityMs ?? 0,
+                    wireMs ?? activityNowMs(),
+                  );
                   if (item.runStateVersion !== undefined) {
                     return {
                       ...item,
@@ -699,9 +703,9 @@ export const useControlCenterStore = create<ControlCenterState>()(
               // 回合可能产出 approval / 方案选择(server 从 assistant 回复派生后一次性推送,WS 瞬断
               // 会丢、且不像 delta 能自愈)。回合结束去抖拉一次 dashboard,补回错过的 approval / 状态。
               {
-                // 事件钟:ai.done 的活跃时间取 broker created_at(信封无钟则
-                // 不 bump),不再用本地 now 伪造。
-                const doneMs = wireEventMs(transportEvent.raw) ?? 0;
+                // 事件钟:ai.done 活跃时间取 broker created_at;老信封无钟
+                // 回退本地 now(与历史契约一致,双轨合并可自愈)。
+                const doneMs = wireEventMs(transportEvent.raw) ?? activityNowMs();
                 set(state => ({
                   vibeRuns: state.vibeRuns.map(run => {
                     if (run.id !== transportEvent.sessionId) return run;
@@ -773,12 +777,12 @@ export const useControlCenterStore = create<ControlCenterState>()(
                           currentStep: friendlyError,
                           lastActivityMs: Math.max(
                             item.lastActivityMs ?? 0,
-                            wireEventMs(transportEvent.raw) ?? 0,
+                            wireEventMs(transportEvent.raw) ?? activityNowMs(),
                           ),
                           updatedAt: formatActivityLabel(
                             Math.max(
                               item.lastActivityMs ?? 0,
-                              wireEventMs(transportEvent.raw) ?? 0,
+                              wireEventMs(transportEvent.raw) ?? activityNowMs(),
                             ),
                           ),
                         }
@@ -835,7 +839,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
                   }
                   const activityMs = Math.max(
                     item.lastActivityMs ?? 0,
-                    wireEventMs(transportEvent.raw) ?? 0,
+                    wireEventMs(transportEvent.raw) ?? activityNowMs(),
                   );
                   return {
                     ...item,
@@ -870,12 +874,12 @@ export const useControlCenterStore = create<ControlCenterState>()(
                       : run.currentStep,
                     lastActivityMs: Math.max(
                       run.lastActivityMs ?? 0,
-                      wireEventMs(transportEvent.raw) ?? 0,
+                      wireEventMs(transportEvent.raw) ?? activityNowMs(),
                     ),
                     updatedAt: formatActivityLabel(
                       Math.max(
                         run.lastActivityMs ?? 0,
-                        wireEventMs(transportEvent.raw) ?? 0,
+                        wireEventMs(transportEvent.raw) ?? activityNowMs(),
                       ),
                     ),
                   };
@@ -1579,15 +1583,15 @@ export const useControlCenterStore = create<ControlCenterState>()(
                         ...run,
                         status: 'preview_ready' as VibeStatus,
                         previewId: preview.id,
-                        // 事件钟:远端广播消费 broker created_at,不造本地 now
+                        // 事件钟:broker created_at 优先,老信封回退本地 now
                         lastActivityMs: Math.max(
                           run.lastActivityMs ?? 0,
-                          wireEventMs(transportEvent.raw) ?? 0,
+                          wireEventMs(transportEvent.raw) ?? activityNowMs(),
                         ),
                         updatedAt: formatActivityLabel(
                           Math.max(
                             run.lastActivityMs ?? 0,
-                            wireEventMs(transportEvent.raw) ?? 0,
+                            wireEventMs(transportEvent.raw) ?? activityNowMs(),
                           ),
                         ),
                       }

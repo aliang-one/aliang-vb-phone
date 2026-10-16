@@ -402,6 +402,14 @@ export interface VibeCodingRun {
    * message, lifecycle change, and server snapshot.
    */
   lastActivityMs: number;
+  /**
+   * 只增不减的守卫基线(历史最大已见活动值)。2026-10-15 事故评审:双轨合并
+   * 允许 lastActivityMs 被更旧但合法的服务端快照下修,若 staleDemotion/
+   * staleReactivation 守卫直接读被下修后的值,一份迟到的陈旧 running 快照
+   * 可击穿反向守卫让已结算会话闪回"进行中"。守卫读这个单调基线,展示值
+   * 允许下修。
+   */
+  activityGuardMs?: number;
   previewId?: string;
   transcriptCount?: number;
   transcriptPage?: AgentTranscriptPage;

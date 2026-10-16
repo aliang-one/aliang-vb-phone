@@ -43,9 +43,9 @@ export function applyAiStreamEventsToRuns(
       }
     }
 
-    // 事件钟(2026-10-15 事故):流式批次取信封 created_at 的最大值,信封
-    // 无钟则维持 run 存量——不再用本地 Date.now() 伪造活跃,迟到批次把死
-    // 会话顶成 just now 的链路到此断根。
+    // 事件钟:流式批次取信封 created_at 的最大值(服务端配套入 payload 后
+    // 生效);老信封无钟回退本地 Date.now(),与历史契约一致——双轨合并层
+    // 负责在非 live 相位用诚实快照自愈。
     let wireMs: number | undefined;
     for (const event of batch) {
       const ms = wireEventMs(event.raw);
@@ -56,7 +56,7 @@ export function applyAiStreamEventsToRuns(
     const activityMs =
       wireMs !== undefined
         ? Math.max(run.lastActivityMs ?? 0, wireMs)
-        : (run.lastActivityMs ?? 0);
+        : Date.now();
     let next = run;
     if (deltas.length) {
       next = applyDeltasToRun(next, deltas, makeId, nowLabel, activityMs);

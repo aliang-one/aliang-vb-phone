@@ -1045,3 +1045,35 @@ describe('mergeVibeRunSnapshot — 双轨活跃时钟(服务端权威/本地乐�
     expect(mergeVibeRunSnapshot(existing, incoming).lastActivityMs).toBe(HONEST);
   });
 });
+
+describe('mergeVibeRunSnapshot — activityGuardMs 守卫基线(评审 P2)', () => {
+  // 双轨允许展示值下修;守卫基线只增不减。多实例 Redis 镜像延迟下:
+  // settle(T_SETTLE)→ 滞后快照(T_SETTLE-60s,合法但旧)下修展示值 →
+  // 更迟到的 pre-settle running 事件(T_SETTLE-30s)不得借下修后的基线
+  // 击穿 staleReactivation 让已结算会话闪回"进行中"。
+  const T_SETTLE = Date.parse('2026-10-16T10:00:00.000Z');
+
+  it('a late stale running snapshot cannot re-activate a settled session after a down-shift', () => {
+    const settled = makeRun({
+      id: 's1',
+      status: 'idle',
+      lastActivityMs: T_SETTLE,
+    });
+    const lagged = makeRun({
+      id: 's1',
+      status: 'idle',
+      lastActivityMs: T_SETTLE - 60_000,
+    });
+    const afterDownShift = mergeVibeRunSnapshot(settled, lagged);
+    expect(afterDownShift.lastActivityMs).toBe(T_SETTLE - 60_000);
+
+    const lateRunning = makeRun({
+      id: 's1',
+      status: 'running',
+      lastActivityMs: T_SETTLE - 30_000,
+    });
+    const guarded = mergeVibeRunSnapshot(afterDownShift, lateRunning);
+    expect(guarded.status).toBe('idle');
+    expect(guarded.activityGuardMs).toBe(T_SETTLE);
+  });
+});

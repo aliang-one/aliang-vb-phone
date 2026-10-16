@@ -1015,6 +1015,13 @@ export function mergeVibeRunSnapshot(
     : mergedActivityLive
       ? Math.max(existing.lastActivityMs ?? 0, incoming.lastActivityMs ?? 0)
       : (incoming.lastActivityMs ?? 0);
+  // 守卫基线只增不减:staleDemotion/staleReactivation 用它比较,展示值的
+  // 合法下修不得拉低守卫(评审 2026-10-16:多实例镜像延迟下,迟到陈旧
+  // running 快照可借下修后的基线击穿反向守卫,让已结算会话闪回进行中)。
+  const activityGuardMs = Math.max(
+    existing.activityGuardMs ?? existing.lastActivityMs ?? 0,
+    incoming.activityGuardMs ?? incoming.lastActivityMs ?? 0,
+  );
   // ...and don't let a stale/older snapshot demote an actively-running session's
   // STATUS either. A snapshot whose lastActivityMs is NOT newer than what we
   // hold locally (a reconnect refresh, a stray ai.session.updated, or the
@@ -1049,7 +1056,8 @@ export function mergeVibeRunSnapshot(
   const staleDemotion =
     incomingDemotes &&
     !incomingFailure &&
-    (incoming.lastActivityMs ?? 0) <= (existing.lastActivityMs ?? 0);
+    (incoming.lastActivityMs ?? 0) <=
+      (existing.activityGuardMs ?? existing.lastActivityMs ?? 0);
   // 反向守卫:已结算的会话(existing 非活跃)不被陈旧的活跃快照重新激活。ai.done 已把
   // status 翻成 idle 并 bump lastActivityMs,此后一个滞后的 running 快照(活动不比本地新)
   // 不能再翻回 running——否则回合结束会闪回进行中(就是当年要靠 8s 压的那种抖动)。真正的新
@@ -1057,7 +1065,8 @@ export function mergeVibeRunSnapshot(
   const staleReactivation =
     !existingActive &&
     incomingActive &&
-    (incoming.lastActivityMs ?? 0) <= (existing.lastActivityMs ?? 0);
+    (incoming.lastActivityMs ?? 0) <=
+      (existing.activityGuardMs ?? existing.lastActivityMs ?? 0);
   // Protocol v2 uses a monotonic server revision. This is the primary guard and
   // is deliberately independent of Date.now()/last_active_at, so phone/server
   // clock skew cannot retain running forever or resurrect a completed run. The
@@ -1137,6 +1146,7 @@ export function mergeVibeRunSnapshot(
         ? existing.optimisticRunBaseVersion
         : undefined,
     lastActivityMs,
+    activityGuardMs,
     updatedAt: formatActivityLabel(lastActivityMs),
     transcript,
     events,
