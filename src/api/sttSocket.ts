@@ -13,6 +13,12 @@ export interface SttSocketHandlers {
   onError?: () => void;
 }
 
+// The connect path is hand-rolled WS over the public relay chain (HK edge →
+// frp → home-broadband pod) and CAN hang: probes measured >15s unresponsive
+// upgrades while the UI sat in "connecting" with a live mic (audit 2026-10-16
+// R1/R8). Bound it so the user gets a retryable error instead of a dead hold.
+const CONNECT_TIMEOUT_MS = 6_000;
+
 export class SttSocket {
   private ws: WebSocket | null = null;
   private readonly token: string;
@@ -37,14 +43,21 @@ export class SttSocket {
 
     await new Promise<void>((resolve, reject) => {
       let settled = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
       const fail = (message: string) => {
         if (settled) return;
         settled = true;
+        if (timer) clearTimeout(timer);
         reject(new Error(message));
       };
+      timer = setTimeout(() => {
+        fail('stt_socket_connect_timeout');
+        try { ws.close(); } catch { /* ignore */ }
+      }, CONNECT_TIMEOUT_MS);
       ws.onopen = () => {
         if (settled) return;
         settled = true;
+        if (timer) clearTimeout(timer);
         resolve();
       };
       ws.onerror = () => fail('stt_socket_connect_failed');

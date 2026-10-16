@@ -1,0 +1,66 @@
+diff --git a/node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java b/node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java
+index 20f454f..6d69ca0 100644
+--- a/node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java
++++ b/node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java
+@@ -27,7 +27,11 @@ public class RNLiveAudioStreamModule extends ReactContextBaseJavaModule {
+ 
+     private AudioRecord recorder;
+     private int bufferSize;
+-    private boolean isRecording;
++    private volatile boolean isRecording;
++    // The stop() promise is resolved by the recording thread once it has actually
++    // exited its read loop, so the JS side resumes as soon as the tail frames are
++    // out (upstream never resolved it — every stop burned a 900ms JS timeout).
++    private Promise pendingStopPromise;
+ 
+     public RNLiveAudioStreamModule(ReactApplicationContext reactContext) {
+         super(reactContext);
+@@ -91,18 +95,32 @@ public class RNLiveAudioStreamModule extends ReactContextBaseJavaModule {
+                     String base64Data;
+                     byte[] buffer = new byte[bufferSize];
+ 
+-                    while (isRecording) {
++                    while (true) {
+                         bytesRead = recorder.read(buffer, 0, buffer.length);
+ 
+-                        // skip first 2 buffers to eliminate "click sound"
+-                        if (bytesRead > 0 && ++count > 2) {
+-                            base64Data = Base64.encodeToString(buffer, Base64.NO_WRAP);
++                        // skip first buffer to eliminate "click sound" (dropping
++                        // 2 ate up to ~256ms of the user's first word)
++                        if (bytesRead > 0 && ++count > 1) {
++                            base64Data = Base64.encodeToString(buffer, 0, bytesRead, Base64.NO_WRAP);
+                             eventEmitter.emit("data", base64Data);
+                         }
++                        // Check the flag AFTER emitting so the buffer in flight
++                        // when stop() arrives still reaches JS — no tail loss.
++                        if (!isRecording) break;
+                     }
+                     recorder.stop();
++                    Promise stopPromise = pendingStopPromise;
++                    pendingStopPromise = null;
++                    if (stopPromise != null) {
++                        stopPromise.resolve(true);
++                    }
+                 } catch (Exception e) {
+                     e.printStackTrace();
++                    Promise stopPromise = pendingStopPromise;
++                    pendingStopPromise = null;
++                    if (stopPromise != null) {
++                        stopPromise.reject(e);
++                    }
+                 }
+             }
+         });
+@@ -112,6 +130,11 @@ public class RNLiveAudioStreamModule extends ReactContextBaseJavaModule {
+ 
+     @ReactMethod
+     public void stop(Promise promise) {
++        if (!isRecording) {
++            promise.resolve(false);
++            return;
++        }
++        pendingStopPromise = promise;
+         isRecording = false;
+     }
+ }

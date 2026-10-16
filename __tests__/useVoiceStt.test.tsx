@@ -21,6 +21,7 @@ const mockSocketInstances: Array<{
 }> = [];
 let mockAudioFrameHandler: ((frame: ArrayBuffer) => void) | undefined;
 let pendingConnectResolve: (() => void) | undefined;
+let pendingConnectReject: ((error: unknown) => void) | undefined;
 
 const mockGetApiAuthToken = jest.fn(() => 'token-1');
 const mockVoiceRecorderStart = jest.fn(async (options: { onAudioFrame?: (frame: ArrayBuffer) => void }) => {
@@ -42,9 +43,10 @@ jest.mock('../src/api/sttSocket', () => ({
       handlers: handlers as (typeof mockSocketInstances)[number]['handlers'],
       connect: jest.fn(
         () =>
-          new Promise<void>(resolve => {
+          new Promise<void>((resolve, reject) => {
             mockLifecycle.push('socket.connect');
             pendingConnectResolve = resolve;
+            pendingConnectReject = reject;
           }),
       ),
       sendJson: jest.fn((msg: { type?: string }) => {
@@ -99,6 +101,7 @@ describe('useVoiceStt', () => {
     mockVoiceRecorderStop.mockClear();
     mockAudioFrameHandler = undefined;
     pendingConnectResolve = undefined;
+    pendingConnectReject = undefined;
   });
 
   afterEach(() => {
@@ -407,7 +410,8 @@ describe('useVoiceStt', () => {
     expect(latest.status).toBe('stopping');
 
     act(() => {
-      jest.advanceTimersByTime(3000);
+      // STOP_SAFETY_MS is 7000 (aligned past the server's 6s stop window).
+      jest.advanceTimersByTime(7000);
     });
     expect(latest.status).toBe('idle');
   });
@@ -507,5 +511,145 @@ describe('useVoiceStt', () => {
       await flushMicrotasks();
     });
     expect(secondStarted).toBe(false);
+  });
+
+  // Audit 2026-10-16 R2: an empty transcript after real audio reached the
+  // server must surface as an error, not silently clear the caption.
+  it('errors explicitly when stt.completed arrives empty after real audio was sent', async () => {
+    mount();
+
+    let startPromise!: Promise<boolean>;
+    await act(async () => {
+      startPromise = latest.start();
+      await flushMicrotasks();
+      await resolveConnect();
+      mockSocketInstances[0].handlers.onMessage({
+        type: 'stt.started',
+        request_id: 'voice-stt',
+        stt_session_id: 'voice-stt',
+      });
+      await startPromise;
+    });
+    expect(latest.status).toBe('recording');
+
+    // >EMPTY_RESULT_MIN_AUDIO_BYTES (450ms of 16kHz/16-bit mono).
+    await act(async () => {
+      mockAudioFrameHandler?.(new ArrayBuffer(20_000));
+      await flushMicrotasks();
+    });
+    expect(mockSocketInstances[0].sendBinary).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      mockSocketInstances[0].handlers.onMessage({
+        type: 'stt.completed',
+        request_id: 'voice-stt',
+        full_text: '',
+      });
+      await flushMicrotasks();
+    });
+    expect(latest.status).toBe('error');
+    expect(latest.errorMessage).toBe('未识别到语音内容，请靠近麦克风重试');
+  });
+
+  it('completes silently when an empty transcript follows a negligible take', async () => {
+    mount();
+
+    let startPromise!: Promise<boolean>;
+    await act(async () => {
+      startPromise = latest.start();
+      await flushMicrotasks();
+      await resolveConnect();
+      await startPromise;
+    });
+    expect(latest.status).toBe('recording');
+
+    // No audio frames were sent (sentAudioBytes stays 0) — an empty completion
+    // is a legitimate no-op, not a recognition failure.
+    await act(async () => {
+      mockSocketInstances[0].handlers.onMessage({
+        type: 'stt.completed',
+        request_id: 'voice-stt',
+        full_text: '',
+      });
+      await flushMicrotasks();
+    });
+    expect(latest.status).toBe('idle');
+  });
+
+  // Audit 2026-10-16 R2/R8: iOS start() can fail silently natively — zero
+  // frames ever arrive while the UI shows "recording". The watchdog must trip.
+  it('errors when the recorder produces no frames within the capture watchdog window', async () => {
+    mount();
+
+    let startPromise!: Promise<boolean>;
+    await act(async () => {
+      startPromise = latest.start();
+      await flushMicrotasks();
+    });
+    expect(latest.status).toBe('recording');
+
+    act(() => {
+      // CAPTURE_WATCHDOG_MS is 5000 (wide enough to survive the iOS first-run
+      // mic-permission dialog, where no frames flow until the user grants).
+      jest.advanceTimersByTime(5000);
+    });
+    expect(latest.status).toBe('error');
+    expect(latest.errorMessage).toBe('麦克风没有采集到声音，请重试');
+
+    // The still-pending connect eventually settles — the take must stay errored
+    // (no clobber back to idle), then start() exits cleanly.
+    await act(async () => {
+      await resolveConnect();
+      await startPromise;
+    });
+    expect(latest.status).toBe('error');
+    expect(latest.errorMessage).toBe('麦克风没有采集到声音，请重试');
+  });
+
+  it('keeps recording alive through the watchdog once a frame has been seen', async () => {
+    mount();
+
+    let startPromise!: Promise<boolean>;
+    await act(async () => {
+      startPromise = latest.start();
+      await flushMicrotasks();
+    });
+    expect(latest.status).toBe('recording');
+
+    act(() => {
+      mockAudioFrameHandler?.(new ArrayBuffer(4));
+    });
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(latest.status).toBe('recording');
+
+    await act(async () => {
+      await resolveConnect();
+      await startPromise;
+    });
+  });
+
+  // Audit 2026-10-16 R1: a hung relay chain must surface a retryable timeout
+  // instead of parking the UI in "connecting" forever. SttSocket rejects with
+  // the stt_socket_connect_timeout sentinel when its 6s deadline trips; the
+  // hook must map it to the dedicated message rather than a generic failure.
+  it('maps a connect timeout rejection to the dedicated timeout message', async () => {
+    mount();
+
+    let startPromise!: Promise<boolean>;
+    await act(async () => {
+      startPromise = latest.start();
+      await flushMicrotasks();
+    });
+    expect(latest.status).toBe('recording');
+
+    await act(async () => {
+      pendingConnectReject?.(new Error('stt_socket_connect_timeout'));
+      await flushMicrotasks();
+      await startPromise;
+    });
+    expect(latest.status).toBe('error');
+    expect(latest.errorMessage).toBe('语音服务连接超时，请稍后重试');
   });
 });
