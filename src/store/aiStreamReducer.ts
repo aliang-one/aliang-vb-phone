@@ -1,7 +1,11 @@
 import type { VibeCodingRun, VibeStatus } from '../data/platformModels';
 import { applyDeltasToRun, type DeltaUpdate } from '../utils/deltaBatch';
 import type { AiStreamTransportEvent } from './aiStreamBatching';
-import { formatActivityLabel, trimTranscriptWithWindow } from './internals';
+import {
+  formatActivityLabel,
+  trimTranscriptWithWindow,
+  wireEventMs,
+} from './internals';
 import { applyStructuredEventsToRun } from './slices/structuredSlice';
 
 export function applyAiStreamEventsToRuns(
@@ -39,7 +43,20 @@ export function applyAiStreamEventsToRuns(
       }
     }
 
-    const activityMs = Date.now();
+    // 事件钟(2026-10-15 事故):流式批次取信封 created_at 的最大值,信封
+    // 无钟则维持 run 存量——不再用本地 Date.now() 伪造活跃,迟到批次把死
+    // 会话顶成 just now 的链路到此断根。
+    let wireMs: number | undefined;
+    for (const event of batch) {
+      const ms = wireEventMs(event.raw);
+      if (ms !== undefined && (wireMs === undefined || ms > wireMs)) {
+        wireMs = ms;
+      }
+    }
+    const activityMs =
+      wireMs !== undefined
+        ? Math.max(run.lastActivityMs ?? 0, wireMs)
+        : (run.lastActivityMs ?? 0);
     let next = run;
     if (deltas.length) {
       next = applyDeltasToRun(next, deltas, makeId, nowLabel, activityMs);

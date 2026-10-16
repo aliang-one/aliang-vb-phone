@@ -73,13 +73,29 @@ describe('ai.run.progress keeps the turn alive (quiet-gap heartbeat)', () => {
     });
   });
 
-  it('refreshes lastActivityMs so the stale-demotion guard has a current timestamp', () => {
-    // A quiet gap elapsed on the agent side; its heartbeat arrives now.
+  it('refreshes lastActivityMs to the wire event clock so the stale-demotion guard has a current timestamp', () => {
+    // 事件钟契约(2026-10-15 事故):心跳把 lastActivityMs 刷到 broker 信封的
+    // created_at(服务端发送时刻=会话真实活跃时刻),而不是手机本地钟——
+    // "收到事件"不等于"会话此刻活跃"。守卫目的不变:时间戳保持新鲜。
+    const wireTs = '2026-10-15T05:15:34.000Z';
+    useControlCenterStore.getState().handleTransportEvent({
+      type: 'ai.run.progress',
+      sessionId: 's1',
+      raw: { created_at: wireTs },
+    } as unknown as PlatformTransportEvent);
+    expect(
+      useControlCenterStore.getState().vibeRuns[0].lastActivityMs,
+    ).toBe(Date.parse(wireTs));
+  });
+
+  it('keeps the existing timestamp when the envelope carries no clock (no fabrication)', () => {
+    // 信封缺 created_at(极老服务端):宁可不刷新,也不拿本地 now 伪造——
+    // 伪造值会被 mergeVibeRunSnapshot 的棘轮钉死(事故链第二环)。
     jest.setSystemTime(20_000);
     progress();
     expect(
       useControlCenterStore.getState().vibeRuns[0].lastActivityMs,
-    ).toBeGreaterThanOrEqual(20_000);
+    ).toBe(1_000);
   });
 
   it('keeps a running turn running (no mid-run demotion)', () => {
@@ -117,12 +133,16 @@ describe('ai.run.started marks the turn running', () => {
     });
   });
 
-  it('flips idle → running and refreshes lastActivityMs', () => {
-    jest.setSystemTime(20_000);
-    started();
+  it('flips idle → running and refreshes lastActivityMs to the wire clock', () => {
+    const wireTs = '2026-10-15T05:15:34.000Z';
+    useControlCenterStore.getState().handleTransportEvent({
+      type: 'ai.run.started',
+      sessionId: 's1',
+      raw: { created_at: wireTs },
+    } as unknown as PlatformTransportEvent);
     const s = useControlCenterStore.getState().vibeRuns[0];
     expect(s.status).toBe('running');
-    expect(s.lastActivityMs).toBeGreaterThanOrEqual(20_000);
+    expect(s.lastActivityMs).toBe(Date.parse(wireTs));
   });
 
   it('does not clobber failed / completed terminal states', () => {

@@ -71,6 +71,33 @@ export const nowTime = () =>
 // the React Native app, not the deterministic workflow sandbox.
 export const activityNowMs = () => Date.now();
 
+/**
+ * 严格解析 wire 活跃时间:解析不出(缺失/空/坏值)返回 0,由调用方保留存量。
+ * 2026-10-15 事故:旧代码 `Date.parse(...) || activityNowMs()` 在载荷缺
+ * last_active_at 时凭空造"现在",再被合并棘轮钉死 —— 死会话卡片顶着
+ * "just now" 沉不下去。宁可不更新,不可凭空造时。
+ */
+export const parseActivityMs = (value: string | undefined | null): number => {
+  if (!value) return 0;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) && ms > 0 ? ms : 0;
+};
+
+/**
+ * 服务端事件钟:realtime broker 给每个 WS 事件信封盖 created_at(见服务端
+ * realtime-broker),事件解析层把它原样放进 `raw`。远端事件驱动的时间戳一律
+ * 消费它,而不是本地 Date.now() —— "收到事件"不等于"会话此刻活跃",事件
+ * 迟到/重放时本地钟会把死会话顶成 just now(2026-10-15 事故同族)。
+ * 解析失败返回 undefined,调用方维持原值。
+ */
+export const wireEventMs = (raw: unknown): number | undefined => {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const value = (raw as Record<string, unknown>).created_at;
+  if (typeof value !== 'string') return undefined;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) && ms > 0 ? ms : undefined;
+};
+
 // Render a stable, human-friendly label for a session's last-activity timestamp.
 // Used for the `updatedAt` display string; sorting uses `lastActivityMs` instead.
 export const formatActivityLabel = (ms: number): string => {
@@ -770,10 +797,10 @@ export function serverAiSessionToVibeRun(
     // id: `agent/ai_*` looks like a real Git branch and was the visible symptom
     // of the duplicate-session bug.
     branch: session.branch ?? project?.branch ?? '',
-    lastActivityMs: Date.parse(session.last_active_at ?? '') || activityNowMs(),
-    updatedAt: formatActivityLabel(
-      Date.parse(session.last_active_at ?? '') || activityNowMs(),
-    ),
+    // 活跃时间诚实化(2026-10-15 事故):解析不出就置 0(formatActivityLabel
+    // 渲染 unknown),由 mergeVibeRunSnapshot 保留存量——绝不凭空造 now()。
+    lastActivityMs: parseActivityMs(session.last_active_at),
+    updatedAt: formatActivityLabel(parseActivityMs(session.last_active_at)),
     transcriptCount: session.transcript_count ?? transcript.length,
     transcriptPage: session.transcript_page
       ? serverTranscriptPageToAgent(session.transcript_page)
@@ -972,12 +999,22 @@ export function mergeVibeRunSnapshot(
 ): VibeCodingRun {
   if (!existing) return incoming;
   const incomingHasDetail = hasLoadedSessionDetail(incoming);
-  // Never let a (possibly slightly stale) server snapshot demote a session that
-  // is actively streaming locally — keep the most recent activity timestamp.
-  const lastActivityMs = Math.max(
-    existing.lastActivityMs ?? 0,
-    incoming.lastActivityMs ?? 0,
-  );
+  // 双轨活跃时钟(2026-10-15 事故):旧实现 Math.max 是单向棘轮——任何一个
+  // 本地造假值(载荷缺时间戳时造的 now、事件处理器的本地钟)都会永久覆盖之后
+  // 所有诚实快照,死会话卡片顶着 "just now" 直到进程退出。规则:
+  //  - incoming 没带诚实时间(0)= 纯本地快照 → 保留存量;
+  //  - 任一方 live(本地流式进行中)→ 保留 max:本地乐观不被旧快照拉回
+  //    (原注释保护的场景),stale-demotion 守卫(下方)继续挡陈旧降级;
+  //  - 双方均非 live → incoming 为服务端权威,直接覆盖(允许下修本地坏值)。
+  const incomingCarriesActivity = (incoming.lastActivityMs ?? 0) > 0;
+  const mergedActivityLive =
+    ACTIVE_RUN_STATUS.has(existing.status) ||
+    ACTIVE_RUN_STATUS.has(incoming.status);
+  const lastActivityMs = !incomingCarriesActivity
+    ? (existing.lastActivityMs ?? 0)
+    : mergedActivityLive
+      ? Math.max(existing.lastActivityMs ?? 0, incoming.lastActivityMs ?? 0)
+      : (incoming.lastActivityMs ?? 0);
   // ...and don't let a stale/older snapshot demote an actively-running session's
   // STATUS either. A snapshot whose lastActivityMs is NOT newer than what we
   // hold locally (a reconnect refresh, a stray ai.session.updated, or the

@@ -964,3 +964,84 @@ describe('serverAiSessionToVibeRun — 最新提问跳过 CC meta 行', () => {
     expect(run.lastUserMessage).toBeUndefined();
   });
 });
+
+describe('serverAiSessionToVibeRun — 活跃时间诚实化(2026-10-15 事故)', () => {
+  // 事故链:wire 载荷缺/坏 last_active_at 时,旧代码 `Date.parse(...) ||
+  // activityNowMs()` 凭空造"现在",再被 mergeVibeRunSnapshot 的 Math.max 棘轮
+  // 钉死到进程退出 —— 死会话卡片顶着 "just now" 沉不下去。诚实化:解析不出
+  // 就置 0(unknown 标签),由合并层保留存量,永不凭空造时。
+  const baseSession = (over: Record<string, unknown>) =>
+    ({ session_id: 'ai_test', status: 'idle', mode: 'vibe', ...over }) as never;
+
+  it('maps a missing last_active_at to 0 instead of fabricating now()', () => {
+    const run = serverAiSessionToVibeRun(baseSession({}), [], []);
+    expect(run.lastActivityMs).toBe(0);
+  });
+
+  it('maps an unparseable last_active_at to 0', () => {
+    const run = serverAiSessionToVibeRun(
+      baseSession({ last_active_at: 'not-a-date' }),
+      [],
+      [],
+    );
+    expect(run.lastActivityMs).toBe(0);
+  });
+
+  it('parses an honest last_active_at through', () => {
+    const run = serverAiSessionToVibeRun(
+      baseSession({ last_active_at: '2026-08-05T02:55:11.234Z' }),
+      [],
+      [],
+    );
+    expect(run.lastActivityMs).toBe(Date.parse('2026-08-05T02:55:11.234Z'));
+  });
+});
+
+describe('mergeVibeRunSnapshot — 双轨活跃时钟(服务端权威/本地乐观)', () => {
+  // 旧实现 Math.max = 单向棘轮:任何一个本地造假值(或被事件处理器顶高的值)
+  // 永久覆盖之后所有诚实快照。双轨:双方均非 live 时,携带诚实时间的 incoming
+  // 直接覆盖(可下修);任一方 live 时保持 max(本地流式乐观不被旧快照拉回);
+  // incoming 无诚实时间(0)时保留存量。
+  const FABRICATED = Date.parse('2026-10-16T10:00:00.000Z');
+  const HONEST = Date.parse('2026-10-15T05:15:34.000Z');
+
+  it('non-live: honest incoming overrides a fabricated local value (ratchet removed)', () => {
+    const existing = makeRun({
+      id: 's1',
+      status: 'idle',
+      lastActivityMs: FABRICATED,
+    });
+    const incoming = makeRun({
+      id: 's1',
+      status: 'idle',
+      lastActivityMs: HONEST,
+    });
+    expect(mergeVibeRunSnapshot(existing, incoming).lastActivityMs).toBe(HONEST);
+  });
+
+  it('live: newer local streaming time is preserved over an older server stamp', () => {
+    const existing = makeRun({
+      id: 's1',
+      status: 'running',
+      lastActivityMs: FABRICATED,
+    });
+    const incoming = makeRun({
+      id: 's1',
+      status: 'running',
+      lastActivityMs: HONEST,
+    });
+    expect(mergeVibeRunSnapshot(existing, incoming).lastActivityMs).toBe(
+      FABRICATED,
+    );
+  });
+
+  it('incoming without honest activity keeps the existing value', () => {
+    const existing = makeRun({
+      id: 's1',
+      status: 'idle',
+      lastActivityMs: HONEST,
+    });
+    const incoming = makeRun({ id: 's1', status: 'idle', lastActivityMs: 0 });
+    expect(mergeVibeRunSnapshot(existing, incoming).lastActivityMs).toBe(HONEST);
+  });
+});
