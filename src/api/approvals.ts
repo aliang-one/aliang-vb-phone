@@ -21,6 +21,12 @@ export interface ServerApproval {
     description?: string;
     response?: string;
   }>;
+  // tool_ask(自有 MCP 交互工具):interaction_id 是 agent bridge 生成的幂等键,
+  // tool_input 携带原始提问载荷(allow_custom/multi 渲染判定用),expires_at 为
+  // agent 计算的作答 SLA(ms epoch)。
+  interaction_id?: string;
+  tool_input?: Record<string, unknown>;
+  expires_at?: number;
   risk: 'low' | 'medium' | 'high';
   status: 'pending' | 'approved' | 'denied';
   created_at: string;

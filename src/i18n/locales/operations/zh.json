@@ -12,6 +12,7 @@
     "kindGitPush": "Git push",
     "kindTool": "Tool",
     "kindResponse": "Response",
+    "kindToolAsk": "AI 提问",
     "kindFallback": "Request",
     "emptyTitle": "No approvals",
     "emptyBody": "当前筛选下没有需要处理的审批。",

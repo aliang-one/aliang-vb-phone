@@ -42,6 +42,7 @@ const approvalKindKey: Record<ApprovalRequest['kind'], string> = {
   git_push: 'approval.kindGitPush',
   tool: 'approval.kindTool',
   client_response: 'approval.kindResponse',
+  tool_ask: 'approval.kindToolAsk',
 };
 
 const approvalIcon: Record<ApprovalRequest['kind'], IconName> = {
@@ -51,6 +52,7 @@ const approvalIcon: Record<ApprovalRequest['kind'], IconName> = {
   git_push: 'git',
   tool: 'agent',
   client_response: 'approval',
+  tool_ask: 'approval',
 };
 
 export const ApprovalCenterScreen: React.FC = () => {

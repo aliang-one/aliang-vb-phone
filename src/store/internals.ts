@@ -1301,6 +1301,9 @@ export function serverApprovalToClient(
     status: sa.status as ApprovalRequest['status'],
     createdAt: sa.created_at,
     resolvedAt: sa.resolved_at,
+    interactionId: sa.interaction_id,
+    toolInput: sa.tool_input,
+    expiresAt: sa.expires_at,
   };
 }
 

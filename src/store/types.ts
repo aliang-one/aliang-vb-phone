@@ -206,7 +206,8 @@ export type ApprovalKind =
   | 'file_delete'
   | 'git_push'
   | 'tool'
-  | 'client_response';
+  | 'client_response'
+  | 'tool_ask';
 
 export interface ApprovalOption {
   id: string;
@@ -232,6 +233,10 @@ export interface ApprovalRequest {
   status: 'pending' | 'approved' | 'denied';
   createdAt: string;
   resolvedAt?: string;
+  // tool_ask:agent bridge 生成的幂等键 / 原始提问载荷 / 作答 SLA(ms epoch)。
+  interactionId?: string;
+  toolInput?: Record<string, unknown>;
+  expiresAt?: number;
 }
 
 export interface PushNotificationItem {

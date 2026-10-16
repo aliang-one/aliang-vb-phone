@@ -2041,7 +2041,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 </Text>
               </TouchableOpacity>
             </View>
-            {approval.kind === 'client_response' && (
+            {(approval.kind === 'client_response' || approval.kind === 'tool_ask') && (
               <ApprovalCustomReply
                 approvalId={approval.id}
                 triggerLabel={t('session.approval.customReply')}

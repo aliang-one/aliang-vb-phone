@@ -12,6 +12,7 @@
     "kindGitPush": "Git push",
     "kindTool": "Tool",
     "kindResponse": "Response",
+    "kindToolAsk": "AI question",
     "kindFallback": "Request",
     "emptyTitle": "No approvals",
     "emptyBody": "No approvals to handle under the current filter.",
