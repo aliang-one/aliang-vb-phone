@@ -652,6 +652,16 @@ export const useControlCenterStore = create<ControlCenterState>()(
               set(state => ({
                 vibeRuns: state.vibeRuns.map(item => {
                   if (item.id !== transportEvent.sessionId) return item;
+                  // 迟到事件守卫(评审二轮 P2):信封带钟且早于守卫基线 =
+                  // 迟到的旧事件,不得把已结算会话重新拉回 running,也不得
+                  // 倒拨活跃钟。legacy 无钟帧不适用(无钟即无法判陈旧,保
+                  // 持历史心跳契约)。
+                  if (
+                    wireMs !== undefined &&
+                    wireMs < (item.activityGuardMs ?? 0)
+                  ) {
+                    return item;
+                  }
                   const activityMs = Math.max(
                     item.lastActivityMs ?? 0,
                     wireMs ?? activityNowMs(),

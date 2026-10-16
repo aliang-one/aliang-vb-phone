@@ -163,3 +163,63 @@ describe('ai.run.started marks the turn running', () => {
     }
   });
 });
+
+describe('ai.run.started/progress — 迟到事件守卫(评审二轮 P2)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.setSystemTime(10_000);
+  });
+
+  it('a stale started event (older than the guard baseline) cannot re-activate a settled session', () => {
+    // 信封带钟(服务端配套后)+ 事件时刻早于守卫基线 = 迟到旧事件:
+    // 已结算会话不得被闪回 running,活跃钟不得倒拨。
+    const settleTs = '2026-10-16T10:00:00.000Z';
+    const staleEventTs = '2026-10-16T09:30:00.000Z';
+    useControlCenterStore.setState({
+      serverMode: true,
+      vibeRuns: [
+        run({
+          status: 'idle',
+          lastActivityMs: Date.parse(settleTs),
+          activityGuardMs: Date.parse(settleTs),
+        }),
+      ],
+      devices: [],
+    });
+
+    useControlCenterStore.getState().handleTransportEvent({
+      type: 'ai.run.started',
+      sessionId: 's1',
+      raw: { created_at: staleEventTs },
+    } as unknown as PlatformTransportEvent);
+
+    const s = useControlCenterStore.getState().vibeRuns[0];
+    expect(s.status).toBe('idle');
+    expect(s.lastActivityMs).toBe(Date.parse(settleTs));
+  });
+
+  it('a fresh wire-clocked started event still flips idle → running', () => {
+    const freshTs = '2026-10-16T10:05:00.000Z';
+    useControlCenterStore.setState({
+      serverMode: true,
+      vibeRuns: [
+        run({
+          status: 'idle',
+          lastActivityMs: Date.parse('2026-10-16T10:00:00.000Z'),
+          activityGuardMs: Date.parse('2026-10-16T10:00:00.000Z'),
+        }),
+      ],
+      devices: [],
+    });
+
+    useControlCenterStore.getState().handleTransportEvent({
+      type: 'ai.run.started',
+      sessionId: 's1',
+      raw: { created_at: freshTs },
+    } as unknown as PlatformTransportEvent);
+
+    const s = useControlCenterStore.getState().vibeRuns[0];
+    expect(s.status).toBe('running');
+    expect(s.lastActivityMs).toBe(Date.parse(freshTs));
+  });
+});
