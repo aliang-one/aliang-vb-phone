@@ -468,10 +468,14 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                         size={20}
                         iconSize={11}
                       />
+                      {/* flexShrink 必须落在 Text 上(metaCluster 收缩时 Text 默认
+                          flexShrink:0 会按固有宽度溢出, 直接画到相邻 model 文本上
+                          ——2026-10-18 用户报告的长分支名交叉污染)。 */}
                       <Text
                         numberOfLines={1}
                         style={[
                           theme.typography.labelSm,
+                          styles.metaText,
                           { color: theme.colors.onSurfaceVariant },
                         ]}
                       >
@@ -483,6 +487,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                     numberOfLines={1}
                     style={[
                       theme.typography.labelSm,
+                      styles.metaText,
                       { color: theme.colors.onSurfaceVariant },
                     ]}
                   >
@@ -791,6 +796,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexShrink: 1,
+  },
+  // 元信息行内的可收缩文本: 允许在行宽不足时截断省略, 防止长分支名/模型名
+  // 溢出自己的容器盖到相邻元素(Yoga Text 默认 flexShrink: 0)。
+  metaText: {
     flexShrink: 1,
   },
   homeFooter: {
