@@ -32,6 +32,9 @@ export const darkTheme: AppTheme = {
     primaryContainer: '#264F78',
     onPrimaryContainer: '#DCEBEB',
     inversePrimary: '#4FC1FF',
+    // 主蓝的降饱和同族色(蓝灰,同 ~209° 色相): 会话卡片完成态强调色。与 primary
+    // 保持「微妙但可感知」的家族内差异 —— 完成 = 冷却下来的蓝,不引入新色相语义。
+    primaryMuted: '#6A8DAF',
 
     // Secondary - VSCode teal for types
     secondary: '#4FC1FF',
@@ -51,7 +54,8 @@ export const darkTheme: AppTheme = {
     errorContainer: '#5A1D1D',
     onErrorContainer: '#F48771',
 
-    // Success / Warning — phase accent tokens (session card: 进行中=绿, 待批准=黄)
+    // Success / Warning — phase accent tokens (session card: 待批准=黄; success 绿
+    // 保留 token 兼容 theme 形状,相位着色自 1e46d71 起不再使用绿)
     success: '#73C991',
     warning: '#E5C36B',
   },

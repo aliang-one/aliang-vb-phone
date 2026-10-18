@@ -22,6 +22,8 @@ export interface AppTheme {
     primaryContainer: string;
     onPrimaryContainer: string;
     inversePrimary: string;
+    /** 主蓝的降饱和同族色(蓝灰)——完成态强调色,与 primary 保持色相家族统一。 */
+    primaryMuted: string;
     secondary: string;
     onSecondary: string;
     secondaryContainer: string;

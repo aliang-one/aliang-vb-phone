@@ -362,20 +362,20 @@ describe('isSessionTurnActive (事件驱动:status===running)', () => {
   });
 });
 
-describe('phaseAccentColor (列表/卡片相位着色:蓝/黄/蓝/红 — 运行态靠呼吸动效而非色相)', () => {
-  // 进行中与完成都用 primary(蓝,默认色)——运行态不再借绿。全仓 success(绿)语义
-  // = 完成/就绪/在线(见 terminalInteraction 的 READY/DONE、EventStream 的 done、
-  // NotificationCenter 的 completed),running 借绿与之语义冲突(运行中 ≠ 完成),
-  // 故回归蓝。运行/完成的区分交给「呼吸动效(仅 running)+ StatusChip 文案
-  // (进行中/已完成)」,符合「颜色不能是唯一指示」的无障碍原则。
+describe('phaseAccentColor (列表/卡片相位着色:蓝/黄/蓝灰/红 — 完成态降饱和蓝,运行态主蓝+轻呼吸)', () => {
+  // 2026-10-18 用户拍板:状态间要有「微妙但可感知」的色差,但工作向 app 不能花哨。
+  // running = primary(主蓝)+ 轻呼吸动效;completed = primaryMuted(同色相降饱和
+  // 蓝灰,「冷却下来的蓝」)。绿色依旧禁用(全仓 success 绿语义 = 完成/就绪/在线,
+  // 见 1e46d71 弃绿决策),running 借绿与之冲突;蓝灰与主蓝同族,色相不引入新语义。
   const colors = {
     success: '#GREEN',
     warning: '#YELLOW',
     primary: '#BLUE',
+    primaryMuted: '#MUTED_BLUE',
     error: '#RED',
   } as const;
 
-  it('running → primary(蓝,同默认;靠呼吸动效区分运行态,不再用绿)', () => {
+  it('running → primary(主蓝,辅以轻呼吸动效;不再用绿)', () => {
     expect(phaseAccentColor('running', colors)).toBe('#BLUE');
   });
 
@@ -383,8 +383,8 @@ describe('phaseAccentColor (列表/卡片相位着色:蓝/黄/蓝/红 — 运行
     expect(phaseAccentColor('waiting_approval', colors)).toBe('#YELLOW');
   });
 
-  it('completed → primary(蓝,默认色)', () => {
-    expect(phaseAccentColor('completed', colors)).toBe('#BLUE');
+  it('completed → primaryMuted(降饱和蓝灰,与主蓝同族但可感知更冷静)', () => {
+    expect(phaseAccentColor('completed', colors)).toBe('#MUTED_BLUE');
   });
 
   it('failed → error(红,保留错误语义)', () => {

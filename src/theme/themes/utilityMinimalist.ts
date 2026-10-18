@@ -24,6 +24,9 @@ export const utilityMinimalist: AppTheme = {
     primaryContainer: '#0969da',
     onPrimaryContainer: '#ecefff',
     inversePrimary: '#adc6ff',
+    // primary 的降饱和同族色(钢蓝灰,~210° 色相): 会话卡片完成态强调色,亮色主题下
+    // 加深以保证小字号 chip 文字的可读性(白底对比 ≈5:1)。见 darkTheme.primaryMuted。
+    primaryMuted: '#52708F',
     secondary: '#565f69',
     onSecondary: '#ffffff',
     secondaryContainer: '#dae3ef',

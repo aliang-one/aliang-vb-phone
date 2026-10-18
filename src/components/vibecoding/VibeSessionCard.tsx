@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   Modal,
   Pressable,
   View,
@@ -29,6 +30,7 @@ import {
 } from '../../store/controlCenterStore';
 import { formatActivityLabel } from '../../store/internals';
 import { useNowTick } from '../../hooks/useNowTick';
+import { useReduceMotion } from '../../hooks/useReduceMotion';
 import { IconBadge, IconGlyph } from '../visual/IconBadge';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { providerLabel } from '../../utils/modelIntensity';
@@ -151,13 +153,40 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
       session.runStateVersion,
       session.runState,
     );
-    // 相位强调色:进行中/完成=蓝(默认)、待批准=黄、失败=红。进行中不再用绿
-    // (全仓 success=绿=完成语义,与运行中冲突)。驱动左侧轨道、圆点、图标底色、
-    // 状态标签、暗色光晕 —— 跨所有会话卡片统一编码。
+    // 相位强调色:进行中=主蓝、完成=蓝灰(primaryMuted,同族降饱和)、待批准=黄、
+    // 失败=红。进行中不再用绿(全仓 success=绿=完成语义,与运行中冲突)。驱动左侧
+    // 轨道、圆点、图标底色、状态标签、暗色光晕 —— 跨所有会话卡片统一编码。
     const statusColor = phaseAccentColor(phase, theme.colors);
-    // 运行态:色条/图标/圆点同蓝(同完成态),靠 StatusChip 的「三点输入」动效
-    // (pulse=isRunning,见 StatusChip)+「进行中」文案区分;非仅靠颜色(无障碍)。
     const isRunning = phase === 'running';
+    // 轻呼吸(仅 running):statusRail 透明度 0.75↔1.0 缓慢脉冲(2.2s 一轮),
+    // 给运行态一点「活着」的生命感,幅度刻意收敛(工作向 app 不花哨)。色相差异
+    // (主蓝 vs 蓝灰)承载主要区分,动效是冗余通道 —— 符合「颜色/动效不能是唯一
+    // 指示」的无障碍原则。reduceMotion 用户降级为静态(颜色差异仍在)。
+    const railPulse = useRef(new Animated.Value(1)).current;
+    const reduceMotion = useReduceMotion();
+    const railBreathing = isRunning && !reduceMotion;
+    useEffect(() => {
+      if (!railBreathing) {
+        railPulse.setValue(1);
+        return;
+      }
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(railPulse, {
+            toValue: 0.75,
+            duration: 1100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(railPulse, {
+            toValue: 1,
+            duration: 1100,
+            useNativeDriver: true,
+          }),
+        ]),
+      );
+      loop.start();
+      return () => loop.stop();
+    }, [railBreathing, railPulse]);
 
     if (hidden) {
       return null;
@@ -289,8 +318,12 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
             style={[styles.card, homeFocus ? styles.homeCard : null]}
           >
             <View style={styles.header}>
-              <View
-                style={[styles.statusRail, { backgroundColor: statusColor }]}
+              <Animated.View
+                style={[
+                  styles.statusRail,
+                  { backgroundColor: statusColor },
+                  railBreathing ? { opacity: railPulse } : null,
+                ]}
               />
               <IconBadge
                 name={phase === 'waiting_approval' ? 'approval' : 'agent'}
