@@ -366,6 +366,7 @@
       "loadDetailFailed": "Failed to load session detail.",
       "refreshStaleFailed": "刷新失败：设备未响应，当前显示上次同步的内容。",
       "refreshOffline": "设备离线，暂时无法获取最新会话内容。",
+      "refreshEmpty": "该会话没有可显示的消息（Agent 侧仅有命令记录）。",
       "loadEarlierFailed": "Failed to load earlier messages."
     },
     "title": {

@@ -99,6 +99,65 @@ describe('refreshLatest — failed / skipped_offline feedback', () => {
   });
 });
 
+describe('refreshLatest — fresh_empty feedback', () => {
+  test('detail_refresh=fresh_empty → 明确告知没有可显示的消息(静默空页回归)', async () => {
+    const load = makeLoad();
+    load.mockResolvedValue({ detailRefreshStatus: 'fresh_empty' });
+    await act(async () => {
+      renderLoader('s1', load);
+    });
+    await act(async () => {
+      latest.refreshLatest();
+      await drain();
+    });
+    expect(detailErrors).toContain('session.loading.refreshEmpty');
+    expect(latest.refreshingLatest).toBe(false);
+  });
+});
+
+describe('mount auto-load — fresh_empty feedback', () => {
+  const renderBlankLoader = (load: ReturnType<typeof makeLoad>) =>
+    TestRenderer.create(
+      React.createElement(() => {
+        latest = useSessionDetailLoader({
+          targetSessionId: 's1',
+          detailState: undefined,
+          // 空转录 + 无 detailState → hasDetail=false,触发挂载自动加载。
+          transcriptLength: 0,
+          wsConnected: true,
+          deviceStatus: 'online',
+          loadAgentSessionDetail: load,
+          t,
+          refreshing: false,
+          setDetailError: (message: string) => detailErrors.push(message),
+          detailError: '',
+        });
+        return null;
+      }),
+    );
+
+  test('挂载自动加载返回 fresh_empty → 同样显示无消息终态', async () => {
+    const load = makeLoad();
+    load.mockResolvedValue({ detailRefreshStatus: 'fresh_empty' });
+    await act(async () => {
+      renderBlankLoader(load);
+    });
+    await drain();
+    expect(load).toHaveBeenCalledWith('s1');
+    expect(detailErrors).toContain('session.loading.refreshEmpty');
+  });
+
+  test('挂载自动加载返回 fresh → 不误报', async () => {
+    const load = makeLoad();
+    load.mockResolvedValue({ detailRefreshStatus: 'fresh' });
+    await act(async () => {
+      renderBlankLoader(load);
+    });
+    await drain();
+    expect(detailErrors.filter(Boolean)).toEqual([]);
+  });
+});
+
 describe('refreshLatest — deadline', () => {
   test('底层请求悬挂 → 20s 死线触发超时反馈并解除 spinner', async () => {
     const load = makeLoad();

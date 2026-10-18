@@ -60,6 +60,10 @@ export function shouldEscalateEmptyDetailToRefresh(
   if (input.detailRefreshStatus === 'server_owned') return false;
   if (input.detailRefreshStatus === 'failed') return false;
   if (input.detailRefreshStatus === 'skipped_offline') return false;
+  // fresh_empty:服务端刚刚问过 agent,成功返回但没有任何可渲染消息(纯命令/
+  // 工件残壳,2026-10-18 事故)。再强刷一次只会得到同样的空页——升级反而制造
+  // 无意义的 agent 往返,状态本身已由横幅告知用户。
+  if (input.detailRefreshStatus === 'fresh_empty') return false;
   if (input.transcriptLength > 0) return false;
   return input.transcriptCount > 0;
 }
@@ -78,9 +82,14 @@ export interface DetailStateInput {
  *      to show regardless of refresh status).
  *   2. `offline` — agent offline (`skipped_offline`); history unreachable.
  *   3. `failed` — agent request errored.
- *   4. `recoverable_empty` — empty page but the server reports known history
+ *   4. `fresh_empty` — the agent refresh SUCCEEDED but returned no renderable
+ *      message for a session the server counts as non-empty (command/artifact
+ *      husk). Authoritative and NOT retryable: re-asking the agent returns the
+ *      same empty page, so this must resolve to `empty` instead of the
+ *      retryable `recoverable_empty` its count would otherwise imply.
+ *   5. `recoverable_empty` — empty page but the server reports known history
  *      (`transcriptCount > 0`); a cache/agent miss, retryable.
- *   5. `empty` — empty page and no known history; a genuinely empty session.
+ *   6. `empty` — empty page and no known history; a genuinely empty session.
  *
  * The caller stores this on the run as `detailState`.
  */
@@ -88,6 +97,7 @@ export function resolveDetailState(input: DetailStateInput): DetailState {
   if (input.transcriptLength > 0) return { kind: 'ready' };
   if (input.detailRefreshStatus === 'skipped_offline') return { kind: 'offline' };
   if (input.detailRefreshStatus === 'failed') return { kind: 'failed' };
+  if (input.detailRefreshStatus === 'fresh_empty') return { kind: 'empty' };
   if (input.transcriptCount > 0) return { kind: 'recoverable_empty' };
   return { kind: 'empty' };
 }
@@ -138,12 +148,21 @@ export function mergeDetailState(
  * Call this AFTER {@link mergeDetailState}, with the merged run's current
  * transcriptCount, so an old authoritative `empty` can't survive evidence that
  * history now exists.
+ *
+ * `detailRefreshStatus` (the merged run's current status) exempts
+ * `fresh_empty`: that `empty` came from a SUCCESSFUL agent refresh whose page
+ * was empty while the server count stayed > 0 (command/artifact husk,
+ * 2026-10-18). The count will never drop for such a session, so demoting it
+ * would put the screen into an endless recoverable_empty retry loop against an
+ * agent that has nothing to give.
  */
 export function invalidateStaleEmptyDetail(
   state: DetailState | undefined,
   transcriptCount: number,
+  detailRefreshStatus?: string,
 ): DetailState | undefined {
   if (state?.kind === 'empty' && transcriptCount > 0) {
+    if (detailRefreshStatus === 'fresh_empty') return state;
     return { kind: 'recoverable_empty' };
   }
   return state;

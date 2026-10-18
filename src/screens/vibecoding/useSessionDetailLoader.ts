@@ -132,6 +132,19 @@ export function useSessionDetailLoader(
     });
 
     void Promise.race([detailLoad, timeout])
+      // fresh_empty:服务端成功问过 agent,但该会话只有命令/工件行,没有可
+      // 渲染消息(2026-10-18 事故)。挂载自动加载同样要把这个终态说清楚,
+      // 否则页面只显示"下拉可同步历史",用户反复下拉也无济于事。
+      .then(result => {
+        if (
+          mountedRef.current &&
+          detailLoadRequestRef.current === requestId &&
+          targetSessionIdRef.current === targetSessionId &&
+          result?.detailRefreshStatus === 'fresh_empty'
+        ) {
+          setDetailError(t('session.loading.refreshEmpty'));
+        }
+      })
       .catch(error => {
         if (
           mountedRef.current &&
@@ -229,6 +242,10 @@ export function useSessionDetailLoader(
           setDetailError(t('session.loading.refreshStaleFailed'));
         } else if (status === 'skipped_offline') {
           setDetailError(t('session.loading.refreshOffline'));
+        } else if (status === 'fresh_empty') {
+          // 刷新成功但无可渲染消息(纯命令/工件残壳,2026-10-18 事故)。不报
+          // 这个终态的话,用户看到的就是"按了没反应"的静默空页。
+          setDetailError(t('session.loading.refreshEmpty'));
         }
       }
     } catch (error) {

@@ -53,6 +53,10 @@ describe('shouldEscalateEmptyDetailToRefresh', () => {
     expect(escalate({ detailRefreshStatus: 'skipped_offline' })).toBe(false);
   });
 
+  it('fresh_empty 状态 → 不升级(刷新成功但无可渲染消息,重试只会得到同样的空页)', () => {
+    expect(escalate({ detailRefreshStatus: 'fresh_empty' })).toBe(false);
+  });
+
   it('非空 transcript → 不升级(已拿到内容,无需补救)', () => {
     expect(escalate({ transcriptLength: 5 })).toBe(false);
   });
@@ -107,6 +111,16 @@ describe('resolveDetailState — 解析优先级(返回 DetailState 对象)', ()
     expect(
       resolveDetailState({ transcriptLength: 0, transcriptCount: 1, detailRefreshStatus: 'cache_miss' }),
     ).toEqual({ kind: 'recoverable_empty' });
+  });
+
+  it('空 + fresh_empty → empty(权威空;不走 recoverable_empty 无限重试)', () => {
+    expect(
+      resolveDetailState({
+        transcriptLength: 0,
+        transcriptCount: 5,
+        detailRefreshStatus: 'fresh_empty',
+      }),
+    ).toEqual({ kind: 'empty' });
   });
 
   it('空 + 无已知历史(count=0)→ empty(真实空会话)', () => {
@@ -174,5 +188,12 @@ describe('invalidateStaleEmptyDetail — empty 不是永久事实', () => {
   });
   it('undefined + transcriptCount>0 → 仍 undefined(从未拉过,不捏造状态)', () => {
     expect(invalidateStaleEmptyDetail(undefined, 5)).toBeUndefined();
+  });
+  it('fresh_empty 的 empty + transcriptCount>0 → 保持 empty(成功的空刷新,计数永不回落)', () => {
+    expect(invalidateStaleEmptyDetail({ kind: 'empty' }, 5, 'fresh_empty')).toEqual({ kind: 'empty' });
+  });
+  it('非 fresh_empty 状态时既有降级行为不变', () => {
+    expect(invalidateStaleEmptyDetail({ kind: 'empty' }, 5, 'fresh')).toEqual({ kind: 'recoverable_empty' });
+    expect(invalidateStaleEmptyDetail({ kind: 'empty' }, 5)).toEqual({ kind: 'recoverable_empty' });
   });
 });

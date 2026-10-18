@@ -1117,9 +1117,13 @@ export function mergeVibeRunSnapshot(
   //     carries a status and we're not holding content (ready is authoritative).
   //     List snapshots omit detailRefreshStatus, so they don't trigger this.
   const mergedTranscriptCount = incoming.transcriptCount ?? existing.transcriptCount ?? 0;
+  // fresh_empty(2026-10-18 事故)是权威的空:`empty` 来自一次成功的 agent
+  // 刷新,只是没有任何可渲染消息;它的服务端计数永远不会回落,若按"计数>0
+  // 即过期"降级成 recoverable_empty,屏幕会陷入对着空壳 agent 的无限重试。
   let detailState = invalidateStaleEmptyDetail(
     mergeDetailState(incoming.detailState, existing.detailState),
     mergedTranscriptCount,
+    incoming.detailRefreshStatus ?? existing.detailRefreshStatus,
   );
   if (
     incoming.detailRefreshStatus !== undefined &&
