@@ -25,6 +25,28 @@ export class ApiResponseError extends Error {
   }
 }
 
+/**
+ * 请求超时(2026-10-18 审计 C3)。超时 ≠ 主机死:server 可能仍在处理(典型:
+ * refresh GET 触发 server→agent 12s RPC,家宽拥塞下总耗时 15s+)。把它混同为
+ * 网络层错误会 ①markPlatformServiceUnreachable 污染全局可达性(之后所有请求
+ * 先付一次 /health 探测延迟);②把同一个非幂等请求整段盲重发 = 双倍 agent
+ * 往返,拥塞下自我加剧。超时一律直接上抛,由调用方自身的死线(如 refresh
+ * 的 20s Promise.race)决定 UX;迟到结果照常经 store 合并。
+ */
+export class ApiTimeoutError extends Error {
+  timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`Timed out after ${timeoutMs}ms`);
+    this.name = 'ApiTimeoutError';
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+export function isApiTimeoutError(error: unknown): error is ApiTimeoutError {
+  return error instanceof ApiTimeoutError;
+}
+
 export type ApiFetchOptions = RequestInit & {
   timeoutMs?: number;
   /**
@@ -91,7 +113,7 @@ async function requestJson<T>(
     });
   } catch (error) {
     if (didTimeout) {
-      throw new Error(`Timed out after ${timeoutMs}ms`);
+      throw new ApiTimeoutError(timeoutMs);
     }
     throw error;
   } finally {
@@ -184,7 +206,12 @@ export async function apiFetch<T = unknown>(
       await rememberPlatformServiceBaseUrl(baseUrl);
       return payload;
     } catch (error) {
-      if (!(error instanceof ApiResponseError)) {
+      // 超时 ≠ 主机死(C3):不 mark,避免把"server 慢"误判成"平台不可达"
+      // 让后续所有请求先付 /health 探测税。只有网络层错误才 mark。
+      if (
+        !(error instanceof ApiResponseError) &&
+        !(error instanceof ApiTimeoutError)
+      ) {
         markPlatformServiceUnreachable();
       }
       throw error;
@@ -219,6 +246,9 @@ export async function apiFetch<T = unknown>(
       return await sendTo(baseUrl);
     } catch (error) {
       if (error instanceof ApiResponseError) throw error;
+      // 超时不盲重发(C3):重发非幂等请求(如 ?refresh=true 的 detail GET,server
+      // 侧是 12s agent RPC)= 双倍往返,拥塞下自我加剧。直接上抛。
+      if (error instanceof ApiTimeoutError) throw error;
       // Network error despite resolveBaseUrl: the host died between the probe
       // and the request (or the cached host went stale). Re-discover once and
       // retry against the fresh winner; if discovery fails it throws the

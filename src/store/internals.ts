@@ -855,8 +855,12 @@ export function serverAiSessionToVibeRun(
     // Surface why the last page resolved the way it did (skipped_offline /
     // failed / cache_miss / fresh) so the chat screen can tell an empty
     // conversation apart from "agent offline, history unreachable".
-    detailRefreshStatus:
-      session.detail_refresh?.status ?? session.last_detail_fetch_status,
+    // (2026-10-18 审计 C4)只消费 detail_refresh(本次抓取结果)。服务端持久的
+    // last_detail_fetch_status 是粘性诊断——'cached' 成功从不清除一次历史
+    // 'failed'——列表/WS 快照若把它映射进来,mergeVibeRunSnapshot 的 re-resolve
+    // 会用陈年失败把空 transcript 会话的 detailState 污染成 failed,挂载首载被
+    // isDetailFetchUnavailable 短路,缓存秒开失效、每次都强走 12s agent RPC。
+    detailRefreshStatus: session.detail_refresh?.status,
     suggestions: [],
     transcript,
     events,

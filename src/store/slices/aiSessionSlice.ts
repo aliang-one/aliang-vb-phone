@@ -307,9 +307,10 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     // button turns `failed` / `skipped_offline` into user-visible feedback
     // instead of a silent no-op — the server answers 200 with the stale
     // cached page in those cases).
-    const detailRefreshStatus =
-      serverSession.detail_refresh?.status ??
-      serverSession.last_detail_fetch_status;
+    // (2026-10-18 审计 C4)只认 detail_refresh(本次抓取结果);粘性的
+    // last_detail_fetch_status 不再当本次结果消费——一次历史失败不该让
+    // 之后的每次调用都向 UI 报失败。
+    const detailRefreshStatus = serverSession.detail_refresh?.status;
     set(state => {
       const mapped = serverAiSessionToVibeRun(
         serverSession,

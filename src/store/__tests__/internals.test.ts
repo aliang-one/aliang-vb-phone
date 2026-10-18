@@ -1130,3 +1130,53 @@ describe('mergeVibeRunSnapshot structuredEvents 守卫(C0:状态类快照清空�
     expect(mergeVibeRunSnapshot(undefined, incoming)).toBe(incoming);
   });
 });
+
+describe('serverAiSessionToVibeRun detailRefreshStatus 映射(C4:粘性诊断不冒充本次结果)', () => {
+  const makeSnapshot = (over: Record<string, unknown>) =>
+    ({
+      kind: 'ai',
+      user_id: 'u1',
+      device_id: 'd1',
+      status: 'running',
+      mode: 'chat',
+      session_id: 's1',
+      created_at: '2026-01-01T00:00:00Z',
+      last_active_at: '2026-01-01T00:00:00Z',
+      ...over,
+    }) as unknown as Parameters<typeof serverAiSessionToVibeRun>[0];
+
+  it('列表/WS 快照只带粘性 last_detail_fetch_status 时映射为 undefined(不触发 re-resolve)', () => {
+    const run = serverAiSessionToVibeRun(
+      makeSnapshot({ last_detail_fetch_status: 'failed' }),
+      [],
+      [],
+    );
+    expect(run.detailRefreshStatus).toBeUndefined();
+  });
+
+  it('detail GET 响应带 detail_refresh 时照常映射(本次抓取结果)', () => {
+    const run = serverAiSessionToVibeRun(
+      makeSnapshot({
+        detail_refresh: { status: 'skipped_offline' },
+        last_detail_fetch_status: 'failed',
+      }),
+      [],
+      [],
+    );
+    expect(run.detailRefreshStatus).toBe('skipped_offline');
+  });
+
+  it('粘性失败不再经 mergeVibeRunSnapshot 的 re-resolve 把 detailState 污染成 failed', () => {
+    // 本地空会话(从未加载)收到一次带 last_detail_fetch_status='failed' 的
+    // 列表快照:修复前映射进 detailRefreshStatus → re-resolve →
+    // detailState='failed' → 挂载首载被 isDetailFetchUnavailable 短路。
+    const existing = makeRun({ id: 's1', transcript: [] });
+    const incoming = serverAiSessionToVibeRun(
+      makeSnapshot({ last_detail_fetch_status: 'failed' }),
+      [],
+      [],
+    );
+    const merged = mergeVibeRunSnapshot(existing, incoming);
+    expect(merged.detailState).toBeUndefined();
+  });
+});
