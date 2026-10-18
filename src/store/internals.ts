@@ -160,6 +160,24 @@ export const IDLE_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // coarse fallback sweeper 
 export const tail = <T>(list: T[], limit: number): T[] =>
   list.length <= limit ? list : list.slice(list.length - limit);
 
+// Reconcile a server snapshot's structured_events with live local state.
+// Snapshot is authoritative for any eventId it carries (overlays local); local
+// events not present in the snapshot are kept — this handles live events that
+// arrive after the snapshot was rendered.
+// (2026-10-18 审计 C0 下沉:原先住在 structuredSlice,mergeVibeRunSnapshot 需要
+// 同一契约而 slices 反向依赖 internals,故移到此处;structuredSlice 原路径
+// re-export 保持导入兼容。)
+export function reconcileStructured(
+  local: VibeCodingRun['structuredEvents'],
+  snapshot: VibeCodingRun['structuredEvents'],
+): VibeCodingRun['structuredEvents'] {
+  const byId = new Map<string, VibeCodingRun['structuredEvents'][number]>();
+  for (const e of local) byId.set(e.eventId, e);
+  for (const e of snapshot) byId.set(e.eventId, e); // snapshot wins on conflict
+  // Re-cap after union so a large snapshot can't push past STRUCTURED_EVENTS_CAP.
+  return tail([...byId.values()], STRUCTURED_EVENTS_CAP);
+}
+
 // FIFO-cap a session's eventDetailCache by insertion order (oldest key dropped).
 // Object key order is insertion order in JS, so slice the keys array. Details
 // are heavy (output/diff/thinking text up to 32KB), so this bounds resident RAM.
@@ -1150,6 +1168,15 @@ export function mergeVibeRunSnapshot(
     updatedAt: formatActivityLabel(lastActivityMs),
     transcript,
     events,
+    // structuredEvents 守卫(2026-10-18 审计 C0):serverAiSessionToVibeRun 恒置该
+    // 键,不带 structured_events 的载荷(列表/全局快照/重命名/打断响应)会映射成
+    // [],裸 spread 整表覆写即把常驻活动墙清空。transcript/events 各有守卫,这里
+    // 对齐:统一 reconcileStructured 并集(冲突以快照为准;快照缺位的本地事件保
+    // 留,agent 往返窗口内到达的实时活动不被状态类快照冲掉)。
+    structuredEvents: reconcileStructured(
+      existing.structuredEvents ?? [],
+      incoming.structuredEvents ?? [],
+    ),
     detailState,
     // lastViewedAt is purely client-side (never in a server snapshot), so always
     // keep the existing value — otherwise every ai.session.updated / snapshot

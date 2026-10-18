@@ -1077,3 +1077,56 @@ describe('mergeVibeRunSnapshot — activityGuardMs 守卫基线(评审 P2)', () 
     expect(guarded.activityGuardMs).toBe(T_SETTLE);
   });
 });
+
+describe('mergeVibeRunSnapshot structuredEvents 守卫(C0:状态类快照清空活动墙)', () => {
+  const wall = (ids: string[]) =>
+    ids.map(id => ({
+      kind: 'command' as const,
+      eventId: id,
+      status: 'running' as const,
+    })) as unknown as VibeCodingRun['structuredEvents'];
+
+  it('incoming 不带 structured_events(映射为 [])时保留存量活动墙 —— 列表/全局快照/重命名/打断响应路径', () => {
+    const existing = makeRun({
+      id: 's1',
+      structuredEvents: wall(['e1', 'e2']),
+    });
+    const incoming = makeRun({
+      id: 's1',
+      structuredEvents: [],
+    });
+    const merged = mergeVibeRunSnapshot(existing, incoming);
+    expect(merged.structuredEvents.map(e => e.eventId)).toEqual(['e1', 'e2']);
+  });
+
+  it('incoming 带事件(detail GET / agent-detail WS 发布)时并集合并,冲突以快照为准', () => {
+    const existing = makeRun({
+      id: 's1',
+      structuredEvents: [
+        { kind: 'command', eventId: 'e1', status: 'running', command: 'local' },
+        { kind: 'thinking', eventId: 'e2', active: false, chars: 3 },
+      ] as unknown as VibeCodingRun['structuredEvents'],
+    });
+    const incoming = makeRun({
+      id: 's1',
+      structuredEvents: [
+        { kind: 'command', eventId: 'e1', status: 'completed', exitCode: 0 },
+        { kind: 'usage', eventId: 'e3', inputTokens: 5 },
+      ] as unknown as VibeCodingRun['structuredEvents'],
+    });
+    const merged = mergeVibeRunSnapshot(existing, incoming);
+    const ids = merged.structuredEvents.map(e => e.eventId).sort();
+    expect(ids).toEqual(['e1', 'e2', 'e3']);
+    const e1 = merged.structuredEvents.find(e => e.eventId === 'e1');
+    if (!e1 || e1.kind !== 'command') throw new Error('expected command');
+    expect(e1.status).toBe('completed');
+  });
+
+  it('首次合并(existing === undefined)原样返回 incoming,不受守卫影响', () => {
+    const incoming = makeRun({
+      id: 's1',
+      structuredEvents: wall(['e9']),
+    });
+    expect(mergeVibeRunSnapshot(undefined, incoming)).toBe(incoming);
+  });
+});

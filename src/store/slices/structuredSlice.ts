@@ -5,6 +5,11 @@ import type {
 import type { PlatformTransportEvent } from '../../services/platformTransport';
 import { tail, STRUCTURED_EVENTS_CAP } from '../internals';
 
+// 2026-10-18 审计 C0:reconcileStructured 下沉到 internals(mergeVibeRunSnapshot
+// 需要同一契约;本模块反向依赖 internals,函数不能留在这里)。原导入路径保持
+// 可用。
+export { reconcileStructured } from '../internals';
+
 // Map a live transport event → a StructuredActivityEvent (camelCase, with eventId).
 // (P2.1 transport events already carry camelCase fields + eventId.) The
 // file_change transport field `kind` (create/edit/delete/rename) is renamed to
@@ -124,16 +129,4 @@ export function applyStructuredEventsToRun(
 }
 
 // Reconcile a server snapshot's structured_events with live local state.
-// Snapshot is authoritative for any eventId it carries (overlays local); local
-// events not present in the snapshot are kept — this handles live events that
-// arrive after the snapshot was rendered.
-export function reconcileStructured(
-  local: StructuredActivityEvent[],
-  snapshot: StructuredActivityEvent[],
-): StructuredActivityEvent[] {
-  const byId = new Map<string, StructuredActivityEvent>();
-  for (const e of local) byId.set(e.eventId, e);
-  for (const e of snapshot) byId.set(e.eventId, e); // snapshot wins on conflict
-  // Re-cap after union so a large snapshot can't push past STRUCTURED_EVENTS_CAP.
-  return tail([...byId.values()], STRUCTURED_EVENTS_CAP);
-}
+// → 已下沉至 ../internals.ts(见上方 re-export)。
