@@ -454,7 +454,6 @@
       "summaryDetail": "The backend has synced this VibeCoding's title, status, or message count, but no viewable message bodies yet. Once the Agent is online and supports history detail, pull to refresh to fill them in.",
       "blankTitle": "No conversation yet",
       "blankDetail": "This conversation has no messages yet. Pull to sync history; if it's new, send a message below to start.",
-      "noMoreEarlier": "No earlier messages",
       "retry": "Retry",
       "pullOrTapRefresh": "Pull or tap to refresh",
       "historySummaryLabel": "HISTORY SUMMARY",

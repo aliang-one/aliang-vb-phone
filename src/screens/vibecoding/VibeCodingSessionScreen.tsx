@@ -33,6 +33,8 @@ import { StatusChip } from '../../components/shared/StatusChip';
 import { ToolsMenu } from '../../components/vibecoding/ToolsMenu';
 import { SessionPreviewCard } from './SessionPreviewCard';
 import { revokePortMapping } from '../../api/portMappings';
+import { resolvePullToRefreshAction } from './sessionRefreshDispatch';
+import { firstServerConfirmedMessage } from '../../utils/sessionCatchUp';
 import {
   MessageComposer,
   type ComposerMode,
@@ -540,9 +542,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // auto-load on mount only fires once and respects the cache.
   const [refreshing, setRefreshing] = useState(false);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
-  // Transient "已是最早的消息" notice: shown when the user pulls at the top but
-  // there is no earlier history to load (and the conversation isn't blank).
-  const [noMoreEarlierHint, setNoMoreEarlierHint] = useState(false);
   // ScrollView height from onLayout. Raw Fabric sub-pixel values defeat React's
   // bailout and can oscillate → `Maximum update depth exceeded`. Rounded + tol.
   const [viewportHeight, setViewportHeight] = useStableMeasurement(0);
@@ -816,29 +815,27 @@ export const VibeCodingSessionScreen: React.FC = () => {
     turnList,
   ]);
 
-  // Pull-to-refresh dispatcher. In a chat, pulling at the top = "load earlier
-  // history" (the universal pattern), NOT "refresh the latest snapshot". So:
-  //   • reveal locally-held older messages / fetch the previous server page;
-  //   • if we're genuinely at the beginning of the conversation (have messages
-  //     but nothing earlier), surface a brief "已是最早消息" notice;
-  //   • only if the conversation is blank/offline (nothing held at all) do we
-  //     fall back to a forced agent refresh to recover the latest snapshot.
+  // Pull-to-refresh dispatcher. In a chat, pulling at the top prefers "load
+  // earlier history" (the universal pattern), but ONLY when that path can
+  // actually do work — the store-level loader silently no-ops without a
+  // server-confirmed anchor, so a blank session (or one holding only client
+  // bubbles) must fall through to a forced refresh instead of a dead gesture.
+  // When there is nothing earlier to fetch, pulling now forces a refresh=true
+  // detail load: TUI content is pull-only, so the latest server/agent truth
+  // only arrives through that path (2026-10-18 全链审计 S1/S2 修复).
   const handleRefresh = useCallback(async () => {
     if (!targetSessionId) return;
-    if (turnList.hasMore || hasServerEarlierMessages) {
+    const action = resolvePullToRefreshAction({
+      hasEarlierToLoad: !!(turnList.hasMore || hasServerEarlierMessages),
+      hasServerConfirmedAnchor: Boolean(
+        firstServerConfirmedMessage(session?.transcript ?? []),
+      ),
+    });
+    if (action === 'load-earlier') {
       // 转轮由 handleLoadEarlierMessages 持有(覆盖揭示期,且与 hold 同一生
       // 命周期)——这里不再自带 setRefreshing,否则按钮路径顶掉揭示时旧
       // finally 会把新一轮的转轮熄灭。
       await handleLoadEarlierMessages();
-      return;
-    }
-    if ((session?.transcript.length ?? 0) > 0) {
-      // Android 原生 RefreshControl 只在 refreshing 属性翻转时收起转轮:
-      // 提示分支若不碰状态,手势触发的原生转轮会永久转下去(转圈卡死)。
-      // 走一次 true→false 翻转让原生复位;两段写必须落在不同 commit。
-      setNoMoreEarlierHint(true);
-      setRefreshing(true);
-      setTimeout(() => setRefreshing(false), 50);
       return;
     }
     setRefreshing(true);
@@ -852,7 +849,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     handleLoadEarlierMessages,
     refreshLatest,
     hasServerEarlierMessages,
-    session?.transcript.length,
+    session?.transcript,
     targetSessionId,
     turnList,
   ]);
@@ -861,7 +858,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
     setTimelineExpanded(false);
     resetScroll();
     pendingScrollToEndRef.current = true;
-    setNoMoreEarlierHint(false);
     // 切会话:解除分批揭示的锚点保持(hook 内部也会取消在途批次)。在途揭示
     // 被顶掉走 superseded 路径时,持有方会跳过清理——转轮必须在这里显式熄灭,
     // 否则泄漏到新会话上永久转圈。
@@ -989,13 +985,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
     scrollViewRef.current?.scrollTo({ y: targetY, animated: false });
   // eslint-disable-next-line react-hooks/exhaustive-deps -- refs are stable
   }, [messageLayouts, conversationTop, visibleTurnLayoutKey]);
-
-  // Auto-dismiss the "已是最早消息" notice shortly after it appears.
-  useEffect(() => {
-    if (!noMoreEarlierHint) return;
-    const timer = setTimeout(() => setNoMoreEarlierHint(false), 1600);
-    return () => clearTimeout(timer);
-  }, [noMoreEarlierHint]);
 
   const deviceOffline = device?.status === 'offline';
   const effectiveProvider = normalizeProvider(
@@ -3245,30 +3234,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
           </View>
         </ScrollView>
 
-        {noMoreEarlierHint ? (
-          <View
-            pointerEvents="none"
-            style={[
-              styles.noMoreEarlierHint,
-              {
-                backgroundColor: isDark
-                  ? 'rgba(17, 20, 23, 0.92)'
-                  : 'rgba(255, 255, 255, 0.96)',
-                borderColor: isDark
-                  ? 'rgba(255, 255, 255, 0.1)'
-                  : theme.colors.outlineVariant,
-              },
-            ]}>
-            <Text
-              style={[
-                theme.typography.labelSm,
-                { color: theme.colors.onSurface },
-              ]}>
-              {t('session.empty.noMoreEarlier')}
-            </Text>
-          </View>
-        ) : null}
-
         <ConversationScrubberLayer
           conversationTurns={conversationTurns}
           visibleTurns={visibleTurns}
@@ -3912,14 +3877,5 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     marginLeft: 2,
-  },
-  noMoreEarlierHint: {
-    position: 'absolute',
-    top: 72,
-    alignSelf: 'center',
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
   },
 });

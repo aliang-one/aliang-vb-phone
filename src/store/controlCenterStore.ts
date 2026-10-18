@@ -1062,11 +1062,20 @@ export const useControlCenterStore = create<ControlCenterState>()(
               return;
             }
 
-            case 'ai.session.deleted':
+            case 'ai.session.deleted': {
+              // 清理面与 deleteAgentSession(本机删除)保持一致:history 摘要
+              // 缓存不清会让已删会话在列表(mergeSessionListRuns 并集)残留成
+              // 点开无内容的幽灵卡片,直到杀 App。
+              const sessionCommands = { ...get().sessionCommands };
+              delete sessionCommands[transportEvent.sessionId];
               set(state => ({
                 vibeRuns: state.vibeRuns.filter(
                   run => run.id !== transportEvent.sessionId,
                 ),
+                aiSessionHistory: state.aiSessionHistory.filter(
+                  run => run.id !== transportEvent.sessionId,
+                ),
+                sessionCommands,
                 devices: state.devices.map(device => ({
                   ...device,
                   activeSessionIds: device.activeSessionIds.filter(
@@ -1087,6 +1096,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
                 ].slice(0, 120),
               }));
               return;
+            }
 
             case 'ai.sessions.updated':
               if (get().serverMode) {

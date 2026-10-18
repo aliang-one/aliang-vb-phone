@@ -454,7 +454,6 @@
       "summaryDetail": "后端已同步到这段 VibeCoding 的标题、状态或消息数量，但还没有可展示的消息正文。Agent 在线并支持历史详情后，下拉刷新即可补齐内容。",
       "blankTitle": "暂无会话记录",
       "blankDetail": "该会话目前没有消息。下拉可同步历史；若这是新会话，可在下方发送消息开始对话。",
-      "noMoreEarlier": "已是最早的消息",
       "retry": "重试",
       "pullOrTapRefresh": "下拉或点击刷新",
       "historySummaryLabel": "HISTORY SUMMARY",
