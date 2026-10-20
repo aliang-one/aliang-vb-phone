@@ -273,6 +273,11 @@
     "renaming": "正在重命名…",
     "renamed": "已重命名",
     "renameFailed": "重命名失败，请重试。",
+    "aiRenaming": "AI 正在生成标题…",
+    "aiRenamed": "AI 已重命名",
+    "aiRenameFailed": "AI 重命名失败，请重试。",
+    "aiRenameUnconfigured": "服务端未配置标题模型。",
+    "aiRenameNoMaterial": "这个会话还没有可命名的内容。",
     "latestQuestion": "最新提问",
     "sessionIdLabel": "{{provider}} 会话 ID",
     "copy": "复制",
@@ -335,6 +340,8 @@
     "micActive": "录音中，松开结束",
     "micIdle": "按住麦克风说话",
     "voiceError": "语音输入出错，请重试",
+    "aiIdle": "让 AI 重新命名",
+    "aiBusy": "AI 正在生成标题…",
     "hint": "按住麦克风说话，松开结束 · 或直接键入"
   },
   "slash": {

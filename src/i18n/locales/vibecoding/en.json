@@ -273,6 +273,11 @@
     "renaming": "Renaming…",
     "renamed": "Renamed",
     "renameFailed": "Rename failed, please retry.",
+    "aiRenaming": "AI is naming this session…",
+    "aiRenamed": "Renamed by AI",
+    "aiRenameFailed": "AI rename failed, please retry.",
+    "aiRenameUnconfigured": "The title model is not configured on the server.",
+    "aiRenameNoMaterial": "This session has nothing to name yet.",
     "latestQuestion": "Latest question",
     "sessionIdLabel": "{{provider}} session ID",
     "copy": "Copy",
@@ -335,6 +340,8 @@
     "micActive": "Recording — release to end",
     "micIdle": "Hold the mic to speak",
     "voiceError": "Voice input failed, please retry",
+    "aiIdle": "Let AI rename this session",
+    "aiBusy": "AI is naming this session…",
     "hint": "Hold the mic to speak, release to end · or type directly"
   },
   "slash": {

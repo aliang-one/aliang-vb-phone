@@ -565,6 +565,17 @@ export const updateAiSession = (
 export const deleteAiSession = (sessionId: string): Promise<{ status: string; session_id: string }> =>
   apiFetch<{ status: string; session_id: string }>(`/api/ai/sessions/${sessionId}`, { method: 'DELETE' });
 
+/**
+ * 长按重命名面板的「AI」按钮：让服务端按当前会话内容重新生成标题并直接落库。
+ * 服务端同步等 LLM（默认超时 20s），客户端 8s 默认超时不够，单独放宽到 30s。
+ */
+export const generateAiSessionTitle = (sessionId: string): Promise<ServerAiSession> =>
+  apiPost<ServerAiSession>(
+    `/api/ai/sessions/${sessionId}/generate-title`,
+    undefined,
+    { timeoutMs: 30_000 },
+  );
+
 // Terminal Sessions
 
 export const fetchTerminalSessions = (): Promise<ServerTerminalSession[]> =>

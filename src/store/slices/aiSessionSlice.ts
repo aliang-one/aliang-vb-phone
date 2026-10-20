@@ -55,6 +55,7 @@ type AiSessionSlice = Pick<
   | 'vibeRuns' | 'aiSessionHistory' | 'aiSessionHistoryPage' | 'previewLinks' | 'sessionCommands'
   | 'startAgentSession' | 'loadAgentSessionDetail' | 'catchUpAgentMessages' | 'cancelAiSessionCatchUp' | 'pauseAgentSession'
   | 'interruptAgentSession' | 'resumeAgentSession' | 'terminateAgentSession' | 'updateAgentSession'
+  | 'generateAgentSessionTitle'
   | 'deleteAgentSession' | 'appendAgentMessage' | 'loadEarlierAgentMessages'
   | 'mergeServerTranscriptPage'
   | 'loadAiSessionHistory'
@@ -939,6 +940,24 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         ),
       };
     });
+  },
+
+  generateAgentSessionTitle: async sessionId => {
+    if (!get().serverMode) {
+      throw new Error('Platform connection is required before renaming a VibeCoding session.');
+    }
+    // 服务端同步生成并落库，返回的就是应用后的快照：这里只负责把快照并回列表，
+    // 让卡片立刻显示新标题（服务端同时会广播 ai.session.updated）。
+    const serverSession = await platformTransport.generateAiSessionTitle(sessionId);
+    set(state => {
+      const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
+      return {
+        vibeRuns: state.vibeRuns.map(run =>
+          run.id === nextRun.id ? mergeVibeRunSnapshot(run, nextRun) : run,
+        ),
+      };
+    });
+    return serverSession.title ?? '';
   },
 
   deleteAgentSession: async sessionId => {

@@ -13,6 +13,7 @@
 // re-render the host card.
 import React, { useEffect, useRef } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   Pressable,
@@ -41,7 +42,14 @@ export interface VoiceTextInputProps {
   autoFocus?: boolean;
   returnKeyType?: ReturnKeyTypeOptions;
   onSubmitEditing?: () => void;
-  /** Prefix for element testIDs; the mic is `${prefix}-mic`. Defaults to 'rename'. */
+  /**
+   * 传入后，麦克风右侧多出一个「AI」按钮：点击让服务端按当前会话内容重新生成
+   * 标题（显式覆盖既有标题）。不传则不渲染——其它复用本组件的场景保持原样。
+   */
+  onAiPress?: () => void;
+  /** AI 生成中：按钮转圈并禁用，同时禁用录音，避免两路写入互相踩。 */
+  aiBusy?: boolean;
+  /** Prefix for element testIDs; the mic is `${prefix}-mic`, AI `${prefix}-ai`. Defaults to 'rename'. */
   testIDPrefix?: string;
   style?: StyleProp<TextStyle>;
 }
@@ -122,6 +130,8 @@ export const VoiceTextInput: React.FC<VoiceTextInputProps> = ({
   autoFocus = false,
   returnKeyType = 'done',
   onSubmitEditing,
+  onAiPress,
+  aiBusy = false,
   testIDPrefix = 'rename',
   style,
 }) => {
@@ -153,7 +163,7 @@ export const VoiceTextInput: React.FC<VoiceTextInputProps> = ({
   };
 
   const handleMicPressIn = () => {
-    if (isActive) return;
+    if (isActive || aiBusy) return;
     pressActiveRef.current = true;
     void voiceStt.start({
       sessionId,
@@ -223,6 +233,7 @@ export const VoiceTextInput: React.FC<VoiceTextInputProps> = ({
           testID={`${testIDPrefix}-mic`}
           accessibilityRole="button"
           accessibilityLabel={isActive ? t('voiceInput.micActive') : t('voiceInput.micIdle')}
+          disabled={aiBusy}
           onPressIn={handleMicPressIn}
           onPressOut={handleMicPressOut}
           style={[
@@ -237,6 +248,38 @@ export const VoiceTextInput: React.FC<VoiceTextInputProps> = ({
           {isRecording && <PulseRing color={theme.colors.primary} size={MIC_BTN} />}
           <MicIcon size={MIC_SIZE} color={micIconColor} />
         </Pressable>
+        {onAiPress && (
+          <Pressable
+            testID={`${testIDPrefix}-ai`}
+            accessibilityRole="button"
+            accessibilityLabel={aiBusy ? t('voiceInput.aiBusy') : t('voiceInput.aiIdle')}
+            disabled={aiBusy || isActive}
+            onPress={onAiPress}
+            style={[
+              styles.micBtn,
+              {
+                borderRadius: theme.borderRadius.full,
+                backgroundColor: micIdleTint,
+                borderColor: `${theme.colors.primary}55`,
+                opacity: aiBusy || isActive ? 0.6 : 1,
+              },
+            ]}
+          >
+            {aiBusy ? (
+              <ActivityIndicator size="small" color={theme.colors.primary} />
+            ) : (
+              <Text
+                style={[
+                  theme.typography.labelSm,
+                  styles.aiLabel,
+                  { color: theme.colors.primary },
+                ]}
+              >
+                AI
+              </Text>
+            )}
+          </Pressable>
+        )}
       </View>
       <View style={styles.caption}>
         {isError ? (
@@ -246,6 +289,10 @@ export const VoiceTextInput: React.FC<VoiceTextInputProps> = ({
         ) : isActive ? (
           <Text style={[theme.typography.bodySm, { color: theme.colors.primary }]} numberOfLines={1}>
             {statusLabel}
+          </Text>
+        ) : aiBusy ? (
+          <Text style={[theme.typography.bodySm, { color: theme.colors.primary }]} numberOfLines={1}>
+            {t('voiceInput.aiBusy')}
           </Text>
         ) : (
           <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
@@ -272,6 +319,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
+  },
+  aiLabel: {
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   input: {
     flex: 1,

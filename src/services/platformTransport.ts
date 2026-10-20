@@ -20,6 +20,7 @@ import {
   closeTerminalSession as apiCloseTerminalSession,
   createAiSession as apiCreateAiSession,
   deleteAiSession as apiDeleteAiSession,
+  generateAiSessionTitle as apiGenerateAiSessionTitle,
   createTerminalSession as apiCreateTerminalSession,
   fetchDeviceTerminalCommands,
   fetchAiSession,
@@ -428,6 +429,11 @@ class PlatformTransport {
 
   updateAiSession(sessionId: string, input: Parameters<typeof apiUpdateAiSession>[1]): Promise<PlatformAiSessionSnapshot> {
     return apiUpdateAiSession(sessionId, input);
+  }
+
+  /** 让服务端按当前会话内容重新生成标题并直接应用（长按重命名面板的 AI 按钮）。 */
+  generateAiSessionTitle(sessionId: string): Promise<PlatformAiSessionSnapshot> {
+    return apiGenerateAiSessionTitle(sessionId);
   }
 
   pauseAiSession(sessionId: string): Promise<PlatformAiSessionSnapshot> {

@@ -23,6 +23,7 @@ import {
   sessionPhaseType,
 } from '../../utils/sessionPhase';
 import { VoiceTextInput } from './VoiceTextInput';
+import { ApiResponseError } from '../../api/client';
 import {
   useControlCenterStore,
   useDevice,
@@ -117,11 +118,16 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
     const [hidden, setHidden] = useState(false);
     const [renaming, setRenaming] = useState(false);
     const [renameValue, setRenameValue] = useState('');
+    // 重命名面板的 AI 按钮在途状态：生成期间禁用按钮与录音，避免两路写入。
+    const [aiNaming, setAiNaming] = useState(false);
     const deleteAgentSession = useControlCenterStore(
       state => state.deleteAgentSession,
     );
     const updateAgentSession = useControlCenterStore(
       state => state.updateAgentSession,
+    );
+    const generateAgentSessionTitle = useControlCenterStore(
+      state => state.generateAgentSessionTitle,
     );
     // Re-render on a shared 30s cadence so the relative "上次激活" label below
     // stays fresh instead of freezing at the value from when activity happened.
@@ -244,6 +250,32 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
         setRenaming(false);
       } catch {
         setNotice(t('sessionCard.renameFailed'));
+      }
+    };
+
+    // AI 重命名：服务端按当前会话内容生成标题并直接应用（不是草稿——用户
+    // 点这个按钮就是要换掉标题，包括 slug/默认名/上次生成的名字）。失败按
+    // 服务端状态码给具体原因：503 标题模型未配置 / 422 会话还没有可命名的
+    // 内容 / 其余（含超时）统一提示重试。
+    const handleAiRename = async () => {
+      if (aiNaming) return;
+      setAiNaming(true);
+      setNotice(t('sessionCard.aiRenaming'));
+      try {
+        const title = await generateAgentSessionTitle(session.id);
+        setRenameValue(title);
+        setNotice(t('sessionCard.aiRenamed'));
+      } catch (error) {
+        const status = error instanceof ApiResponseError ? error.status : 0;
+        setNotice(
+          status === 503
+            ? t('sessionCard.aiRenameUnconfigured')
+            : status === 422
+              ? t('sessionCard.aiRenameNoMaterial')
+              : t('sessionCard.aiRenameFailed'),
+        );
+      } finally {
+        setAiNaming(false);
       }
     };
 
@@ -597,6 +629,8 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                         maxLength={200}
                         returnKeyType="done"
                         onSubmitEditing={handleRenameSave}
+                        onAiPress={handleAiRename}
+                        aiBusy={aiNaming}
                         testIDPrefix="rename"
                       />
                     </>

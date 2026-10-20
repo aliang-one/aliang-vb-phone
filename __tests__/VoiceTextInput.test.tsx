@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
-import { Text, TextInput } from 'react-native';
+import { ActivityIndicator, Text, TextInput } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
@@ -51,6 +51,8 @@ interface VoiceTextInputPropsLike {
   placeholder?: string;
   maxLength?: number;
   autoFocus?: boolean;
+  onAiPress?: () => void;
+  aiBusy?: boolean;
   testIDPrefix?: string;
 }
 
@@ -123,6 +125,9 @@ const allTexts = (root: ReactTestRenderer.ReactTestRenderer) =>
 
 const micOf = (root: ReactTestRenderer.ReactTestRenderer) =>
   root.root.findByProps({ testID: 'rename-mic' });
+
+const aiOf = (root: ReactTestRenderer.ReactTestRenderer) =>
+  root.root.findByProps({ testID: 'rename-ai' });
 
 const inputOf = (root: ReactTestRenderer.ReactTestRenderer) =>
   root.root.findByType(TextInput);
@@ -253,6 +258,59 @@ describe('VoiceTextInput', () => {
     );
     expect(inputIdx).toBeGreaterThanOrEqual(0);
     expect(micIdx).toBeGreaterThan(inputIdx); // mic after the field → right side
+  });
+
+  describe('AI rename button (opt-in via onAiPress)', () => {
+    it('does not render when the host passes no handler (other reuse sites unchanged)', () => {
+      const root = render(baseProps());
+      expect(root.root.findAllByProps({ testID: 'rename-ai' })).toHaveLength(0);
+    });
+
+    it('renders an "AI" button beside the mic and calls onAiPress', () => {
+      const onAiPress = jest.fn();
+      const root = render(baseProps({ onAiPress }));
+      const ai = aiOf(root);
+      expect(allTexts(root)).toContain('AI');
+      act(() => {
+        ai.props.onPress();
+      });
+      expect(onAiPress).toHaveBeenCalledTimes(1);
+    });
+
+    it('sits to the RIGHT of the mic', () => {
+      const root = render(baseProps({ onAiPress: jest.fn() }));
+      const row = aiOf(root).parent;
+      const children = (row?.children ?? []) as Array<{
+        type: unknown;
+        props: { testID?: string };
+      }>;
+      const micIdx = children.findIndex(c => c.props?.testID === 'rename-mic');
+      const aiIdx = children.findIndex(c => c.props?.testID === 'rename-ai');
+      expect(micIdx).toBeGreaterThanOrEqual(0);
+      expect(aiIdx).toBeGreaterThan(micIdx);
+    });
+
+    it('aiBusy: spinner instead of the label, both buttons disabled, busy caption shown', () => {
+      const onAiPress = jest.fn();
+      const root = render(baseProps({ onAiPress, aiBusy: true }));
+      const ai = aiOf(root);
+      expect(ai.props.disabled).toBe(true);
+      expect(ai.findAllByType(ActivityIndicator).length).toBeGreaterThan(0);
+      expect(allTexts(root)).not.toContain('AI');
+      expect(allTexts(root).some(t => t.includes('AI 正在生成标题'))).toBe(true);
+      // Mic is locked while the title request is in flight — two writers would race.
+      expect(micOf(root).props.disabled).toBe(true);
+      act(() => {
+        micOf(root).props.onPressIn();
+      });
+      expect(mockStart).not.toHaveBeenCalled();
+    });
+
+    it('is disabled while a recording is active', () => {
+      setState('recording');
+      const root = render(baseProps({ onAiPress: jest.fn() }));
+      expect(aiOf(root).props.disabled).toBe(true);
+    });
   });
 
   it('does NOT autofocus by default — voice leads, typing is opt-in', () => {

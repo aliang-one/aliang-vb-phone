@@ -592,6 +592,12 @@ export interface ControlCenterState {
       effort: string;
     }>,
   ) => Promise<void>;
+  /**
+   * 让服务端按当前会话内容生成新标题并直接应用（重命名面板的 AI 按钮）。
+   * 返回落库后的标题；失败原因由服务端状态码区分（503 未配置 / 422 无素材 /
+   * 502 模型失败 / 409 goal 会话）。
+   */
+  generateAgentSessionTitle: (sessionId: string) => Promise<string>;
   deleteAgentSession: (sessionId: string) => Promise<void>;
   appendAgentMessage: (
     sessionId: string,
