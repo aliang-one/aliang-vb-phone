@@ -307,21 +307,35 @@ describe('lastUnrepliedUserMessageId (失败回合定位)', () => {
 });
 
 describe('shouldSendAsSteer / shouldBlockConcurrentSend (发送路径选择)', () => {
-  it('codex 运行中 → steer', () => {
+  it('codex 运行中 → steer，且永不因并发被拦', () => {
     expect(shouldSendAsSteer(true, 'codex', false)).toBe(true);
+    expect(shouldBlockConcurrentSend(true, 'codex', true)).toBe(false);
     expect(shouldBlockConcurrentSend(true, 'codex', false)).toBe(false);
   });
 
-  it('claude_code 有 ai_steer_claude → steer；没有则硬拦', () => {
-    expect(shouldSendAsSteer(true, 'claude_code', true)).toBe(true);
-    expect(shouldBlockConcurrentSend(true, 'claude_code', true)).toBe(false);
-    expect(shouldSendAsSteer(true, 'claude_code', false)).toBe(false);
-    expect(shouldBlockConcurrentSend(true, 'claude_code', false)).toBe(true);
+  it('claude_code 有 ai_steer_claude → 运行中走 steer，不拦', () => {
+    const steer = shouldSendAsSteer(true, 'claude_code', true);
+    expect(steer).toBe(true);
+    expect(shouldBlockConcurrentSend(true, 'claude_code', steer)).toBe(false);
+  });
+
+  it('claude_code 无 ai_steer_claude（老 agent）→ 硬拦', () => {
+    const steer = shouldSendAsSteer(true, 'claude_code', false);
+    expect(steer).toBe(false);
+    expect(shouldBlockConcurrentSend(true, 'claude_code', steer)).toBe(true);
+  });
+
+  it('审批等待时 executionActive=false：即便设备支持也发不了 steer → 继续拦', () => {
+    // 否则会退化成普通发送，撞上 agent 的 session.cancel != nil busy 闸。
+    const steer = shouldSendAsSteer(false, 'claude_code', true);
+    expect(steer).toBe(false);
+    expect(shouldBlockConcurrentSend(true, 'claude_code', steer)).toBe(true);
   });
 
   it('opencode 无 steer 通道 → 永远硬拦', () => {
-    expect(shouldSendAsSteer(true, 'opencode', true)).toBe(false);
-    expect(shouldBlockConcurrentSend(true, 'opencode', true)).toBe(true);
+    const steer = shouldSendAsSteer(true, 'opencode', true);
+    expect(steer).toBe(false);
+    expect(shouldBlockConcurrentSend(true, 'opencode', steer)).toBe(true);
   });
 
   it('回合未在跑 → 普通发送，不拦', () => {

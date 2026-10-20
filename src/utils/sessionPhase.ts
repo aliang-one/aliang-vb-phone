@@ -334,18 +334,22 @@ export function shouldSendAsSteer(
 }
 
 /**
- * 回合进行中，是否必须硬拦这条消息（单进程 CLI 且没有 steer 通道）。
- * 与 shouldSendAsSteer 互斥：能 steer 就不拦。
+ * 回合进行中，是否必须硬拦这条消息。
+ *
+ * 单进程 CLI（claude_code / opencode）在回合里只能以 steer 形式说话；拿不到
+ * steer 通道时一律硬拦，退回「先停再发」。注意这里看的是 `sendAsSteer` 而不是
+ * 「设备是否声称支持」：`waiting_approval` 时 executionActive 为 false，即使
+ * 设备支持 steer 也发不出去（球在用户侧），此时必须继续拦——否则会退化成一个
+ * 普通发送，撞上 agent 的 `session.cancel != nil` busy 闸。
  */
 export function shouldBlockConcurrentSend(
   turnActive: boolean,
   provider: string | undefined,
-  canSteerClaude: boolean,
+  sendAsSteer: boolean,
 ): boolean {
   if (!turnActive) return false;
-  if (provider === 'opencode') return true;
-  if (provider === 'claude_code') return !canSteerClaude;
-  return false;
+  if (provider !== 'claude_code' && provider !== 'opencode') return false;
+  return !sendAsSteer;
 }
 
 export function shouldLockComposerForProvider(

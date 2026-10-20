@@ -1035,7 +1035,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       provider,
       canSteerClaude,
     );
-    if (shouldBlockConcurrentSend(turnActive, provider, canSteerClaude)) {
+    if (shouldBlockConcurrentSend(turnActive, provider, sendAsSteer)) {
       pendingMessageSends.delete(sendKey);
       // 走到这里 provider 必为 opencode/claude_code；?? 只为满足类型收窄。
       throw new Error(`${providerLabel(provider ?? 'claude_code')} is still running. Stop it before sending another message.`);
