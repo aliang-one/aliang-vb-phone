@@ -24,6 +24,9 @@ const run = (): VibeCodingRun =>
     purpose: 'chat',
     status: 'idle',
     title: '旧标题',
+    transcript: [],
+    events: [],
+    structuredEvents: [],
   }) as unknown as VibeCodingRun;
 
 const snapshot = (title: string): ServerAiSession =>
