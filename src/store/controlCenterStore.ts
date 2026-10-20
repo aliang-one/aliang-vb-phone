@@ -873,7 +873,14 @@ export const useControlCenterStore = create<ControlCenterState>()(
                     transportEvent.result === 'not_running';
                   const transcript = run.transcript.map(message =>
                     message.id === transportEvent.messageId
-                      ? { ...message, pending: false }
+                      ? {
+                          ...message,
+                          pending: false,
+                          // 失败必须落到气泡上：只改 currentStep 会被下一条
+                          // ai.delta 覆盖，用户也拿不到 Retry/Dismiss 入口。
+                          // 成功的 steer（applied/queued）只清 pending。
+                          ...(failed ? { failed: true } : {}),
+                        }
                       : message,
                   );
                   return {

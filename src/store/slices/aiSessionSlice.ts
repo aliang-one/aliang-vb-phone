@@ -8,6 +8,8 @@ import { normalizeProvider, providerLabel } from '../../utils/modelIntensity';
 import {
   isAuthoritativeRunLive,
   isSessionTurnActive,
+  shouldBlockConcurrentSend,
+  shouldSendAsSteer,
 } from '../../utils/sessionPhase';
 import type { AgentProvider, ControlCenterState } from '../types';
 import type { AgentTranscriptPage } from '../../data/platformModels';
@@ -1019,10 +1021,24 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       ? currentRun.runState === 'waiting_approval'
       : status === 'waiting_approval';
     const turnActive = executionActive || waitingApproval;
-    const sendAsSteer = Boolean(executionActive && provider === 'codex');
-    if (turnActive && (provider === 'claude_code' || provider === 'opencode')) {
+    // Claude steer 依赖新 agent 的 ai_steer_claude 能力位：老 agent 无条件
+    // 宣称 ai_steer，却只实现了 Codex 通道，贸然把消息塞进去会失败在 agent 侧。
+    // 能力位缺失时退回「运行中不可发消息」的旧行为。
+    const steerDevice = get().devices.find(
+      device => device.id === currentRun?.deviceId,
+    );
+    const canSteerClaude = Boolean(
+      steerDevice?.capabilities?.includes('ai_steer_claude'),
+    );
+    const sendAsSteer = shouldSendAsSteer(
+      executionActive,
+      provider,
+      canSteerClaude,
+    );
+    if (shouldBlockConcurrentSend(turnActive, provider, canSteerClaude)) {
       pendingMessageSends.delete(sendKey);
-      throw new Error(`${providerLabel(provider)} is still running. Stop it before sending another message.`);
+      // 走到这里 provider 必为 opencode/claude_code；?? 只为满足类型收窄。
+      throw new Error(`${providerLabel(provider ?? 'claude_code')} is still running. Stop it before sending another message.`);
     }
     // OPTIMISTIC UPDATE — render the user's message and flip the session to
     // "running / waiting for AI" BEFORE the HTTP round trip. The optimistic
@@ -1061,7 +1077,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
                 optimisticRunBaseVersion: run.runStateVersion ?? -1,
               }
             : {}),
-          currentStep: sendAsSteer ? 'Steering current Codex turn.' : 'Waiting for AI response.',
+          currentStep: sendAsSteer ? 'Steering current turn.' : 'Waiting for AI response.',
           lastActivityMs: activityNowMs(),
           updatedAt: formatActivityLabel(activityNowMs()),
           transcript,

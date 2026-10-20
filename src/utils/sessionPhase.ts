@@ -313,12 +313,55 @@ export function isSessionTurnActive(status: VibeStatus): boolean {
  *
  * 非单进程 provider(如 codex,支持排队并发收消息)→ 永不锁。
  */
+/**
+ * 这条消息应当作为 steer（回合中插话）发出，还是作为普通新消息发出？
+ *
+ * - codex：app-server 的 turn/steer，历史通道；
+ * - claude_code：需要设备具备 `ai_steer_claude`（新 agent 的 stream-json 常驻
+ *   stdin 通道）。老 agent 无条件宣称 `ai_steer` 却只实现了 Codex，所以这里
+ *   必须看专属能力位，否则消息会失败在 agent 侧；
+ * - opencode：没有 steer 通道。
+ */
+export function shouldSendAsSteer(
+  executionActive: boolean,
+  provider: string | undefined,
+  canSteerClaude: boolean,
+): boolean {
+  if (!executionActive) return false;
+  if (provider === 'codex') return true;
+  if (provider === 'claude_code') return canSteerClaude;
+  return false;
+}
+
+/**
+ * 回合进行中，是否必须硬拦这条消息（单进程 CLI 且没有 steer 通道）。
+ * 与 shouldSendAsSteer 互斥：能 steer 就不拦。
+ */
+export function shouldBlockConcurrentSend(
+  turnActive: boolean,
+  provider: string | undefined,
+  canSteerClaude: boolean,
+): boolean {
+  if (!turnActive) return false;
+  if (provider === 'opencode') return true;
+  if (provider === 'claude_code') return !canSteerClaude;
+  return false;
+}
+
 export function shouldLockComposerForProvider(
   isSessionLive: boolean,
   status: VibeStatus | undefined,
   provider: string | undefined,
+  canSteer: boolean = false,
 ): boolean {
   if (provider !== 'claude_code' && provider !== 'opencode') return false;
+  // Claude Code 在新 agent 上支持回合中插话（steer）：运行中不再锁 composer，
+  // 否则用户根本发不出 steer（消息会在本地被硬闸拦下）。审批等待仍锁——那是
+  // 单进程 CLI 卡在权限请求上，语义与「运行中插话」不同，保持旧行为。
+  // canSteer 由设备能力位 ai_steer_claude 决定：老 agent 没有该通道，继续锁。
+  if (provider === 'claude_code' && canSteer) {
+    return status === 'waiting_approval';
+  }
   return isSessionLive || status === 'waiting_approval';
 }
 

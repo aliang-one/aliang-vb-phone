@@ -1014,10 +1014,16 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // livePulse now in useSessionHeader.
   // Composer 锁:用 isSessionLive 判活(与顶部相位同源)。失败会话不锁(发新消息/重试会让
   // 服务端把 error 翻回 running)。详见 utils/sessionPhase.shouldLockComposerForProvider。
+  // 设备是否具备 Claude 回合中插话通道（新 agent 的 ai_steer_claude 能力位）。
+  // 有则运行中不锁 composer，让用户能把消息作为 steer 发出去。
+  const canSteerClaude = Boolean(
+    device?.capabilities?.includes('ai_steer_claude'),
+  );
   const shouldDisableComposerForProvider = shouldLockComposerForProvider(
     isSessionLive,
     session?.status,
     effectiveProvider,
+    canSteerClaude,
   );
 
   const goalContext = () => {

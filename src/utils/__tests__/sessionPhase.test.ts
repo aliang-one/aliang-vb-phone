@@ -10,7 +10,9 @@ import {
   phaseGlow,
   phaseLabel,
   runDisplayPhase,
+  shouldBlockConcurrentSend,
   shouldLockComposerForProvider,
+  shouldSendAsSteer,
   stableSessionSortMs,
 } from '../sessionPhase';
 import type { VibeCodingRun } from '../../data/platformModels';
@@ -304,6 +306,30 @@ describe('lastUnrepliedUserMessageId (失败回合定位)', () => {
   });
 });
 
+describe('shouldSendAsSteer / shouldBlockConcurrentSend (发送路径选择)', () => {
+  it('codex 运行中 → steer', () => {
+    expect(shouldSendAsSteer(true, 'codex', false)).toBe(true);
+    expect(shouldBlockConcurrentSend(true, 'codex', false)).toBe(false);
+  });
+
+  it('claude_code 有 ai_steer_claude → steer；没有则硬拦', () => {
+    expect(shouldSendAsSteer(true, 'claude_code', true)).toBe(true);
+    expect(shouldBlockConcurrentSend(true, 'claude_code', true)).toBe(false);
+    expect(shouldSendAsSteer(true, 'claude_code', false)).toBe(false);
+    expect(shouldBlockConcurrentSend(true, 'claude_code', false)).toBe(true);
+  });
+
+  it('opencode 无 steer 通道 → 永远硬拦', () => {
+    expect(shouldSendAsSteer(true, 'opencode', true)).toBe(false);
+    expect(shouldBlockConcurrentSend(true, 'opencode', true)).toBe(true);
+  });
+
+  it('回合未在跑 → 普通发送，不拦', () => {
+    expect(shouldSendAsSteer(false, 'claude_code', true)).toBe(false);
+    expect(shouldBlockConcurrentSend(false, 'claude_code', false)).toBe(false);
+  });
+});
+
 describe('shouldLockComposerForProvider (composer 锁与相位同源)', () => {
   // 用户报告的脱节 bug:回合答完后顶部已显「已完成」,但底部 composer 仍锁
   // 「Claude Code 正在运行」。根因=旧实现裸读陈旧的 session.status='running',
@@ -325,6 +351,16 @@ describe('shouldLockComposerForProvider (composer 锁与相位同源)', () => {
     expect(shouldLockComposerForProvider(false, 'failed', 'claude_code')).toBe(false);
     expect(shouldLockComposerForProvider(false, 'completed', 'claude_code')).toBe(false);
     expect(shouldLockComposerForProvider(false, 'idle', 'claude_code')).toBe(false);
+  });
+
+  it('claude_code 且设备具备 ai_steer_claude → 运行中不锁(可插话),审批仍锁', () => {
+    expect(shouldLockComposerForProvider(true, 'running', 'claude_code', true)).toBe(false);
+    expect(shouldLockComposerForProvider(false, 'running', 'claude_code', true)).toBe(false);
+    expect(shouldLockComposerForProvider(false, 'waiting_approval', 'claude_code', true)).toBe(true);
+  });
+
+  it('claude_code 但设备无 ai_steer_claude(老 agent)→ 沿用旧锁', () => {
+    expect(shouldLockComposerForProvider(true, 'running', 'claude_code', false)).toBe(true);
   });
 
   it('opencode 使用单回合锁,和 claude_code 一致', () => {
