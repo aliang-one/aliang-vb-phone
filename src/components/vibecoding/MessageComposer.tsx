@@ -468,7 +468,7 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
       // row, so it now lives behind a desktop icon: the icon signals "this
       // turn runs on the desktop", tapping it reveals the where-to-stop hint.
       return (
-        <View style={styles.ctrlGroup}>
+        <View style={[styles.ctrlGroup, greyedHintOpen ? { flex: 1 } : null]}>
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityLabel={interruptGreyedHint}
@@ -669,7 +669,15 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
           >
             <ComposerIcon name="mic" size={18} color={theme.colors.primary} />
           </View>
-          <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
+          <Text
+            style={[
+              theme.typography.labelMd,
+              // RN 的 flexShrink 默认是 0(与 Web 的 1 相反)：不允许收缩的长
+              // 文案在窄容器里会向两侧溢出，压住左右控件。这里必须显式收缩。
+              { color: theme.colors.onSurfaceVariant, flexShrink: 1 },
+            ]}
+            numberOfLines={1}
+          >
             {t('composer.tapToSpeak')}
           </Text>
         </View>
@@ -884,11 +892,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  // 注意：这里不能常驻 flex:1。折叠态下它和 contentArea 的 flex:1 会五五分，
+  // 把中间的语音提示压到一半宽度；提示行又不收缩(RN 默认 flexShrink:0)，
+  // 居中后向两侧溢出、压住左边的模式切换按钮。只有展开提示时才需要它占满。
   ctrlGroup: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    flex: 1,
   },
   ctrlBtn: {
     width: BTN,
