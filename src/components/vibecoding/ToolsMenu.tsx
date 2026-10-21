@@ -26,6 +26,7 @@ import {
 } from '../../utils/modelIntensity';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 import { useRecentModelOptions } from '../../hooks/useRecentModelOptions';
+import { GOAL_UI_ENABLED } from '../../config/featureFlags';
 
 export interface ToolsMenuProps {
   onClose: () => void;
@@ -263,35 +264,39 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
       </View>
 
       <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
-        <View
-          style={[
-            styles.goalToggleRow,
-            { borderColor: idleBorder, backgroundColor: theme.colors.surfaceContainerLow },
-          ]}>
-          <IconBadge
-            name="goal"
-            tone={goalEnabled ? 'primary' : 'neutral'}
-            size={28}
-            iconSize={14}
-          />
-          <View style={styles.goalToggleCopy}>
-            <Text style={[theme.typography.labelMd, { color: theme.colors.onSurface }]}>Goal</Text>
-            <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
-              {goalMode === 'active' ? '进行中' : goalMode === 'draft' ? '目标待发送' : '关闭'}
-            </Text>
+        {/* Goal 开关 = 新建 goal 的入口;GOAL_UI_ENABLED 关闭时整块不渲染
+            (props 仍保留,恢复开关即回来,见 config/featureFlags.ts)。 */}
+        {GOAL_UI_ENABLED ? (
+          <View
+            style={[
+              styles.goalToggleRow,
+              { borderColor: idleBorder, backgroundColor: theme.colors.surfaceContainerLow },
+            ]}>
+            <IconBadge
+              name="goal"
+              tone={goalEnabled ? 'primary' : 'neutral'}
+              size={28}
+              iconSize={14}
+            />
+            <View style={styles.goalToggleCopy}>
+              <Text style={[theme.typography.labelMd, { color: theme.colors.onSurface }]}>Goal</Text>
+              <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+                {goalMode === 'active' ? '进行中' : goalMode === 'draft' ? '目标待发送' : '关闭'}
+              </Text>
+            </View>
+            <Switch
+              testID="tools-goal-toggle"
+              accessibilityLabel="Goal"
+              accessibilityHint={goalMode === 'active' ? '当前 Goal 已创建' : undefined}
+              accessibilityState={{ disabled: goalToggleDisabled }}
+              value={goalEnabled}
+              disabled={goalToggleDisabled}
+              onValueChange={enabled => onGoalModeChange?.(enabled ? 'draft' : 'ordinary')}
+              trackColor={{ false: theme.colors.outlineVariant, true: accent }}
+              ios_backgroundColor={theme.colors.outlineVariant}
+            />
           </View>
-          <Switch
-            testID="tools-goal-toggle"
-            accessibilityLabel="Goal"
-            accessibilityHint={goalMode === 'active' ? '当前 Goal 已创建' : undefined}
-            accessibilityState={{ disabled: goalToggleDisabled }}
-            value={goalEnabled}
-            disabled={goalToggleDisabled}
-            onValueChange={enabled => onGoalModeChange?.(enabled ? 'draft' : 'ordinary')}
-            trackColor={{ false: theme.colors.outlineVariant, true: accent }}
-            ios_backgroundColor={theme.colors.outlineVariant}
-          />
-        </View>
+        ) : null}
         {activeExecutionLabel ? (
           <View style={[styles.effectiveRow, { borderRadius: theme.borderRadius.md, borderColor: rowBorder, backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : theme.colors.surfaceContainerLow }]}>
             <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>本轮实际</Text>

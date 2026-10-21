@@ -8,11 +8,15 @@ import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { useControlCenterStore } from '../src/store/controlCenterStore';
 import type { Device, VibeCodingRun } from '../src/data/platformModels';
 import { fetchGoals } from '../src/api/goals';
+import { GOAL_UI_ENABLED } from '../src/config/featureFlags';
 
 const mockNavigate = jest.fn();
 
 jest.mock('../src/api/goals', () => ({ fetchGoals: jest.fn() }));
 const mockFetchGoals = jest.mocked(fetchGoals);
+// GOAL_UI_ENABLED 关闭时 Tasks 段整段不出现;下面几条是开启该 flag 后的行为契约,
+// 挂起而不删除,恢复 flag 后自动重新跑起来。
+const goalIt = GOAL_UI_ENABLED ? it : it.skip;
 const task = {
   goal_id: 'goal-1',
   ai_session_id: 'goal-session-1',
@@ -246,7 +250,28 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
     expect(requestedPage()).toBe('terminals-page');
   });
 
-  it('loads task visibility when devices become available without a manual refresh', async () => {
+  // GOAL_UI_ENABLED 关闭:Tasks 段(goal 收件箱入口)整段不出现,
+  // 下面四条是开启该 flag 后的行为契约,挂起而不删除,恢复 flag 后自动重新跑起来。
+  it('never shows the Tasks page while the goal UI is disabled', async () => {
+    mockFetchGoals.mockResolvedValue([task]);
+    useControlCenterStore.setState({ serverMode: true });
+    await act(async () => {
+      screen = renderScreen();
+    });
+    await act(async () => {
+      useControlCenterStore.setState({
+        devices: [device('device-1', 'MacBook', 'online')],
+      });
+    });
+    // 入口藏掉后连 /api/goals 都不该打:省一次无用的请求。
+    expect(mockFetchGoals).not.toHaveBeenCalled();
+    expect(pages().map(page => page.props.testID)).toEqual([
+      'vibecoding-page',
+      'terminals-page',
+    ]);
+  });
+
+  goalIt('loads task visibility when devices become available without a manual refresh', async () => {
     mockFetchGoals.mockResolvedValue([task]);
     useControlCenterStore.setState({ serverMode: true, devices: [] });
     await act(async () => {
@@ -266,7 +291,7 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
     ]);
   });
 
-  it('keeps Terminals selected when a task is inserted before it', async () => {
+  goalIt('keeps Terminals selected when a task is inserted before it', async () => {
     act(() => {
       screen = renderScreen();
     });
@@ -300,7 +325,7 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
     expect(mockFetchGoals).not.toHaveBeenCalled();
   });
 
-  it('does not restore Tasks from an old request after its device is removed', async () => {
+  goalIt('does not restore Tasks from an old request after its device is removed', async () => {
     let resolveGoals!: (goals: Awaited<ReturnType<typeof fetchGoals>>) => void;
     mockFetchGoals.mockImplementationOnce(
       () =>
@@ -373,7 +398,7 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
     );
   });
 
-  it('returns to Vibecoding when the selected Tasks page disappears', async () => {
+  goalIt('returns to Vibecoding when the selected Tasks page disappears', async () => {
     act(() => {
       screen = renderScreen();
     });

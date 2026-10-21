@@ -74,6 +74,7 @@ describe('organizeGoalRows', () => {
 });
 
 import { buildTabs } from '../src/utils/vibeTabs';
+import { GOAL_UI_ENABLED } from '../src/config/featureFlags';
 
 describe('buildTabs', () => {
   it('shows two tabs without task data', () => {
@@ -82,7 +83,16 @@ describe('buildTabs', () => {
       'terminals',
     ]);
   });
-  it('inserts Tasks between them when task data exists', () => {
+  // Tasks 段是 goal 收件箱的入口;GOAL_UI_ENABLED 关闭后即使有任务数据也不出现。
+  it('never shows the Tasks tab while the goal UI is disabled', () => {
+    expect(GOAL_UI_ENABLED).toBe(false);
+    expect(buildTabs(true).map(tab => tab.key)).toEqual([
+      'vibecoding',
+      'terminals',
+    ]);
+  });
+  const goalIt = GOAL_UI_ENABLED ? it : it.skip;
+  goalIt('inserts Tasks between them when task data exists (goal UI enabled)', () => {
     expect(buildTabs(true).map(tab => tab.key)).toEqual([
       'vibecoding',
       'tasks',
