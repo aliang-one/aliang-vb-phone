@@ -310,13 +310,13 @@
     "tools": "工具与设置",
     "recordingActive": "录音中",
     "tapToRecord": "点按开始录音",
-    "refreshCommands": "刷新命令列表",
     "voiceDraft": "语音草稿",
     "sendVoice": "发送",
     "editVoice": "编辑",
     "statusRecording": "正在聆听…松开结束",
     "statusStopping": "识别中…",
-    "statusConnecting": "连接语音服务…"
+    "statusConnecting": "连接语音服务…",
+    "tuiTabLabel": "电脑"
   },
   "goalCreate": {
     "title": "Goal",

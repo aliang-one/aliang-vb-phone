@@ -28,7 +28,6 @@ import { GlowButton } from '../shared/GlowButton';
 import type { UseVoiceSttResult } from '../../hooks/useVoiceStt';
 import { SlashCommandSuggestions } from './SlashCommandSuggestions';
 import type { AgentCommandInfo } from '../../data/platformModels';
-import { useControlCenterStore } from '../../store/controlCenterStore';
 import { isGoalCommand } from '../../utils/goalComposer';
 
 export type ComposerMode = 'voice' | 'text';
@@ -41,17 +40,21 @@ export interface MessageComposerProps {
   voiceDraft: string;
   /** Slash commands available for inline `/`-command typeahead in text mode. */
   commands: AgentCommandInfo[];
-  /** Session id — enables the manual `/`-command refresh button (text mode). */
-  sessionId?: string;
   voiceStt: UseVoiceSttResult;
   sendingMessage: boolean;
   interruptingTurn?: boolean;
   canInterruptTurn?: boolean;
   /** Turn is driven by the terminal TUI (scan-reported running, no v2 run):
       the stop button renders greyed-out — the phone cannot stop an external
-      TUI process, and tapping it would do nothing. */
+      TUI process, and tapping it would do nothing. It also moves the
+      "desktop" marker out of the action slot into a tab above the composer,
+      so the narrow input row keeps its width. */
   interruptGreyed?: boolean;
   interruptGreyedHint?: string;
+  /** 回合进行中是否还有一条可用的插话(steer)通道。为 true 时,停止按钮左侧
+      会多出一个发送按钮(仅在输入非空时出现)。父级按 provider + 设备能力位
+      (ai_steer_claude) 判定,与 store 里 shouldSendAsSteer 同源。 */
+  canSteer?: boolean;
   deviceOffline: boolean;
   readOnlyReason?: string;
   /** One-shot: focus the text input on mount/prop-true. Used to pop the keyboard
@@ -88,7 +91,6 @@ type ComposerIconName =
   | 'send'
   | 'sparkle'
   | 'stop'
-  | 'refresh'
   | 'sliders'
   | 'desktop';
 
@@ -139,12 +141,6 @@ const ComposerIcon: React.FC<ComposerIconProps> = ({ name, size = 22, color }) =
         />
       )}
       {name === 'stop' && <Rect x="7" y="7" width="10" height="10" rx="2.5" stroke={color} {...common} />}
-      {name === 'refresh' && (
-        <>
-          <Path d="M21 12a9 9 0 1 1-2.64-6.36" stroke={color} {...common} />
-          <Path d="M21 3v5h-5" stroke={color} {...common} />
-        </>
-      )}
       {name === 'sliders' && (
         <Path
           d="M4 21V14M4 10V3M12 21V12M12 8V3M20 21V16M20 12V3M1 14H7M9 8H15M17 16H23"
@@ -291,6 +287,7 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
   canInterruptTurn = false,
   interruptGreyed = false,
   interruptGreyedHint,
+  canSteer = false,
   deviceOffline,
   readOnlyReason,
   autoFocusText,
@@ -308,7 +305,6 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
   onSendText,
   onInterruptTurn,
   onEditVoice,
-  sessionId,
 }) => {
   const { theme, isDark } = useTheme();
   const { t } = useTranslation('vibecoding');
@@ -324,20 +320,6 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
   const slashMatch =
     mode === 'text' && !goalDraft ? input.match(/^\/([a-zA-Z0-9_-]*)$/) : null;
   const slashQuery = slashMatch ? slashMatch[1].toLowerCase() : '';
-
-  // Manual `/`-command refresh (force=true bypasses the 1h gate + server 10s
-  // floor still applies). Updates project.availableCommands in the store → the
-  // typeahead (SlashCommandSuggestions, fed from availableCommands) re-renders
-  // with freshly discovered commands. In-flight guard prevents spam clicks.
-  const refreshSessionCommandsAction = useControlCenterStore(s => s.refreshSessionCommands);
-  const [refreshingCommands, setRefreshingCommands] = useState(false);
-  const handleRefreshCommands = () => {
-    if (!sessionId || refreshingCommands) return;
-    setRefreshingCommands(true);
-    refreshSessionCommandsAction(sessionId, { force: true }).finally(() => {
-      setRefreshingCommands(false);
-    });
-  };
 
   // TUI-driven-turn hint starts collapsed behind the desktop icon; the full
   // text only renders after the user taps it. Re-collapse whenever the greyed
@@ -454,6 +436,73 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
     );
   };
 
+  const renderSendButton = () => {
+    const canSend =
+      input.trim().length > 0 &&
+      !sendingMessage &&
+      (!composerDisabled || isGoalCommandInput || goalDraft);
+    return (
+      <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel={t('composer.send')}
+        disabled={!canSend}
+        onPress={onSendText}
+        testID="composer-send"
+        style={[
+          styles.ctrlBtn,
+          {
+            borderRadius: theme.borderRadius.full,
+            backgroundColor: canSend ? theme.colors.primary : ctrlBg.backgroundColor,
+            ...(canSend && isDark ? theme.glow.primary : {}),
+          },
+        ]}
+      >
+        {sendingMessage ? (
+          <Text style={[theme.typography.labelMd, { color: theme.colors.onPrimary }]}>
+            …
+          </Text>
+        ) : (
+          <ComposerIcon name="send" size={20} color={canSend ? theme.colors.onPrimary : theme.colors.onSurfaceVariant} />
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  const renderStopButton = (greyed: boolean) => (
+    <TouchableOpacity
+      accessibilityRole="button"
+      accessibilityLabel={greyed ? interruptGreyedHint : t('composer.stopGenerate')}
+      accessibilityState={greyed ? { disabled: true } : undefined}
+      disabled={greyed || interruptingTurn || deviceOffline}
+      // Greyed = the turn runs in an external TUI; there is nothing to call.
+      // Drop onPress entirely so the control is structurally inert, not merely
+      // disabled — a stray tap can never reach the store.
+      onPress={greyed ? undefined : onInterruptTurn}
+      testID="composer-interrupt"
+      style={[
+        styles.ctrlBtn,
+        {
+          borderRadius: theme.borderRadius.full,
+          backgroundColor: greyed
+            ? theme.colors.onSurfaceVariant
+            : interruptingTurn
+              ? ctrlBg.backgroundColor
+              : theme.colors.error,
+          opacity: greyed ? 0.45 : 1,
+          ...(!greyed && !interruptingTurn && isDark ? theme.glow.primary : {}),
+        },
+      ]}
+    >
+      {interruptingTurn && !greyed ? (
+        <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
+          …
+        </Text>
+      ) : (
+        <ComposerIcon name="stop" size={20} color={theme.colors.onPrimary} />
+      )}
+    </TouchableOpacity>
+  );
+
   const renderAction = () => {
     // Hold-to-talk model: the recording is stopped by lifting the finger off
     // the hold target (onPressOut -> handleVoicePressOut). There is NO separate
@@ -464,125 +513,29 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
     if (canInterruptTurn && interruptGreyed && onInterruptTurn && !isGoalCommandInput && !goalDraft) {
       // TUI-driven turn (scan-reported running, no v2 run): the phone cannot
       // stop an external terminal process — render the stop control greyed.
-      // The full reason text used to sit inline and overflowed the composer
-      // row, so it now lives behind a desktop icon: the icon signals "this
-      // turn runs on the desktop", tapping it reveals the where-to-stop hint.
-      return (
-        <View style={[styles.ctrlGroup, greyedHintOpen ? { flex: 1 } : null]}>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel={interruptGreyedHint}
-            accessibilityState={{ disabled: true }}
-            disabled
-            testID="composer-interrupt"
-            style={[
-              styles.ctrlBtn,
-              {
-                borderRadius: theme.borderRadius.full,
-                backgroundColor: theme.colors.onSurfaceVariant,
-                opacity: 0.45,
-              },
-            ]}
-          >
-            <ComposerIcon name="stop" size={20} color={theme.colors.onPrimary} />
-          </TouchableOpacity>
-          {greyedHintOpen && interruptGreyedHint ? (
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel={interruptGreyedHint}
-              accessibilityState={{ expanded: true }}
-              onPress={() => setGreyedHintOpen(false)}
-              testID="composer-tui-hint-text"
-              style={styles.greyedHintWrap}
-            >
-              <Text
-                style={[
-                  theme.typography.labelSm,
-                  { color: theme.colors.onSurfaceVariant, flex: 1 },
-                ]}
-                numberOfLines={3}
-              >
-                {interruptGreyedHint}
-              </Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel={interruptGreyedHint}
-              accessibilityState={{ expanded: false }}
-              onPress={() => setGreyedHintOpen(true)}
-              testID="composer-tui-hint"
-              style={[
-                styles.ctrlBtn,
-                {
-                  borderRadius: theme.borderRadius.full,
-                  backgroundColor: ctrlBg.backgroundColor,
-                },
-              ]}
-            >
-              <ComposerIcon name="desktop" size={20} color={theme.colors.onSurfaceVariant} />
-            </TouchableOpacity>
-          )}
-        </View>
-      );
+      // The "this turn runs on the desktop" marker used to live here as a
+      // desktop icon; it now sits in a bookmark tab ABOVE the composer, which
+      // frees ~40pt of the narrow input row for actual text.
+      return renderStopButton(true);
     }
     if (canInterruptTurn && onInterruptTurn && !isGoalCommandInput && !goalDraft) {
-      return (
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel={t('composer.stopGenerate')}
-          disabled={interruptingTurn || deviceOffline}
-          onPress={onInterruptTurn}
-          testID="composer-interrupt"
-          style={[
-            styles.ctrlBtn,
-            {
-              borderRadius: theme.borderRadius.full,
-              backgroundColor: interruptingTurn ? ctrlBg.backgroundColor : theme.colors.error,
-              ...(interruptingTurn || !isDark ? {} : theme.glow.primary),
-            },
-          ]}
-        >
-          {interruptingTurn ? (
-            <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
-              …
-            </Text>
-          ) : (
-            <ComposerIcon name="stop" size={20} color={theme.colors.onPrimary} />
-          )}
-        </TouchableOpacity>
-      );
+      // A live turn used to take the whole action slot (stop only), which left
+      // no way to send a steer message — the send branch below was unreachable
+      // for the entire duration of every turn. With a steer channel available
+      // (canSteer) the send button comes back as the primary action, with stop
+      // as the secondary: [➤][■] while there is text, [■] while there is not.
+      if (canSteer && mode === 'text' && input.trim().length > 0) {
+        return (
+          <View style={styles.ctrlGroup}>
+            {renderSendButton()}
+            {renderStopButton(false)}
+          </View>
+        );
+      }
+      return renderStopButton(false);
     }
     if (mode === 'text') {
-      const canSend =
-        input.trim().length > 0 &&
-        !sendingMessage &&
-        (!composerDisabled || isGoalCommandInput || goalDraft);
-      return (
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel={t('composer.send')}
-          disabled={!canSend}
-          onPress={onSendText}
-          testID="composer-send"
-          style={[
-            styles.ctrlBtn,
-            {
-              borderRadius: theme.borderRadius.full,
-              backgroundColor: canSend ? theme.colors.primary : ctrlBg.backgroundColor,
-              ...(canSend && isDark ? theme.glow.primary : {}),
-            },
-          ]}
-        >
-          {sendingMessage ? (
-            <Text style={[theme.typography.labelMd, { color: theme.colors.onPrimary }]}>
-              …
-            </Text>
-          ) : (
-            <ComposerIcon name="send" size={20} color={canSend ? theme.colors.onPrimary : theme.colors.onSurfaceVariant} />
-          )}
-        </TouchableOpacity>
-      );
+      return renderSendButton();
     }
     if (mode === 'voice') {
       return (
@@ -770,59 +723,107 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
           />
         </TouchableOpacity>
 
-        <View
-          style={[
-            styles.container,
-            {
-              borderRadius: theme.borderRadius.xl,
-              backgroundColor: containerBg,
-              borderColor: theme.colors.outlineVariant,
-            },
-          ]}
-        >
-          <View style={styles.innerRow}>
-            {renderModeToggle()}
-            <View style={styles.contentArea}>
-              {mode === 'voice' ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={isVoiceActive ? t('composer.recordingActive') : t('composer.tapToRecord')}
-                  disabled={composerDisabled}
-                  onPressIn={handleVoicePressIn}
-                  onPressOut={handleVoicePressOut}
-                  testID="composer-voice-hold"
-                  style={styles.voicePressable}
-                >
-                  {renderAnimatedContent()}
-                </Pressable>
-              ) : (
-                renderAnimatedContent()
-              )}
-            </View>
-            {mode === 'text' && sessionId && !goalDraft ? (
-              <TouchableOpacity
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel={t('composer.refreshCommands')}
-                disabled={refreshingCommands}
-                onPress={handleRefreshCommands}
-                testID="composer-refresh-commands"
+        <View style={styles.containerCol}>
+          {/* TUI bookmark tab: a small "runs on the desktop" marker sitting ON
+              the composer's top edge (like a file tab). It lives outside the
+              input row so the narrow row keeps its full width for text — the
+              old in-row desktop icon ate ~40pt of it. Tap to expand the
+              where-to-stop hint, tap again to collapse. */}
+          {interruptGreyed && interruptGreyedHint ? (
+            <View style={styles.tuiTabRow}>
+              {/* Opaque backing, same material as the screen's input panel.
+                  The tab's own fill is translucent (it mirrors the composer
+                  box), which let the container's top border show through at
+                  the seam; this backing masks it so tab and box read as one
+                  piece — and the tab stops ghosting the scrolling transcript
+                  behind its upper half. */}
+              <View
                 style={[
-                  styles.ctrlBtn,
+                  styles.tuiTabBacking,
                   {
-                    borderRadius: theme.borderRadius.full,
-                    backgroundColor: ctrlBg.backgroundColor,
-                    opacity: refreshingCommands ? 0.5 : 1,
+                    backgroundColor: isDark
+                      ? 'rgba(17, 20, 23, 0.98)'
+                      : 'rgba(247, 249, 255, 0.98)',
                   },
-                ]}>
+                  greyedHintOpen ? styles.tuiTabExpanded : null,
+                ]}
+              >
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={interruptGreyedHint}
+                accessibilityState={{ expanded: greyedHintOpen }}
+                onPress={() => setGreyedHintOpen(open => !open)}
+                testID={greyedHintOpen ? 'composer-tui-hint-text' : 'composer-tui-hint'}
+                style={[
+                  styles.tuiTab,
+                  {
+                    backgroundColor: containerBg,
+                    borderColor: theme.colors.outlineVariant,
+                  },
+                ]}
+              >
                 <ComposerIcon
-                  name="refresh"
-                  size={18}
+                  name="desktop"
+                  size={14}
                   color={theme.colors.onSurfaceVariant}
                 />
+                {!greyedHintOpen ? (
+                  <Text
+                    style={[
+                      theme.typography.labelSm,
+                      { color: theme.colors.onSurfaceVariant },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {t('composer.tuiTabLabel')}
+                  </Text>
+                ) : null}
+                {greyedHintOpen ? (
+                  <Text
+                    style={[
+                      theme.typography.labelSm,
+                      { color: theme.colors.onSurfaceVariant, flex: 1 },
+                    ]}
+                    numberOfLines={3}
+                  >
+                    {interruptGreyedHint}
+                  </Text>
+                ) : null}
               </TouchableOpacity>
-            ) : null}
-            {renderAction()}
+              </View>
+            </View>
+          ) : null}
+          <View
+            style={[
+              styles.container,
+              {
+                borderRadius: theme.borderRadius.xl,
+                backgroundColor: containerBg,
+                borderColor: theme.colors.outlineVariant,
+              },
+            ]}
+          >
+            <View style={styles.innerRow}>
+              {renderModeToggle()}
+              <View style={styles.contentArea}>
+                {mode === 'voice' ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={isVoiceActive ? t('composer.recordingActive') : t('composer.tapToRecord')}
+                    disabled={composerDisabled}
+                    onPressIn={handleVoicePressIn}
+                    onPressOut={handleVoicePressOut}
+                    testID="composer-voice-hold"
+                    style={styles.voicePressable}
+                  >
+                    {renderAnimatedContent()}
+                  </Pressable>
+                ) : (
+                  renderAnimatedContent()
+                )}
+              </View>
+              {renderAction()}
+            </View>
           </View>
         </View>
       </View>
@@ -880,7 +881,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   container: {
-    flex: 1,
+    // Width now comes from the enclosing `containerCol` (which took over the
+    // old `flex: 1` role when the TUI tab was stacked above). Keeping flex:1
+    // here would collapse to zero height inside an auto-height column.
+    alignSelf: 'stretch',
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 6,
@@ -906,9 +910,57 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  greyedHintWrap: {
+  // The composer's outer column. `flex: 1` mirrors the old `container` flex so
+  // the row still fills the space left of the tools button. The TUI bookmark
+  // tab is absolute (see tuiTabRow) and does not contribute height here.
+  containerCol: {
     flex: 1,
-    justifyContent: 'center',
+  },
+  // Tab strip is ABSOLUTELY positioned, pinned just above the input container
+  // (bottom:'100%' = flush on its top edge; translateY tucks the open bottom
+  // edge 1px over the container's border so the two read as one piece — a file
+  // tab stuck onto the input box). Being out of flow it adds ZERO layout
+  // height: the composer's height stays driven by the input box alone, so the
+  // tab appearing/disappearing (TUI turn starts/ends) no longer shifts the
+  // whole bottom sheet. It also follows a growing multiline input for free —
+  // it is anchored to the container's top edge, which moves with it.
+  tuiTabRow: {
+    position: 'absolute',
+    bottom: '100%',
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingRight: 12,
+    transform: [{ translateY: 1 }],
+    zIndex: 1,
+  },
+  tuiTabBacking: {
+    // Must mirror `tuiTab`'s top radii so the opaque fill doesn't paint past
+    // the tab's rounded corners.
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
+  },
+  tuiTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
+    borderWidth: 1,
+    // Only the top/side borders are visible: the bottom edge is covered by
+    // the composer container that the tab sits on.
+    borderBottomWidth: 0,
+    maxWidth: '100%',
+  },
+  tuiTabExpanded: {
+    // Expanded hint text needs the full width of the composer row; it grows
+    // leftward from the right edge, balancing the row's paddingRight. Applied
+    // to the backing wrapper; the touchable inside stretches with it.
+    flex: 1,
+    marginLeft: 12,
   },
   contentArea: {
     flex: 1,

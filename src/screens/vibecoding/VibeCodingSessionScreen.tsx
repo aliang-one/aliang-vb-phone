@@ -89,7 +89,7 @@ import {
   phaseLabel,
   sessionPhaseType,
   shouldLockComposerForProvider,
-
+  shouldSendAsSteer,
 } from '../../utils/sessionPhase';
 import { isSessionSnapshotStale } from '../../utils/sessionSnapshotStale';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
@@ -1723,6 +1723,16 @@ export const VibeCodingSessionScreen: React.FC = () => {
     session?.status !== 'failed' &&
     session?.status !== 'completed' &&
     (isSessionLive || session?.status === 'waiting_approval');
+
+  // 回合进行中是否还有可用的「插话」(steer) 通道 —— composer 据此在停止按钮
+  // 左侧放回发送按钮。判据与 store 里 appendAgentMessage 的 sendAsSteer 同源
+  // (utils/sessionPhase.shouldSendAsSteer)，避免「按钮可点但发出去必失败」。
+  // TUI 驱动的回合额外排除：那条 run 不在 agent 自己的 sessions 表里，没有
+  // steer 通道(外部 TUI 进程的注入只在 TUI 空闲时可用)，只能等回合结束。
+  const canSteerTurn =
+    isSessionLive &&
+    !tuiDrivenRunning &&
+    shouldSendAsSteer(isSessionLive, effectiveProvider, canSteerClaude);
 
   const handleInterruptTurn = useCallback(() => {
     if (!session || !canInterruptTurn) return;
@@ -3437,13 +3447,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
             onInputChange={handleComposerInputChange}
             voiceDraft={voiceDraft}
             commands={sessionCommands}
-            sessionId={session.id}
             voiceStt={voiceStt}
             sendingMessage={sendingMessage}
             interruptingTurn={interruptingTurn}
             canInterruptTurn={canInterruptTurn}
             interruptGreyed={tuiDrivenRunning}
             interruptGreyedHint={t('session.composer.tuiStopGreyed')}
+            canSteer={canSteerTurn}
             deviceOffline={deviceOffline}
             readOnlyReason={composerReadOnlyReason}
             autoFocusText={autoFocusText}

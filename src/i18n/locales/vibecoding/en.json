@@ -310,13 +310,13 @@
     "tools": "Tools & settings",
     "recordingActive": "Recording",
     "tapToRecord": "Tap to start recording",
-    "refreshCommands": "Refresh command list",
     "voiceDraft": "Voice draft",
     "sendVoice": "Send",
     "editVoice": "Edit",
     "statusRecording": "Listening… release to end",
     "statusStopping": "Recognizing…",
-    "statusConnecting": "Connecting to voice service…"
+    "statusConnecting": "Connecting to voice service…",
+    "tuiTabLabel": "Desktop"
   },
   "goalCreate": {
     "title": "Goal",
