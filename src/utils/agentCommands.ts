@@ -1,6 +1,7 @@
 import type { AgentCommandInfo } from '../data/platformModels';
 import type { EffortProvider } from './modelIntensity';
 import i18n from '../i18n';
+import { GOAL_UI_ENABLED } from '../config/featureFlags';
 
 /**
  * Universal `/`-command baseline per provider.
@@ -45,15 +46,23 @@ const buildBuiltinAgentCommands = (): Record<EffortProvider, AgentCommandInfo[]>
   ],
 });
 
-const buildProductCommands = (): AgentCommandInfo[] => [
-  {
-    name: 'goal',
-    description: i18n.t('vibecoding:command.goal.description'),
-    argHint: i18n.t('vibecoding:command.goal.argHint'),
-    scope: 'builtin',
-    remote: 'prompt',
-  },
-];
+/**
+ * 产品级命令(手机侧派发,不由 provider 执行)。
+ * GOAL_UI_ENABLED 关闭时 /goal 不再出现在命令面板里——面板条目本身就是
+ * 「新建 goal」的入口,留着它用户点了也只会变成普通文本发出去。
+ */
+const buildProductCommands = (): AgentCommandInfo[] =>
+  GOAL_UI_ENABLED
+    ? [
+        {
+          name: 'goal',
+          description: i18n.t('vibecoding:command.goal.description'),
+          argHint: i18n.t('vibecoding:command.goal.argHint'),
+          scope: 'builtin',
+          remote: 'prompt',
+        },
+      ]
+    : [];
 
 export const BUILTIN_AGENT_COMMANDS: Record<EffortProvider, AgentCommandInfo[]> =
   buildBuiltinAgentCommands();
@@ -88,5 +97,10 @@ export const mergeCommands = (
   const filled = builtinCommandsFor(provider).filter(
     b => !seen.has(b.name.toLowerCase()),
   );
-  return [...product, ...agent, ...filled];
+  const merged = [...product, ...agent, ...filled];
+  // GOAL_UI_ENABLED 关闭:连 agent 自己上报的 goal 命令也一并滤掉,
+  // 面板里不该出现任何能点进 goal 的条目。
+  return GOAL_UI_ENABLED
+    ? merged
+    : merged.filter(command => command.name.toLowerCase() !== 'goal');
 };

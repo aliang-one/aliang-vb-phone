@@ -94,6 +94,7 @@ import {
 import { isSessionSnapshotStale } from '../../utils/sessionSnapshotStale';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { isGoalCommand, parseGoalCommand } from '../../utils/goalComposer';
+import { GOAL_UI_ENABLED } from '../../config/featureFlags';
 import { sessionBusyErrorText } from '../../utils/sessionBusyError';
 import { useNowTick } from '../../hooks/useNowTick';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
@@ -1166,7 +1167,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
     if (goalDraftActive && session?.purpose !== 'goal') {
       return createProjectGoal(normalizedContent);
     }
-    const parsedGoalCommand = parseGoalCommand(normalizedContent);
+    // GOAL_UI_ENABLED 关闭时 /goal 不再是建 goal 的入口:文字照普通消息发出去,
+    // 不再被拦下来变成 createProjectGoal(否则用户手打 /goal 仍能造出 goal 会话)。
+    const parsedGoalCommand = GOAL_UI_ENABLED
+      ? parseGoalCommand(normalizedContent)
+      : null;
     if (parsedGoalCommand !== null && session?.purpose !== 'goal') {
       const goalCommand = parsedGoalCommand.trim();
       if (goalCommand) return createProjectGoal(goalCommand);
@@ -1432,7 +1437,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
 
   const handleSendText = () => {
     const nextInput = input.trim();
-    const goalCommand = isGoalCommand(nextInput);
+    const goalCommand = GOAL_UI_ENABLED && isGoalCommand(nextInput);
     const isGoalSend = goalDraftActive || session?.purpose === 'goal' || goalCommand;
     if (!isGoalSend && (deviceOffline || shouldDisableComposerForProvider)) return;
     // Bug 3 fix: 自愈兜底。若 sendingMessage 已为 true 但距戳时间超过
@@ -1870,7 +1875,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
   );
 
   const handleComposerInputChange = useCallback((value: string) => {
-    if (!goalDraftActive && session?.purpose !== 'goal') {
+    // GOAL_UI_ENABLED 关闭时不把 /goal 识别成入口:消息按普通文本发出去,
+    // 不再悄悄把输入框切成 goal draft。
+    if (GOAL_UI_ENABLED && !goalDraftActive && session?.purpose !== 'goal') {
       const objective = parseGoalCommand(value);
       if (objective !== null) {
         enterGoalDraft(objective, '');
@@ -1882,7 +1889,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
 
   const handleInsertCommand = useCallback(
     (text: string) => {
-      const goalObjective = parseGoalCommand(text);
+      const goalObjective = GOAL_UI_ENABLED ? parseGoalCommand(text) : null;
       if (goalObjective !== null) {
         const candidate = goalObjective.trim();
         enterGoalDraft(candidate.startsWith('<') ? '' : candidate);

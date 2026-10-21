@@ -6,6 +6,7 @@ import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { ToolsMenu } from '../src/components/vibecoding/ToolsMenu';
 import type { AgentCommandInfo } from '../src/data/platformModels';
+import { GOAL_UI_ENABLED } from '../src/config/featureFlags';
 
 const wrap = (ui: React.ReactElement) => {
   let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
@@ -65,6 +66,10 @@ const defaultProps = (overrides: Partial<React.ComponentProps<typeof ToolsMenu>>
   ...overrides,
 });
 
+// GOAL_UI_ENABLED 关闭时 goal 开关整块不渲染;下面三条是开启该 flag 后的行为契约,
+// 挂起而不删除,恢复 flag 后自动重新跑起来。
+const goalIt = GOAL_UI_ENABLED ? it : it.skip;
+
 const findByTestID = (root: ReactTestRenderer.ReactTestRenderer, testID: string) =>
   root.root.findByProps({ testID });
 
@@ -82,7 +87,14 @@ describe('ToolsMenu', () => {
     expect(texts.some(t => t === '内置命令')).toBe(true);
   });
 
-  it('switches into Goal draft mode from the same panel as model and effort', () => {
+  // GOAL_UI_ENABLED 关闭:面板里不再出现 goal 开关(新建 goal 的入口)。
+  // 下面三条是开启该 flag 后的行为契约,暂时 skip,恢复时一并取消 skip。
+  it('does not render the Goal toggle while the goal UI is disabled', () => {
+    const root = wrap(<ToolsMenu {...defaultProps()} />);
+    expect(() => findByTestID(root, 'tools-goal-toggle')).toThrow();
+  });
+
+  goalIt('switches into Goal draft mode from the same panel as model and effort', () => {
     const onGoalModeChange = jest.fn();
     const onClose = jest.fn();
     const root = wrap(
@@ -94,7 +106,7 @@ describe('ToolsMenu', () => {
     expect(root.root.findAllByType(TextInput).length).toBeGreaterThan(0);
   });
 
-  it('can switch an unsent Goal draft back off without closing tools', () => {
+  goalIt('can switch an unsent Goal draft back off without closing tools', () => {
     const onGoalModeChange = jest.fn();
     const onClose = jest.fn();
     const root = wrap(
@@ -105,7 +117,7 @@ describe('ToolsMenu', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('keeps the Goal toggle on and locked inside a created Goal session', () => {
+  goalIt('keeps the Goal toggle on and locked inside a created Goal session', () => {
     const onGoalModeChange = jest.fn();
     const root = wrap(
       <ToolsMenu {...defaultProps({ goalMode: 'active', onGoalModeChange })} />,

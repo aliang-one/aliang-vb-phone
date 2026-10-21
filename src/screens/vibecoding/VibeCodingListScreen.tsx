@@ -48,6 +48,7 @@ import {
 } from './GoalInboxScreen';
 import { fetchGoals } from '../../api/goals';
 import { buildTabs, type VibeTab as VibecodingTab } from '../../utils/vibeTabs';
+import { GOAL_UI_ENABLED } from '../../config/featureFlags';
 import { TerminalCard } from '../../components/terminals/TerminalCard';
 import { VoiceToBashModal } from '../../components/terminal/VoiceToBashModal';
 import type { DevicePickerEntry } from '../../components/terminal/DevicePicker';
@@ -298,7 +299,10 @@ export const VibeCodingListScreen: React.FC = () => {
   }, [serverMode, devices.length, deviceFilter, hydrateSessionHistory]);
 
   // Tasks 段数据:goal 快照按设备拉取(全部拉完后 organizeGoalRows 统一整理)。
+  // GOAL_UI_ENABLED 关闭时 Tasks 段根本不存在,请求也就不发——否则每次进列表
+  // 都会白拉一遍 N 个设备的 /api/goals。
   const loadGoals = useCallback(async () => {
+    if (!GOAL_UI_ENABLED) return;
     const request = ++goalRequestRef.current;
     const goalDevices = useControlCenterStore.getState().devices;
     if (goalDevices.length === 0) {
@@ -367,7 +371,7 @@ export const VibeCodingListScreen: React.FC = () => {
     };
   }, [goalDeviceIds, loadGoals, serverMode]);
 
-  const hasTasks = goalRows.length > 0;
+  const hasTasks = GOAL_UI_ENABLED && goalRows.length > 0;
   const activeGoalCount = useMemo(
     () =>
       goalRows.filter(
