@@ -108,6 +108,7 @@ import {
   supportedEffortsFor,
 } from '../../utils/modelIntensity';
 import { createId } from '../../store/internals';
+import { useUiNoticeStore } from '../../store/uiNoticeStore';
 import { useSessionDetailLoader } from './useSessionDetailLoader';
 import { useSessionCatchUp } from './useSessionCatchUp';
 import { fetchAiSession } from '../../api/sessions';
@@ -1685,15 +1686,21 @@ export const VibeCodingSessionScreen: React.FC = () => {
       : undefined;
   // TUI 共享提示(低成本方案):仅对「终端里发起」的导入会话展示——它们与
   // 桌面终端共用同一份会话文件,手机上发送的内容不会出现在已打开的 TUI
-  // 界面里,TUI 端需重启 resume 才能同步。按次进入会话展示一次,可手动关闭。
+  // 界面里,TUI 端需重启 resume 才能同步。可手动关闭。
   // 判据用「导入诞生」属性(会话 id 的 ai_import_ 前缀),而不是 origin——
   // origin 自 2026-10-18 起跟随「最近一次对话通道」(手机续写 imported 会话会
   // 把它翻成 'phone'),拿它当触发条件会让横幅在首次手机续写后永久消失,而
   // 共享文件机制并不因此改变。也不用 sourceSessionId——纯手机会话首轮跑完后
   // 也会被 resume 绑定回填(claude-session-resume),会让每条纯手机会话误弹横幅。
   // 措辞为机制描述,不依赖 TUI 当前是否真的开着(避免状态误报)。
-  const [tuiSharedNoticeDismissed, setTuiSharedNoticeDismissed] =
-    useState(false);
+  //
+  // 「知道了」的已读记忆存在模块级 store 而不是本组件的 useState:原实现用
+  // useState,离开会话页组件卸载即归零,返回再进必然复弹。语义 = 本 App 进程
+  // 生命周期内不再出现(不落盘,冷启动重新提示可接受)。
+  const tuiSharedNoticeDismissed = useUiNoticeStore(state =>
+    state.isDismissed('tuiShared'),
+  );
+  const dismissTuiSharedNotice = useUiNoticeStore(state => state.dismiss);
   const isImportedTuiConversation =
     Boolean(session?.id.startsWith('ai_import_')) &&
     Boolean(session?.sourceSessionId);
@@ -3402,7 +3409,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 {t('session.tuiSharedNotice')}
               </Text>
               <TouchableOpacity
-                onPress={() => setTuiSharedNoticeDismissed(true)}
+                onPress={() => dismissTuiSharedNotice('tuiShared')}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <Text
