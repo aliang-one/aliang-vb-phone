@@ -59,6 +59,7 @@ import {
   type ServerRealtimeEvent,
 } from '../api/platformState';
 import type { ServerCursorPageResponse } from '../api/pagination';
+import type { AiAttachmentMeta } from '../api/attachments';
 import {
   connectMobileSocket,
   disconnectMobileSocket,
@@ -457,16 +458,22 @@ class PlatformTransport {
     return apiDeleteAiSession(sessionId);
   }
 
+  /**
+   * `attachments` 放末位可选参（而不是照抄 api 层把 attachments 排第 3）：
+   * 现有调用点全是 `(sessionId, content, mode, version)`，末位追加不会
+   * 让任何一个旧调用把 mode 错位成数组。
+   */
   sendAiMessage(
     sessionId: string,
     content: string,
     mode: 'voice' | 'text' = 'text',
     expectedModelConfigVersion?: number,
+    attachments: AiAttachmentMeta[] = [],
   ): ReturnType<typeof apiSendAiMessage> {
     return apiSendAiMessage(
       sessionId,
       content,
-      [],
+      attachments,
       mode,
       expectedModelConfigVersion,
     );
@@ -476,8 +483,9 @@ class PlatformTransport {
     sessionId: string,
     content: string,
     mode: 'voice' | 'text' = 'text',
+    attachments: AiAttachmentMeta[] = [],
   ): ReturnType<typeof apiSendAiSteer> {
-    return apiSendAiSteer(sessionId, content, [], mode);
+    return apiSendAiSteer(sessionId, content, attachments, mode);
   }
 
   respondApproval(

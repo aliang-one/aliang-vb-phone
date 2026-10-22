@@ -809,6 +809,10 @@ export function serverAiSessionToVibeRun(
       : undefined,
     provider: normalizeProvider(session.provider, session.tool),
     effectiveModelConfig: session.effective_model_config ?? undefined,
+    // 能力位只在单会话详情里下发；列表快照没有这个键，所以这里保持
+    // undefined（而不是伪造 enabled:false），由 mergeVibeRunSnapshot 保留
+    // 上一次详情拿到的值。
+    attachmentsCapability: session.attachments,
     risk: session.risk ?? 'medium',
     currentStep: session.current_step ?? '',
     // Branch is repository metadata. Never synthesize one from a conversation
@@ -1203,6 +1207,11 @@ export function mergeVibeRunSnapshot(
     // "当前有效" hint survives reconnect refreshes.
     effectiveModelConfig:
       incoming.effectiveModelConfig ?? existing.effectiveModelConfig,
+    // 同 effectiveModelConfig：能力位只在详情快照里，列表/重命名等部分快照
+    // 不带它，裸 spread 会把已知的能力位抹成 undefined，输入框的「+」入口
+    // 会在一次刷新后莫名消失。
+    attachmentsCapability:
+      incoming.attachmentsCapability ?? existing.attachmentsCapability,
     modelConfigVersion:
       incoming.modelConfigVersion ?? existing.modelConfigVersion,
     activeExecutionProfile:

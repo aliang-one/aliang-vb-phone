@@ -7,6 +7,7 @@ import {
 } from './client';
 import type { AgentCommandInfo, AgentMessage, GoalState } from '../data/platformModels';
 import { cursorPageQuery, type ServerCursorPageResponse } from './pagination';
+import type { AiAttachmentMeta, AttachmentCapability } from './attachments';
 
 const AI_TURN_REQUEST_TIMEOUT_MS = 120_000;
 const aiSessionDetailRequests = new Map<string, Promise<ServerAiSession>>();
@@ -61,6 +62,12 @@ export interface ServerAiMessage {
    * 注入抑制位——CC 工件在 server 侧入库即拦、存量走开机清理。
    */
   hidden?: boolean;
+  /**
+   * 这条消息携带的素材（server `serializeAiMessage` 只在不空时下发）。
+   * 服务端已物化：名称/MIME/字节数都以服务端记录为准，手机渲染图片时用
+   * `object_key` 换签名 URL，或用 `text` 直接渲染 ASCII。
+   */
+  attachments?: AiAttachmentMeta[];
 }
 
 export interface ServerGoalSummary {
@@ -113,6 +120,9 @@ export const serverAiMessageToAgent = (m: ServerAiMessage): AgentMessage => ({
   hiddenAt: m.hidden_at,
   hidden: m.hidden,
   origin: m.origin,
+  // 素材元数据原样透传：wire 与本地模型共用同一组 snake_case 字段
+  // （见 AiAttachmentMeta），不需要再做一次字段改名。
+  attachments: m.attachments,
 });
 
 export interface ServerAiSession {
@@ -261,6 +271,15 @@ export interface ServerAiSession {
   last_detail_fetch_status?: string;
   last_detail_fetch_at?: string;
   last_detail_error?: string;
+  /**
+   * 素材上传能力位（server `publicAiSession().attachments`）。COS 未配置时
+   * `enabled:false`，手机据此隐藏输入框的「+」入口。
+   *
+   * 注意：**列表快照 `publicAiSessionSummary()` 不带这个字段**——所以
+   * undefined 只能理解为「还不知道」，不能当成「不支持」；详情 GET 回来后
+   * 才做最终判断。
+   */
+  attachments?: AttachmentCapability;
   created_at: string;
   last_active_at: string;
   closed_at?: string;

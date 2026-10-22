@@ -65,6 +65,10 @@ export type RootStackParamList = {
       pendingRequestFingerprint?: string;
     };
   };
+  // 编辑器页：无参数。保存后通过 editorHandoff 把素材交回会话页（一次性
+  // 动作不进路由参数，见 services/editorHandoff.ts）。
+  Drawing: undefined;
+  Ascii: undefined;
   GoalDetail: { goalId: string; sourceSessionId?: string };
   AgentSessions: { deviceId?: string; projectId?: string } | undefined;
   SessionSettings: { sessionId: string };

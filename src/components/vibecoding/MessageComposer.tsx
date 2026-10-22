@@ -21,7 +21,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import Svg, { Path, Rect } from 'react-native-svg';
+import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
 import { GlowButton } from '../shared/GlowButton';
@@ -63,6 +63,20 @@ export interface MessageComposerProps {
   toolsMenuVisible: boolean;
   toolsDisabled?: boolean;
   onToggleTools: () => void;
+  /**
+   * 素材入口是否可用。`true` 才渲染「+」按钮：调用方用会话能力位判断
+   * （`session.attachmentsCapability?.enabled === true`），能力位未知
+   * （列表快照不带）或服务端未配 COS 时都不渲染——不让用户点进一条注定
+   * 失败的链路。草稿会话没有 sessionId，无法上传，同样传 false。
+   */
+  attachmentsEnabled?: boolean;
+  /** 打开素材菜单。仅在 attachmentsEnabled 时会被调用。 */
+  onOpenAttachments?: () => void;
+  /**
+   * 已选素材数量。>0 时即使输入框为空也点亮发送键——纯图片/字符画消息由
+   * 会话页补一句默认说明（服务端正文 min(1)，空正文会被拒）。
+   */
+  attachmentCount?: number;
   /** Unsent Goal objective mode. It is text-only and independent of Provider state. */
   goalDraft?: boolean;
   /** Created Goal session. Messages are queued by the server even while Provider work is running. */
@@ -92,7 +106,8 @@ type ComposerIconName =
   | 'sparkle'
   | 'stop'
   | 'sliders'
-  | 'desktop';
+  | 'desktop'
+  | 'image';
 
 interface ComposerIconProps {
   name: ComposerIconName;
@@ -152,6 +167,13 @@ const ComposerIcon: React.FC<ComposerIconProps> = ({ name, size = 22, color }) =
         <>
           <Rect x="2.5" y="4" width="19" height="12.5" rx="2" stroke={color} {...common} />
           <Path d="M9 20.5h6M12 16.5v4" stroke={color} {...common} />
+        </>
+      )}
+      {name === 'image' && (
+        <>
+          <Rect x="3.5" y="4.5" width="17" height="15" rx="2" stroke={color} {...common} />
+          <Circle cx="9" cy="9.5" r="1.6" stroke={color} {...common} />
+          <Path d="m4.5 17 4.6-4.6 3.4 3.4 2.6-2.6 4.4 4.4" stroke={color} {...common} />
         </>
       )}
     </Svg>
@@ -294,6 +316,9 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
   toolsMenuVisible,
   toolsDisabled = false,
   onToggleTools,
+  attachmentsEnabled = false,
+  onOpenAttachments,
+  attachmentCount = 0,
   goalDraft = false,
   goalSession = false,
   showGoalHint = false,
@@ -438,7 +463,7 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
 
   const renderSendButton = () => {
     const canSend =
-      input.trim().length > 0 &&
+      (input.trim().length > 0 || attachmentCount > 0) &&
       !sendingMessage &&
       (!composerDisabled || isGoalCommandInput || goalDraft);
     return (
@@ -697,6 +722,31 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
         />
       ) : null}
       <View style={styles.composerRow}>
+        {/* 素材入口：只有在服务端确认「能上传」时才渲染。能力位未知（列表
+            快照）或 COS 未配置时整颗按钮不出现——比渲染一个禁用态更诚实。
+            离线/只读时保留按钮但禁用，用户能看到入口、知道为什么点不动。 */}
+        {attachmentsEnabled ? (
+          <TouchableOpacity
+            testID="composer-attachments"
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={t('attachments.open')}
+            disabled={deviceOffline || Boolean(readOnlyReason)}
+            onPress={onOpenAttachments}
+            style={[
+              styles.ctrlBtn,
+              {
+                borderRadius: theme.borderRadius.full,
+                backgroundColor: ctrlBg.backgroundColor,
+                borderWidth: 1,
+                borderColor: 'transparent',
+                opacity: deviceOffline || readOnlyReason ? 0.45 : 1,
+              },
+            ]}
+          >
+            <ComposerIcon name="image" size={20} color={theme.colors.onSurfaceVariant} />
+          </TouchableOpacity>
+        ) : null}
         <TouchableOpacity
           activeOpacity={0.7}
           accessibilityRole="button"

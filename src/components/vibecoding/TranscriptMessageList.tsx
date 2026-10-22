@@ -7,6 +7,7 @@ import { IconBadge } from '../visual/IconBadge';
 import { GlassPanel } from '../shared/GlassPanel';
 import { StatusChip } from '../shared/StatusChip';
 import { ActivityBlock } from './ActivityBlock';
+import { MessageAttachments } from './MessageAttachments';
 import {
   activityEventsRenderSignature,
   relevantActivityDetailsEqual,
@@ -912,6 +913,8 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                     },
                   ]}
                 >
+                  {/* 图片在正文上方；ASCII 已在正文代码块里，组件自己会滤掉。 */}
+                  <MessageAttachments attachments={message.attachments} />
                   {message.segments.map(renderSegment)}
                 </View>
                 {isFailed ? (

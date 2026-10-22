@@ -7,6 +7,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  type DimensionValue,
 } from 'react-native';
 import Animated, {
   Easing,
@@ -38,6 +39,12 @@ interface BottomSheetProps {
   title?: string;
   subtitle?: string;
   badge?: BottomSheetBadge;
+  /**
+   * Sheet height. Defaults to 84% of the viewport (content-heavy sheets).
+   * Compact menus (e.g. the attachment picker) pass a smaller value so the
+   * sheet doesn't open with a large empty area.
+   */
+  height?: DimensionValue;
   /** Scrollable body. The sheet gives it a flex:1 region. */
   children: React.ReactNode;
 }
@@ -53,6 +60,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   title,
   subtitle,
   badge,
+  height = '84%',
   children,
 }) => {
   const { theme, isDark } = useTheme();
@@ -118,6 +126,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
         <Animated.View
           style={[
             styles.sheet,
+            { height },
             {
               backgroundColor: isDark
                 ? theme.colors.surfaceContainerHigh

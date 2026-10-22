@@ -136,6 +136,8 @@ describe('appendAgentMessage', () => {
       'versioned',
       'text',
       7,
+      // 无素材时也显式传空数组：attachments 是末位可选参。
+      [],
     );
   });
 

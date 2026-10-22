@@ -54,6 +54,11 @@ export interface DisplayTranscriptMessage {
    * appends a synthetic activity bubble for those orphan message ids.
    */
   sourceMessageIds: string[];
+  /**
+   * 该用户气泡携带的素材（照片 / 手绘 / ASCII）。只挂在自己的消息上——
+   * 服务端确认后同一字段原样回传，乐观气泡与历史消息走同一条渲染路径。
+   */
+  attachments?: AgentMessage['attachments'];
 }
 
 // Markdown parsing (parseMessageContentSegments) is by far the most expensive
@@ -187,6 +192,9 @@ export const buildDisplayTranscript = (
   // messages with identical text are never meant to display as separate parts.
   let lastRole = '';
   let lastContent = '';
+  // 素材 id 也要参与去重判定：同一句话配不同图片连发两次是合法操作，
+  // 不能被「同文同角色」当成乐观/快照重复而吞掉第二条。
+  let lastAttachmentsKey = '';
 
   for (const message of messages) {
     // 兜底丢弃必须发生在 lastRole/lastContent 去重状态更新与 segment 解析之前：
@@ -200,10 +208,14 @@ export const buildDisplayTranscript = (
       message.role === 'user' && isClaudeCodeMetaUserContent(normalized)
         ? 'system'
         : message.role;
+    const attachmentsKey = (message.attachments ?? [])
+      .map(item => item.asset_id)
+      .join(',');
     if (
       role === lastRole &&
       normalized !== '' &&
-      normalized === lastContent
+      normalized === lastContent &&
+      attachmentsKey === lastAttachmentsKey
     ) {
       continue;
     }
@@ -214,6 +226,7 @@ export const buildDisplayTranscript = (
     if (!segments.length) continue;
     lastRole = role;
     lastContent = normalized;
+    lastAttachmentsKey = attachmentsKey;
 
     const previous = result[result.length - 1];
 
@@ -234,6 +247,7 @@ export const buildDisplayTranscript = (
         contentKey: message.content ?? '',
         sourceMessageIds: [message.id],
         failed: message.failed ? true : undefined,
+        attachments: message.attachments?.length ? message.attachments : undefined,
       });
       continue;
     }

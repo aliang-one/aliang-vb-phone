@@ -36,7 +36,9 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>用于扫描电脑端 Agent 二维码并绑定设备。</string>
+	<string>用于拍照发送给 AI 助手，或扫描电脑端 Agent 二维码绑定设备。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>用于选择相册中的照片发送给 AI 助手。</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>用于实时语音识别，将你说的话转成文字。</string>
 	<key>NSFaceIDUsageDescription</key>

@@ -3,6 +3,7 @@ import type { AgentCommandInfo, VibeCodingRun, VibeStatus } from '../../data/pla
 import { platformTransport } from '../../services/platformTransport';
 import { refreshSessionCommands as refreshSessionCommandsApi, serverAiMessageToAgent } from '../../api/sessions';
 import type { ServerAiSession } from '../../api/sessions';
+import type { AiAttachmentMeta } from '../../api/attachments';
 import { deleteGoal, fetchGoalSnapshot } from '../../api/goals';
 import { normalizeProvider, providerLabel } from '../../utils/modelIntensity';
 import {
@@ -100,8 +101,15 @@ const COMMANDS_REFRESH_MIN_INTERVAL_MS = 60 * 60 * 1000;
 const lastCommandsRefreshAt = new Map<string, number>();
 const refreshingCommands = new Map<string, Promise<AgentCommandInfo[]>>();
 
-const messageSendKey = (sessionId: string, content: string, mode: 'voice' | 'text') =>
-  `${sessionId}:${mode}:${content}`;
+// 素材 id 也进 key：同一段文字配不同图片连发两次是合法操作，不能被
+// 「同文同模式」的 in-flight 去重误吞第二次。
+const messageSendKey = (
+  sessionId: string,
+  content: string,
+  mode: 'voice' | 'text',
+  attachments: AiAttachmentMeta[] = [],
+) =>
+  `${sessionId}:${mode}:${attachments.map(item => item.asset_id).join(',')}:${content}`;
 
 const providerWireValue = (provider: AgentProvider): 'codex' | 'claudecode' | 'opencode' =>
   provider === 'claude_code'
@@ -1007,10 +1015,10 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     });
   },
 
-  appendAgentMessage: async (sessionId, content, mode) => {
+  appendAgentMessage: async (sessionId, content, mode, attachments = []) => {
     const normalizedContent = content.trim();
     if (!normalizedContent) return;
-    const sendKey = messageSendKey(sessionId, normalizedContent, mode);
+    const sendKey = messageSendKey(sessionId, normalizedContent, mode, attachments);
     if (pendingMessageSends.has(sendKey)) return;
     pendingMessageSends.add(sendKey);
 
@@ -1071,6 +1079,8 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       content: normalizedContent,
       timestamp: new Date().toISOString(),
       pending: true,
+      // 气泡立刻显示「这条消息带了什么」；服务端确认后同一字段原样合并。
+      ...(attachments.length > 0 ? { attachments } : {}),
     };
     set(state => {
       let activeDeviceId = '';
@@ -1120,12 +1130,18 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     });
     try {
       const response = sendAsSteer
-        ? await platformTransport.sendAiSteer(sessionId, normalizedContent, mode)
+        ? await platformTransport.sendAiSteer(
+            sessionId,
+            normalizedContent,
+            mode,
+            attachments,
+          )
         : await platformTransport.sendAiMessage(
             sessionId,
             normalizedContent,
             mode,
             currentRun?.modelConfigVersion,
+            attachments,
           );
       // The server persists the user message under its own id (e.g. `msg_abc123`).
       // Reconcile: the optimistic bubble's id is replaced with the server's id
@@ -1337,7 +1353,8 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       }),
     }));
     try {
-      await get().appendAgentMessage(sessionId, content, mode);
+      // 素材随消息一起重试：用户点的是「重发这条」，丢掉图片等于换了一条消息。
+      await get().appendAgentMessage(sessionId, content, mode, failed.attachments);
     } catch {
       // Failure is already reflected as a `failed` bubble by appendAgentMessage.
     }

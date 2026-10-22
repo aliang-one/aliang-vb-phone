@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  PermissionsAndroid,
   Alert,
   ScrollView,
   TouchableOpacity,
@@ -31,6 +32,11 @@ import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { ToolsMenu } from '../../components/vibecoding/ToolsMenu';
+import {
+  AttachmentMenuSheet,
+  type AttachmentMenuAction,
+} from '../../components/vibecoding/AttachmentMenuSheet';
+import { AttachmentChips } from '../../components/vibecoding/AttachmentChips';
 import { SessionPreviewCard } from './SessionPreviewCard';
 import { revokePortMapping } from '../../api/portMappings';
 import { resolvePullToRefreshAction } from './sessionRefreshDispatch';
@@ -61,6 +67,19 @@ import {
 } from '../../store/controlCenterStore';
 import type { ApprovalRequest } from '../../store/controlCenterStore';
 import type { AgentProvider } from '../../store/types';
+import { useAttachmentLibraryStore } from '../../store/slices/attachmentLibrarySlice';
+import { useToastStore } from '../../store/toastStore';
+import {
+  CAMERA_NEEDS_RUNTIME_PERMISSION,
+  pickFromCamera,
+  pickFromLibrary,
+} from '../../services/attachmentUpload';
+import {
+  defaultAttachmentCaption,
+  sendUserMessageWithAssets,
+} from '../../services/attachmentSend';
+import { takeEditorHandoff } from '../../services/editorHandoff';
+import { touchAsset, type LocalAsset } from '../../services/attachmentLibrary';
 import { IconBadge, IconName } from '../../components/visual/IconBadge';
 import type {
   AgentBudgetInfo,
@@ -597,6 +616,134 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const handleToggleTools = useCallback(() => {
     setToolsMenuVisible(value => !value);
   }, []);
+
+  // 素材菜单（T17）与「本轮待发送素材」选中态（T18）。选中态只活在屏幕层：
+  // composer 保持哑组件，chip 渲染在输入面板里、composer 上方。
+  const [attachmentMenuVisible, setAttachmentMenuVisible] = useState(false);
+  const [pendingAssets, setPendingAssets] = useState<LocalAsset[]>([]);
+  const attachmentLibrary = useAttachmentLibraryStore(state => state.assets);
+  const hydrateAttachmentLibrary = useAttachmentLibraryStore(
+    state => state.hydrate,
+  );
+  const removeAttachmentAsset = useAttachmentLibraryStore(
+    state => state.remove,
+  );
+  const clearAttachmentLibrary = useAttachmentLibraryStore(
+    state => state.clear,
+  );
+  const showToast = useToastStore(state => state.show);
+  // 服务端下发的单条消息素材上限；能力位未知时按 1 兜底（宁少勿多）。
+  const attachmentMaxPerMessage =
+    session?.attachmentsCapability?.max_per_message ?? 1;
+
+  const handleOpenAttachments = useCallback(() => {
+    // 两个菜单互斥：素材菜单盖在输入面板上，底下再开着工具菜单没有意义。
+    setToolsMenuVisible(false);
+    setAttachmentMenuVisible(true);
+    // 每次打开都刷新「最近使用」：用户可能刚在别的会话里加过图。
+    void hydrateAttachmentLibrary();
+  }, [hydrateAttachmentLibrary]);
+
+  const handleCloseAttachments = useCallback(() => {
+    setAttachmentMenuVisible(false);
+  }, []);
+
+  const handleAttachmentAction = useCallback(
+    async (action: AttachmentMenuAction) => {
+      if (action === 'draw') {
+        // 手绘是独立页面：菜单先关，保存后经 editorHandoff 把素材交回来。
+        setAttachmentMenuVisible(false);
+        navigation.navigate('Drawing');
+        return;
+      }
+      if (action === 'ascii') {
+        // 字符画同理：独立页面编辑，保存后经同一个交接槽位回到本屏。
+        setAttachmentMenuVisible(false);
+        navigation.navigate('Ascii');
+        return;
+      }
+      setAttachmentMenuVisible(false);
+      try {
+        if (action === 'camera' && CAMERA_NEEDS_RUNTIME_PERMISSION) {
+          // Android 需要在拉起相机前拿到运行时权限；iOS 由系统在 launchCamera
+          // 时弹。被拒就停在原地给提示，不进入采集。
+          const granted = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.CAMERA,
+          );
+          if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+            showToast(t('attachments.cameraDenied'), 'error');
+            return;
+          }
+        }
+        const picked =
+          action === 'camera' ? await pickFromCamera() : await pickFromLibrary();
+        if (picked.length === 0) return; // 用户取消，不是错误
+        // 在 updater 外面算：setState 的 updater 可能被 React 重放，
+        // 里面弹 toast 会弹两次。
+        const merged = [...pendingAssets];
+        let capped = false;
+        for (const asset of picked) {
+          if (merged.some(item => item.id === asset.id)) continue;
+          if (merged.length >= attachmentMaxPerMessage) {
+            capped = true;
+            break;
+          }
+          merged.push(asset);
+        }
+        setPendingAssets(merged);
+        if (capped) {
+          // 已经选满：给出提示，不然用户以为点击没生效。
+          showToast(t('attachments.maxReached'), 'info');
+        }
+      } catch {
+        showToast(t('attachments.error'), 'error');
+      }
+    },
+    [attachmentMaxPerMessage, pendingAssets, showToast, t],
+  );
+
+  const handlePickRecentAttachment = useCallback(
+    (asset: LocalAsset) => {
+      setAttachmentMenuVisible(false);
+      if (pendingAssets.some(item => item.id === asset.id)) return;
+      if (pendingAssets.length >= attachmentMaxPerMessage) {
+        showToast(t('attachments.maxReached'), 'info');
+        return;
+      }
+      setPendingAssets(prev => [...prev, asset]);
+    },
+    [attachmentMaxPerMessage, pendingAssets, showToast, t],
+  );
+
+  const handleRemovePendingAttachment = useCallback((asset: LocalAsset) => {
+    setPendingAssets(prev => prev.filter(item => item.id !== asset.id));
+  }, []);
+
+  // 删本地素材时同步摘掉它的 chip：文件没了，留着 chip 只会在发送时才炸。
+  const handleDeleteRecentAttachment = useCallback(
+    (asset: LocalAsset) => {
+      setPendingAssets(prev => prev.filter(item => item.id !== asset.id));
+      void removeAttachmentAsset(asset.id);
+    },
+    [removeAttachmentAsset],
+  );
+
+  // 清空同理：pending 里的素材全部来自库，库清空后它们都没文件了。
+  const handleClearRecentAttachments = useCallback(() => {
+    setPendingAssets([]);
+    void clearAttachmentLibrary();
+  }, [clearAttachmentLibrary]);
+
+  // 入口可用性：草稿会话没有 sessionId（上传无处可去）；goal 会话走
+  // queueGoalMessage，没有素材通道；服务端没配 COS 时 `enabled === false`。
+  // 能力位未知（列表快照不带 → undefined）按不可用处理——不让用户点进一条
+  // 注定失败的链路。
+  const attachmentsEnabled =
+    !isDraft &&
+    session != null &&
+    session.purpose !== 'goal' &&
+    session.attachmentsCapability?.enabled === true;
+
   const handleComposerTextInputFocus = useCallback(() => {
     setAutoFocusText(false);
     pendingScrollToEndRef.current = true;
@@ -1159,6 +1306,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const appendUserMessage = async (
     content: string,
     messageMode: 'voice' | 'text',
+    assets: LocalAsset[] = [],
   ) => {
     const normalizedContent = content.trim();
     if (!normalizedContent || sendLockRef.current) {
@@ -1256,7 +1404,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
     if (!session || (shouldDisableComposerForProvider && session.purpose !== 'goal')) {
       return false;
     }
-    const sendKey = `${session.id}:${messageMode}:${normalizedContent}`;
+    // 素材 id 也进锁键：同一段文字配不同图片连发两次是合法操作，不能被
+    // 「同文同模式」的锁误判成同一条消息。
+    const sendKey = `${session.id}:${messageMode}:${assets
+      .map(item => item.id)
+      .join(',')}:${normalizedContent}`;
     sendLockRef.current = sendKey;
     pendingScrollToEndRef.current = true;
     sendingSinceRef.current = Date.now();
@@ -1284,7 +1436,23 @@ export const VibeCodingSessionScreen: React.FC = () => {
         });
         return true;
       }
-      await appendAgentMessage(session.id, normalizedContent, messageMode);
+      // 先物化素材再发消息，成功才清 chips —— 顺序在 service 里钉住，
+      // 这里只负责把 store / toast / 选中态接进来。
+      await sendUserMessageWithAssets({
+        sessionId: session.id,
+        content: normalizedContent,
+        assets,
+        send: (outgoingContent, metas) =>
+          appendAgentMessage(session.id, outgoingContent, messageMode, metas),
+        onUploadError: () => showToast(t('attachments.error'), 'error'),
+        onSent: sentAssets => {
+          const sentIds = new Set(sentAssets.map(item => item.id));
+          setPendingAssets(prev => prev.filter(item => !sentIds.has(item.id)));
+          // 发出去的素材进「最近使用」；失败不影响本次发送（touchAsset 对
+          // 不存在的 id 静默）。
+          void Promise.all(sentAssets.map(item => touchAsset(item.id)));
+        },
+      });
       return true;
     } catch (error) {
       pendingScrollToEndRef.current = false;
@@ -1297,6 +1465,36 @@ export const VibeCodingSessionScreen: React.FC = () => {
       setSendingMessage(false);
     }
   };
+
+  // 编辑器页（手绘 / 字符画）返回：素材已入库，这里负责「自动勾选」或
+  // 「保存并发送」。用 focus 而不是导航参数：保存后编辑器 goBack()，本屏
+  // 重新获得焦点时槽位里才有东西；取走即清空，重复聚焦不会重复发送。
+  useFocusEffect(
+    useCallback(() => {
+      const handoff = takeEditorHandoff();
+      if (!handoff) return;
+      if (pendingAssets.some(item => item.id === handoff.asset.id)) return;
+      if (pendingAssets.length >= attachmentMaxPerMessage) {
+        showToast(t('attachments.maxReached'), 'info');
+        return;
+      }
+      // 先入 chips：发送失败时素材留在输入框上方，用户重试不用重新画。
+      setPendingAssets(prev => [...prev, handoff.asset]);
+      if (!handoff.autoSend) return;
+      // 服务端正文 min(1)，纯素材消息发不出去；草稿为空时按素材类型用一句
+      // 默认说明兜底（字符画走文本通道，说明也要点明它是图）。
+      const content =
+        input.trim() || defaultAttachmentCaption([handoff.asset], t);
+      void appendUserMessage(content, 'text', [handoff.asset]);
+    }, [
+      appendUserMessage,
+      attachmentMaxPerMessage,
+      input,
+      pendingAssets,
+      showToast,
+      t,
+    ]),
+  );
 
   const handleVoiceCaptureStart = useCallback(() => {
     if (
@@ -1361,7 +1559,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     ) {
       return;
     }
-    void appendUserMessage(draft, 'voice')
+    void appendUserMessage(draft, 'voice', pendingAssets)
       .then(sent => {
         if (sent) {
           setVoiceDraft('');
@@ -1449,7 +1647,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
       setSendingMessage(false);
       if (sendLockRef.current) sendLockRef.current = null;
     }
-    if (!nextInput || sendingMessage) {
+    // 只选素材、不打字也能发：正文用一句默认说明兜底（服务端 min(1)）。
+    // goal 路径没有素材通道，chips 不参与，仍要求有文字。
+    const sendableAssets = isGoalSend ? [] : pendingAssets;
+    const content =
+      nextInput ||
+      (sendableAssets.length > 0 ? defaultAttachmentCaption(sendableAssets, t) : '');
+    if (!content || sendingMessage) {
       return;
     }
     if (goalDraftActive) setToolsMenuVisible(false);
@@ -1459,7 +1663,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
     // restored: restoring it let a follow-up message append to the failed text
     // and ship as one combined prompt ("你好 在吗"). The input stays empty so the
     // next message is always clean.
-    void appendUserMessage(nextInput, 'text')
+    // goal 路径没有素材通道（入口也已在 goal 会话隐藏）；显式传空数组，
+    // 避免把用户攒的 chips 带进一条注定被忽略的发送。
+    void appendUserMessage(content, 'text', sendableAssets)
       .then(sent => {
         if (!sent && isGoalSend) {
           setInput(current => current || nextInput);
@@ -3440,6 +3646,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
               </TouchableOpacity>
             </View>
           ) : null}
+          {/* 已选素材停在输入框正上方：发送前随时可删，发送成功才清空。 */}
+          <AttachmentChips
+            assets={pendingAssets}
+            onRemove={handleRemovePendingAttachment}
+            disabled={sendingMessage}
+          />
           <MessageComposer
             mode={mode}
             onModeChange={handleComposerModeChange}
@@ -3460,6 +3672,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
             toolsMenuVisible={toolsMenuVisible}
             toolsDisabled={goalDraftActive && goalCreating}
             onToggleTools={handleToggleTools}
+            attachmentCount={
+              goalDraftActive || session?.purpose === 'goal'
+                ? 0
+                : pendingAssets.length
+            }
             goalDraft={goalDraftActive}
             goalSession={session?.purpose === 'goal'}
             showGoalHint={session?.purpose !== 'goal'}
@@ -3471,9 +3688,20 @@ export const VibeCodingSessionScreen: React.FC = () => {
             onSendText={handleSendText}
             onInterruptTurn={handleInterruptTurn}
             onEditVoice={handleEditVoice}
+            attachmentsEnabled={attachmentsEnabled}
+            onOpenAttachments={handleOpenAttachments}
           />
         </View>
       </KeyboardAvoidingView>
+      <AttachmentMenuSheet
+        open={attachmentMenuVisible}
+        onClose={handleCloseAttachments}
+        onSelect={handleAttachmentAction}
+        recent={attachmentLibrary}
+        onPickRecent={handlePickRecentAttachment}
+        onDeleteRecent={handleDeleteRecentAttachment}
+        onClearRecent={handleClearRecentAttachments}
+      />
       <ApprovalQuickPolicySheet
         projectId={session?.projectId ?? ''}
         toolName={quickPolicyFor?.toolName}

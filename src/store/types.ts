@@ -10,6 +10,7 @@ import type {
   PlatformFileDownloadStatus,
   PlatformTransportEvent,
 } from '../services/platformTransport';
+import type { AiAttachmentMeta } from '../api/attachments';
 
 // --- Type definitions ---
 
@@ -612,10 +613,16 @@ export interface ControlCenterState {
    */
   generateAgentSessionTitle: (sessionId: string) => Promise<string>;
   deleteAgentSession: (sessionId: string) => Promise<void>;
+  /**
+   * 发送一条用户消息。`attachments` 是**服务端已物化**的素材元数据（图片
+   * 先 PUT+complete，ASCII 先 create），发送时只带 `asset_id` 供服务端
+   * 引用；乐观气泡同时挂上这份元数据，让用户立刻看到自己发了什么。
+   */
   appendAgentMessage: (
     sessionId: string,
     content: string,
     mode: 'voice' | 'text',
+    attachments?: AiAttachmentMeta[],
   ) => Promise<void>;
   /**
    * Re-send a failed-to-send user message (`AgentMessage.failed`) directly from

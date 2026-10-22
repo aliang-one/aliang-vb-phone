@@ -1,5 +1,6 @@
 import type { ApprovalScheme } from '../api/devices';
 import type { ProjectProviderModelConfig } from '../api/modelConfig';
+import type { AiAttachmentMeta, AttachmentCapability } from '../api/attachments';
 
 export interface Project {
   id: string;
@@ -390,6 +391,11 @@ export interface VibeCodingRun {
       effort?: string;
     };
   };
+  /**
+   * 素材上传能力位（COS 是否可用 + 上限）。只有单会话详情 GET 会带；列表
+   * 快照省略。消费方用 `=== true` 判断可用，`undefined` 视为「未知」。
+   */
+  attachmentsCapability?: AttachmentCapability;
   risk: 'low' | 'medium' | 'high';
   currentStep: string;
   branch: string;
@@ -700,6 +706,12 @@ export interface AgentMessage {
    * 当前无 UI 消费(会话级 origin 已覆盖展示需求)。
    */
   origin?: 'phone' | 'tui';
+  /**
+   * 该消息携带的素材（图片 / 手绘 / ASCII）。字段与 wire 一致（snake_case
+   * `asset_id` / `object_key`），因为服务端已经物化过，手机只读不改，多一次
+   * 改名没有收益。undefined = 纯文本消息。
+   */
+  attachments?: AiAttachmentMeta[];
 }
 
 export interface AgentTranscriptPage {

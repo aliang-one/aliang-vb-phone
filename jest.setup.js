@@ -90,7 +90,15 @@ jest.mock('react-native-blob-util', () => ({
     config: jest.fn(() => ({
       fetch: jest.fn(() => Promise.resolve({ path: jest.fn() })),
     })),
-    fs: { unlink: jest.fn(() => Promise.resolve(undefined)) },
+    // attachmentLibrary 在模块顶层读 fs.dirs.DocumentDir 拼素材目录——App 图
+    // 里任何一个屏幕 import 到它都会触发。给个临时目录即可，测试不碰真实文件。
+    fs: {
+      dirs: {
+        DocumentDir: '/tmp/rnbu/documents',
+        CacheDir: '/tmp/rnbu/cache',
+      },
+      unlink: jest.fn(() => Promise.resolve(undefined)),
+    },
   },
 }));
 
@@ -99,6 +107,21 @@ jest.mock('react-native-share', () => ({
   default: {
     open: jest.fn(() => Promise.resolve({ success: true })),
   },
+}));
+
+// 素材菜单把 image-picker / view-shot 拉进了 App 图（屏幕 → 菜单 → 服务），
+// 两者的原生模块在 Jest 下 import 即抛。默认实现返回「用户取消」，
+// 让任何渲染路径都不会意外走真实的采集流程；专项测试再各自覆盖。
+jest.mock('react-native-image-picker', () => ({
+  launchCamera: jest.fn(() => Promise.resolve({ didCancel: true })),
+  launchImageLibrary: jest.fn(() => Promise.resolve({ didCancel: true })),
+}));
+
+jest.mock('react-native-view-shot', () => ({
+  __esModule: true,
+  default: jest.fn(() => Promise.resolve('/tmp/mock-shot.png')),
+  captureRef: jest.fn(() => Promise.resolve('/tmp/mock-shot.png')),
+  releaseCapture: jest.fn(),
 }));
 
 // Render in Chinese during tests. The app is Chinese-first historically and most
