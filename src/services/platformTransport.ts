@@ -30,6 +30,7 @@ import {
   fetchTerminalSessionCommands,
   interruptAiSession as apiInterruptAiSession,
   pauseAiSession as apiPauseAiSession,
+  renewTerminalSession as apiRenewTerminalSession,
   resumeAiSession as apiResumeAiSession,
   sendAiMessage as apiSendAiMessage,
   sendAiSteer as apiSendAiSteer,
@@ -501,6 +502,11 @@ class PlatformTransport {
 
   closeTerminalSession(sessionId: string): Promise<ServerTerminalSession> {
     return apiCloseTerminalSession(sessionId);
+  }
+
+  /** 续期(有效期):服务端把窗口重设为 now+hours(≤24h),只动租约记录。 */
+  renewTerminalSession(sessionId: string, hours: number): Promise<ServerTerminalSession> {
+    return apiRenewTerminalSession(sessionId, hours);
   }
 
   /**

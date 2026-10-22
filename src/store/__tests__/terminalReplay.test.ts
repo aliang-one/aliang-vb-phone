@@ -381,6 +381,36 @@ describe('terminal.closed clears replay state (dispatcher)', () => {
     expect(session.replayReady).toBe(false);
     expect(session.replayStatus).toBeUndefined();
   });
+
+  // 有效期到期:server sweeper 广播 terminal.closed reason=ttl_expired(snake_case
+  // 直透 raw)→ exitReason 落码,死亡横幅人话化;其余关闭原因不碰 exitReason
+  // (零回归——旧原因各有既有文案路径)。
+  it('ttl_expired close records the reason; other reasons leave exitReason alone', () => {
+    seedStore([
+      makeSession({ id: 'term-ttl', exitReason: undefined }),
+      makeSession({ id: 'term-idle', exitReason: undefined }),
+      makeSession({ id: 'term-keep', exitReason: 'quota_hard_cap: hard cap' }),
+    ]);
+    dispatch({
+      type: 'terminal.closed',
+      sessionId: 'term-ttl',
+      raw: { reason: 'ttl_expired' },
+    });
+    dispatch({
+      type: 'terminal.closed',
+      sessionId: 'term-idle',
+      raw: { reason: 'idle_timeout' },
+    });
+    dispatch({
+      type: 'terminal.closed',
+      sessionId: 'term-keep',
+      raw: { reason: 'agent_stale' },
+    });
+
+    expect(getTerminal('term-ttl').exitReason).toBe('ttl_expired');
+    expect(getTerminal('term-idle').exitReason).toBeUndefined();
+    expect(getTerminal('term-keep').exitReason).toBe('quota_hard_cap: hard cap');
+  });
 });
 
 describe('resetTerminalReplay action', () => {

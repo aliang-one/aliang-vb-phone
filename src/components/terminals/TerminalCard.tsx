@@ -45,6 +45,9 @@ export const TerminalCard = React.memo<TerminalCardProps>(
     const { t } = useTranslation('terminals');
     const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
     const accountUser = useSessionStore(state => state.user);
+    const renewTerminalSession = useControlCenterStore(
+      state => state.renewTerminalSession,
+    );
     const [menuOpen, setMenuOpen] = useState(false);
     // Re-render on the shared 30s cadence so relative time labels stay fresh.
     useNowTick();
@@ -251,6 +254,7 @@ export const TerminalCard = React.memo<TerminalCardProps>(
           setMenuOpen(false);
           onClose?.();
         }}
+        onRenew={hours => renewTerminalSession(terminal.id, hours)}
         onScan={() => {
           setMenuOpen(false);
           navigation.navigate('DeviceCameraScanner', {

@@ -1255,11 +1255,18 @@ export const useControlCenterStore = create<ControlCenterState>()(
             // completed so list views drop it; the PTY is already gone. The
             // replay buffer is stale now — drop it so a later remount can't
             // render scrollback that no longer matches the closed session.
-            case 'terminal.closed':
+            case 'terminal.closed': {
               // The PTY is gone, so its local-resize window entry is
               // meaningless — drop it (bounded-map hygiene, same discipline
               // as terminalOutputRegistry's dispose on close).
               forgetTerminalGeometryFollow(transportEvent.sessionId);
+              // 有效期到期(server sweeper 广播 terminal.closed reason=ttl_expired,
+              // snake_case 直透 raw):落 exitReason 让死亡横幅给出"已过期"人话;
+              // 其余关闭原因不碰 exitReason(零回归——旧原因各有既有文案路径)。
+              const closedReason =
+                typeof transportEvent.raw?.reason === 'string'
+                  ? transportEvent.raw.reason
+                  : undefined;
               set(state => ({
                 terminalSessions: state.terminalSessions.map(ts =>
                   ts.id === transportEvent.sessionId
@@ -1272,6 +1279,9 @@ export const useControlCenterStore = create<ControlCenterState>()(
                         replayTruncated: false,
                         // 会话已死,回放挂起随之解除(终路径清 replayPending)。
                         replayPending: false,
+                        ...(closedReason === 'ttl_expired'
+                          ? { exitReason: 'ttl_expired' }
+                          : {}),
                       }
                     : ts,
                 ),
@@ -1292,6 +1302,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
                 ].slice(0, 120),
               }));
               return;
+            }
 
             case 'terminal.exit':
               set(state => ({

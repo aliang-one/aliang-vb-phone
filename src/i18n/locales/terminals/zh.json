@@ -29,6 +29,24 @@
     "scanHint": "扫 terminal.aliang.one 页面二维码",
     "info": "终端简介"
   },
+  "lifetime": {
+    "title": "有效期",
+    "noExpiry": "未设置有效期",
+    "expired": "已到期，即将关闭",
+    "remaining": "剩余 {{duration}}",
+    "expiresAt": "到期 {{time}}",
+    "burnLabel": "生命剩余",
+    "renewTitle": "续期（单次最长 24 小时）",
+    "hours1": "+1 小时",
+    "hours6": "+6 小时",
+    "hours24": "续满 24 小时",
+    "renewing": "续期中…",
+    "renewFailed": "续期失败，请稍后再试",
+    "offlineHint": "设备离线，无法续期",
+    "durationHm": "{{h}} 小时 {{m}} 分",
+    "durationH": "{{h}} 小时",
+    "durationM": "{{m}} 分钟"
+  },
   "info": {
     "title": "终端简介",
     "createdAt": "创建时间",
@@ -38,6 +56,7 @@
     "directory": "工作目录",
     "status": "状态",
     "lastActive": "最近活动",
+    "expiry": "有效期",
     "back": "返回"
   },
   "quotaChallenge": {
@@ -51,6 +70,7 @@
   "exitReason": {
     "quota_unanswered": "输出已达配额上限，且确认弹窗未在期限内回应，终端已被终止。长时间高输出命令建议用「命令 > log 2>&1」把输出重定向到文件后再查看。",
     "quota_hard_cap": "输出已达硬性上限，终端已被终止。长时间高输出命令建议用「命令 > log 2>&1」把输出重定向到文件后再查看。",
-    "quota_denied": "已选择终止该终端（输出配额确认被拒绝）。"
+    "quota_denied": "已选择终止该终端（输出配额确认被拒绝）。",
+    "ttl_expired": "有效期已用完，终端已自动关闭。需要更久的话，在终端卡片的「更多 → 有效期」里可以续期（单次最长 24 小时）。"
   }
 }

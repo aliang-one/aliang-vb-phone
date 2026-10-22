@@ -36,3 +36,28 @@ export const terminalQuotaExitKind = (
   }
   return null;
 };
+
+/**
+ * Server-side close reasons worth a human sentence in the dead-session banner,
+ * on top of the agent's quota_* prefixes. Today exactly one: `ttl_expired` —
+ * the 有效期 sweeper's `terminal.closed` reason (store records it into
+ * exitReason verbatim). Unknown/other reasons → null (generic copy, the
+ * zero-regression rule).
+ */
+export type TerminalServerExitKind = 'ttl_expired';
+
+export const terminalServerExitKind = (
+  reason?: string | null,
+): TerminalServerExitKind | null =>
+  reason === 'ttl_expired' ? 'ttl_expired' : null;
+
+/**
+ * Combined humanizer for the dead-session banner: quota kill prefixes first,
+ * then server close reasons, else null.
+ */
+export type TerminalHumanExitKind = TerminalQuotaExitKind | TerminalServerExitKind;
+
+export const terminalHumanExitKind = (
+  reason?: string | null,
+): TerminalHumanExitKind | null =>
+  terminalQuotaExitKind(reason) ?? terminalServerExitKind(reason);

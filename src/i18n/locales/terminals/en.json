@@ -29,6 +29,24 @@
     "scanHint": "Scan the terminal.aliang.one QR code",
     "info": "Terminal info"
   },
+  "lifetime": {
+    "title": "Lifetime",
+    "noExpiry": "No expiry set",
+    "expired": "Expired — closing soon",
+    "remaining": "{{duration}} left",
+    "expiresAt": "Expires {{time}}",
+    "burnLabel": "LIFE REMAINING",
+    "renewTitle": "Renew (up to 24h per grant)",
+    "hours1": "+1h",
+    "hours6": "+6h",
+    "hours24": "Full 24h",
+    "renewing": "Renewing…",
+    "renewFailed": "Renewal failed — try again",
+    "offlineHint": "Device offline — cannot renew",
+    "durationHm": "{{h}}h {{m}}m",
+    "durationH": "{{h}}h",
+    "durationM": "{{m}}m"
+  },
   "info": {
     "title": "Terminal info",
     "createdAt": "Created",
@@ -38,6 +56,7 @@
     "directory": "Directory",
     "status": "Status",
     "lastActive": "Last active",
+    "expiry": "Expires",
     "back": "Back"
   },
   "quotaChallenge": {
@@ -51,6 +70,7 @@
   "exitReason": {
     "quota_unanswered": "Output reached the quota limit and the confirmation prompt was not answered in time, so this terminal was stopped. For long-running noisy commands, redirect output to a file with \"cmd > log 2>&1\".",
     "quota_hard_cap": "Output reached the hard cap, so this terminal was stopped. For long-running noisy commands, redirect output to a file with \"cmd > log 2>&1\".",
-    "quota_denied": "You chose to terminate this terminal (the output quota confirmation was denied)."
+    "quota_denied": "You chose to terminate this terminal (the output quota confirmation was denied).",
+    "ttl_expired": "The lifetime window ran out, so this terminal was closed automatically. Need it longer? Renew from the terminal card's More → Lifetime menu (up to 24h per grant)."
   }
 }

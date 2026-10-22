@@ -39,6 +39,7 @@ type TerminalSlice = Pick<
   | 'resetTerminalReplay'
   | 'clearTerminalGeometryFollow'
   | 'stopTerminal'
+  | 'renewTerminalSession'
   | 'interruptTerminal'
   | 'respondToPendingChallenge'
   | 'loadTerminalCommandHistory'
@@ -399,6 +400,29 @@ export const createTerminalSlice: StateCreator<
         ),
         ...state.events,
       ].slice(0, 120),
+    }));
+  },
+
+  // 续期(有效期):服务端把窗口重设为 now+hours(≤24h,只动租约记录,不碰
+  // PTY)。响应用的 mapper 会带占位 lines/空回放,这里沿用快照合并惯例保留
+  // 本地 lines 与 replay 状态,只让 expiresAt/ttlGrantedAt/status 走新值。
+  renewTerminalSession: async (sessionId, hours) => {
+    if (!get().serverMode) {
+      throw new Error(
+        'Platform connection is required before renewing a terminal.',
+      );
+    }
+    const serverSession = await platformTransport.renewTerminalSession(
+      sessionId,
+      hours,
+    );
+    const incoming = serverTerminalSessionToClient(serverSession);
+    set(state => ({
+      terminalSessions: state.terminalSessions.map(item =>
+        item.id === sessionId
+          ? mergeTerminalSessionSnapshot(item, incoming)
+          : item,
+      ),
     }));
   },
 

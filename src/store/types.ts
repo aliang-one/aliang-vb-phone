@@ -155,6 +155,14 @@ export interface TerminalSession {
    * `clearTerminalGeometryFollow`.
    */
   geometryFollow?: { cols: number; rows: number; origin: 'web' | 'phone' };
+  /**
+   * 有效期窗口(server 权威,mirrors TerminalSession.expiresAt/ttlGrantedAt):
+   * expiresAt = 当前窗口到期时刻,ttlGrantedAt = 窗口起点(create/renew/reopen
+   * 时下发)。两者都缺 = 无过期(存量会话/服务端 TTL 关闭),UI 显示"未设置"。
+   * 燃尽条以 (expiresAt - now) / (expiresAt - ttlGrantedAt) 计算。
+   */
+  expiresAt?: string;
+  ttlGrantedAt?: string;
 }
 
 /**
@@ -493,6 +501,11 @@ export interface ControlCenterState {
    */
   clearTerminalGeometryFollow: (sessionId: string) => void;
   stopTerminal: (terminalId: string) => Promise<void>;
+  /**
+   * 续期(有效期):把会话窗口重设为 now + hours(服务端上限 24h)。仅改
+   * 服务端租约记录,不动 PTY/lastActiveAt;返回后本地快照被响应替换。
+   */
+  renewTerminalSession: (sessionId: string, hours: number) => Promise<void>;
   interruptTerminal: (terminalId: string) => void;
   /**
    * Answer a queued output-quota challenge from the global ChallengeModal:

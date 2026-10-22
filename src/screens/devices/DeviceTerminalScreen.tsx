@@ -63,7 +63,7 @@ import {
   terminalKeyboardProxyNeedsNativeReset,
 } from '../../utils/terminalKeyboardProxy';
 import { terminalShortcutGroups } from '../../utils/terminalKeySequences';
-import { terminalQuotaExitKind } from '../../utils/terminalExitReason';
+import { terminalHumanExitKind } from '../../utils/terminalExitReason';
 import {
   flushPendingTerminalInput,
   sendTerminalInputBatched,
@@ -384,9 +384,9 @@ export const DeviceTerminalScreen: React.FC = () => {
   // only ever sits on dead sessions (cleared on create/resume), so its presence
   // alone is the display condition, in all three dead shapes: ended-replay,
   // dead-without-replay placeholder, and dead-with-stale-replay.
-  const quotaExitKind = terminalQuotaExitKind(terminal?.exitReason);
-  const quotaExitText = quotaExitKind
-    ? tExit(`exitReason.${quotaExitKind}`)
+  const humanExitKind = terminalHumanExitKind(terminal?.exitReason);
+  const quotaExitText = humanExitKind
+    ? tExit(`exitReason.${humanExitKind}`)
     : null;
   // 跟随徽章文案(设计 §3):可见文案与显式 a11y label 同参复用(本文件
   // 兄弟 touchable 均显式 label,不让读屏只念内联 Text)。

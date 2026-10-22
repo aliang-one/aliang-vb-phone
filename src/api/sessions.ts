@@ -286,6 +286,9 @@ export interface ServerTerminalSession {
   created_at: string;
   last_active_at: string;
   closed_at?: string;
+  /** 有效期窗口(server 权威):窗口起点 + 到期时刻;都缺 = 无过期。 */
+  ttl_granted_at?: string;
+  expires_at?: string;
   last_command?: string;
   last_command_at?: string;
   recent_commands?: Array<{
@@ -595,6 +598,19 @@ export const createTerminalSession = (input: {
 
 export const closeTerminalSession = (sessionId: string): Promise<ServerTerminalSession> =>
   apiPost(`/api/terminal/sessions/${sessionId}/close`);
+
+/**
+ * 续期(有效期):新窗口锚定在当前时刻(now + hours,服务端上限 24h),只在
+ * 服务端改租约记录,不碰 PTY。会话已死时服务端回 409。
+ */
+export const renewTerminalSession = (
+  sessionId: string,
+  hours: number,
+): Promise<ServerTerminalSession> =>
+  apiPost<ServerTerminalSession>(
+    `/api/terminal/sessions/${encodeURIComponent(sessionId)}/renew`,
+    { hours },
+  );
 
 /**
  * Attach to an existing terminal session. Asks the agent to resize to the

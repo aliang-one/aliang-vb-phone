@@ -1378,6 +1378,9 @@ export function serverTerminalSessionToClient(
     updatedAt: session.last_active_at,
     lastCommand: session.last_command,
     lastCommandAt: session.last_command_at,
+    // 有效期窗口(server 权威,snake_case 直透):都缺 = 无过期。
+    expiresAt: session.expires_at,
+    ttlGrantedAt: session.ttl_granted_at,
     // Replay state is realtime-only (never carried by REST snapshots): every
     // freshly mapped session starts with an empty buffer.
     replayChunks: [],
