@@ -90,9 +90,15 @@ describe('TerminalCardMenuSheet 有效期面板', () => {
       testID: 'terminal-menu-lifetime-burn',
     });
     expect(burn).toBeTruthy();
-    // 内层 fill 宽度按剩余比例渲染(87.5% → 88%,四舍五入)。
-    const fill = burn.props.children as { props: { width: string } };
-    expect(fill.props.width).toBe('88%');
+    // 内层 fill 宽度按剩余比例渲染(87.5% → 88%,四舍五入);width 在 style
+    // 数组的第二个条目里(第一个是 styles.burnFill)。
+    const fill = burn.props.children as {
+      props: { style: Array<Record<string, unknown>> };
+    };
+    const widthEntry = fill.props.style.find(
+      entry => typeof entry === 'object' && entry !== null && 'width' in entry,
+    ) as { width: string };
+    expect(widthEntry.width).toBe('88%');
 
     expect(renderer.root.findByProps({ testID: 'terminal-menu-renew-1' })).toBeTruthy();
     expect(renderer.root.findByProps({ testID: 'terminal-menu-renew-6' })).toBeTruthy();
@@ -189,7 +195,8 @@ describe('TerminalCardMenuSheet 有效期面板', () => {
   });
 
   it('删除固定在最底部(扫码/简介之后)', () => {
-    const renderer = renderSheet(makeTerminal(), { onRenew: jest.fn() });
+    // 不传 onRenew:面板仍在(活会话)但无续期 chips,行序断言最干净。
+    const renderer = renderSheet(makeTerminal());
     const ids = renderer.root
       .findAllByType(TouchableOpacity)
       .map(node => node.props.testID)
