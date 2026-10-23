@@ -1,10 +1,10 @@
 /**
  * 手绘页（Task 20 + Task 21）。
  *
- * 进入方式：输入框「+」→ 手绘。画布占满剩余空间，底部是工具栏与两个出口：
- *   - 保存：PNG 入库（`kind:'drawing'`），返回会话页并自动勾选为待发送素材；
- *   - 保存并发送：入库后立刻交给会话页发送（服务端正文要求非空，草稿为空
- *     时用一句默认说明兜底，见会话页的 handoff 消费逻辑）。
+ * 进入方式：输入框「+」→ 手绘。画布占满剩余空间，底部是工具栏与一个出口：
+ *   - 完成：PNG 入库（`kind:'drawing'`），返回会话页并作为待发送素材挂在
+ *     输入框上方。发送永远是用户在输入框里显式点的——这里绝不能自动发：
+ *     手绘往往只是消息的一部分，用户回到输入框后还要继续打字。
  *
  * 导出用 `captureRef` 截白底画布 View。`collapsable={false}` 在 Fabric 上
  * 是硬要求：新架构会把「只有样式没有原生意义」的 View 折叠掉，折叠后 ref
@@ -80,7 +80,7 @@ export const DrawingScreen: React.FC = () => {
   }, []);
 
   const handleSave = useCallback(
-    async (autoSend: boolean) => {
+    async () => {
       if (saving) return;
       if (drawing.strokes.length === 0) {
         showToast(t('drawing.empty'), 'info');
@@ -99,7 +99,8 @@ export const DrawingScreen: React.FC = () => {
           width: canvasSize.width > 0 ? Math.round(canvasSize.width) : undefined,
           height: canvasSize.height > 0 ? Math.round(canvasSize.height) : undefined,
         });
-        setEditorHandoff({ asset, autoSend });
+        // autoSend 恒为 false：素材只挂到输入框，等用户补完文字后自己点发送。
+        setEditorHandoff({ asset, autoSend: false });
         navigation.goBack();
       } catch {
         showToast(t('attachments.error'), 'error');
@@ -150,33 +151,22 @@ export const DrawingScreen: React.FC = () => {
               borderTopColor: theme.colors.outlineVariant,
             },
           ]}>
+          <Text
+            style={[
+              theme.typography.bodySm,
+              styles.attachHint,
+              { color: theme.colors.onSurfaceVariant },
+            ]}>
+            {t('drawing.attachHint')}
+          </Text>
           <Pressable
             testID="drawing-save"
             accessibilityRole="button"
-            accessibilityLabel={t('drawing.save')}
+            accessibilityLabel={t('drawing.done')}
             disabled={saving}
-            onPress={() => void handleSave(false)}
+            onPress={() => void handleSave()}
             style={[
               styles.actionButton,
-              {
-                borderColor: theme.colors.outlineVariant,
-                backgroundColor: theme.colors.surfaceContainerLow,
-                opacity: saving ? 0.5 : 1,
-              },
-            ]}>
-            <Text style={[theme.typography.labelMd, { color: theme.colors.onSurface }]}>
-              {t('drawing.save')}
-            </Text>
-          </Pressable>
-          <Pressable
-            testID="drawing-save-send"
-            accessibilityRole="button"
-            accessibilityLabel={t('drawing.saveAndSend')}
-            disabled={saving}
-            onPress={() => void handleSave(true)}
-            style={[
-              styles.actionButton,
-              styles.primaryAction,
               {
                 backgroundColor: theme.colors.primary,
                 borderColor: theme.colors.primary,
@@ -188,7 +178,7 @@ export const DrawingScreen: React.FC = () => {
             ) : (
               <Text
                 style={[theme.typography.labelMd, { color: theme.colors.onPrimary }]}>
-                {t('drawing.saveAndSend')}
+                {t('drawing.done')}
               </Text>
             )}
           </Pressable>
@@ -211,21 +201,19 @@ const styles = StyleSheet.create({
     backgroundColor: CANVAS_BACKGROUND,
   },
   actions: {
-    flexDirection: 'row',
-    gap: 12,
+    gap: 8,
     paddingHorizontal: 16,
     paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
+  attachHint: {
+    textAlign: 'center',
+  },
   actionButton: {
-    flex: 1,
     height: 46,
     borderRadius: 23,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  primaryAction: {
-    flex: 1.4,
   },
 });

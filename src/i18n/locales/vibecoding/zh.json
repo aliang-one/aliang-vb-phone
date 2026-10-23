@@ -516,7 +516,8 @@
   "drawing": {
     "title": "手绘",
     "save": "保存",
-    "saveAndSend": "保存并发送",
+    "done": "完成",
+    "attachHint": "完成后插入输入框，可继续输入文字再发送",
     "empty": "画布还是空的",
     "eraser": "橡皮",
     "eraserShort": "橡皮",
