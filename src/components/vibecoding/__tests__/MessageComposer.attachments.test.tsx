@@ -1,10 +1,13 @@
 /**
- * Composer 素材入口契约（Task 17）。
+ * Composer 素材入口契约（Task 17 + 2026-10-23 改版）。
  *
- * 入口只在「确定能上传」时出现：调用方用会话能力位（COS 是否配置）决定
- * attachmentsEnabled。能力位未知时整颗按钮不渲染——不让用户点进一条注定
- * 失败的链路；离线/只读时保留按钮但置灰，用户能看到入口也知道点不动。
+ * 改版：入口不再常驻 composerRow 左侧（把输入区挤得太紧），改为**打字时**
+ * （输入框聚焦、或有草稿文字）在输入框内部右侧、发送键旁边出现。
+ *
+ * 保留的硬规则：入口只在「确定能上传」时出现（attachmentsEnabled 能力位，
+ * 未知/false 一律不渲染）；离线/只读时保留按钮但置灰；语音模式不出现。
  */
+import { TextInput } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 
 jest.mock('../SlashCommandSuggestions', () => ({
@@ -76,6 +79,16 @@ const hasTestId = (
     node => node.props?.testID === testID && typeof node.type === 'string',
   ).length > 0;
 
+const focusInput = (renderer: TestRenderer.ReactTestRenderer) => {
+  const input = renderer.root.findByType(TextInput);
+  act(() => input.props.onFocus?.());
+};
+
+const blurInput = (renderer: TestRenderer.ReactTestRenderer) => {
+  const input = renderer.root.findByType(TextInput);
+  act(() => input.props.onBlur?.());
+};
+
 /** 复合层（TouchableOpacity）自带我们传入的 disabled/onPress，取最外层。 */
 const attachmentButton = (renderer: TestRenderer.ReactTestRenderer) =>
   renderer.root.findAll(
@@ -84,20 +97,23 @@ const attachmentButton = (renderer: TestRenderer.ReactTestRenderer) =>
       typeof node.props?.onPress === 'function',
   )[0];
 
-describe('MessageComposer 素材入口', () => {
-  test('未确认能力位（默认 false）→ 不渲染入口', () => {
+describe('MessageComposer 素材入口（打字时右侧内嵌）', () => {
+  test('未确认能力位（默认 false）→ 永不渲染入口', () => {
     const renderer = render({});
+    focusInput(renderer);
     expect(hasTestId(renderer, 'composer-attachments')).toBe(false);
     unmount(renderer);
   });
 
-  test('能力位可用 → 渲染入口，点一下请求打开菜单', () => {
+  test('未聚焦且无草稿 → 不渲染；聚焦后出现，点一下请求打开菜单', () => {
     const onOpenAttachments = jest.fn();
     const renderer = render({
       attachmentsEnabled: true,
       onOpenAttachments,
     });
+    expect(hasTestId(renderer, 'composer-attachments')).toBe(false);
 
+    focusInput(renderer);
     const button = attachmentButton(renderer);
     expect(button).toBeTruthy();
     expect(button.props.accessibilityRole).toBe('button');
@@ -108,59 +124,60 @@ describe('MessageComposer 素材入口', () => {
     unmount(renderer);
   });
 
-  test('设备离线 → 入口保留但禁用', () => {
+  test('失焦后消失；有草稿文字时失焦也保留', () => {
+    const renderer = render({ attachmentsEnabled: true, onOpenAttachments: jest.fn() });
+    focusInput(renderer);
+    expect(hasTestId(renderer, 'composer-attachments')).toBe(true);
+    blurInput(renderer);
+    expect(hasTestId(renderer, 'composer-attachments')).toBe(false);
+
+    const withDraft = render({
+      attachmentsEnabled: true,
+      input: '看看这张图',
+      onOpenAttachments: jest.fn(),
+    });
+    expect(hasTestId(withDraft, 'composer-attachments')).toBe(true);
+    unmount(renderer);
+    unmount(withDraft);
+  });
+
+  test('聚焦后同时回调屏幕级 onTextInputFocus（保留既有 autoFocus 复位链路）', () => {
+    const onTextInputFocus = jest.fn();
+    const renderer = render({
+      attachmentsEnabled: true,
+      onTextInputFocus,
+      onOpenAttachments: jest.fn(),
+    });
+    focusInput(renderer);
+    expect(onTextInputFocus).toHaveBeenCalledTimes(1);
+    unmount(renderer);
+  });
+
+  test('设备离线 → 聚焦后入口保留但禁用', () => {
     const renderer = render({
       attachmentsEnabled: true,
       deviceOffline: true,
       onOpenAttachments: jest.fn(),
     });
+    focusInput(renderer);
     expect(attachmentButton(renderer).props.disabled).toBe(true);
     unmount(renderer);
   });
 
-  test('只读会话 → 入口保留但禁用', () => {
+  test('只读会话 → 入口不出现（composer 就地显示只读原因，无输入框可附着）', () => {
     const renderer = render({
       attachmentsEnabled: true,
       readOnlyReason: '会话已结束',
       onOpenAttachments: jest.fn(),
     });
-    expect(attachmentButton(renderer).props.disabled).toBe(true);
-    unmount(renderer);
-  });
-});
-
-describe('MessageComposer 发送键（纯素材）', () => {
-  const sendButton = (renderer: TestRenderer.ReactTestRenderer) =>
-    renderer.root.findAll(
-      node =>
-        node.props?.testID === 'composer-send' &&
-        typeof node.props?.onPress === 'function',
-    )[0];
-
-  test('输入为空、没有素材 → 发送键禁用', () => {
-    const renderer = render({});
-    expect(sendButton(renderer).props.disabled).toBe(true);
+    // 只读态没有 TextInput（被原因行替代），「打字时出现」无从谈起。
+    expect(hasTestId(renderer, 'composer-attachments')).toBe(false);
     unmount(renderer);
   });
 
-  test('输入为空但已选素材 → 发送键可用（会话页补默认说明）', () => {
-    const renderer = render({ attachmentCount: 1 });
-    expect(sendButton(renderer).props.disabled).toBe(false);
-    unmount(renderer);
-  });
-
-  test('有素材但会话只读 → 仍然禁用', () => {
-    const renderer = render({
-      attachmentCount: 2,
-      readOnlyReason: '会话已结束',
-    });
-    expect(sendButton(renderer).props.disabled).toBe(true);
-    unmount(renderer);
-  });
-
-  test('有素材但设备离线 → 仍然禁用', () => {
-    const renderer = render({ attachmentCount: 1, deviceOffline: true });
-    expect(sendButton(renderer).props.disabled).toBe(true);
+  test('语音模式 → 不渲染（入口属于文字输入）', () => {
+    const renderer = render({ attachmentsEnabled: true, mode: 'voice' } as Partial<MessageComposerProps>);
+    expect(hasTestId(renderer, 'composer-attachments')).toBe(false);
     unmount(renderer);
   });
 });

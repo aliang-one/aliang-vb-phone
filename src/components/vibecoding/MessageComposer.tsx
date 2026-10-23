@@ -355,6 +355,10 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
     if (!interruptGreyed) setGreyedHintOpen(false);
   }, [interruptGreyed]);
 
+  // 素材入口跟随「打字中」：聚焦即出现（允许只发图不打字），失焦消失，
+  // 但有草稿文字时保留——别让用户清空文字后入口闪烁着不见。
+  const [inputFocused, setInputFocused] = useState(false);
+
   const containerBg = isDark ? 'rgba(255,255,255,0.045)' : theme.colors.surfaceContainer;
   const ctrlBg: ViewStyle = {
     backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
@@ -599,7 +603,11 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
         <TextInput
           value={input}
           onChangeText={onInputChange}
-          onFocus={onTextInputFocus}
+          onFocus={() => {
+            setInputFocused(true);
+            onTextInputFocus?.();
+          }}
+          onBlur={() => setInputFocused(false)}
           autoFocus={autoFocusText}
           editable={!sendingMessage}
           placeholder={goalDraft
@@ -722,31 +730,6 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
         />
       ) : null}
       <View style={styles.composerRow}>
-        {/* 素材入口：只有在服务端确认「能上传」时才渲染。能力位未知（列表
-            快照）或 COS 未配置时整颗按钮不出现——比渲染一个禁用态更诚实。
-            离线/只读时保留按钮但禁用，用户能看到入口、知道为什么点不动。 */}
-        {attachmentsEnabled ? (
-          <TouchableOpacity
-            testID="composer-attachments"
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel={t('attachments.open')}
-            disabled={deviceOffline || Boolean(readOnlyReason)}
-            onPress={onOpenAttachments}
-            style={[
-              styles.ctrlBtn,
-              {
-                borderRadius: theme.borderRadius.full,
-                backgroundColor: ctrlBg.backgroundColor,
-                borderWidth: 1,
-                borderColor: 'transparent',
-                opacity: deviceOffline || readOnlyReason ? 0.45 : 1,
-              },
-            ]}
-          >
-            <ComposerIcon name="image" size={20} color={theme.colors.onSurfaceVariant} />
-          </TouchableOpacity>
-        ) : null}
         <TouchableOpacity
           activeOpacity={0.7}
           accessibilityRole="button"
@@ -872,6 +855,34 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
                   renderAnimatedContent()
                 )}
               </View>
+              {/* 素材入口：打字时（聚焦/有草稿）出现在输入框内部右侧、发送键
+                  旁。能力位未知（列表快照）或 COS 未配置时整颗按钮不出现——
+                  比渲染一个禁用态更诚实。离线/只读时保留按钮但置灰，用户能
+                  看到入口、知道为什么点不动。语音模式不属于文字输入，不出现。 */}
+              {attachmentsEnabled &&
+              mode === 'text' &&
+              (inputFocused || input.length > 0) ? (
+                <TouchableOpacity
+                  testID="composer-attachments"
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('attachments.open')}
+                  disabled={deviceOffline || Boolean(readOnlyReason)}
+                  onPress={onOpenAttachments}
+                  style={[
+                    styles.ctrlBtn,
+                    {
+                      borderRadius: theme.borderRadius.full,
+                      backgroundColor: ctrlBg.backgroundColor,
+                      borderWidth: 1,
+                      borderColor: 'transparent',
+                      opacity: deviceOffline || readOnlyReason ? 0.45 : 1,
+                    },
+                  ]}
+                >
+                  <ComposerIcon name="image" size={20} color={theme.colors.onSurfaceVariant} />
+                </TouchableOpacity>
+              ) : null}
               {renderAction()}
             </View>
           </View>
