@@ -1,18 +1,34 @@
 /**
- * ASCII 画布（Task 23）。
+ * ASCII 画布（Task 23；2026-10-23 真机修复 + 方格背景）。
  *
  * 性能关键：整块网格渲染成**一个** `<Text>`。60×30 逐格一个节点是 1800 个
  * 视图，拖动时每帧重渲染会直接卡死；一个 Text 只是一次文本布局。
  *
- * 触摸映射：透明手势层包住文本，事件坐标是相对该视图的。格宽/格高取
+ * 触摸映射：手势层包住文本，事件坐标是相对该视图的。格宽/格高取
  * **实测文本尺寸 ÷ 列/行数**，而不是假设字体度量——iOS Menlo 与 Android
  * monospace 的字符步进略有差异，用实测值才不会越画越偏。
  *
  * 字号按可用宽高自动收缩，保证 60×30 与 120×60 都能整幅落在屏幕内。
+ *
+ * 手势用 RN 原生 PanResponder（2026-10-23 起）：RNGH `GestureDetector` 在
+ * iOS 26 真机上回调不触发（本 App 两个 RNGH 画布全部无响应，而 PanResponder
+ * 的快滑条正常），绘制是硬需求，不再赌 RNGH 的平台兼容性。Text 必须
+ * `pointerEvents="none"`——否则 move 事件坐标会相对子节点漂移。
+ *
+ * 方格背景：按实测格宽/格高画淡色网格线，让「我在往哪格落字」看得见——
+ * 没有网格时画了字符也几乎察觉不到变化（字太小、又没有参照系）。
  */
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Platform, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import {
+  PanResponder,
+  Platform,
+  StyleSheet,
+  Text,
+  View,
+  type GestureResponderEvent,
+  type LayoutChangeEvent,
+} from 'react-native';
+import Svg, { Line } from 'react-native-svg';
 import { useTheme } from '../../theme/useTheme';
 import type { AsciiGrid, Cell } from './asciiGrid';
 import { toText } from './asciiGrid';
@@ -88,37 +104,41 @@ export const AsciiCanvas: React.FC<AsciiCanvasProps> = ({
     };
   }, []);
 
+  const cellOf = (event: GestureResponderEvent): Cell =>
+    toCell(event.nativeEvent.locationX, event.nativeEvent.locationY);
+
   const gesture = useMemo(
     () =>
-      Gesture.Pan()
-        .minDistance(0)
-        .runOnJS(true)
-        .onBegin(event => {
-          const cell = toCell(event.x, event.y);
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: event => {
+          const cell = cellOf(event);
           activeRef.current = true;
           lastCellRef.current = cell;
           handlersRef.current.onStrokeStart(cell);
-        })
-        .onUpdate(event => {
+        },
+        onPanResponderMove: event => {
           if (!activeRef.current) return;
-          const cell = toCell(event.x, event.y);
+          const cell = cellOf(event);
           lastCellRef.current = cell;
           handlersRef.current.onStrokeMove(cell);
-        })
-        .onEnd(event => {
+        },
+        onPanResponderRelease: event => {
           if (!activeRef.current) return;
           activeRef.current = false;
-          handlersRef.current.onStrokeEnd(toCell(event.x, event.y));
-        })
-        // 手势被系统取消时 onEnd 不会触发；finalize 兜底提交，避免「画到
+          handlersRef.current.onStrokeEnd(cellOf(event));
+        },
+        // 手势被系统取消时 release 不会触发；terminate 兜底提交，避免「画到
         // 一半来电」留下一个永远不结束的进行中笔迹。
-        .onFinalize(() => {
+        onPanResponderTerminate: () => {
           if (!activeRef.current) return;
           activeRef.current = false;
           const last = lastCellRef.current;
           if (last) handlersRef.current.onStrokeEnd(last);
-        }),
-    [toCell],
+        },
+      }),
+    [cellOf],
   );
 
   const handleAvailableLayout = useCallback((event: LayoutChangeEvent) => {
@@ -131,29 +151,69 @@ export const AsciiCanvas: React.FC<AsciiCanvasProps> = ({
     setMeasured({ width, height });
   }, []);
 
+  // 方格背景：列/行边界各一条淡线。行高实测后才有意义；列数行数都是
+  // 几十的量级，百来条 Line 不构成渲染压力。
+  const gridLines = useMemo(() => {
+    if (measured.width <= 0 || measured.height <= 0) return null;
+    const color = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(15,23,42,0.08)';
+    const vertical = Array.from({ length: grid.cols + 1 }, (_, i) => (
+      <Line
+        key={`v${i}`}
+        x1={i * cellWidth}
+        y1={0}
+        x2={i * cellWidth}
+        y2={measured.height}
+        stroke={color}
+        strokeWidth={0.5}
+      />
+    ));
+    const horizontal = Array.from({ length: grid.rows + 1 }, (_, i) => (
+      <Line
+        key={`h${i}`}
+        x1={0}
+        y1={i * cellHeight}
+        x2={measured.width}
+        y2={i * cellHeight}
+        stroke={color}
+        strokeWidth={0.5}
+      />
+    ));
+    return (
+      <Svg
+        width={measured.width}
+        height={measured.height}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none">
+        {vertical}
+        {horizontal}
+      </Svg>
+    );
+  }, [cellHeight, cellWidth, grid.cols, grid.rows, isDark, measured.height, measured.width]);
+
   return (
     <View style={styles.container} onLayout={handleAvailableLayout}>
-      <GestureDetector gesture={gesture}>
-        <View
-          testID="ascii-canvas"
-          onLayout={handleTextLayout}
-          style={styles.touchLayer}>
-          <Text
-            testID="ascii-text"
-            style={{
-              fontFamily: Platform.select({
-                ios: 'Menlo',
-                android: 'monospace',
-                default: 'monospace',
-              }),
-              fontSize,
-              lineHeight,
-              color: isDark ? '#E5E7EB' : '#111827',
-            }}>
-            {toText(grid)}
-          </Text>
-        </View>
-      </GestureDetector>
+      <View
+        {...gesture.panHandlers}
+        style={styles.touchLayer}
+        testID="ascii-canvas"
+        onLayout={handleTextLayout}>
+        {gridLines}
+        <Text
+          testID="ascii-text"
+          pointerEvents="none"
+          style={{
+            fontFamily: Platform.select({
+              ios: 'Menlo',
+              android: 'monospace',
+              default: 'monospace',
+            }),
+            fontSize,
+            lineHeight,
+            color: isDark ? '#E5E7EB' : '#111827',
+          }}>
+          {toText(grid)}
+        </Text>
+      </View>
     </View>
   );
 };

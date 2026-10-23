@@ -11,43 +11,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 
-// 本地覆盖 jest.setup 的全局 gesture-handler mock：画布需要 Gesture.Pan 的
-// 链式 API 与 GestureDetector（全局 mock 只导出 GestureHandlerRootView）。
-// eslint-disable-next-line @typescript-eslint/ban-types
-const mockGestureHandlers: Record<string, Function> = {};
-
-jest.mock('react-native-gesture-handler', () => {
-  const ReactInner = require('react');
-  const { View } = require('react-native');
-  const chain = () => {
-    const gesture: Record<string, unknown> = {};
-    for (const method of [
-      'minDistance',
-      'runOnJS',
-      'onBegin',
-      'onUpdate',
-      'onEnd',
-      'onFinalize',
-    ]) {
-      gesture[method] = (arg?: unknown) => {
-        if (typeof arg === 'function') {
-          mockGestureHandlers[method] = arg;
-        }
-        return gesture;
-      };
-    }
-    return gesture;
-  };
-  return {
-    GestureHandlerRootView: ReactInner.forwardRef(
-      (props: Record<string, unknown>, ref: unknown) =>
-        ReactInner.createElement(View, { ...props, ref }),
-    ),
-    GestureDetector: ({ children }: { children: React.ReactNode }) => children,
-    Gesture: { Pan: chain, Tap: chain, LongPress: chain },
-  };
-});
-
+// 画布手势已是 RN 原生 PanResponder（iOS 26 真机上 RNGH 回调不触发），
+// 测试直接驱动 drawing-canvas 节点上的 responder 回调，无需 mock 手势库。
 // 覆盖全局 view-shot mock，拿一个可断言的句柄。
 const mockCaptureRef = jest.fn(() => Promise.resolve('file:///tmp/shot.png'));
 jest.mock('react-native-view-shot', () => ({
@@ -139,12 +104,40 @@ const layoutCanvas = (
   });
 };
 
-/** 通过本地手势 mock 画一笔，让画布上有内容可保存。 */
-const drawOneStroke = async () => {
+/** 在画布上画一笔（responder 协议直驱），让画布上有内容可保存。
+ *  touchHistory 按 RN 约定 1-indexed；PanResponder 的 move 有时间戳去重。 */
+let fakeTouchClock = 0;
+const touchEvent = (point: { x: number; y: number }) => {
+  fakeTouchClock += 1;
+  const stamp = fakeTouchClock;
+  return {
+    nativeEvent: { locationX: point.x, locationY: point.y },
+    touchHistory: {
+      mostRecentTimeStamp: stamp,
+      numberActiveTouches: 1,
+      indexOfSingleActiveTouch: 1,
+      touchBank: [
+        null,
+        {
+          touchActive: true,
+          currentTimeStamp: stamp,
+          previousTimeStamp: stamp,
+          currentPageX: point.x,
+          currentPageY: point.y,
+          previousPageX: point.x,
+          previousPageY: point.y,
+        },
+      ],
+    },
+  };
+};
+
+const drawOneStroke = async (renderer: ReactTestRenderer.ReactTestRenderer) => {
+  const responder = byTestID(renderer, 'drawing-canvas').props;
   await act(async () => {
-    mockGestureHandlers.onBegin?.({ x: 10, y: 10 });
-    mockGestureHandlers.onUpdate?.({ x: 40, y: 50 });
-    mockGestureHandlers.onEnd?.();
+    responder.onResponderGrant?.(touchEvent({ x: 10, y: 10 }));
+    responder.onResponderMove?.(touchEvent({ x: 40, y: 50 }));
+    responder.onResponderRelease?.(touchEvent({ x: 80, y: 90 }));
   });
 };
 
@@ -159,7 +152,6 @@ const press = async (
 };
 
 beforeEach(() => {
-  for (const key of Object.keys(mockGestureHandlers)) delete mockGestureHandlers[key];
   mockCaptureRef.mockClear();
   mockAddAsset.mockReset();
   mockAddAsset.mockResolvedValue(fakeAsset);
@@ -171,7 +163,7 @@ describe('DrawingScreen 保存', () => {
   it('保存：截图 → 以 drawing 素材入库 → handoff(autoSend=false) → 返回', async () => {
     const renderer = await renderScreen();
     layoutCanvas(renderer, 320.4, 480.6);
-    await drawOneStroke();
+    await drawOneStroke(renderer);
 
     await press(renderer, 'drawing-save');
 
@@ -197,7 +189,7 @@ describe('DrawingScreen 保存', () => {
 
   it('保存并发送：handoff(autoSend=true)', async () => {
     const renderer = await renderScreen();
-    await drawOneStroke();
+    await drawOneStroke(renderer);
 
     await press(renderer, 'drawing-save-send');
 

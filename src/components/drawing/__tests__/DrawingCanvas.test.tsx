@@ -1,5 +1,5 @@
 /**
- * 画布与笔迹契约（Task 20）。
+ * 画布与笔迹契约（Task 20；2026-10-23 随 PanResponder 改版更新）。
  *
  * 四条不变量（plan Step 1）：
  *   - 画一笔 → 只有一条笔迹（一次手势 = 一条 Path）；
@@ -7,48 +7,15 @@
  *   - 新笔迹后重做栈清空；
  *   - 抽稀：连续 1px 位移不新增点。
  *
- * 手势回调通过本地 mock 捕获：jest.setup 的全局 gesture-handler mock 只导出
- * GestureHandlerRootView，而画布需要 Gesture.Pan 链式 API 与 GestureDetector。
+ * 手势已从 RNGH 换成 RN 原生 PanResponder（iOS 26 真机上 RNGH 回调不触发，
+ * 本 App 内 PanResponder 的快滑条是唯一被证实可用的机制），测试直接驱动
+ * `drawing-canvas` 节点上的 responder 回调，无需 mock 手势库。touchHistory
+ * 按 RN 约定 1-indexed（touchBank[0] 为 null）。
  */
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { Pressable, Text } from 'react-native';
 import { Path } from 'react-native-svg';
-
-// eslint-disable-next-line @typescript-eslint/ban-types
-const mockGestureHandlers: Record<string, Function> = {};
-
-jest.mock('react-native-gesture-handler', () => {
-  const ReactInner = require('react');
-  const { View } = require('react-native');
-  const chain = () => {
-    const gesture: Record<string, unknown> = {};
-    for (const method of [
-      'minDistance',
-      'runOnJS',
-      'onBegin',
-      'onUpdate',
-      'onEnd',
-      'onFinalize',
-    ]) {
-      gesture[method] = (arg?: unknown) => {
-        if (typeof arg === 'function') {
-          mockGestureHandlers[method] = arg;
-        }
-        return gesture;
-      };
-    }
-    return gesture;
-  };
-  return {
-    GestureHandlerRootView: ReactInner.forwardRef(
-      (props: Record<string, unknown>, ref: unknown) =>
-        ReactInner.createElement(View, { ...props, ref }),
-    ),
-    GestureDetector: ({ children }: { children: React.ReactNode }) => children,
-    Gesture: { Pan: chain, Tap: chain, LongPress: chain },
-  };
-});
 
 import { DrawingCanvas } from '../DrawingCanvas';
 import {
@@ -100,9 +67,50 @@ const countPaths = (renderer: TestRenderer.ReactTestRenderer) =>
 const countOf = (renderer: TestRenderer.ReactTestRenderer) =>
   findById(renderer, 'stroke-count').props.children;
 
-beforeEach(() => {
-  for (const key of Object.keys(mockGestureHandlers)) delete mockGestureHandlers[key];
-});
+const canvasResponder = (renderer: TestRenderer.ReactTestRenderer) =>
+  findById(renderer, 'drawing-canvas').props;
+
+/** 构造 PanResponder 能消化的合成事件（grant/move 内部会读 touchHistory）。 */
+let fakeTouchClock = 0;
+const touchEvent = (point: { x: number; y: number }) => {
+  fakeTouchClock += 1;
+  const stamp = fakeTouchClock;
+  return {
+    nativeEvent: { locationX: point.x, locationY: point.y },
+    touchHistory: {
+      mostRecentTimeStamp: stamp,
+      numberActiveTouches: 1,
+      indexOfSingleActiveTouch: 1,
+      touchBank: [
+        null,
+        {
+          touchActive: true,
+          currentTimeStamp: stamp,
+          previousTimeStamp: stamp,
+          currentPageX: point.x,
+          currentPageY: point.y,
+          previousPageX: point.x,
+          previousPageY: point.y,
+        },
+      ],
+    },
+  };
+};
+
+/** 模拟一次完整的「按下-移动-抬手」。 */
+const strokeBy = async (
+  renderer: TestRenderer.ReactTestRenderer,
+  points: { x: number; y: number }[],
+) => {
+  const responder = canvasResponder(renderer);
+  await act(async () => {
+    responder.onResponderGrant?.(touchEvent(points[0]!));
+    for (const point of points.slice(1)) {
+      responder.onResponderMove?.(touchEvent(point));
+    }
+    responder.onResponderRelease?.(touchEvent(points[points.length - 1]!));
+  });
+};
 
 describe('画布手势', () => {
   it('画一笔 → 一条笔迹、一条 Path', async () => {
@@ -111,16 +119,11 @@ describe('画布手势', () => {
       renderer = TestRenderer.create(<Harness />);
     });
 
-    await act(async () => {
-      mockGestureHandlers.onBegin?.({ x: 10, y: 10 });
-    });
-    await act(async () => {
-      mockGestureHandlers.onUpdate?.({ x: 40, y: 50 });
-    });
-    await act(async () => {
-      mockGestureHandlers.onUpdate?.({ x: 80, y: 90 });
-      mockGestureHandlers.onEnd?.();
-    });
+    await strokeBy(renderer, [
+      { x: 10, y: 10 },
+      { x: 40, y: 50 },
+      { x: 80, y: 90 },
+    ]);
 
     expect(countOf(renderer)).toBe('1');
     expect(countPaths(renderer)).toBe(1);
@@ -133,19 +136,16 @@ describe('画布手势', () => {
     act(() => renderer.unmount());
   });
 
-  it('抬手后的迟到 update 不会续到新笔迹上', async () => {
+  it('抬手后的迟到 move 不会续到新笔迹上', async () => {
     let renderer!: TestRenderer.ReactTestRenderer;
     await act(async () => {
       renderer = TestRenderer.create(<Harness />);
     });
 
+    await strokeBy(renderer, [{ x: 10, y: 10 }]);
     await act(async () => {
-      mockGestureHandlers.onBegin?.({ x: 10, y: 10 });
-      mockGestureHandlers.onEnd?.();
-    });
-    await act(async () => {
-      // 手势已结束，迟到的 update 应被忽略（activeStrokeId 已清空）。
-      mockGestureHandlers.onUpdate?.({ x: 99, y: 99 });
+      // 手势已结束，迟到的 move 应被忽略（activeStrokeId 已清空）。
+      canvasResponder(renderer).onResponderMove?.(touchEvent({ x: 99, y: 99 }));
     });
 
     const path = renderer.root.findAllByType(Path)[0];
@@ -161,11 +161,10 @@ describe('撤销 / 重做', () => {
     await act(async () => {
       renderer = TestRenderer.create(<Harness />);
     });
-    await act(async () => {
-      mockGestureHandlers.onBegin?.({ x: 10, y: 10 });
-      mockGestureHandlers.onUpdate?.({ x: 50, y: 50 });
-      mockGestureHandlers.onEnd?.();
-    });
+    await strokeBy(renderer, [
+      { x: 10, y: 10 },
+      { x: 50, y: 50 },
+    ]);
     expect(countOf(renderer)).toBe('1');
 
     await act(async () => {

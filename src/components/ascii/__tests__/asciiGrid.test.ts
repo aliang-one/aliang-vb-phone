@@ -7,11 +7,13 @@
  *   - toText 行数与列数对齐（短行补空格）。
  */
 import {
+  applyTool,
   createGrid,
   crop,
   drawLine,
   drawRect,
   erase,
+  pickDirectionChar,
   resizeGrid,
   setCell,
   toText,
@@ -20,6 +22,71 @@ import {
 
 /** 取某一行拼接后的字符串，断言更直观。 */
 const rowText = (g: AsciiGrid, y: number): string => g.cells[y].join('');
+
+const cellAt = (g: AsciiGrid, x: number, y: number): string => g.cells[y][x];
+
+describe('pickDirectionChar', () => {
+  it('同格 → 圆点', () => {
+    expect(pickDirectionChar({ x: 3, y: 3 }, { x: 3, y: 3 })).toBe('·');
+  });
+  it('水平（向右/向左）→ 横线', () => {
+    expect(pickDirectionChar({ x: 1, y: 2 }, { x: 2, y: 2 })).toBe('─');
+    expect(pickDirectionChar({ x: 2, y: 2 }, { x: 1, y: 2 })).toBe('─');
+  });
+  it('垂直（向下/向上）→ 竖线', () => {
+    expect(pickDirectionChar({ x: 2, y: 1 }, { x: 2, y: 2 })).toBe('│');
+    expect(pickDirectionChar({ x: 2, y: 2 }, { x: 2, y: 1 })).toBe('│');
+  });
+  it('右下/左上 → 反斜线', () => {
+    expect(pickDirectionChar({ x: 1, y: 1 }, { x: 2, y: 2 })).toBe('╲');
+    expect(pickDirectionChar({ x: 2, y: 2 }, { x: 1, y: 1 })).toBe('╲');
+  });
+  it('右上/左下 → 正斜线', () => {
+    expect(pickDirectionChar({ x: 1, y: 2 }, { x: 2, y: 1 })).toBe('╱');
+    expect(pickDirectionChar({ x: 2, y: 1 }, { x: 1, y: 2 })).toBe('╱');
+  });
+});
+
+describe("applyTool 'auto'", () => {
+  it('水平拖动 → 整段 ─（起点也跟随方向，不留点）', () => {
+    const g = applyTool(createGrid(10, 5), 'auto', { x: 2, y: 2 }, { x: 5, y: 2 }, '?');
+    expect(rowText(g, 2)).toBe('  ────    ');
+  });
+  it('垂直拖动 → 整列 │', () => {
+    const g = applyTool(createGrid(10, 5), 'auto', { x: 3, y: 1 }, { x: 3, y: 3 }, '?');
+    expect(cellAt(g, 3, 1)).toBe('│');
+    expect(cellAt(g, 3, 2)).toBe('│');
+    expect(cellAt(g, 3, 3)).toBe('│');
+  });
+  it('右下斜拖 → 逐格 ╲，不跳格', () => {
+    const g = applyTool(createGrid(10, 10), 'auto', { x: 2, y: 2 }, { x: 4, y: 4 }, '?');
+    expect(cellAt(g, 2, 2)).toBe('╲');
+    expect(cellAt(g, 3, 3)).toBe('╲');
+    expect(cellAt(g, 4, 4)).toBe('╲');
+    expect(cellAt(g, 4, 2)).toBe(' ');
+  });
+  it('左下斜拖 → 逐格 ╱（方向相反取镜像斜线）', () => {
+    const g = applyTool(createGrid(10, 10), 'auto', { x: 4, y: 2 }, { x: 2, y: 4 }, '?');
+    expect(cellAt(g, 4, 2)).toBe('╱');
+    expect(cellAt(g, 3, 3)).toBe('╱');
+    expect(cellAt(g, 2, 4)).toBe('╱');
+  });
+  it('同格一笔 → 圆点', () => {
+    const g = applyTool(createGrid(10, 5), 'auto', { x: 3, y: 3 }, { x: 3, y: 3 }, '?');
+    expect(cellAt(g, 3, 3)).toBe('·');
+  });
+  it('横折竖两笔：拐角被第二笔覆盖成 │', () => {
+    let g = applyTool(createGrid(10, 5), 'auto', { x: 2, y: 2 }, { x: 5, y: 2 }, '?');
+    g = applyTool(g, 'auto', { x: 5, y: 2 }, { x: 5, y: 4 }, '?');
+    expect(cellAt(g, 5, 2)).toBe('│');
+    expect(cellAt(g, 4, 2)).toBe('─');
+    expect(cellAt(g, 5, 3)).toBe('│');
+  });
+  it('传入的 ch 被忽略（auto 语义就是按方向选字）', () => {
+    const g = applyTool(createGrid(10, 5), 'auto', { x: 2, y: 2 }, { x: 4, y: 2 }, 'A');
+    expect(rowText(g, 2)).toBe('  ───     ');
+  });
+});
 
 describe('drawLine', () => {
   it('水平线：整段填充，两端包含', () => {

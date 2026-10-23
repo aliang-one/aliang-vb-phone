@@ -25,7 +25,9 @@ import { useTranslation } from 'react-i18next';
 // before its first frame, then translates up to 0.
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 const OPEN_MS = 300;
-const CLOSE_MS = 240;
+/** 收起动画时长。调用方若在收起后立刻做原生呈现（相机/相册），须等它走完
+ *  ——否则 UIKit 会丢弃「上一个呈现还在飞」的新呈现（取景器一闪而过）。 */
+export const CLOSE_MS = 240;
 
 interface BottomSheetBadge {
   label: string;

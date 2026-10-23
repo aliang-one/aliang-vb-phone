@@ -23,6 +23,7 @@ export interface AsciiToolbarProps {
 }
 
 const TOOL_LABEL_KEYS: Record<AsciiTool, string> = {
+  auto: 'ascii.toolAuto',
   hline: 'ascii.toolHline',
   vline: 'ascii.toolVline',
   diag: 'ascii.toolDiag',

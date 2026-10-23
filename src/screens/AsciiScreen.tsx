@@ -63,7 +63,7 @@ export const AsciiScreen: React.FC = () => {
     resize,
   } = useAsciiEditing(SMALL_SIZE.cols, SMALL_SIZE.rows);
 
-  const [tool, setTool] = useState<AsciiTool>('text');
+  const [tool, setTool] = useState<AsciiTool>('auto');
   const [char, setChar] = useState('─');
   const [saving, setSaving] = useState(false);
 

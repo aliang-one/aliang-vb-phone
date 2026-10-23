@@ -11,42 +11,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 
-// 本地覆盖全局 gesture-handler mock（理由同 DrawingScreen 测试：全局只导出
-// GestureHandlerRootView，画布需要 Gesture.Pan 的链式 API）。
-// eslint-disable-next-line @typescript-eslint/ban-types
-const mockGestureHandlers: Record<string, Function> = {};
-
-jest.mock('react-native-gesture-handler', () => {
-  const ReactInner = require('react');
-  const { View } = require('react-native');
-  const chain = () => {
-    const gesture: Record<string, unknown> = {};
-    for (const method of [
-      'minDistance',
-      'runOnJS',
-      'onBegin',
-      'onUpdate',
-      'onEnd',
-      'onFinalize',
-    ]) {
-      gesture[method] = (arg?: unknown) => {
-        if (typeof arg === 'function') {
-          mockGestureHandlers[method] = arg;
-        }
-        return gesture;
-      };
-    }
-    return gesture;
-  };
-  return {
-    GestureHandlerRootView: ReactInner.forwardRef(
-      (props: Record<string, unknown>, ref: unknown) =>
-        ReactInner.createElement(View, { ...props, ref }),
-    ),
-    GestureDetector: ({ children }: { children: React.ReactNode }) => children,
-    Gesture: { Pan: chain, Tap: chain, LongPress: chain },
-  };
-});
+// 画布手势已是 RN 原生 PanResponder（iOS 26 真机上 RNGH 回调不触发），
+// 测试直接驱动 ascii-canvas 节点上的 responder 回调，无需 mock 手势库。
 
 // 素材库是文件系统重活；这里只关心调用参数与返回值流转。
 const mockAddAsset = jest.fn();
@@ -72,7 +38,7 @@ import {
 const fakeAsset = {
   id: 'asset-ascii-1',
   kind: 'ascii',
-  text: '─',
+  text: '·',
   cols: 1,
   rows: 1,
   createdAt: 1,
@@ -128,12 +94,46 @@ const layoutCanvas = (renderer: ReactTestRenderer.ReactTestRenderer) => {
   });
 };
 
-/** 默认工具是「文字」、默认字符是「─」：点一格就有一个非空格子。 */
-const tapCell = async (x: number, y: number) => {
+/**
+ * 默认工具是「自动」：按方向选字。点一格（同格起落）→ 圆点 → 非空格子。
+ * touchHistory 按 RN 约定 1-indexed；PanResponder 的 move 有时间戳去重。
+ */
+let fakeTouchClock = 0;
+const touchEvent = (point: { x: number; y: number }) => {
+  fakeTouchClock += 1;
+  const stamp = fakeTouchClock;
+  return {
+    nativeEvent: { locationX: point.x, locationY: point.y },
+    touchHistory: {
+      mostRecentTimeStamp: stamp,
+      numberActiveTouches: 1,
+      indexOfSingleActiveTouch: 1,
+      touchBank: [
+        null,
+        {
+          touchActive: true,
+          currentTimeStamp: stamp,
+          previousTimeStamp: stamp,
+          currentPageX: point.x,
+          currentPageY: point.y,
+          previousPageX: point.x,
+          previousPageY: point.y,
+        },
+      ],
+    },
+  };
+};
+
+const tapCell = async (
+  renderer: ReactTestRenderer.ReactTestRenderer,
+  x: number,
+  y: number,
+) => {
   const point = { x: x * 6 + 3, y: y * 13.5 + 6 };
+  const responder = byTestID(renderer, 'ascii-canvas').props;
   await act(async () => {
-    mockGestureHandlers.onBegin?.(point);
-    mockGestureHandlers.onEnd?.(point);
+    responder.onResponderGrant?.(touchEvent(point));
+    responder.onResponderRelease?.(touchEvent(point));
   });
 };
 
@@ -148,9 +148,6 @@ const press = async (
 };
 
 beforeEach(() => {
-  for (const key of Object.keys(mockGestureHandlers)) {
-    delete mockGestureHandlers[key];
-  }
   mockAddAsset.mockReset();
   mockAddAsset.mockResolvedValue(fakeAsset);
   mockGoBack.mockReset();
@@ -161,14 +158,14 @@ describe('AsciiScreen 保存', () => {
   it('保存：裁剪后以 ascii 素材入库 → handoff(autoSend=false) → 返回', async () => {
     const renderer = await renderScreen();
     layoutCanvas(renderer);
-    await tapCell(5, 7);
+    await tapCell(renderer, 5, 7);
 
     await press(renderer, 'ascii-save');
 
     expect(mockAddAsset).toHaveBeenCalledWith({
       kind: 'ascii',
       // 单格内容裁完就是 1×1，四周空白不跟着发。
-      text: '─',
+      text: '·',
       cols: 1,
       rows: 1,
     });
@@ -181,7 +178,7 @@ describe('AsciiScreen 保存', () => {
   it('保存并发送：handoff(autoSend=true)', async () => {
     const renderer = await renderScreen();
     layoutCanvas(renderer);
-    await tapCell(0, 0);
+    await tapCell(renderer, 0, 0);
 
     await press(renderer, 'ascii-save-send');
 

@@ -24,6 +24,7 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { useTheme } from '../../theme/useTheme';
+import { CLOSE_MS as SHEET_CLOSE_MS } from '../../components/shared/BottomSheet';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaWrapper } from '../../components/layout/SafeAreaWrapper';
@@ -663,6 +664,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
         return;
       }
       setAttachmentMenuVisible(false);
+      // 相机/相册的 native present 与 BottomSheet 的关闭动画在同一拍会撞车：
+      // 上一个呈现还在飞时 UIKit 直接丢弃新呈现——真机 iOS 26 实测取景器
+      // 「一闪而过」且无崩溃日志。等收起动画走完再拉系统选择器。
+      await new Promise(resolve => setTimeout(resolve, SHEET_CLOSE_MS + 60));
       try {
         if (action === 'camera' && CAMERA_NEEDS_RUNTIME_PERMISSION) {
           // Android 需要在拉起相机前拿到运行时权限；iOS 由系统在 launchCamera

@@ -61,10 +61,11 @@ export interface Cell {
 }
 
 /**
- * 工具条语义。'text' 与 'eraser' 是**自由手绘**（沿拖动轨迹连续落笔），
- * 其余是**形状工具**（每次 move 都从起笔快照重算，拖动时是实时预览）。
+ * 工具条语义。'auto'、'text' 与 'eraser' 是**自由手绘**（沿拖动轨迹连续
+ * 落笔），其余是**形状工具**（每次 move 都从起笔快照重算，拖动时是实时预览）。
  */
 export type AsciiTool =
+  | 'auto'
   | 'hline'
   | 'vline'
   | 'diag'
@@ -74,6 +75,7 @@ export type AsciiTool =
   | 'eraser';
 
 export const ASCII_TOOLS: AsciiTool[] = [
+  'auto',
   'hline',
   'vline',
   'diag',
@@ -84,7 +86,7 @@ export const ASCII_TOOLS: AsciiTool[] = [
 ];
 
 const isFreehandTool = (tool: AsciiTool): boolean =>
-  tool === 'text' || tool === 'eraser';
+  tool === 'auto' || tool === 'text' || tool === 'eraser';
 
 export function createGrid(
   cols: number = DEFAULT_GRID_COLS,
@@ -313,6 +315,19 @@ export function drawArrow(
 }
 
 /**
+ * 按两格的相对方向选字符（'auto' 工具的核心）。方向的字面形状与拖动方向
+ * 无关——「右下」和「左上」是同一条线，都取 ╲。
+ */
+export function pickDirectionChar(from: Cell, to: Cell): string {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  if (dx === 0 && dy === 0) return '·';
+  if (dx === 0) return '│';
+  if (dy === 0) return '─';
+  return dx > 0 === dy > 0 ? '╲' : '╱';
+}
+
+/**
  * 把一次「从 from 到 to」的编辑应用到网格。形状工具用它做实时预览：
  * 调用方保留起笔快照，每次 move 都从快照重算，不会叠出重影。
  */
@@ -324,6 +339,44 @@ export function applyTool(
   ch: string,
 ): AsciiGrid {
   switch (tool) {
+    case 'auto': {
+      // 沿 Bresenham 步进逐格落字，每格取「进入该格的方向」对应的字符；
+      // 首格跟随第一步的方向（不留孤立点），同格一笔画圆点。
+      if (from.x === to.x && from.y === to.y) {
+        return setCell(g, from.x, from.y, '·');
+      }
+      const path: Array<Cell> = [];
+      let x = Math.round(from.x);
+      let y = Math.round(from.y);
+      const endX = Math.round(to.x);
+      const endY = Math.round(to.y);
+      const dxx = Math.abs(endX - x);
+      const sx = x < endX ? 1 : -1;
+      const dyy = -Math.abs(endY - y);
+      const sy = y < endY ? 1 : -1;
+      let err = dxx + dyy;
+      path.push({ x, y });
+      while (x !== endX || y !== endY) {
+        const e2 = 2 * err;
+        if (e2 >= dyy) {
+          err += dyy;
+          x += sx;
+        }
+        if (e2 <= dxx) {
+          err += dxx;
+          y += sy;
+        }
+        path.push({ x, y });
+      }
+      let grid = g;
+      for (let i = 0; i < path.length; i += 1) {
+        const cur = path[i]!;
+        const prev = path[i - 1];
+        const ch = prev ? pickDirectionChar(prev, cur) : pickDirectionChar(path[0]!, path[1]!);
+        grid = setCell(grid, cur.x, cur.y, ch);
+      }
+      return grid;
+    }
     case 'hline':
       return drawLine(g, from.x, from.y, to.x, from.y, ch);
     case 'vline':
