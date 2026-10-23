@@ -3,7 +3,8 @@
  *
  * 保存链路：crop 去掉四周空白 → toText 导出 → addAsset(kind:'ascii') 入库
  * → editorHandoff → 返回会话页。字符画不走图片通道，所以这里断言的是
- * text/cols/rows 三个字段，而不是截图路径。
+ * text/cols/rows 三个字段，而不是截图路径。唯一出口恒为 autoSend=false
+ * （回到输入框只挂 chip，不自动发送）。
  */
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
@@ -157,7 +158,7 @@ beforeEach(() => {
 });
 
 describe('AsciiScreen 保存', () => {
-  it('保存：裁剪后以 ascii 素材入库 → handoff(autoSend=false) → 返回', async () => {
+  it('完成：裁剪后以 ascii 素材入库 → handoff(autoSend=false) → 返回', async () => {
     const renderer = await renderScreen();
     layoutCanvas(renderer);
     await tapCell(renderer, 5, 7);
@@ -177,16 +178,21 @@ describe('AsciiScreen 保存', () => {
     act(() => renderer.unmount());
   });
 
-  it('保存并发送：handoff(autoSend=true)', async () => {
+  // 回归：字符画页不能有「保存并发送」出口。用户画完只该拿到输入框里的 chip，
+  // 补完文字后自己点发送；曾经的主按钮会在返回输入框的瞬间用默认文案把
+  // 素材直接发出去。
+  it('没有保存并发送出口，唯一出口只挂素材不自动发送', async () => {
     const renderer = await renderScreen();
     layoutCanvas(renderer);
     await tapCell(renderer, 0, 0);
 
-    await press(renderer, 'ascii-save-send');
+    expect(byTestID(renderer, 'ascii-save-send')).toBeUndefined();
+
+    await press(renderer, 'ascii-save');
 
     expect(mockAddAsset).toHaveBeenCalledTimes(1);
     expect(mockGoBack).toHaveBeenCalledTimes(1);
-    expect(takeEditorHandoff()).toEqual({ asset: fakeAsset, autoSend: true });
+    expect(takeEditorHandoff()).toEqual({ asset: fakeAsset, autoSend: false });
 
     act(() => renderer.unmount());
   });

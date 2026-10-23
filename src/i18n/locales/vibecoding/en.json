@@ -530,8 +530,8 @@
   },
   "ascii": {
     "title": "ASCII art",
-    "save": "Save",
-    "saveAndSend": "Save & send",
+    "done": "Done",
+    "attachHint": "Adds the ASCII art to the composer — type more, then send when ready",
     "empty": "Nothing drawn yet",
     "toolAuto": "Auto",
     "toolHline": "Line",

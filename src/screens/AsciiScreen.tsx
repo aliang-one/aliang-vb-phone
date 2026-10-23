@@ -1,10 +1,11 @@
 /**
  * 字符画页（Task 23）。
  *
- * 进入方式：输入框「+」→ ASCII 图。画布占满剩余空间，底部是工具栏与两个
+ * 进入方式：输入框「+」→ ASCII 图。画布占满剩余空间，底部是工具栏与一个
  * 出口，与手绘页保持同一套语义：
- *   - 保存：文本入库（`kind:'ascii'`），返回会话页并自动勾选为待发送素材；
- *   - 保存并发送：入库后立刻交给会话页发送（正文为空时用一句默认说明兜底）。
+ *   - 完成：文本入库（`kind:'ascii'`），返回会话页并作为待发送素材挂在
+ *     输入框上方。发送永远是用户在输入框里显式点的——这里绝不能自动发，
+ *     字符画往往只是消息的一部分，用户回到输入框后还要继续打字。
  *
  * 与手绘的差别：字符画不走图片通道，而是把 `toText()` 的纯文本作为附件
  * 正文发出去，由 agent 端拼成代码块——LLM 读字符画比读一张图更准，也省了
@@ -93,7 +94,7 @@ export const AsciiScreen: React.FC = () => {
   }, [resize, targetSize.cols, targetSize.rows]);
 
   const handleSave = useCallback(
-    async (autoSend: boolean) => {
+    async () => {
       if (saving) return;
       if (isBlank(grid)) {
         showToast(t('ascii.empty'), 'info');
@@ -109,7 +110,8 @@ export const AsciiScreen: React.FC = () => {
           cols: cropped.cols,
           rows: cropped.rows,
         });
-        setEditorHandoff({ asset, autoSend });
+        // autoSend 恒为 false：素材只挂到输入框，等用户补完文字后自己点发送。
+        setEditorHandoff({ asset, autoSend: false });
         navigation.goBack();
       } catch {
         showToast(t('attachments.error'), 'error');
@@ -191,34 +193,22 @@ export const AsciiScreen: React.FC = () => {
               borderTopColor: theme.colors.outlineVariant,
             },
           ]}>
+          <Text
+            style={[
+              theme.typography.bodySm,
+              styles.attachHint,
+              { color: theme.colors.onSurfaceVariant },
+            ]}>
+            {t('ascii.attachHint')}
+          </Text>
           <Pressable
             testID="ascii-save"
             accessibilityRole="button"
-            accessibilityLabel={t('ascii.save')}
+            accessibilityLabel={t('ascii.done')}
             disabled={saving}
-            onPress={() => void handleSave(false)}
+            onPress={() => void handleSave()}
             style={[
               styles.actionButton,
-              {
-                borderColor: theme.colors.outlineVariant,
-                backgroundColor: theme.colors.surfaceContainerLow,
-                opacity: saving ? 0.5 : 1,
-              },
-            ]}>
-            <Text
-              style={[theme.typography.labelMd, { color: theme.colors.onSurface }]}>
-              {t('ascii.save')}
-            </Text>
-          </Pressable>
-          <Pressable
-            testID="ascii-save-send"
-            accessibilityRole="button"
-            accessibilityLabel={t('ascii.saveAndSend')}
-            disabled={saving}
-            onPress={() => void handleSave(true)}
-            style={[
-              styles.actionButton,
-              styles.primaryAction,
               {
                 backgroundColor: theme.colors.primary,
                 borderColor: theme.colors.primary,
@@ -230,7 +220,7 @@ export const AsciiScreen: React.FC = () => {
             ) : (
               <Text
                 style={[theme.typography.labelMd, { color: theme.colors.onPrimary }]}>
-                {t('ascii.saveAndSend')}
+                {t('ascii.done')}
               </Text>
             )}
           </Pressable>
@@ -261,21 +251,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   actions: {
-    flexDirection: 'row',
-    gap: 12,
+    gap: 8,
     paddingHorizontal: 16,
     paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
+  attachHint: {
+    textAlign: 'center',
+  },
   actionButton: {
-    flex: 1,
     height: 46,
     borderRadius: 23,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  primaryAction: {
-    flex: 1.4,
   },
 });
