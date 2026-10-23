@@ -33,6 +33,7 @@ import {
   serverAiSessionToVibeRun,
   trimTranscriptWithWindow,
 } from '../internals';
+import { classifySessionBusyError } from '../../utils/sessionBusyError';
 import { encodeClientAiMessageCursor } from '../../utils/aiMessageCursor';
 import {
   countServerConfirmedMessages,
@@ -1129,20 +1130,39 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       };
     });
     try {
-      const response = sendAsSteer
-        ? await platformTransport.sendAiSteer(
-            sessionId,
-            normalizedContent,
-            mode,
-            attachments,
-          )
-        : await platformTransport.sendAiMessage(
+      // steer 与普通发送共用同一响应形状（message_id/run_id/run_state_version）。
+      let response;
+      try {
+        response = sendAsSteer
+          ? await platformTransport.sendAiSteer(
+              sessionId,
+              normalizedContent,
+              mode,
+              attachments,
+            )
+          : await platformTransport.sendAiMessage(
+              sessionId,
+              normalizedContent,
+              mode,
+              currentRun?.modelConfigVersion,
+              attachments,
+            );
+      } catch (error) {
+        // 本地 run 状态与服务器有时间差：steer 打在服务端已空闲的会话上会被
+        // 409 ai_session_not_running 拒绝。按用户预期自动降级为普通发送
+        // （等价新回合），不让用户手动重发、也不亮原始错误码。
+        if (sendAsSteer && classifySessionBusyError(error) === 'session_not_running') {
+          response = await platformTransport.sendAiMessage(
             sessionId,
             normalizedContent,
             mode,
             currentRun?.modelConfigVersion,
             attachments,
           );
+        } else {
+          throw error;
+        }
+      }
       // The server persists the user message under its own id (e.g. `msg_abc123`).
       // Reconcile: the optimistic bubble's id is replaced with the server's id
       // so subsequent server state sync (WebSocket `ai.session.updated`) merges
