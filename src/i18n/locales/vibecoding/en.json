@@ -516,7 +516,8 @@
   "drawing": {
     "title": "Draw",
     "save": "Save",
-    "saveAndSend": "Save & send",
+    "done": "Done",
+    "attachHint": "Adds the drawing to the composer — type more, then send when ready",
     "empty": "Nothing drawn yet",
     "eraser": "Eraser",
     "eraserShort": "Eraser",

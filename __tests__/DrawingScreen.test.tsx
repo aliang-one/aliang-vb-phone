@@ -3,7 +3,8 @@
  *
  * 保存链路：captureRef 截画布 → addAsset(kind:'drawing') 入库 → 交给
  * editorHandoff → 返回会话页。这里验证「截图结果确实以 drawing 素材入库」
- * 与两个出口的 autoSend 标记；真实 PNG 是否非空由真机验证（Step 2）。
+ * 且唯一出口恒为 autoSend=false（回到输入框只挂 chip，不自动发送）；
+ * 真实 PNG 是否非空由真机验证（Step 2）。
  */
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
@@ -161,7 +162,7 @@ beforeEach(() => {
 });
 
 describe('DrawingScreen 保存', () => {
-  it('保存：截图 → 以 drawing 素材入库 → handoff(autoSend=false) → 返回', async () => {
+  it('完成：截图 → 以 drawing 素材入库 → handoff(autoSend=false) → 返回', async () => {
     const renderer = await renderScreen();
     layoutCanvas(renderer, 320.4, 480.6);
     await drawOneStroke(renderer);
@@ -188,15 +189,18 @@ describe('DrawingScreen 保存', () => {
     act(() => renderer.unmount());
   });
 
-  it('保存并发送：handoff(autoSend=true)', async () => {
+  // 回归：手绘页不能有「保存并发送」出口。用户画完只该拿到输入框里的 chip，
+  // 补完文字后自己点发送；曾经的主按钮会在返回输入框的瞬间用默认文案把
+  // 素材直接发出去。
+  it('没有保存并发送出口，唯一出口只挂素材不自动发送', async () => {
     const renderer = await renderScreen();
     await drawOneStroke(renderer);
 
-    await press(renderer, 'drawing-save-send');
+    expect(byTestID(renderer, 'drawing-save-send')).toBeUndefined();
 
-    expect(mockAddAsset).toHaveBeenCalledTimes(1);
-    expect(mockGoBack).toHaveBeenCalledTimes(1);
-    expect(takeEditorHandoff()).toEqual({ asset: fakeAsset, autoSend: true });
+    await press(renderer, 'drawing-save');
+
+    expect(takeEditorHandoff()).toEqual({ asset: fakeAsset, autoSend: false });
 
     act(() => renderer.unmount());
   });
