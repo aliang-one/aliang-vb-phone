@@ -794,6 +794,7 @@ export function serverAiSessionToVibeRun(
     latestRunId: session.latest_run_id,
     runState: session.run_state,
     runStateVersion: session.run_state_version,
+    executor: session.executor,
     objective: session.objective ?? '',
     model,
     effort: session.effort || undefined,
@@ -1167,6 +1168,10 @@ export function mergeVibeRunSnapshot(
     runStateVersion: rejectIncomingState
       ? existing.runStateVersion
       : incoming.runStateVersion,
+    // executor 是老 server 不认识的字段：老服务端/部分载荷不带它时保留已知值，
+    // 否则一次列表快照就能把「这是 TUI 运行」抹掉，composer 又会误开插话。
+    // 新 server 每次运行开始都会显式下发 'tui'|'spawn'，切换执行器时照常覆盖。
+    executor: incoming.executor ?? existing.executor,
     optimisticRunPending:
       existing.optimisticRunPending &&
       (rejectIncomingState || !incomingHasVersionAuthority),

@@ -350,6 +350,13 @@ export interface VibeCodingRun {
     | 'timed_out';
   /** Monotonic server-owned state version; wall-clock timestamps never replace it. */
   runStateVersion?: number;
+  /**
+   * 本会话最近一次运行的执行器（server 从 ai.run.started 派生）。
+   * 'tui' = 注入终端里已在跑的 Claude Code TUI：只能收文本，没有 steer
+   * 通道，运行中不能插话；'spawn' = agent 自己 spawn 的进程，支持图片与插话。
+   * undefined = 老 server 或尚未开始过运行。
+   */
+  executor?: 'tui' | 'spawn';
   /** Client-only optimistic new-run guard; never serialized to Server. */
   optimisticRunPending?: boolean;
   optimisticRunBaseVersion?: number;

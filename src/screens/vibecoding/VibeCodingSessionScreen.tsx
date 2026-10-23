@@ -830,6 +830,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
     session?.sourceSessionId != null &&
     session?.status === 'running' &&
     session?.runStateVersion === undefined;
+  // TUI 执行器运行（手机发起、但 agent 把消息注入到终端里的 Claude Code）。
+  // 与上面的「外部 TUI 驱动」不同：这条 run 在 agent 自己的会话表里，停止是
+  // 有效的，但**没有 steer 通道**——注入帧只有文本，运行中塞图片必然失败。
+  // 因此运行中锁住 composer，等回合结束再作为新一轮发送（agent 会先下载附件
+  // 再注入，见 runTUITurn）。老 server 不下发 executor → 不触发，保持旧行为。
+  const tuiExecutorRunning =
+    !isDraft && session?.executor === 'tui' && session?.status === 'running';
   // ── Conversation transcript projection (extracted hook) ──
   const {
 
@@ -1180,7 +1187,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
     isSessionLive,
     session?.status,
     effectiveProvider,
-    canSteerClaude,
+    // TUI 运行没有 steer 通道：即使设备宣称 ai_steer_claude（那是设备级能力，
+    // 只代表 CLI 支持 stream-json），本轮也不能插话，按「运行中锁 composer」处理。
+    canSteerClaude && !tuiExecutorRunning,
   );
 
   const goalContext = () => {
@@ -1943,9 +1952,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // (utils/sessionPhase.shouldSendAsSteer)，避免「按钮可点但发出去必失败」。
   // TUI 驱动的回合额外排除：那条 run 不在 agent 自己的 sessions 表里，没有
   // steer 通道(外部 TUI 进程的注入只在 TUI 空闲时可用)，只能等回合结束。
+  // 手机发起但由 TUI 执行的回合同理（tuiExecutorRunning）：注入帧只有文本，
+  // 运行中发图/插话都没有通道，必须等回合结束再发。
   const canSteerTurn =
     isSessionLive &&
     !tuiDrivenRunning &&
+    !tuiExecutorRunning &&
     shouldSendAsSteer(isSessionLive, effectiveProvider, canSteerClaude);
 
   const handleInterruptTurn = useCallback(() => {
