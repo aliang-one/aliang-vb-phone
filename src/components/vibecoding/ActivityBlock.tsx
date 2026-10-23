@@ -176,6 +176,10 @@ const ToolActivityBlock: React.FC<ActivityBlockProps> = ({
       (e): e is Extract<StructuredActivityEvent, { kind: 'task' }> =>
         e.kind === 'task',
     );
+    const subagents = events.filter(
+      (e): e is Extract<StructuredActivityEvent, { kind: 'subagent' }> =>
+        e.kind === 'subagent',
+    );
 
     return (
       <GlassPanel style={styles.block}>
@@ -271,6 +275,7 @@ const ToolActivityBlock: React.FC<ActivityBlockProps> = ({
               </View>
             ) : null}
 
+            {subagents.length > 0 ? <SubagentRows events={subagents} /> : null}
             {task ? <TaskList event={task} /> : null}
           </View>
         ) : null}
@@ -766,6 +771,50 @@ const taskMark = (status: string): string => {
     default:
       return '☐';
   }
+};
+
+const SubagentRows: React.FC<{
+  events: Extract<StructuredActivityEvent, { kind: 'subagent' }> [];
+}> = ({ events }) => {
+  const { theme } = useTheme();
+  const { t } = useTranslation('vibecoding');
+  const phaseLabel = (phase: Extract<StructuredActivityEvent, { kind: 'subagent' }>['phase']) =>
+    t(`activity.subagent${phase[0].toUpperCase()}${phase.slice(1)}`);
+  return (
+    <View style={styles.group}>
+      <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }, styles.groupLabel]}>
+        {t('activity.subagentsLabel')}
+      </Text>
+      {events.map(event => {
+        const running = event.phase === 'started' || event.phase === 'progress';
+        // duration_ms 在 progress 帧上的语义未经证实(可能是单步耗时),只在
+        // 终态行显示——终态时它是该子 agent 的总耗时。
+        const seconds = !running && event.durationMs !== undefined ? Math.max(0, Math.round(event.durationMs / 1000)) : undefined;
+        const detail = [
+          event.currentStep,
+          event.lastTool,
+          event.toolUses !== undefined && event.toolUses > 0 ? t('activity.subagentToolUses', { count: event.toolUses }) : undefined,
+          seconds === undefined ? undefined : t('activity.subagentDuration', { seconds }),
+        ].filter(Boolean).join(' · ');
+        const mark = running ? '' : event.phase === 'completed' ? '✓ ' : event.phase === 'failed' ? '✗ ' : '⊘ ';
+        const nameColor = event.phase === 'failed' ? theme.colors.error : theme.colors.onSurface;
+        return (
+          <View key={event.eventId} style={styles.taskRow}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              {running ? <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginRight: 6 }} /> : null}
+              <Text style={[theme.typography.codeSm, { color: nameColor }]} numberOfLines={1}>
+                {mark}
+                {event.description ?? event.subagentType ?? event.taskId}
+                {running ? ` · ${phaseLabel(event.phase)}` : ''}
+              </Text>
+            </View>
+            {detail ? <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }, styles.taskSub]} numberOfLines={1}>{detail}</Text> : null}
+            {event.summary ? <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }, styles.taskSub]} numberOfLines={2}>{event.summary}</Text> : null}
+          </View>
+        );
+      })}
+    </View>
+  );
 };
 
 const TaskList: React.FC<{

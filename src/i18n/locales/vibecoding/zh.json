@@ -190,6 +190,7 @@
   "subagentFailed": "失败",
   "subagentInterrupted": "已中断",
   "subagentDuration": "{{seconds}} 秒",
+  "subagentToolUses": "{{count}} 次工具调用",
     "loading": "加载中…",
     "outputTruncated": "· 输出已截断",
     "diffTruncated": "· diff 已截断",

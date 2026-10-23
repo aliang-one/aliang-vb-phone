@@ -97,6 +97,21 @@ describe('ActivityBlock smoke', () => {
     expect(text).toContain('npm test');
   });
 
+  it('renders subagent phase and current step in the expanded activity block', () => {
+    const events: StructuredActivityEvent[] = [{
+      kind: 'subagent', eventId: 'sub:task-1', serverEventId: 'se-task-1', messageId: 'm1',
+      itemId: 'task-1', taskId: 'task-1', phase: 'progress', description: 'directory scan',
+      currentStep: 'Running tests', durationMs: 15160, toolUses: 2,
+    }];
+    let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
+    act(() => {
+      renderer = wrap(<ActivityBlock sessionId="s1" events={events} detailCache={{}} onCacheDetail={jest.fn()} />);
+    });
+    act(() => renderer!.root.findByProps({ testID: 'activity-header' }).props.onPress());
+    expect(collectStrings(renderer!.root)).toContain('Running tests');
+    expect(collectStrings(renderer!.root)).toContain('进行中');
+  });
+
   it('keeps tools after thinking stops while removing the transient thinking block', async () => {
     const longThinking = `${'x'.repeat(4_000)}THE_END`;
     jest.mocked(fetchStructuredEventDetail).mockResolvedValueOnce({

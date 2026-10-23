@@ -7,6 +7,7 @@ export const AI_STREAM_TRANSPORT_TYPES = new Set([
   'ai.thinking',
   'ai.usage',
   'ai.task',
+  'ai.subagent',
 ]);
 
 export type AiStreamTransportEvent = Extract<
@@ -18,7 +19,8 @@ export type AiStreamTransportEvent = Extract<
       | 'ai.file_change'
       | 'ai.thinking'
       | 'ai.usage'
-      | 'ai.task';
+      | 'ai.task'
+      | 'ai.subagent';
   }
 >;
 

@@ -228,6 +228,20 @@ describe('structuredSlice / applyStructuredEvent', () => {
     const next = applyStructuredEvent(run, unrelated);
     expect(next).toBe(run);
   });
+
+  it('merges subagent phases by task identity and normalizes the UI key', () => {
+    const run = makeRun([]);
+    const started = applyStructuredEvent(run, {
+      type: 'ai.subagent', sessionId: 's1', messageId: 'm1', itemId: 'task-1', taskId: 'task-1',
+      phase: 'started', description: 'work', eventId: 'server-start', raw: {},
+    } as unknown as PlatformTransportEvent);
+    const progressed = applyStructuredEvent(started, {
+      type: 'ai.subagent', sessionId: 's1', messageId: 'm1', itemId: 'task-1', taskId: 'task-1',
+      phase: 'progress', description: 'Running tests', durationMs: 15160, eventId: 'server-progress', raw: {},
+    } as unknown as PlatformTransportEvent);
+    expect(progressed.structuredEvents).toHaveLength(1);
+    expect(progressed.structuredEvents[0]).toMatchObject({ kind: 'subagent', eventId: 'sub:task-1', serverEventId: 'server-progress', phase: 'progress', taskId: 'task-1', description: 'Running tests' });
+  });
 });
 
 describe('structuredSlice / reconcileStructured', () => {

@@ -173,6 +173,7 @@ export type PlatformTransportEvent =
   | { type: 'ai.thinking'; sessionId: string; messageId: string; active: boolean; chars: number; eventId: string; raw: Record<string, unknown> }
   | { type: 'ai.usage'; sessionId: string; messageId?: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; model?: string; eventId: string; raw: Record<string, unknown> }
   | { type: 'ai.task'; sessionId: string; messageId: string; tasks: { subject: string; status: string; active_form?: string }[]; eventId: string; raw: Record<string, unknown> }
+  | { type: 'ai.subagent'; sessionId: string; messageId: string; itemId: string; taskId: string; phase: 'started' | 'progress' | 'completed' | 'failed' | 'interrupted'; toolUseId?: string; description?: string; subagentType?: string; spawnDepth?: number; taskType?: string; isBackgrounded?: boolean; currentStep?: string; lastTool?: string; toolUses?: number; totalTokens?: number; durationMs?: number; summary?: string; outputFile?: string; eventId: string; raw: Record<string, unknown> }
   | { type: 'ai.session.created'; sessionId: string; raw: Record<string, unknown> }
   | { type: 'ai.session.updated'; session: PlatformAiSessionSnapshot; raw: Record<string, unknown> }
   | { type: 'ai.session.deleted'; sessionId: string; raw: Record<string, unknown> }
@@ -700,6 +701,25 @@ class PlatformTransport {
         eventId: String(message.event_id ?? ''),
         raw: message,
       };
+    }
+
+    if (type === 'ai.subagent') {
+      const phase = message.phase;
+      if (phase === 'started' || phase === 'progress' || phase === 'completed' || phase === 'failed' || phase === 'interrupted') {
+        const taskId = String(message.task_id ?? message.item_id ?? '');
+        return {
+          type: 'ai.subagent', sessionId: String(message.session_id ?? ''),
+          messageId: String(message.message_id ?? ''), itemId: taskId, taskId, phase,
+          toolUseId: asString(message.tool_use_id), description: asString(message.description),
+          subagentType: asString(message.subagent_type), spawnDepth: num(message.spawn_depth),
+          taskType: asString(message.task_type), isBackgrounded: typeof message.is_backgrounded === 'boolean' ? message.is_backgrounded : undefined,
+          currentStep: asString(message.current_step) ?? asString(message.status_detail),
+          lastTool: asString(message.last_tool), toolUses: num(message.tool_uses),
+          totalTokens: num(message.total_tokens), durationMs: num(message.duration_ms),
+          summary: asString(message.summary), outputFile: asString(message.output_file),
+          eventId: String(message.event_id ?? ''), raw: message,
+        };
+      }
     }
 
     if (type === 'ai.steer.ack') {
