@@ -36,11 +36,14 @@ const photo = (over: Partial<AiAttachmentMeta> = {}): AiAttachmentMeta => ({
   ...over,
 });
 
-const render = async (attachments?: AiAttachmentMeta[]) => {
+const render = async (
+  attachments?: AiAttachmentMeta[],
+  sessionId = 'sess-1',
+) => {
   let renderer!: TestRenderer.ReactTestRenderer;
   await act(async () => {
     renderer = TestRenderer.create(
-      <MessageAttachments attachments={attachments} />,
+      <MessageAttachments attachments={attachments} sessionId={sessionId} />,
     );
   });
   return renderer;
@@ -82,13 +85,13 @@ describe('本地文件优先', () => {
 
 describe('远程签名', () => {
   it('无 localPath → 多张图合并成一次批量请求', async () => {
-    signMock.mockImplementation((ids: string[]) =>
+    signMock.mockImplementation((items: { asset_id: string }[]) =>
       Promise.resolve({
         urls: Object.fromEntries(
-          ids.map(id => [
-            id,
+          items.map(it => [
+            it.asset_id,
             {
-              url: `https://cos.example/${id}`,
+              url: `https://cos.example/${it.asset_id}`,
               expires_at: new Date(Date.now() + 900_000).toISOString(),
             },
           ]),
@@ -103,7 +106,10 @@ describe('远程签名', () => {
     ]);
 
     expect(signMock).toHaveBeenCalledTimes(1);
-    expect(signMock.mock.calls[0][0]).toEqual(['a1', 'a2']);
+    expect(signMock.mock.calls[0][0]).toEqual([
+      { asset_id: 'a1', mime: 'image/jpeg', session_id: 'sess-1' },
+      { asset_id: 'a2', mime: 'image/jpeg', session_id: 'sess-1' },
+    ]);
     expect(
       findByTestId(renderer, 'message-attachment-image-a1').props.source.uri,
     ).toBe('https://cos.example/a1');

@@ -2960,6 +2960,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
                               <TranscriptMessageList
                                 key={message.id}
                                 message={message}
+                                sessionId={session.id}
                                 activitySessionId={session.id}
                                 messageActivityEvents={
                                   activityEventsByDisplayMessageId.get(

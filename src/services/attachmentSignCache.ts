@@ -24,6 +24,16 @@ const EARLY_REFRESH_MS = 60_000;
 /** 服务端单次签名上限。 */
 const MAX_BATCH = 50;
 
+/**
+ * 一条待签名素材的完整引用。历史图片（server 重启后内存上传位已丢）靠
+ * mime + sessionId 在服务端推导对象键，所以这两项必须随 assetId 一起带。
+ */
+export interface AttachmentRef {
+  assetId: string;
+  mime: string;
+  sessionId: string;
+}
+
 interface CacheEntry {
   url: string;
   /** 毫秒时间戳。 */
@@ -31,8 +41,8 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
-/** 已排进下一批、还没发出（或还在飞行中）的 id，用于去重。 */
-const pending = new Set<string>();
+/** 已排进下一批、还没发出（或还在飞行中）的引用，按 assetId 去重。 */
+const pending = new Map<string, AttachmentRef>();
 /** 签名失败 / 服务端没返回的 id。 */
 const failed = new Set<string>();
 /**
@@ -103,14 +113,14 @@ export function subscribeAttachmentUrls(listener: () => void): () => void {
  * `subscribeAttachmentUrls` 收到完成通知。本地已有文件或缓存仍有效的 id
  * 会被跳过——所以重复调用是廉价的。
  */
-export function ensureAttachmentUrls(assetIds: readonly string[]): void {
+export function ensureAttachmentUrls(refs: readonly AttachmentRef[]): void {
   let added = false;
-  for (const assetId of assetIds) {
-    if (!assetId) continue;
-    if (localPaths.has(assetId)) continue;
-    if (getSignedUrl(assetId)) continue;
-    if (pending.has(assetId)) continue;
-    pending.add(assetId);
+  for (const ref of refs) {
+    if (!ref?.assetId) continue;
+    if (localPaths.has(ref.assetId)) continue;
+    if (getSignedUrl(ref.assetId)) continue;
+    if (pending.has(ref.assetId)) continue;
+    pending.set(ref.assetId, ref);
     added = true;
   }
   if (added) scheduleFlush();
@@ -123,17 +133,17 @@ function scheduleFlush(): void {
   // 在微任务前跑完，从而合并成一次请求；同时不额外引入一帧延迟。
   Promise.resolve().then(() => {
     flushScheduled = false;
-    const ids = [...pending];
+    const refs = [...pending.values()];
     pending.clear();
-    if (ids.length > 0) void flush(ids);
+    if (refs.length > 0) void flush(refs);
   });
 }
 
-async function flush(ids: string[]): Promise<void> {
+async function flush(refs: readonly AttachmentRef[]): Promise<void> {
   const now = Date.now();
   // 排队期间可能已被别处填好（例如并发的本地注册），发请求前再筛一遍。
-  const missing = ids.filter(id => {
-    const entry = cache.get(id);
+  const missing = refs.filter(ref => {
+    const entry = cache.get(ref.assetId);
     return !entry || entry.expiresAt - now <= EARLY_REFRESH_MS;
   });
   if (missing.length === 0) return;
@@ -141,25 +151,31 @@ async function flush(ids: string[]): Promise<void> {
   for (let offset = 0; offset < missing.length; offset += MAX_BATCH) {
     const chunk = missing.slice(offset, offset + MAX_BATCH);
     try {
-      const response = await signAttachments(chunk);
+      const response = await signAttachments(
+        chunk.map(ref => ({
+          asset_id: ref.assetId,
+          mime: ref.mime,
+          session_id: ref.sessionId,
+        })),
+      );
       const fallbackExpiry = Date.now() + (response.expires_in ?? 0) * 1000;
-      for (const assetId of chunk) {
-        const signed = response.urls?.[assetId];
+      for (const ref of chunk) {
+        const signed = response.urls?.[ref.assetId];
         if (!signed?.url) {
-          // 服务端对未知/他人/ASCII 的 id 静默跳过：视为不可用，占位。
-          failed.add(assetId);
+          // 服务端对未知/他人/ASCII 的条目静默跳过：视为不可用，占位。
+          failed.add(ref.assetId);
           continue;
         }
         const parsed = signed.expires_at ? Date.parse(signed.expires_at) : NaN;
-        cache.set(assetId, {
+        cache.set(ref.assetId, {
           url: signed.url,
           expiresAt: Number.isFinite(parsed) ? parsed : fallbackExpiry,
         });
-        failed.delete(assetId);
+        failed.delete(ref.assetId);
       }
     } catch {
       // 网络/服务端错误：整批记失败，渲染占位；不向调用方抛。
-      for (const assetId of chunk) failed.add(assetId);
+      for (const ref of chunk) failed.add(ref.assetId);
     } finally {
       notify();
     }

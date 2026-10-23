@@ -98,13 +98,24 @@ export interface SignAttachmentsResponse {
 }
 
 /**
- * 批量换 GET 预签名 URL（一次最多 50 个）。未知/他人/ASCII 的 id 会被服务端
+ * 一条待签名素材。mime/session_id 是给「server 重启丢了内存上传位」的历史
+ * 图片用的：服务端校验会话归属后，由 (userId, sessionId, assetId, mime)
+ * 确定性推导对象键，历史图片才不会在每次发版重启后全体变「已过期」。
+ */
+export interface SignAttachmentItem {
+  asset_id: string;
+  mime: string;
+  session_id: string;
+}
+
+/**
+ * 批量换 GET 预签名 URL（一次最多 50 个）。未知/他人/ASCII 的条目会被服务端
  * 静默跳过——所以调用方必须容忍 `urls` 里缺 key，不能假设「发了几个就回来几个」。
  */
 export function signAttachments(
-  assetIds: string[],
+  items: SignAttachmentItem[],
 ): Promise<SignAttachmentsResponse> {
   return apiPost<SignAttachmentsResponse>('/api/ai/attachments/sign', {
-    asset_ids: assetIds,
+    items,
   });
 }

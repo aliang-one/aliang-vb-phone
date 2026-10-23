@@ -40,12 +40,18 @@ const MIN_HEIGHT = 56;
 
 export interface MessageAttachmentsProps {
   attachments?: AiAttachmentMeta[];
+  /**
+   * 所属会话 id。历史图片（server 重启后内存上传位已丢）靠它 + mime 在
+   * 服务端推导 COS 对象键，缺了就只能寄希望于内存上传位还命中。
+   */
+  sessionId?: string;
 }
 
 /** 气泡内的单张图。拆出来是为了让每张图各自订阅自己的 URL。 */
-const MessageAttachmentImage: React.FC<{ attachment: AiAttachmentMeta }> = ({
-  attachment,
-}) => {
+const MessageAttachmentImage: React.FC<{
+  attachment: AiAttachmentMeta;
+  sessionId?: string;
+}> = ({ attachment, sessionId }) => {
   const { theme } = useTheme();
   const { t } = useTranslation('vibecoding');
   const assetId = attachment.asset_id;
@@ -75,16 +81,19 @@ const MessageAttachmentImage: React.FC<{ attachment: AiAttachmentMeta }> = ({
 
   useEffect(() => {
     if (status === 'loading') {
-      ensureAttachmentUrls([assetId]);
+      ensureAttachmentUrls([{ assetId, mime: attachment.mime, sessionId: sessionId ?? '' }]);
       return;
     }
     if (status !== 'ready') return;
     // 提前 60 秒重新签：用户停在会话里很久，也不会在滚回老消息时撞上过期。
     const delay = signedUrlRefreshDelay(assetId);
     if (delay === undefined) return;
-    const timer = setTimeout(() => ensureAttachmentUrls([assetId]), delay + 50);
+    const timer = setTimeout(
+      () => ensureAttachmentUrls([{ assetId, mime: attachment.mime, sessionId: sessionId ?? '' }]),
+      delay + 50,
+    );
     return () => clearTimeout(timer);
-  }, [assetId, status, snapshot]);
+  }, [assetId, attachment.mime, sessionId, status, snapshot]);
 
   const { width, height } = boxSize(attachment);
 
@@ -171,6 +180,7 @@ function boxSize(attachment: AiAttachmentMeta): { width: number; height: number 
 
 export const MessageAttachments: React.FC<MessageAttachmentsProps> = ({
   attachments,
+  sessionId,
 }) => {
   // ASCII 已在正文代码块里；没有图片就整块不渲染，别在气泡里留空白。
   const images = (attachments ?? []).filter(item => item.kind !== 'ascii');
@@ -179,7 +189,11 @@ export const MessageAttachments: React.FC<MessageAttachmentsProps> = ({
   return (
     <View testID="message-attachments" style={styles.wrap}>
       {images.map(item => (
-        <MessageAttachmentImage key={item.asset_id} attachment={item} />
+        <MessageAttachmentImage
+          key={item.asset_id}
+          attachment={item}
+          sessionId={sessionId}
+        />
       ))}
     </View>
   );

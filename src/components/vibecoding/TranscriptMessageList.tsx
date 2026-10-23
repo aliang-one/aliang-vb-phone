@@ -40,6 +40,11 @@ interface TranscriptMessageListProps {
   message?: DisplayTranscriptMessage;
   onMessageLayout?: (messageId: string, y: number, height: number) => void;
   /**
+   * 所属会话 id。历史图片签名要在服务端按会话归属推导 COS 对象键，
+   * 缺了则只能命中内存上传位（server 重启后就签不出来）。
+   */
+  sessionId?: string;
+  /**
    * When provided, an `ActivityBlock` is rendered under this assistant bubble
    * from events pre-grouped by the owning screen. That keeps streaming updates
    * from forcing every historical bubble to filter the full activity list.
@@ -171,6 +176,7 @@ const isTimelineEnd = (position: TimelinePosition | undefined) =>
 const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
   message,
   onMessageLayout,
+  sessionId,
   activitySessionId,
   structuredEvents,
   messageActivityEvents,
@@ -914,7 +920,10 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                   ]}
                 >
                   {/* 图片在正文上方；ASCII 已在正文代码块里，组件自己会滤掉。 */}
-                  <MessageAttachments attachments={message.attachments} />
+                  <MessageAttachments
+                    attachments={message.attachments}
+                    sessionId={sessionId}
+                  />
                   {message.segments.map(renderSegment)}
                 </View>
                 {isFailed ? (
@@ -1279,6 +1288,8 @@ const areTranscriptPropsEqual = (
   // re-render of all bubbles then — never per flush.
   if (prev.liveMessageId !== next.liveMessageId) return false;
   if (prev.timelinePosition !== next.timelinePosition) return false;
+  // 历史图片签名要靠它推导对象键；会话切换时必须重渲染气泡。
+  if (prev.sessionId !== next.sessionId) return false;
   // Turn-failure affordance (case B): a mounted bubble can flip to
   // "未收到回复 · 重试" when its turn lands in the failed set — without this
   // comparison the memo'd row never re-renders and the retry entry is lost
