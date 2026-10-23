@@ -427,6 +427,7 @@
     "error": {
       "interruptFailedPrefix": "停止失败：{{message}}",
       "interruptFailed": "停止失败，请检查服务端连接。",
+      "steerNotRunning": "当前没有进行中的回合，无法插话。等回合开始后再试，或直接作为新消息发送。",
       "sessionBusy": "该会话正在运行一个回合，请稍后再试。",
       "sessionBusyTui": "该会话由桌面终端（TUI）驱动，终端里正在运行一个回合。请稍后再试，或在终端中按一次 Esc 停止本轮。",
       "sessionFailed": "会话失败",

@@ -89,3 +89,37 @@ describe('i18n 资源(vibecoding:session.error.*)', () => {
     }
   });
 });
+
+describe('空闲会话插话（steer 被拒）', () => {
+  it('code=ai_session_not_running → session_not_running', () => {
+    const error = withCode('ai_session_not_running', 'ai_session_not_running');
+    expect(classifySessionBusyError(error)).toBe('session_not_running');
+  });
+
+  it('无 code 时按 message 关键字兜底', () => {
+    expect(classifySessionBusyError(new Error('ai_session_not_running'))).toBe(
+      'session_not_running',
+    );
+    expect(
+      classifySessionBusyError(
+        withCode('ai_session_not_running', 'ai_session_not_running'),
+      ),
+    ).toBe('session_not_running');
+  });
+
+  it('不被 "still running"（session_busy 家族）误吞', () => {
+    // 顺序敏感：not_running 检测必须先于 busy 关键字兜底。
+    expect(classifySessionBusyError(new Error('ai_session_not_running'))).not.toBe(
+      'session_busy',
+    );
+  });
+
+  it('sessionBusyErrorText 映射到友好文案 key', () => {
+    expect(
+      sessionBusyErrorText(
+        withCode('ai_session_not_running', 'ai_session_not_running'),
+        t,
+      ),
+    ).toBe('session.error.steerNotRunning');
+  });
+});

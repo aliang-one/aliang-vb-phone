@@ -427,6 +427,7 @@
     "error": {
       "interruptFailedPrefix": "Stop failed: {{message}}",
       "interruptFailed": "Stop failed, please check the server connection.",
+      "steerNotRunning": "No turn is running in this session, so it cannot be steered. Start a turn first, or send it as a new message.",
       "sessionBusy": "A turn is already running in this session. Try again shortly.",
       "sessionBusyTui": "This session is driven by the desktop terminal (TUI), where a turn is currently running. Try again shortly, or press Esc once in that terminal to stop the turn.",
       "sessionFailed": "Conversation failed",

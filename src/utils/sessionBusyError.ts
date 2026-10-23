@@ -15,10 +15,12 @@ import { ApiResponseError } from '../api/client';
  * 命中返回 busy 类型；null 表示不属于「会话忙」家族，调用方应回退到既有文案
  * （interruptFailedPrefix 横幅 / failed 气泡），行为保持不变。
  */
-export type SessionBusyKind = 'session_busy' | 'tui_busy';
+export type SessionBusyKind = 'session_busy' | 'tui_busy' | 'session_not_running';
 
 const SESSION_BUSY_CODE = 'ai_session_busy';
 const TUI_BUSY_CODE = 'tui_busy';
+/** 空闲会话插话被拒（服务端 steer 路由 409：session.status !== 'running'）。 */
+const SESSION_NOT_RUNNING_CODE = 'ai_session_not_running';
 
 // message 关键字兜底（统一小写比较）：服务端把 code 当文本下发；agent 的英文
 // 原文（"TUI session is running an active turn in its terminal; retry after it
@@ -48,7 +50,12 @@ export const classifySessionBusyError = (
   const { code, message } = errorParts(error);
   if (code === TUI_BUSY_CODE) return 'tui_busy';
   if (code === SESSION_BUSY_CODE) return 'session_busy';
+  if (code === SESSION_NOT_RUNNING_CODE) return 'session_not_running';
   const haystack = message.toLowerCase();
+  // not_running 必须先于 busy 关键字兜底（两者 message 形态相近）。
+  if (matchesAny(haystack, [SESSION_NOT_RUNNING_CODE])) {
+    return 'session_not_running';
+  }
   if (matchesAny(haystack, TUI_BUSY_MESSAGE_HINTS)) return 'tui_busy';
   if (matchesAny(haystack, SESSION_BUSY_MESSAGE_HINTS)) return 'session_busy';
   return null;
@@ -65,5 +72,8 @@ export const sessionBusyErrorText = (
   const kind = classifySessionBusyError(error);
   if (kind === 'tui_busy') return t('session.error.sessionBusyTui');
   if (kind === 'session_busy') return t('session.error.sessionBusy');
+  if (kind === 'session_not_running') {
+    return t('session.error.steerNotRunning');
+  }
   return null;
 };
