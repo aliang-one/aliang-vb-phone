@@ -10,7 +10,7 @@
  * 是硬要求：新架构会把「只有样式没有原生意义」的 View 折叠掉，折叠后 ref
  * 为 null，截图直接失败。
  */
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -47,6 +47,12 @@ export const DrawingScreen: React.FC = () => {
   const { theme } = useTheme();
   const { t } = useTranslation('vibecoding');
   const navigation = useNavigation<Navigation>();
+
+  // 画布是全屏书写面：从左缘起笔向右画会误触 iOS 侧滑返回，把画到一半的
+  // 内容直接退掉。关闭系统滑动返回，退出只走左上角返回键。
+  useLayoutEffect(() => {
+    navigation.setOptions({ gestureEnabled: false });
+  }, [navigation]);
   const insets = useSafeAreaInsets();
   const showToast = useToastStore(state => state.show);
 

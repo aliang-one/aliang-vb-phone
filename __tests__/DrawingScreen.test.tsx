@@ -30,6 +30,7 @@ jest.mock('../src/services/attachmentLibrary', () => ({
 const mockGoBack = jest.fn();
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({
+    setOptions: jest.fn(),
     goBack: mockGoBack,
     navigate: jest.fn(),
     canGoBack: () => true,

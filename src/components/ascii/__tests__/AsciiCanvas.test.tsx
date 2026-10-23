@@ -11,8 +11,10 @@
  * 手势已从 RNGH 换成 RN 原生 PanResponder（iOS 26 真机上 RNGH 回调不触发），
  * 测试直接驱动 panHandlers 的回调，无需再 mock 手势库。
  *
- * 格子尺寸来自**实测文本尺寸**，所以测试先喂一次 onLayout 把 120×135 的
- * 文本布局固定下来（20 列 / 10 行 → 每格 6×13.5），再按像素坐标点。
+ * 格子尺寸由 fontSize 推导（触摸层显式定尺寸，不依赖文本测量——iOS 测量
+ * 全空格 Text 会剥行尾空白导致宽度塌缩为 0）。测试喂容器 onLayout
+ * 360×405：fontSize = min(352/20/0.6, 397/10/1.35, 14) = 14，
+ * cellWidth = 8.4，lineHeight = 19。
  */
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
@@ -24,11 +26,11 @@ import { useAsciiEditing, type AsciiTool } from '../asciiGrid';
 
 const COLS = 20;
 const ROWS = 10;
-/** 实测文本布局：20 列 → 每格 6pt；10 行 → 每格 13.5pt。 */
-const TEXT_WIDTH = 120;
-const TEXT_HEIGHT = 135;
-const CELL_W = TEXT_WIDTH / COLS;
-const CELL_H = TEXT_HEIGHT / ROWS;
+/** 喂给容器的可用区域；fontSize 推导出的格宽/行高（见文件头注释）。 */
+const FRAME_WIDTH = 360;
+const FRAME_HEIGHT = 405;
+const CELL_W = 8.4; // fontSize 14 × 0.6
+const CELL_H = 19;  // round(14 × 1.35)
 
 /** 把画布与编辑状态机接起来的最小宿主。 */
 const Harness: React.FC<{ tool: AsciiTool; char: string }> = ({
@@ -76,12 +78,12 @@ const byTestID = (
   testID: string,
 ) => renderer.root.findAll(node => node.props?.testID === testID)[0];
 
-/** 固定可用区域与文本实测尺寸，让格子映射可预测。 */
+/** 固定容器可用区域，让格子映射可预测。 */
 const layoutCanvas = (renderer: ReactTestRenderer.ReactTestRenderer) => {
-  const touchLayer = byTestID(renderer, 'ascii-canvas');
+  const frame = byTestID(renderer, 'ascii-canvas-frame');
   act(() => {
-    touchLayer.props.onLayout({
-      nativeEvent: { layout: { width: TEXT_WIDTH, height: TEXT_HEIGHT } },
+    frame.props.onLayout({
+      nativeEvent: { layout: { width: FRAME_WIDTH, height: FRAME_HEIGHT } },
     });
   });
 };

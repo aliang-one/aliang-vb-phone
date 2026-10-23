@@ -23,6 +23,7 @@ jest.mock('../src/services/attachmentLibrary', () => ({
 const mockGoBack = jest.fn();
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({
+    setOptions: jest.fn(),
     goBack: mockGoBack,
     navigate: jest.fn(),
     canGoBack: () => true,
@@ -82,13 +83,14 @@ const byTestID = (
 ) => renderer.root.findAll(node => node.props?.testID === testID)[0];
 
 /**
- * 固定文本实测尺寸：默认 60×30 网格 → 每格 6×13.5。
- * 格宽/格高来自实测布局，不喂这个回调就只能按字号估算，坐标不好写死。
+ * 固定容器可用区域：默认 60×30 网格、容器 360×405 →
+ * fontSize = min(352/60/0.6, 397/30/1.35) = 9.8 → 每格 5.88×13。
+ * 触摸层显式定尺寸（iOS 测量全空格 Text 会把行尾空白剥掉、宽度塌 0）。
  */
 const layoutCanvas = (renderer: ReactTestRenderer.ReactTestRenderer) => {
-  const touchLayer = byTestID(renderer, 'ascii-canvas');
+  const frame = byTestID(renderer, 'ascii-canvas-frame');
   act(() => {
-    touchLayer.props.onLayout({
+    frame.props.onLayout({
       nativeEvent: { layout: { width: 360, height: 405 } },
     });
   });
@@ -129,7 +131,7 @@ const tapCell = async (
   x: number,
   y: number,
 ) => {
-  const point = { x: x * 6 + 3, y: y * 13.5 + 6 };
+  const point = { x: x * 5.88 + 2.94, y: y * 13 + 6.5 };
   const responder = byTestID(renderer, 'ascii-canvas').props;
   await act(async () => {
     responder.onResponderGrant?.(touchEvent(point));

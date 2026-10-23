@@ -13,7 +13,7 @@
  * 保存前先 `crop()`：60×30 的网格四周通常有大片空白，整块发过去既浪费
  * token 又会让代码块出现大片空白行。
  */
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -47,6 +47,11 @@ export const AsciiScreen: React.FC = () => {
   const { theme, isDark } = useTheme();
   const { t } = useTranslation('vibecoding');
   const navigation = useNavigation<Navigation>();
+
+  // 与手绘页同理：字符画也是全屏书写面，左缘笔画会误触侧滑返回。
+  useLayoutEffect(() => {
+    navigation.setOptions({ gestureEnabled: false });
+  }, [navigation]);
   const insets = useSafeAreaInsets();
   const showToast = useToastStore(state => state.show);
 
