@@ -315,16 +315,142 @@ export function drawArrow(
 }
 
 /**
- * 按两格的相对方向选字符（'auto' 工具的核心）。方向的字面形状与拖动方向
- * 无关——「右下」和「左上」是同一条线，都取 ╲。
+ * 'auto' 工具的连通模型：每格记录「与哪些相邻格有连线」，按掩码选字符。
+ * 用户随手画，转角自动变 ┌┐└┘、T 型变 ┬┴├┤、交叉变 ┼——不需要手动
+ * 挑字符。斜线（╱╲）单独成系；斜线格混入正交连线时以正交为准。
  */
-export function pickDirectionChar(from: Cell, to: Cell): string {
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  if (dx === 0 && dy === 0) return '·';
-  if (dx === 0) return '│';
-  if (dy === 0) return '─';
-  return dx > 0 === dy > 0 ? '╲' : '╱';
+export const CONN_U = 1;
+export const CONN_D = 2;
+export const CONN_L = 4;
+export const CONN_R = 8;
+export const CONN_NE = 16;
+export const CONN_NW = 32;
+
+const ORTHO_MASK = CONN_U | CONN_D | CONN_L | CONN_R;
+const DIAG_MASK = CONN_NE | CONN_NW;
+
+/** 制表符 ↔ 连通掩码对照。 */
+const CHAR_TO_MASK: Record<string, number> = {
+  '│': CONN_U | CONN_D,
+  '─': CONN_L | CONN_R,
+  '┌': CONN_R | CONN_D,
+  '┐': CONN_L | CONN_D,
+  '└': CONN_R | CONN_U,
+  '┘': CONN_L | CONN_U,
+  '┬': CONN_L | CONN_R | CONN_D,
+  '┴': CONN_L | CONN_R | CONN_U,
+  '├': CONN_U | CONN_D | CONN_R,
+  '┤': CONN_U | CONN_D | CONN_L,
+  '┼': CONN_U | CONN_D | CONN_L | CONN_R,
+  '╱': CONN_NE,
+  '╲': CONN_NW,
+};
+
+const MASK_TO_CHAR: Record<number, string> = Object.fromEntries(
+  Object.entries(CHAR_TO_MASK).map(([ch, mask]) => [mask, ch]),
+) as Record<number, string>;
+
+/** 连通掩码 → 制表符。正交方向优先于斜线；空掩码回落圆点。
+ *  单方向位（线段端点）显示为所在轴的线字符。 */
+export function lineCharFor(mask: number): string {
+  const ortho = mask & ORTHO_MASK;
+  if (ortho !== 0) {
+    return (
+      MASK_TO_CHAR[ortho] ??
+      ((ortho & (CONN_L | CONN_R)) !== 0 ? '─' : '│')
+    );
+  }
+  const diag = mask & DIAG_MASK;
+  if (diag !== 0) return MASK_TO_CHAR[diag] ?? '·';
+  return '·';
+}
+
+/** 从结果字符重建掩码（非 auto 工具的产物不参与增量连通合并）。 */
+function rebuildMasksFromChars(g: AsciiGrid): number[][] {
+  return g.cells.map(row => row.map(c => CHAR_TO_MASK[c] ?? 0));
+}
+
+/** 相邻两格之间的连线位（进 cur 的方向；prev 取反向位）。 */
+function stepBits(prev: Cell, cur: Cell): { prevBits: number; curBits: number } {
+  const dx = cur.x - prev.x;
+  const dy = cur.y - prev.y;
+  if (dy === 0) {
+    const bit = dx > 0 ? CONN_R : CONN_L;
+    return { prevBits: bit, curBits: dx > 0 ? CONN_L : CONN_R };
+  }
+  if (dx === 0) {
+    const bit = dy > 0 ? CONN_D : CONN_U;
+    return { prevBits: bit, curBits: dy > 0 ? CONN_U : CONN_D };
+  }
+  // 对角步进（|dx|=|dy|=1 或 Bresenham 的合成步）：字面形状与行进方向无关。
+  const diag = dx > 0 === dy > 0 ? CONN_NW : CONN_NE;
+  return { prevBits: diag, curBits: diag };
+}
+
+/**
+ * 编辑草稿：字符网格 + 连通掩码。字符只是掩码的渲染——转角 ┐ 的正确性
+ * 依赖「行尾 ─ 的 R 位是渲染装饰、不是真连接」这一事实被显式建模，
+ * 从字符反推连通天然有歧义（真机实测会把直角弯画成 ┬）。
+ */
+export interface AsciiDraft {
+  grid: AsciiGrid;
+  masks: number[][];
+}
+
+export function createDraft(cols: number, rows: number): AsciiDraft {
+  const grid = createGrid(cols, rows);
+  return {
+    grid,
+    masks: Array.from({ length: grid.rows }, () => Array(grid.cols).fill(0)),
+  };
+}
+
+/** 给草稿的一格并上连通位，字符按合并结果重选（纯函数，返回新草稿）。 */
+function unionCell(draft: AsciiDraft, x: number, y: number, bits: number): AsciiDraft {
+  if (x < 0 || y < 0 || x >= draft.grid.cols || y >= draft.grid.rows) return draft;
+  const masks = draft.masks.map((row, ry) =>
+    ry === y ? row.slice() : row,
+  );
+  masks[y][x] = (masks[y][x] | bits) & (ORTHO_MASK | DIAG_MASK);
+  const grid = setCell(draft.grid, x, y, lineCharFor(masks[y][x]));
+  return { grid, masks };
+}
+
+/**
+ * 'auto' 工具：沿 Bresenham 步进逐格**并上**连线位。转角自动长成
+ * ┌┐└┘，与既有线交叉处自动长成 ┬├┼。同格一笔画圆点（无连通）。
+ */
+export function applyAutoTool(draft: AsciiDraft, from: Cell, to: Cell): AsciiDraft {
+  if (from.x === to.x && from.y === to.y) {
+    return { ...draft, grid: setCell(draft.grid, from.x, from.y, '·') };
+  }
+  let next = draft;
+  let x = Math.round(from.x);
+  let y = Math.round(from.y);
+  const endX = Math.round(to.x);
+  const endY = Math.round(to.y);
+  const dxx = Math.abs(endX - x);
+  const sx = x < endX ? 1 : -1;
+  const dyy = -Math.abs(endY - y);
+  const sy = y < endY ? 1 : -1;
+  let err = dxx + dyy;
+  for (;;) {
+    const prev: Cell = { x, y };
+    if (x === endX && y === endY) break;
+    const e2 = 2 * err;
+    if (e2 >= dyy) {
+      err += dyy;
+      x += sx;
+    }
+    if (e2 <= dxx) {
+      err += dxx;
+      y += sy;
+    }
+    const { prevBits, curBits } = stepBits(prev, { x, y });
+    next = unionCell(next, prev.x, prev.y, prevBits);
+    next = unionCell(next, x, y, curBits);
+  }
+  return next;
 }
 
 /**
@@ -339,44 +465,9 @@ export function applyTool(
   ch: string,
 ): AsciiGrid {
   switch (tool) {
-    case 'auto': {
-      // 沿 Bresenham 步进逐格落字，每格取「进入该格的方向」对应的字符；
-      // 首格跟随第一步的方向（不留孤立点），同格一笔画圆点。
-      if (from.x === to.x && from.y === to.y) {
-        return setCell(g, from.x, from.y, '·');
-      }
-      const path: Array<Cell> = [];
-      let x = Math.round(from.x);
-      let y = Math.round(from.y);
-      const endX = Math.round(to.x);
-      const endY = Math.round(to.y);
-      const dxx = Math.abs(endX - x);
-      const sx = x < endX ? 1 : -1;
-      const dyy = -Math.abs(endY - y);
-      const sy = y < endY ? 1 : -1;
-      let err = dxx + dyy;
-      path.push({ x, y });
-      while (x !== endX || y !== endY) {
-        const e2 = 2 * err;
-        if (e2 >= dyy) {
-          err += dyy;
-          x += sx;
-        }
-        if (e2 <= dxx) {
-          err += dxx;
-          y += sy;
-        }
-        path.push({ x, y });
-      }
-      let grid = g;
-      for (let i = 0; i < path.length; i += 1) {
-        const cur = path[i]!;
-        const prev = path[i - 1];
-        const ch = prev ? pickDirectionChar(prev, cur) : pickDirectionChar(path[0]!, path[1]!);
-        grid = setCell(grid, cur.x, cur.y, ch);
-      }
-      return grid;
-    }
+    case 'auto':
+      // auto 走 applyAutoTool（需要连通掩码草稿），不经此纯字符入口。
+      return g;
     case 'hline':
       return drawLine(g, from.x, from.y, to.x, from.y, ch);
     case 'vline':
@@ -422,23 +513,23 @@ export function useAsciiEditing(
   cols: number = DEFAULT_GRID_COLS,
   rows: number = DEFAULT_GRID_ROWS,
 ): AsciiEditing {
-  const [grid, setGrid] = useState<AsciiGrid>(() => createGrid(cols, rows));
-  const [undoStack, setUndoStack] = useState<AsciiGrid[]>([]);
-  const [redoStack, setRedoStack] = useState<AsciiGrid[]>([]);
+  const [draft, setDraft] = useState<AsciiDraft>(() => createDraft(cols, rows));
+  const [undoStack, setUndoStack] = useState<AsciiDraft[]>([]);
+  const [redoStack, setRedoStack] = useState<AsciiDraft[]>([]);
 
-  const gridRef = useRef<AsciiGrid>(grid);
+  const draftRef = useRef<AsciiDraft>(draft);
   /** 形状工具的起笔快照。 */
   const baseRef = useRef<AsciiGrid | null>(null);
   const startRef = useRef<Cell | null>(null);
   /** 自由工具的上一个落笔格（画线到当前格，避免快速拖动时跳格）。 */
   const lastRef = useRef<Cell | null>(null);
 
-  const commit = useCallback((next: AsciiGrid) => {
-    gridRef.current = next;
-    setGrid(next);
+  const commit = useCallback((next: AsciiDraft) => {
+    draftRef.current = next;
+    setDraft(next);
   }, []);
 
-  const pushHistory = useCallback((snapshot: AsciiGrid) => {
+  const pushHistory = useCallback((snapshot: AsciiDraft) => {
     setUndoStack(prev =>
       prev.length >= HISTORY_LIMIT
         ? [...prev.slice(prev.length - HISTORY_LIMIT + 1), snapshot]
@@ -447,17 +538,27 @@ export function useAsciiEditing(
     setRedoStack([]);
   }, []);
 
+  /** 一次笔画段的统一切换：auto 走连通合并，其余走纯字符然后重建掩码。 */
+  const applyStroke = useCallback(
+    (d: AsciiDraft, tool: AsciiTool, from: Cell, to: Cell, ch: string): AsciiDraft => {
+      if (tool === 'auto') return applyAutoTool(d, from, to);
+      const grid = applyTool(d.grid, tool, from, to, ch);
+      return { grid, masks: rebuildMasksFromChars(grid) };
+    },
+    [],
+  );
+
   const beginStroke = useCallback(
     (cell: Cell, tool: AsciiTool, ch: string) => {
-      const current = gridRef.current;
+      const current = draftRef.current;
       pushHistory(current);
-      baseRef.current = current;
+      baseRef.current = current.grid;
       startRef.current = cell;
       lastRef.current = cell;
       // 起笔只落一个点：形状工具后续 move 会从快照重算，自由工具从这里开始累积。
-      commit(applyTool(current, tool, cell, cell, ch));
+      commit(applyStroke(current, tool, cell, cell, ch));
     },
-    [commit, pushHistory],
+    [applyStroke, commit, pushHistory],
   );
 
   const moveStroke = useCallback(
@@ -468,15 +569,15 @@ export function useAsciiEditing(
       if (isFreehandTool(tool)) {
         const last = lastRef.current ?? cell;
         if (last.x === cell.x && last.y === cell.y) return;
-        commit(applyTool(gridRef.current, tool, last, cell, ch));
+        commit(applyStroke(draftRef.current, tool, last, cell, ch));
         lastRef.current = cell;
         return;
       }
 
-      const base = baseRef.current ?? gridRef.current;
-      commit(applyTool(base, tool, start, cell, ch));
+      const base = baseRef.current ?? draftRef.current.grid;
+      commit(applyStroke({ ...draftRef.current, grid: base }, tool, start, cell, ch));
     },
-    [commit],
+    [applyStroke, commit],
   );
 
   const endStroke = useCallback(
@@ -493,7 +594,7 @@ export function useAsciiEditing(
     if (undoStack.length === 0) return;
     const previous = undoStack[undoStack.length - 1];
     setUndoStack(undoStack.slice(0, -1));
-    setRedoStack([...redoStack, gridRef.current]);
+    setRedoStack([...redoStack, draftRef.current]);
     commit(previous);
   }, [commit, redoStack, undoStack]);
 
@@ -501,31 +602,37 @@ export function useAsciiEditing(
     if (redoStack.length === 0) return;
     const next = redoStack[redoStack.length - 1];
     setRedoStack(redoStack.slice(0, -1));
-    setUndoStack([...undoStack, gridRef.current]);
+    setUndoStack([...undoStack, draftRef.current]);
     commit(next);
   }, [commit, redoStack, undoStack]);
 
   const clearAll = useCallback(() => {
-    const current = gridRef.current;
+    const current = draftRef.current;
     pushHistory(current);
-    commit(createGrid(current.cols, current.rows));
+    commit(createDraft(current.grid.cols, current.grid.rows));
   }, [commit, pushHistory]);
 
   const resize = useCallback(
     (nextCols: number, nextRows: number) => {
-      const current = gridRef.current;
-      if (nextCols === current.cols && nextRows === current.rows) return;
+      const current = draftRef.current;
+      if (nextCols === current.grid.cols && nextRows === current.grid.rows) return;
       pushHistory(current);
       baseRef.current = null;
       startRef.current = null;
       lastRef.current = null;
-      commit(resizeGrid(current, nextCols, nextRows));
+      const grid = resizeGrid(current.grid, nextCols, nextRows);
+      commit({
+        grid,
+        masks: Array.from({ length: grid.rows }, (_, y) =>
+          Array.from({ length: grid.cols }, (_, x) => current.masks[y]?.[x] ?? 0),
+        ),
+      });
     },
     [commit, pushHistory],
   );
 
   return {
-    grid,
+    grid: draft.grid,
     canUndo: undoStack.length > 0,
     canRedo: redoStack.length > 0,
     beginStroke,

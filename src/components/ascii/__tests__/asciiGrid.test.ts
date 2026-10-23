@@ -7,13 +7,20 @@
  *   - toText 行数与列数对齐（短行补空格）。
  */
 import {
-  applyTool,
+  applyAutoTool,
+  CONN_D,
+  CONN_L,
+  CONN_NE,
+  CONN_NW,
+  CONN_R,
+  CONN_U,
+  createDraft,
   createGrid,
   crop,
   drawLine,
   drawRect,
   erase,
-  pickDirectionChar,
+  lineCharFor,
   resizeGrid,
   setCell,
   toText,
@@ -25,66 +32,89 @@ const rowText = (g: AsciiGrid, y: number): string => g.cells[y].join('');
 
 const cellAt = (g: AsciiGrid, x: number, y: number): string => g.cells[y][x];
 
-describe('pickDirectionChar', () => {
-  it('同格 → 圆点', () => {
-    expect(pickDirectionChar({ x: 3, y: 3 }, { x: 3, y: 3 })).toBe('·');
+describe('lineCharFor（连通掩码 → 字符）', () => {
+  it('单方向：横/竖', () => {
+    expect(lineCharFor(CONN_L)).toBe('─');
+    expect(lineCharFor(CONN_R)).toBe('─');
+    expect(lineCharFor(CONN_U)).toBe('│');
+    expect(lineCharFor(CONN_D)).toBe('│');
   });
-  it('水平（向右/向左）→ 横线', () => {
-    expect(pickDirectionChar({ x: 1, y: 2 }, { x: 2, y: 2 })).toBe('─');
-    expect(pickDirectionChar({ x: 2, y: 2 }, { x: 1, y: 2 })).toBe('─');
+  it('直角四态', () => {
+    expect(lineCharFor(CONN_R | CONN_D)).toBe('┌');
+    expect(lineCharFor(CONN_L | CONN_D)).toBe('┐');
+    expect(lineCharFor(CONN_R | CONN_U)).toBe('└');
+    expect(lineCharFor(CONN_L | CONN_U)).toBe('┘');
   });
-  it('垂直（向下/向上）→ 竖线', () => {
-    expect(pickDirectionChar({ x: 2, y: 1 }, { x: 2, y: 2 })).toBe('│');
-    expect(pickDirectionChar({ x: 2, y: 2 }, { x: 2, y: 1 })).toBe('│');
+  it('T 型与十字', () => {
+    expect(lineCharFor(CONN_L | CONN_R | CONN_D)).toBe('┬');
+    expect(lineCharFor(CONN_L | CONN_R | CONN_U)).toBe('┴');
+    expect(lineCharFor(CONN_U | CONN_D | CONN_R)).toBe('├');
+    expect(lineCharFor(CONN_U | CONN_D | CONN_L)).toBe('┤');
+    expect(
+      lineCharFor(CONN_U | CONN_D | CONN_L | CONN_R),
+    ).toBe('┼');
   });
-  it('右下/左上 → 反斜线', () => {
-    expect(pickDirectionChar({ x: 1, y: 1 }, { x: 2, y: 2 })).toBe('╲');
-    expect(pickDirectionChar({ x: 2, y: 2 }, { x: 1, y: 1 })).toBe('╲');
+  it('斜线单独成系；混入正交方向时以正交为准', () => {
+    expect(lineCharFor(CONN_NE)).toBe('╱');
+    expect(lineCharFor(CONN_NW)).toBe('╲');
+    expect(lineCharFor(CONN_NE | CONN_L)).toBe('─');
   });
-  it('右上/左下 → 正斜线', () => {
-    expect(pickDirectionChar({ x: 1, y: 2 }, { x: 2, y: 1 })).toBe('╱');
-    expect(pickDirectionChar({ x: 2, y: 1 }, { x: 1, y: 2 })).toBe('╱');
+  it('空掩码回落圆点', () => {
+    expect(lineCharFor(0)).toBe('·');
   });
 });
 
-describe("applyTool 'auto'", () => {
-  it('水平拖动 → 整段 ─（起点也跟随方向，不留点）', () => {
-    const g = applyTool(createGrid(10, 5), 'auto', { x: 2, y: 2 }, { x: 5, y: 2 }, '?');
-    expect(rowText(g, 2)).toBe('  ────    ');
+describe("applyAutoTool（连通合并：随手画，字符自动长对）", () => {
+  it('水平拖动 → 整段 ─（端点也是 ─）', () => {
+    const d = applyAutoTool(createDraft(10, 5), { x: 2, y: 2 }, { x: 5, y: 2 });
+    expect(rowText(d.grid, 2)).toBe('  ────    ');
   });
   it('垂直拖动 → 整列 │', () => {
-    const g = applyTool(createGrid(10, 5), 'auto', { x: 3, y: 1 }, { x: 3, y: 3 }, '?');
-    expect(cellAt(g, 3, 1)).toBe('│');
-    expect(cellAt(g, 3, 2)).toBe('│');
-    expect(cellAt(g, 3, 3)).toBe('│');
+    const d = applyAutoTool(createDraft(10, 5), { x: 3, y: 1 }, { x: 3, y: 3 });
+    expect(cellAt(d.grid, 3, 1)).toBe('│');
+    expect(cellAt(d.grid, 3, 2)).toBe('│');
+    expect(cellAt(d.grid, 3, 3)).toBe('│');
   });
-  it('右下斜拖 → 逐格 ╲，不跳格', () => {
-    const g = applyTool(createGrid(10, 10), 'auto', { x: 2, y: 2 }, { x: 4, y: 4 }, '?');
-    expect(cellAt(g, 2, 2)).toBe('╲');
-    expect(cellAt(g, 3, 3)).toBe('╲');
-    expect(cellAt(g, 4, 4)).toBe('╲');
-    expect(cellAt(g, 4, 2)).toBe(' ');
-  });
-  it('左下斜拖 → 逐格 ╱（方向相反取镜像斜线）', () => {
-    const g = applyTool(createGrid(10, 10), 'auto', { x: 4, y: 2 }, { x: 2, y: 4 }, '?');
-    expect(cellAt(g, 4, 2)).toBe('╱');
-    expect(cellAt(g, 3, 3)).toBe('╱');
-    expect(cellAt(g, 2, 4)).toBe('╱');
+  it('斜拖 → 逐格 ╲ ╱，不跳格', () => {
+    const d = applyAutoTool(createDraft(10, 10), { x: 2, y: 2 }, { x: 4, y: 4 });
+    expect(cellAt(d.grid, 2, 2)).toBe('╲');
+    expect(cellAt(d.grid, 3, 3)).toBe('╲');
+    expect(cellAt(d.grid, 4, 4)).toBe('╲');
+    const d2 = applyAutoTool(createDraft(10, 10), { x: 4, y: 2 }, { x: 2, y: 4 });
+    expect(cellAt(d2.grid, 3, 3)).toBe('╱');
   });
   it('同格一笔 → 圆点', () => {
-    const g = applyTool(createGrid(10, 5), 'auto', { x: 3, y: 3 }, { x: 3, y: 3 }, '?');
-    expect(cellAt(g, 3, 3)).toBe('·');
+    const d = applyAutoTool(createDraft(10, 5), { x: 3, y: 3 }, { x: 3, y: 3 });
+    expect(cellAt(d.grid, 3, 3)).toBe('·');
   });
-  it('横折竖两笔：拐角被第二笔覆盖成 │', () => {
-    let g = applyTool(createGrid(10, 5), 'auto', { x: 2, y: 2 }, { x: 5, y: 2 }, '?');
-    g = applyTool(g, 'auto', { x: 5, y: 2 }, { x: 5, y: 4 }, '?');
-    expect(cellAt(g, 5, 2)).toBe('│');
-    expect(cellAt(g, 4, 2)).toBe('─');
-    expect(cellAt(g, 5, 3)).toBe('│');
+  it('横折竖：拐角自动变 ┐（不再被第二笔冲掉）', () => {
+    let d = applyAutoTool(createDraft(10, 5), { x: 2, y: 2 }, { x: 5, y: 2 });
+    d = applyAutoTool(d, { x: 5, y: 2 }, { x: 5, y: 4 });
+    expect(cellAt(d.grid, 5, 2)).toBe('┐');
+    expect(cellAt(d.grid, 4, 2)).toBe('─');
+    expect(cellAt(d.grid, 5, 3)).toBe('│');
   });
-  it('传入的 ch 被忽略（auto 语义就是按方向选字）', () => {
-    const g = applyTool(createGrid(10, 5), 'auto', { x: 2, y: 2 }, { x: 4, y: 2 }, 'A');
-    expect(rowText(g, 2)).toBe('  ───     ');
+  it('竖折横：拐角 └', () => {
+    let d = applyAutoTool(createDraft(10, 5), { x: 3, y: 1 }, { x: 3, y: 3 });
+    d = applyAutoTool(d, { x: 3, y: 3 }, { x: 6, y: 3 });
+    expect(cellAt(d.grid, 3, 3)).toBe('└');
+    expect(cellAt(d.grid, 4, 3)).toBe('─');
+  });
+  it('T 字交叉：┬', () => {
+    let d = applyAutoTool(createDraft(10, 5), { x: 2, y: 2 }, { x: 6, y: 2 });
+    d = applyAutoTool(d, { x: 4, y: 2 }, { x: 4, y: 4 });
+    expect(cellAt(d.grid, 4, 2)).toBe('┬');
+  });
+  it('十字交叉：┼', () => {
+    let d = applyAutoTool(createDraft(10, 5), { x: 2, y: 2 }, { x: 6, y: 2 });
+    d = applyAutoTool(d, { x: 4, y: 1 }, { x: 4, y: 3 });
+    expect(cellAt(d.grid, 4, 2)).toBe('┼');
+  });
+  it('线穿过圆点 → 圆点被线取代', () => {
+    let d = applyAutoTool(createDraft(10, 5), { x: 3, y: 2 }, { x: 3, y: 2 });
+    expect(cellAt(d.grid, 3, 2)).toBe('·');
+    d = applyAutoTool(d, { x: 3, y: 1 }, { x: 3, y: 3 });
+    expect(cellAt(d.grid, 3, 2)).toBe('│');
   });
 });
 
