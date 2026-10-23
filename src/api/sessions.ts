@@ -158,6 +158,13 @@ export interface ServerAiSession {
     | 'cancelled'
     | 'timed_out';
   run_state_version?: number;
+  /**
+   * 本会话最近一次运行的执行器（server 从 ai.run.started 事件派生）。
+   * 'tui' = 注入到终端里已在跑的 Claude Code TUI，只能收文本、没有 steer
+   * 通道；'spawn' = agent 自己 spawn 的 --print 进程，支持图片与插话。
+   * 老 server 不下发 → undefined，手机按旧行为处理。
+   */
+  executor?: 'tui' | 'spawn';
   last_agent_event_seq?: number;
   project_path?: string;
   mode: 'chat' | 'vibe' | 'review' | 'agent';

@@ -1055,9 +1055,13 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     const steerDevice = get().devices.find(
       device => device.id === currentRun?.deviceId,
     );
+    // 设备级能力位只说明 CLI 支持 --input-format stream-json；本轮到底有没有
+    // steer 通道还取决于执行器：TUI 注入是纯文本单向帧，没有 claudeSteer。
+    // 因此 executor==='tui' 时一律按「不能插话」处理，让调用方走排队/报错，
+    // 而不是把图片塞进一条必然失败的 ai.steer。
     const canSteerClaude = Boolean(
       steerDevice?.capabilities?.includes('ai_steer_claude'),
-    );
+    ) && currentRun?.executor !== 'tui';
     const sendAsSteer = shouldSendAsSteer(
       executionActive,
       provider,

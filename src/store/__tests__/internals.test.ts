@@ -965,6 +965,43 @@ describe('serverAiSessionToVibeRun — 最新提问跳过 CC meta 行', () => {
   });
 });
 
+describe('serverAiSessionToVibeRun — executor 映射(2026-10-23 TUI 图片事故)', () => {
+  const snapshot = (over: Record<string, unknown>) =>
+    ({
+      session_id: 'ai_test',
+      kind: 'ai',
+      user_id: 'u1',
+      device_id: 'dev1',
+      status: 'running',
+      mode: 'vibe',
+      ...over,
+    }) as unknown as PlatformAiSessionSnapshot;
+
+  it("server 下发 executor='tui' → 映射到 run.executor", () => {
+    expect(serverAiSessionToVibeRun(snapshot({ executor: 'tui' }), [], []).executor).toBe('tui');
+  });
+
+  it("server 下发 executor='spawn' → 映射到 run.executor", () => {
+    expect(serverAiSessionToVibeRun(snapshot({ executor: 'spawn' }), [], []).executor).toBe('spawn');
+  });
+
+  it('老 server 不带 executor → undefined(手机按旧行为,不误锁 composer)', () => {
+    expect(serverAiSessionToVibeRun(snapshot({}), [], []).executor).toBeUndefined();
+  });
+
+  it('列表快照缺 executor 时 merge 保留已知值(不把 TUI 抹成未知)', () => {
+    const existing = makeRun({ id: 's', executor: 'tui', lastActivityMs: 1000 });
+    const incoming = makeRun({ id: 's', lastActivityMs: 2000 });
+    expect(mergeVibeRunSnapshot(existing, incoming).executor).toBe('tui');
+  });
+
+  it('新快照显式切到 spawn 时覆盖旧 tui', () => {
+    const existing = makeRun({ id: 's', executor: 'tui', lastActivityMs: 1000 });
+    const incoming = makeRun({ id: 's', executor: 'spawn', lastActivityMs: 2000 });
+    expect(mergeVibeRunSnapshot(existing, incoming).executor).toBe('spawn');
+  });
+});
+
 describe('serverAiSessionToVibeRun — 活跃时间诚实化(2026-10-15 事故)', () => {
   // 事故链:wire 载荷缺/坏 last_active_at 时,旧代码 `Date.parse(...) ||
   // activityNowMs()` 凭空造"现在",再被 mergeVibeRunSnapshot 的 Math.max 棘轮

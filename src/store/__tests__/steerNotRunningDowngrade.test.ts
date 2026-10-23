@@ -106,3 +106,37 @@ describe('steer 撞上空闲会话 → 自动降级普通发送', () => {
     expect(bubble?.failed).toBe(true);
   });
 });
+
+describe('TUI 执行器运行中不尝试 steer(2026-10-23 图片事故)', () => {
+  it("executor='tui' + running → 不走 sendAiSteer,按并发发送硬拦", async () => {
+    useControlCenterStore.setState(state => ({
+      vibeRuns: state.vibeRuns.map(run => ({ ...run, executor: 'tui' as const })),
+    }));
+
+    await expect(
+      useControlCenterStore.getState().appendAgentMessage('s1', '分析一下这个图片', 'text'),
+    ).rejects.toThrow('still running');
+
+    expect(sendAiSteerMock).not.toHaveBeenCalled();
+    expect(sendAiMessageMock).not.toHaveBeenCalled();
+  });
+
+  it("executor='spawn' + running → 仍走 sendAiSteer(能力位未回归)", async () => {
+    useControlCenterStore.setState(state => ({
+      vibeRuns: state.vibeRuns.map(run => ({ ...run, executor: 'spawn' as const })),
+    }));
+    sendAiSteerMock.mockResolvedValueOnce({
+      message_id: 'msg_steer',
+      status: 'sent',
+      run_id: 'r1',
+      run_state_version: 8,
+    });
+
+    await useControlCenterStore
+      .getState()
+      .appendAgentMessage('s1', '顺便看下', 'text');
+
+    expect(sendAiSteerMock).toHaveBeenCalledTimes(1);
+    expect(sendAiMessageMock).not.toHaveBeenCalled();
+  });
+});
