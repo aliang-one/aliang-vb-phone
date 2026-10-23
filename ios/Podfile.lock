@@ -1584,7 +1584,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - react-native-view-shot (4.0.3):
+  - react-native-view-shot (5.1.1):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -2743,7 +2743,7 @@ SPEC CHECKSUMS:
   react-native-blob-util: 86ae5b2786bbb99e6e4ceb603355702361005330
   react-native-image-picker: 8210f31863247b731a0a71eec034e5d2af5267d6
   react-native-safe-area-context: fb5c8ee9f6dd62ef710611b3d370c501f42a4ac0
-  react-native-view-shot: 5fe893f10cadc5949a3b9b44d75df16633fa8ef4
+  react-native-view-shot: 2829bd78c1fef42db12553bf85833e05a1a73609
   react-native-webview: 2da09bdea1aeb6c46e27dd94632e21059cade6c1
   React-NativeModulesApple: deba264b03bd79c6bd61014fa30e40321b5e443a
   React-networking: 35e6070b084f435429f85c5db40b4d5b38652fe9

@@ -48,7 +48,7 @@
     "react-native-screens": "^4.25.2",
     "react-native-share": "^12.3.1",
     "react-native-svg": "^15.15.5",
-    "react-native-view-shot": "^4.0.3",
+    "react-native-view-shot": "^5.1.1",
     "react-native-vision-camera": "^5.0.11",
     "react-native-vision-camera-barcode-scanner": "^5.0.11",
     "react-native-webview": "^13.16.1",
