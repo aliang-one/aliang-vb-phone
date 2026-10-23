@@ -66,6 +66,16 @@ export function transportToActivity(
         messageId: ev.messageId,
         tasks: ev.tasks,
       };
+    case 'ai.subagent':
+      return {
+        kind: 'subagent', eventId: `sub:${ev.taskId}`, serverEventId: ev.eventId,
+        messageId: ev.messageId, itemId: ev.itemId, taskId: ev.taskId, phase: ev.phase,
+        toolUseId: ev.toolUseId, description: ev.description, subagentType: ev.subagentType,
+        spawnDepth: ev.spawnDepth, taskType: ev.taskType, isBackgrounded: ev.isBackgrounded,
+        currentStep: ev.currentStep, lastTool: ev.lastTool, toolUses: ev.toolUses,
+        totalTokens: ev.totalTokens, durationMs: ev.durationMs, summary: ev.summary,
+        outputFile: ev.outputFile,
+      };
     default:
       return null;
   }
@@ -110,6 +120,16 @@ export function applyStructuredEventsToRun(
       };
     } else if (activity.kind === 'task' && prev.kind === 'task') {
       next = activity;
+    } else if (activity.kind === 'subagent' && prev.kind === 'subagent') {
+      // 子 agent 跨 phase upsert:slim envelope 恒带全键(值可能 undefined),
+      // 裸 spread 会用 undefined 抹掉已有字段(如 completed 抹掉 current_step)。
+      // 与服务端 overlayWithoutUndefined 同语义:只覆盖有值字段。
+      next = { ...prev } as StructuredActivityEvent;
+      for (const [key, value] of Object.entries(activity)) {
+        if (value !== undefined) {
+          (next as Record<string, unknown>)[key] = value;
+        }
+      }
     } else {
       next = { ...prev, ...activity } as StructuredActivityEvent;
     }

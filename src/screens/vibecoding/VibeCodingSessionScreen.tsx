@@ -212,7 +212,10 @@ const hasRenderableActivity = (events: StructuredActivityEvent[]): boolean =>
       (event.kind === 'thinking' && event.active) ||
       event.kind === 'command' ||
       event.kind === 'file_change' ||
-      event.kind === 'task',
+      event.kind === 'task' ||
+      // 子 agent 行(tool-only 回合的常见唯一活动):缺席会让孤儿锚定直接丢弃,
+      // 整个纯子 agent 回合在手机上不可见。
+      event.kind === 'subagent',
   );
 
 // Splits a formatted session title ("Subject · meta · meta …" — the parts are

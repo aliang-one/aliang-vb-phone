@@ -36,57 +36,39 @@ export function summarizeActivity(
   turnSettled = true,
 ): ActivitySummary | null {
   if (!events.length) return null;
-
-  const cmds = events.filter(
-    (e): e is Extract<StructuredActivityEvent, { kind: 'command' }> =>
-      e.kind === 'command',
-  );
-  const files = events.filter(
-    (e): e is Extract<StructuredActivityEvent, { kind: 'file_change' }> =>
-      e.kind === 'file_change',
-  );
-  const thinking = events.filter(
-    (e): e is Extract<StructuredActivityEvent, { kind: 'thinking' }> =>
-      e.kind === 'thinking',
-  );
-  const usage = events.filter(
-    (e): e is Extract<StructuredActivityEvent, { kind: 'usage' }> =>
-      e.kind === 'usage',
-  );
-  const task = events.find(
-    (e): e is Extract<StructuredActivityEvent, { kind: 'task' }> =>
-      e.kind === 'task',
-  );
-
-  const openCmd = cmds.find((c) => c.status === 'started');
-  const activeThink = thinking.some((t) => t.active);
+  const cmds = events.filter((e): e is Extract<StructuredActivityEvent, { kind: 'command' }> => e.kind === 'command');
+  const files = events.filter((e): e is Extract<StructuredActivityEvent, { kind: 'file_change' }> => e.kind === 'file_change');
+  const thinking = events.filter((e): e is Extract<StructuredActivityEvent, { kind: 'thinking' }> => e.kind === 'thinking');
+  const usage = events.filter((e): e is Extract<StructuredActivityEvent, { kind: 'usage' }> => e.kind === 'usage');
+  const task = events.find((e): e is Extract<StructuredActivityEvent, { kind: 'task' }> => e.kind === 'task');
+  const subagents = events.filter((e): e is Extract<StructuredActivityEvent, { kind: 'subagent' }> => e.kind === 'subagent');
+  const openCmd = cmds.find(c => c.status === 'started');
+  const activeThink = thinking.some(t => t.active);
   const lastThink = thinking[thinking.length - 1];
-
+  const activeSubagent = subagents.find(e => e.phase === 'started' || e.phase === 'progress');
   const headline = activeThink
     ? lastThink && lastThink.chars > 0
       ? i18n.t('vibecoding:activitySummary.thinkingWithChars', { chars: fmtChars(lastThink.chars) })
       : i18n.t('vibecoding:activitySummary.thinking')
     : openCmd
       ? `⚙ ${openCmd.command ?? i18n.t('vibecoding:activitySummary.runningCommand')}`
-      : files.length > 0
-        ? i18n.t('vibecoding:activitySummary.editingFiles', { count: files.length })
-        : turnSettled
-          ? i18n.t('vibecoding:activitySummary.done')
-          : i18n.t('vibecoding:activitySummary.processing');
-
+      : activeSubagent
+        ? i18n.t('vibecoding:activitySummary.subagentRunning', { step: activeSubagent.currentStep ?? activeSubagent.description ?? '' })
+        : files.length > 0
+          ? i18n.t('vibecoding:activitySummary.editingFiles', { count: files.length })
+          : turnSettled
+            ? i18n.t('vibecoding:activitySummary.done')
+            : i18n.t('vibecoding:activitySummary.processing');
   const lastUsage = usage[usage.length - 1];
-  const usageTokens = lastUsage
-    ? (lastUsage.inputTokens ?? 0) + (lastUsage.outputTokens ?? 0)
-    : undefined;
+  const usageTokens = lastUsage ? (lastUsage.inputTokens ?? 0) + (lastUsage.outputTokens ?? 0) : undefined;
   const usageToShow = usageTokens && usageTokens > 0 ? usageTokens : undefined;
-  const taskCurrent = task?.tasks.find((t) => t.status === 'in_progress')?.subject;
-
+  const taskCurrent = task?.tasks.find(t => t.status === 'in_progress')?.subject;
   return {
     headline,
-    hasActive: activeThink || Boolean(openCmd) || !turnSettled,
+    hasActive: activeThink || Boolean(openCmd) || Boolean(activeSubagent) || !turnSettled,
     fileCount: files.length,
     commandCount: cmds.length,
-    taskDone: task ? task.tasks.filter((t) => t.status === 'completed').length : 0,
+    taskDone: task ? task.tasks.filter(t => t.status === 'completed').length : 0,
     taskTotal: task ? task.tasks.length : 0,
     usageTokens: usageToShow,
     taskCurrent,
@@ -114,24 +96,22 @@ export function deriveLivePulse(
   isLiveTurn: boolean,
 ): LivePulse | null {
   if (!events.length) return null;
-  const cmds = events.filter(
-    (e): e is Extract<StructuredActivityEvent, { kind: 'command' }> =>
-      e.kind === 'command',
-  );
-  const thinking = events.filter(
-    (e): e is Extract<StructuredActivityEvent, { kind: 'thinking' }> =>
-      e.kind === 'thinking',
-  );
-  const openCmd = cmds.find((c) => c.status === 'started');
-  const activeThink = thinking.some((t) => t.active);
-  const hasActive = activeThink || Boolean(openCmd);
+  const cmds = events.filter((e): e is Extract<StructuredActivityEvent, { kind: 'command' }> => e.kind === 'command');
+  const thinking = events.filter((e): e is Extract<StructuredActivityEvent, { kind: 'thinking' }> => e.kind === 'thinking');
+  const subagents = events.filter((e): e is Extract<StructuredActivityEvent, { kind: 'subagent' }> => e.kind === 'subagent');
+  const openCmd = cmds.find(c => c.status === 'started');
+  const activeThink = thinking.some(t => t.active);
+  const activeSubagent = subagents.find(e => e.phase === 'started' || e.phase === 'progress');
+  const hasActive = activeThink || Boolean(openCmd) || Boolean(activeSubagent);
   const live = isLiveTurn || hasActive;
   const headline = activeThink
     ? i18n.t('vibecoding:activitySummary.thinking')
     : openCmd
       ? `⚙ ${openCmd.command ?? i18n.t('vibecoding:activitySummary.runningCommand')}`
-      : live
-        ? i18n.t('vibecoding:activitySummary.processing')
-        : i18n.t('vibecoding:activitySummary.awaitingInput');
+      : activeSubagent
+        ? i18n.t('vibecoding:activitySummary.subagentRunning', { step: activeSubagent.currentStep ?? activeSubagent.description ?? '' })
+        : live
+          ? i18n.t('vibecoding:activitySummary.processing')
+          : i18n.t('vibecoding:activitySummary.awaitingInput');
   return { headline, hasActive: live };
 }

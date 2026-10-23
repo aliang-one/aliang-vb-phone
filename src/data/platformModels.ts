@@ -545,11 +545,6 @@ export type StructuredActivityEvent =
       messageId: string;
       itemId: string;
       path?: string;
-      /**
-       * Backend file-change category (e.g. "create" | "edit" | "delete").
-       * Renamed from the wire's `kind` to avoid colliding with the
-       * discriminant above (two `kind` keys can't coexist in one object type).
-       */
       changeKind?: string;
       added?: number;
       removed?: number;
@@ -576,6 +571,28 @@ export type StructuredActivityEvent =
       eventId: string;
       messageId: string;
       tasks: { subject: string; status: string; active_form?: string }[];
+    }
+  | {
+      kind: 'subagent';
+      eventId: string;
+      serverEventId: string;
+      messageId: string;
+      itemId: string;
+      taskId: string;
+      phase: 'started' | 'progress' | 'completed' | 'failed' | 'interrupted';
+      toolUseId?: string;
+      description?: string;
+      subagentType?: string;
+      spawnDepth?: number;
+      taskType?: string;
+      isBackgrounded?: boolean;
+      currentStep?: string;
+      lastTool?: string;
+      toolUses?: number;
+      totalTokens?: number;
+      durationMs?: number;
+      summary?: string;
+      outputFile?: string;
     };
 
 /**
@@ -602,63 +619,36 @@ export function envelopeToActivity(
   switch (type) {
     case 'ai.command':
       return {
-        kind: 'command',
-        eventId,
-        messageId,
-        itemId,
-        status: String(env.status ?? 'started'),
-        command: str(env.command),
-        cwd: str(env.cwd),
-        exitCode:
-          typeof env.exit_code === 'number'
-            ? env.exit_code
-            : env.exit_code == null
-              ? undefined
-              : null,
+        kind: 'command', eventId, messageId, itemId,
+        status: String(env.status ?? 'started'), command: str(env.command), cwd: str(env.cwd),
+        exitCode: typeof env.exit_code === 'number' ? env.exit_code : env.exit_code == null ? undefined : null,
       };
     case 'ai.file_change':
-      return {
-        kind: 'file_change',
-        eventId,
-        messageId,
-        itemId,
-        path: str(env.path),
-        changeKind: str(env.kind),
-        added: num(env.added),
-        removed: num(env.removed),
-        renamedFrom: str(env.renamed_from),
-      };
+      return { kind: 'file_change', eventId, messageId, itemId, path: str(env.path), changeKind: str(env.kind), added: num(env.added), removed: num(env.removed), renamedFrom: str(env.renamed_from) };
     case 'ai.thinking':
-      return {
-        kind: 'thinking',
-        eventId,
-        messageId,
-        active: env.active !== false,
-        chars: typeof env.chars === 'number' ? env.chars : 0,
-      };
+      return { kind: 'thinking', eventId, messageId, active: env.active !== false, chars: typeof env.chars === 'number' ? env.chars : 0 };
     case 'ai.usage':
-      return {
-        kind: 'usage',
-        eventId,
-        messageId: str(env.message_id),
-        inputTokens: num(env.input_tokens),
-        outputTokens: num(env.output_tokens),
-        cacheReadTokens: num(env.cache_read_tokens),
-        model: str(env.model),
-      };
+      return { kind: 'usage', eventId, messageId: str(env.message_id), inputTokens: num(env.input_tokens), outputTokens: num(env.output_tokens), cacheReadTokens: num(env.cache_read_tokens), model: str(env.model) };
     case 'ai.task':
       return {
-        kind: 'task',
-        eventId,
-        messageId,
-        tasks: Array.isArray(env.tasks)
-          ? (env.tasks as {
-              subject: string;
-              status: string;
-              active_form?: string;
-            }[])
-          : [],
+        kind: 'task', eventId, messageId,
+        tasks: Array.isArray(env.tasks) ? env.tasks as { subject: string; status: string; active_form?: string }[] : [],
       };
+    case 'ai.subagent': {
+      const phase = env.phase;
+      const taskId = String(env.task_id ?? env.item_id ?? '');
+      if (!taskId || !(phase === 'started' || phase === 'progress' || phase === 'completed' || phase === 'failed' || phase === 'interrupted')) return null;
+      return {
+        kind: 'subagent', eventId: `sub:${taskId}`, serverEventId: eventId,
+        messageId, itemId: taskId, taskId, phase,
+        toolUseId: str(env.tool_use_id), description: str(env.description),
+        subagentType: str(env.subagent_type), spawnDepth: num(env.spawn_depth),
+        taskType: str(env.task_type), isBackgrounded: typeof env.is_backgrounded === 'boolean' ? env.is_backgrounded : undefined,
+        currentStep: str(env.current_step) ?? str(env.status_detail), lastTool: str(env.last_tool),
+        toolUses: num(env.tool_uses), totalTokens: num(env.total_tokens), durationMs: num(env.duration_ms),
+        summary: str(env.summary), outputFile: str(env.output_file),
+      };
+    }
     default:
       return null;
   }

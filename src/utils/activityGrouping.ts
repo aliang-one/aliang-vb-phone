@@ -108,7 +108,10 @@ export const countTrailingActiveActivityGroups = (
     (eventsByMessageId.get(messageId) ?? []).some(
       event =>
         (event.kind === 'command' && event.status === 'started') ||
-        (event.kind === 'thinking' && event.active),
+        (event.kind === 'thinking' && event.active) ||
+        // 运行中的子 agent 同样是在飞活动:缺席会让含运行中子 agent 的尾组
+        // 折叠进 LoadMoreRow,用户看不到它还在跑。
+        (event.kind === 'subagent' && (event.phase === 'started' || event.phase === 'progress')),
     ),
   );
   return hasActive ? 1 : 0;

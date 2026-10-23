@@ -271,6 +271,13 @@ describe('deriveLivePulse (L3 底部脉冲)', () => {
     expect(pulse?.hasActive).toBe(true);
   });
 
+  it('active subagent keeps the live pulse during a silent parent turn', () => {
+    expect(deriveLivePulse([{
+      kind: 'subagent', eventId: 'sub:task-1', serverEventId: 'se-1', messageId: 'm1', itemId: 'task-1', taskId: 'task-1',
+      phase: 'progress', description: 'Running tests',
+    }], false)).toMatchObject({ hasActive: true, headline: '🤖 子 Agent · Running tests' });
+  });
+
   it('永不返回「已完成/DONE」', () => {
     const cases = [
       deriveLivePulse([cmd({ status: 'completed' })], true),
