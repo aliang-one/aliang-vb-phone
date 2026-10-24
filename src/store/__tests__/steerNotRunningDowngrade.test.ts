@@ -161,4 +161,33 @@ describe('导入/TUI 驱动回合不尝试 steer(2026-10-24 状态矩阵清洗 G
     expect(sendAiSteerMock).not.toHaveBeenCalled();
     expect(sendAiMessageMock).not.toHaveBeenCalled();
   });
+
+  it('tuiDriven + 设备宣称 ai_steer_external → 放行 sendAiSteer(CC 收件箱排队)', async () => {
+    // agent 端外部 steer 扩展(2026-10-24):pid 记录 + 跨会话 UDS 收件箱使
+    // tuiDrivenRunning 可插话。store 门控按设备能力位放开,与屏侧
+    // canSteerTurn 的 `!tuiDrivenRunning || canSteerExternal` 同源。
+    useControlCenterStore.setState(state => ({
+      vibeRuns: state.vibeRuns.map(run => ({
+        ...run,
+        sourceSessionId: 'uuid-tui-2',
+        runStateVersion: undefined,
+      })),
+      devices: [
+        { id: 'd1', capabilities: ['ai_steer_claude', 'ai_steer_external'] },
+      ] as never,
+    }));
+    sendAiSteerMock.mockResolvedValueOnce({
+      message_id: 'msg_steer_ext',
+      status: 'sent',
+      run_id: 'r-ext',
+      run_state_version: 9,
+    });
+
+    await useControlCenterStore
+      .getState()
+      .appendAgentMessage('s1', '外部插话', 'text');
+
+    expect(sendAiSteerMock).toHaveBeenCalledTimes(1);
+    expect(sendAiMessageMock).not.toHaveBeenCalled();
+  });
 });

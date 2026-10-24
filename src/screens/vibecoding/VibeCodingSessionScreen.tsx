@@ -1186,17 +1186,23 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const canSteerClaude = Boolean(
     device?.capabilities?.includes('ai_steer_claude'),
   );
+  // 设备是否具备「外部 TUI 会话插话」通道（ai_steer_external，agent 端 CC
+  // >= 2.1.224 版本探测）：tuiDrivenRunning 的导入会话也能经 CC 收件箱排队
+  // 插话，composer 不必再只读（2026-10-24 外部 steer 扩展）。
+  const canSteerExternal = Boolean(
+    device?.capabilities?.includes('ai_steer_external'),
+  );
   const shouldDisableComposerForProvider = shouldLockComposerForProvider(
     isSessionLive,
     session?.status,
     effectiveProvider,
-    // TUI 运行没有 steer 通道：即使设备宣称 ai_steer_claude（那是设备级能力，
-    // 只代表 CLI 支持 stream-json），本轮也不能插话，按「运行中锁 composer」
-    // 处理。tuiDrivenRunning（导入/外部 TUI 回合）同理排除——锁谓词与
+    // TUI 执行器运行没有 steer 通道（注入帧只有文本帧外的东西都不行）：即使
+    // 设备宣称 ai_steer_claude，本轮也不能插话，按「运行中锁 composer」处理。
+    // tuiDrivenRunning（导入/外部 TUI 回合）原本同样排除——锁谓词与
     // canSteerTurn 必须同源，否则出现「可打字却没有发送键」的混合态
-    // （2026-10-24 状态矩阵清洗 G1b；这里主要是防御，主门在
-    // composerReadOnlyReason 的 tuiDrivenRunning 分支）。
-    canSteerClaude && !tuiExecutorRunning && !tuiDrivenRunning,
+    // （2026-10-24 状态矩阵清洗 G1b）；设备具备 ai_steer_external 后该形态
+    // 可插话，不再排除。这里主要是防御，主门在 composerReadOnlyReason。
+    canSteerClaude && !tuiExecutorRunning && (!tuiDrivenRunning || canSteerExternal),
   );
 
   const goalContext = () => {
@@ -1927,9 +1933,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // running。失败原因由底部气泡 failedLabel(「会话失败 · 网关502…」)承担,这里不阻断输入。
   const composerReadOnlyReason = isDraft
     ? undefined
-    : session?.purpose !== 'goal' && tuiDrivenRunning
-      // TUI 驱动回合运行中：无 steer 通道，composer 只读并说明去处
-      // （不变量：不接受插话就不得出现「可输入但无发送键」，G1b）。
+    : session?.purpose !== 'goal' && tuiDrivenRunning && !canSteerExternal
+      // TUI 驱动回合运行中且设备无外部插话通道：composer 只读并说明去处
+      // （不变量：不接受插话就不得出现「可输入但无发送键」，G1b）。有
+      // ai_steer_external 的设备可插话，不再只读。
       ? t('session.composer.tuiRunningReadOnly')
       : session?.purpose !== 'goal' && shouldDisableComposerForProvider
         ? t('session.composer.claudeRunning')
@@ -1977,16 +1984,20 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // 回合进行中是否还有可用的「插话」(steer) 通道 —— composer 据此把发送键
   // 放回动作槽最右（停止键居左）。判据与 store 里 appendAgentMessage 的
   // sendAsSteer 同源 (utils/sessionPhase.shouldSendAsSteer)，避免「按钮可点
-  // 但发出去必失败」。TUI 驱动的回合额外排除：那条 run 不在 agent 自己的
-  // sessions 表里，没有 steer 通道（连 v1.1.67 的 UDS steer 也只覆盖 agent
-  // spawn 的注入回合），只能等回合结束——期间 composer 只读（见上）。
-  // 手机发起但由 TUI 执行的回合同理（tuiExecutorRunning）：注入帧只有文本，
-  // 运行中发图/插话都没有通道，必须等回合结束再发。
+  // 但发出去必失败」。TUI 驱动的回合（tuiDrivenRunning）原本排除：那条 run
+  // 不在 agent 自己的 sessions 表里；设备具备 ai_steer_external 后，agent 端
+  // 凭 pid 记录 + CC 跨会话 UDS 收件箱把插话排队（ack=queued），该形态重新
+  // 可插话，不再排除也不再只读（见上）。tuiExecutorRunning 保持排除：注入帧
+  // 只有文本，运行中发图/插话都没有通道，必须等回合结束再发。
   const canSteerTurn =
     isSessionLive &&
-    !tuiDrivenRunning &&
     !tuiExecutorRunning &&
-    shouldSendAsSteer(isSessionLive, effectiveProvider, canSteerClaude);
+    (!tuiDrivenRunning || canSteerExternal) &&
+    shouldSendAsSteer(
+      isSessionLive,
+      effectiveProvider,
+      canSteerClaude || (tuiDrivenRunning && canSteerExternal),
+    );
 
   const handleInterruptTurn = useCallback(() => {
     if (!session || !canInterruptTurn) return;
@@ -3713,7 +3724,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
             interruptingTurn={interruptingTurn}
             canInterruptTurn={canInterruptTurn}
             interruptGreyed={tuiDrivenRunning}
-            interruptGreyedHint={t('session.composer.tuiStopGreyed')}
+            interruptGreyedHint={
+              canSteerExternal
+                ? t('session.composer.tuiSteerableHint')
+                : t('session.composer.tuiStopGreyed')
+            }
             canSteer={canSteerTurn}
             deviceOffline={deviceOffline}
             readOnlyReason={composerReadOnlyReason}

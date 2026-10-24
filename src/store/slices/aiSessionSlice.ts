@@ -1090,20 +1090,24 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       steerDevice?.capabilities?.includes('ai_steer_claude'),
     ) && currentRun?.executor !== 'tui';
     // 导入/外部 TUI 驱动的回合（扫描上报 running、无 v2 runStateVersion、与
-    // 终端共享 sourceSessionId）在 agent 侧根本没有对应会话，任何 steer 都会
-    // 撞 not_running——与屏侧 canSteerTurn 的排除同源（2026-10-24 清洗 G1c）。
-    // 此前只排 executor==='tui'，语音草稿路径在该形态下会把消息当 steer 打进
-    // 一条没有注入通道的运行（740cc99 同款事故）。对所有 provider 一律按
-    // 「无 steer」处理：claude/opencode 落入硬闸，codex 退化为排队普通发送。
+    // 终端共享 sourceSessionId）在 agent 侧没有对应会话记录——默认任何 steer
+    // 都会撞 not_running，与屏侧 canSteerTurn 的排除同源（2026-10-24 清洗
+    // G1c）。此前只排 executor==='tui'，语音草稿路径在该形态下会把消息当
+    // steer 打进一条没有注入通道的运行（740cc99 同款事故）。设备具备
+    // ai_steer_external 后（agent 凭 pid 记录 + CC 跨会话 UDS 收件箱排队，
+    // ack=queued），该形态重新可插话，不再排除。
+    const canSteerExternal = Boolean(
+      steerDevice?.capabilities?.includes('ai_steer_external'),
+    );
     const tuiDrivenRun =
       currentRun != null &&
       currentRun.sourceSessionId != null &&
       currentRun.status === 'running' &&
       currentRun.runStateVersion === undefined;
     const sendAsSteer = shouldSendAsSteer(
-      executionActive && !tuiDrivenRun,
+      executionActive && (!tuiDrivenRun || canSteerExternal),
       provider,
-      canSteerClaude,
+      canSteerClaude || (tuiDrivenRun && canSteerExternal),
     );
     if (shouldBlockConcurrentSend(turnActive, provider, sendAsSteer)) {
       pendingMessageSends.delete(sendKey);
