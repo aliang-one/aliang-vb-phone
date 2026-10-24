@@ -56,7 +56,6 @@ import {
   createTerminalKeyboardProxyState,
   markTerminalKeyboardProxyInputReset,
   resetTerminalKeyboardProxyInput,
-  TERMINAL_KEYBOARD_PROXY_SELECTION,
   TERMINAL_KEYBOARD_PROXY_VALUE,
   terminalKeyboardProxyChangeAction,
   terminalKeyboardProxyKeyAction,
@@ -1821,7 +1820,6 @@ export const DeviceTerminalScreen: React.FC = () => {
                           onKeyPress={handleKeyboardProxyKeyPress}
                           onFocus={handleKeyboardProxyFocus}
                           onBlur={handleKeyboardProxyBlur}
-                          selection={TERMINAL_KEYBOARD_PROXY_SELECTION}
                           editable={terminalInputEnabled}
                           pointerEvents="none"
                           autoCapitalize="none"
