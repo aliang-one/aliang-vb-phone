@@ -17,6 +17,7 @@ import { sameRemotePath } from '../utils/remotePath';
 import { normalizeFileStatus } from '../utils/fileStatus';
 import { isClaudeCodeMetaUserContent } from '../utils/agentTranscript';
 import { countServerConfirmedMessages } from '../utils/sessionCatchUp';
+import { isApprovalLikeLegacyStatus } from '../utils/sessionPhase';
 import { decodeTerminalData } from '../utils/terminalOutput';
 import {
   platformTransport,
@@ -1311,10 +1312,15 @@ export function mapSessionStatus(status: string): VibeStatus {
  * in-memory flag flipped when an `approval.requested` push is applied locally
  * (controlCenterStore). Either means "an approval may be pending that the
  * one-shot push dropped" — a candidate for recovery.
+ *
+ * 字面量已收敛到 utils/sessionPhase.isApprovalLikeLegacyStatus(2026-10-24
+ * 判据统一收尾)。这是 persisted-status-only 契约,与 turn-control 的
+ * canonical 三参 isWaitingApprovalStatus(本文件名同名不同义)互斥——
+ * 本地保留原名是为了 enteredWaitingApproval 消费点零改动。
  */
 export const isWaitingApprovalStatus = (
   status: VibeStatus | undefined,
-): boolean => status === 'paused' || status === 'waiting_approval';
+): boolean => isApprovalLikeLegacyStatus(status);
 
 /**
  * True ONLY on the non-waiting → waiting EDGE. Drives the one-shot dashboard

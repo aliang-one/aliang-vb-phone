@@ -315,6 +315,20 @@ export function isWaitingApprovalStatus(
 }
 
 /**
+ * persisted-status-only 的「审批像待定」检查——**与上面的 canonical 三参版是
+ * 两个契约,勿混用**。消费场景(store internals 的 enteredWaitingApproval
+ * 自愈)手里只有前后两个裸 status,拿不到 runState;'paused' 在服务端两条
+ * 路径(agent 审批处理器 legacy 分支 / 派生审批 markPaused)都是审批投递
+ * 的产物,加上本地 approval.requested 推送写的 'waiting_approval',三者
+ * 都意味着「可能有一条被丢推送的待审批」。注意它**不**参与 turn-control
+ * (停止键/发送闸/composer 锁走三参版),也不影响显示层('paused' 在
+ * runDisplayPhase 有意钉成 completed)。
+ */
+export function isApprovalLikeLegacyStatus(status: VibeStatus | undefined): boolean {
+  return status === 'paused' || status === 'waiting_approval';
+}
+
+/**
  * Composer 是否因 provider 并发而锁定(Claude Code / OpenCode 是单进程 CLI,跑回合时不能并发收新消息)。
  *
  * **关键**:用「生命迹象」(isSessionLive)而不是裸 `session.status` 判活。回合答完后

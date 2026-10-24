@@ -9,6 +9,7 @@ import { normalizeProvider, providerLabel } from '../../utils/modelIntensity';
 import {
   isAuthoritativeRunLive,
   isSessionTurnActive,
+  isWaitingApprovalStatus,
   shouldBlockConcurrentSend,
   shouldSendAsSteer,
 } from '../../utils/sessionPhase';
@@ -1072,9 +1073,13 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
           currentRun.status,
         )
       : isSessionTurnActive(status ?? 'idle');
-    const waitingApproval = currentRun?.runStateVersion !== undefined
-      ? currentRun.runState === 'waiting_approval'
-      : status === 'waiting_approval';
+    // 审批等待判定统一走 canonical 谓词(2026-10-24 判据统一收尾):与屏侧
+    // composer 锁/停止键审批腿同一来源,不再各自内联三行。
+    const waitingApproval = isWaitingApprovalStatus(
+      status,
+      currentRun?.runStateVersion,
+      currentRun?.runState,
+    );
     const turnActive = executionActive || waitingApproval;
     // Claude steer 依赖新 agent 的 ai_steer_claude 能力位：老 agent 无条件
     // 宣称 ai_steer，却只实现了 Codex 通道，贸然把消息塞进去会失败在 agent 侧。

@@ -2,6 +2,7 @@ import {
   LIVE_TURN_WINDOW_MS,
   compareSessionsByStableActivity,
   deriveSessionPhase,
+  isApprovalLikeLegacyStatus,
   isAuthoritativeRunLive,
   isSessionTurnActive,
   isWaitingApprovalStatus,
@@ -436,6 +437,20 @@ describe('isSessionTurnActive (事件驱动:status===running)', () => {
     expect(isSessionTurnActive('waiting_approval')).toBe(false);
     expect(isSessionTurnActive('paused')).toBe(false);
     expect(isSessionTurnActive('waiting_user')).toBe(false);
+  });
+});
+
+describe('isApprovalLikeLegacyStatus (persisted-status-only 审批像检查,判据统一收尾)', () => {
+  it('容忍 paused + waiting_approval,其余一律否', () => {
+    // 'paused' = 服务端审批投递产物(agent legacy 分支 / 派生审批 markPaused);
+    // 'waiting_approval' = 本地 approval.requested 推送写的旗标。两者都意味着
+    // 「可能有一条被丢推送的待审批」——internals enteredWaitingApproval 自愈
+    // 的判定域。与 turn-control 的三参 canonical 是两个契约,勿混用。
+    expect(isApprovalLikeLegacyStatus('paused')).toBe(true);
+    expect(isApprovalLikeLegacyStatus('waiting_approval')).toBe(true);
+    expect(isApprovalLikeLegacyStatus('running')).toBe(false);
+    expect(isApprovalLikeLegacyStatus('idle')).toBe(false);
+    expect(isApprovalLikeLegacyStatus(undefined)).toBe(false);
   });
 });
 
