@@ -1192,6 +1192,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const canSteerExternal = Boolean(
     device?.capabilities?.includes('ai_steer_external'),
   );
+  // 审批等待（runState 感知 canonical 谓词）：composer 锁 / 停止键审批腿 /
+  // 只读文案三处共用同一份判定（2026-10-24 codex 审批锁——审批期对任何
+  // provider 都是「会话暂停、不得发新消息」）。
+  const waitingApproval = isWaitingApprovalStatus(
+    session?.status,
+    session?.runStateVersion,
+    session?.runState,
+  );
   const shouldDisableComposerForProvider = shouldLockComposerForProvider(
     isSessionLive,
     session?.status,
@@ -1203,6 +1211,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
     // （2026-10-24 状态矩阵清洗 G1b）；设备具备 ai_steer_external 后该形态
     // 可插话，不再排除。这里主要是防御，主门在 composerReadOnlyReason。
     canSteerClaude && !tuiExecutorRunning && (!tuiDrivenRunning || canSteerExternal),
+    // 审批等待：v2 快照的 status='paused' 形态由 canonical 谓词认出，
+    // 任何 provider（含 codex）此刻都锁 composer。
+    waitingApproval,
   );
 
   const goalContext = () => {
@@ -1938,9 +1949,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
       // （不变量：不接受插话就不得出现「可输入但无发送键」，G1b）。有
       // ai_steer_external 的设备可插话，不再只读。
       ? t('session.composer.tuiRunningReadOnly')
-      : session?.purpose !== 'goal' && shouldDisableComposerForProvider
-        ? t('session.composer.claudeRunning')
-        : undefined;
+      : session?.purpose !== 'goal' && shouldDisableComposerForProvider && waitingApproval
+        // 审批等待（任何 provider，含 codex）：会话暂停、球在用户侧，
+        // 新消息会顶掉待审批——只读并说明去处（2026-10-24 codex 审批锁）。
+        ? t('session.composer.approvalPendingReadOnly')
+        : session?.purpose !== 'goal' && shouldDisableComposerForProvider
+          ? t('session.composer.claudeRunning')
+          : undefined;
   // TUI 共享提示(低成本方案):仅对「终端里发起」的导入会话展示——它们与
   // 桌面终端共用同一份会话文件,手机上发送的内容不会出现在已打开的 TUI
   // 界面里,TUI 端需重启 resume 才能同步。可手动关闭。
@@ -1965,15 +1980,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // 停止按钮显隐:与顶部相位 / composer 锁同源(看 isSessionLive),不裸读 session.status。
   // 旧版用 `serviceThinksRunning`(裸 status)会在回合答完后 status 卡陈旧 running 时,
   // 让停止按钮常驻显示——顶部已「已完成」、输入框已解锁,唯独停止按钮还在(脱节 bug)。
-  // 审批等待(runState 感知,含 v2 快照的 status='paused' + runState='waiting_approval'
-  // 形态,G7)仍视为可打断。2026-10-24 清洗:不再因 deviceOffline / interruptingTurn
+  // 审批等待(waitingApproval,上方已用 canonical 谓词算好)仍视为可打断。
+  // 2026-10-24 清洗:不再因 deviceOffline / interruptingTurn
   // 把停止键整体藏掉——离线时按钮渲染为禁用(诚实可见),打断请求在途时渲染为
   // 「…」进行中态,由 MessageComposer 的按钮级禁用承担,可见性归可见性、可点性归可点性。
-  const waitingApproval = isWaitingApprovalStatus(
-    session?.status,
-    session?.runStateVersion,
-    session?.runState,
-  );
   const canInterruptTurn =
     session?.purpose !== 'goal' &&
     !goalDraftActive &&

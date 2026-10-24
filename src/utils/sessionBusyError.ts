@@ -24,8 +24,9 @@ const SESSION_NOT_RUNNING_CODE = 'ai_session_not_running';
 
 // message 关键字兜底（统一小写比较）：服务端把 code 当文本下发；agent 的英文
 // 原文（"TUI session is running an active turn in its terminal; retry after it
-// finishes"）；手机本地 store guard（"… is still running. Stop it before …"）。
-const SESSION_BUSY_MESSAGE_HINTS = [SESSION_BUSY_CODE, 'still running'];
+// finishes"）；手机本地 store guard（"… is still running. Stop it before …"；
+// 审批等待期硬拦 "Approval is pending. Resolve it before …"）。
+const SESSION_BUSY_MESSAGE_HINTS = [SESSION_BUSY_CODE, 'still running', 'approval is pending'];
 const TUI_BUSY_MESSAGE_HINTS = [
   TUI_BUSY_CODE,
   'running an active turn',

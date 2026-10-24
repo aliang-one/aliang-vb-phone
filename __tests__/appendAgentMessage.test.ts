@@ -293,9 +293,11 @@ describe('appendAgentMessage', () => {
 
     it('waiting_approval → 拦截(审批期间不可发新消息)', async () => {
       setRun({ status: 'waiting_approval', provider: 'claude_code' });
+      // 2026-10-24 codex 审批锁:审批等待期文案从「still running」改为审批
+      // 语义(全 provider 一律拦,消息会顶掉待审批)。
       await expect(
         useControlCenterStore.getState().appendAgentMessage('s1', 'next-c', 'text'),
-      ).rejects.toThrow('Claude Code is still running');
+      ).rejects.toThrow('Approval is pending');
     });
 
     it('v2 runState=waiting_approval 即使裸 status=idle 也拦截', async () => {
@@ -307,7 +309,7 @@ describe('appendAgentMessage', () => {
       });
       await expect(
         useControlCenterStore.getState().appendAgentMessage('s1', 'next-d', 'text'),
-      ).rejects.toThrow('Claude Code is still running');
+      ).rejects.toThrow('Approval is pending');
     });
   });
 });

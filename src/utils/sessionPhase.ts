@@ -358,13 +358,22 @@ export function shouldSendAsSteer(
  * 「设备是否声称支持」：`waiting_approval` 时 executionActive 为 false，即使
  * 设备支持 steer 也发不出去（球在用户侧），此时必须继续拦——否则会退化成一个
  * 普通发送，撞上 agent 的 `session.cancel != nil` busy 闸。
+ *
+ * `waitingApproval`（2026-10-24 codex 审批锁）：审批等待期**所有 provider 一律
+ * 硬拦**——包括 codex。回合停在等用户决策，此刻的新消息是「新回合请求」，会
+ * 在 server 端把 runState 从 waiting_approval 顶成 queued、在 agent 端撞
+ * already running、最终把整个会话打翻成 failed 并**自动拒绝那条待审批**（五路
+ * 核查实锤的破坏性楔子）。「审批期=会话暂停」是 codex 与 claude code 共同的
+ * 回合模型约束，不是 provider 差异。
  */
 export function shouldBlockConcurrentSend(
   turnActive: boolean,
   provider: string | undefined,
   sendAsSteer: boolean,
+  waitingApproval: boolean = false,
 ): boolean {
   if (!turnActive) return false;
+  if (waitingApproval) return true;
   if (provider !== 'claude_code' && provider !== 'opencode') return false;
   return !sendAsSteer;
 }
@@ -374,21 +383,24 @@ export function shouldLockComposerForProvider(
   status: VibeStatus | undefined,
   provider: string | undefined,
   canSteer: boolean = false,
+  waitingApproval: boolean = false,
 ): boolean {
-  // codex 是唯一支持排队并发收消息的 provider,永不锁;其余(claude_code /
-  // opencode / 未知或缺失 provider)一律按单进程语义处理——未知 provider 没有
-  // 任何 steer 证据,活跃回合锁定才满足「不接受插话就只读」不变量
-  // (2026-10-24 状态矩阵清洗 G4;旧默认「不认识就不锁」正是「可输入却无发送键」
-  // 混合态的成因之一)。
-  if (provider === 'codex') return false;
+  // 审批等待期对任何 provider 都锁（含 codex）：会话暂停、球在用户侧，
+  // 新消息必然撞 already-running 楔子（见 shouldBlockConcurrentSend 注释）。
+  // waitingApproval 由调用方用 runState 感知的 canonical 谓词算好传入
+  // （isWaitingApprovalStatus），覆盖 v2 快照的 status='paused' 形态。
+  const isWaiting = waitingApproval || status === 'waiting_approval';
+  // codex 传输层是常驻 app-server（转发即可），运行中永不锁；但审批等待
+  // 与其它 provider 同构——暂停即锁。
+  if (provider === 'codex') return isWaiting;
   // Claude Code 在新 agent 上支持回合中插话（steer）：运行中不再锁 composer，
   // 否则用户根本发不出 steer（消息会在本地被硬闸拦下）。审批等待仍锁——那是
   // 单进程 CLI 卡在权限请求上，语义与「运行中插话」不同，保持旧行为。
   // canSteer 由设备能力位 ai_steer_claude 决定：老 agent 没有该通道，继续锁。
   if (provider === 'claude_code' && canSteer) {
-    return status === 'waiting_approval';
+    return isWaiting;
   }
-  return isSessionLive || status === 'waiting_approval';
+  return isSessionLive || isWaiting;
 }
 
 /**

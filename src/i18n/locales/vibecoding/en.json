@@ -444,7 +444,8 @@
       "userDefault": "user default",
       "tuiStopGreyed": "This turn is running in the desktop terminal — tap stop to end it; keep chatting once it finishes.",
       "tuiSteerableHint": "This turn is running in the desktop terminal — your message will queue as a steer, or tap stop to end it.",
-      "tuiRunningReadOnly": "This turn is running in the desktop terminal — you can continue once it finishes."
+      "tuiRunningReadOnly": "This turn is running in the desktop terminal — you can continue once it finishes.",
+      "approvalPendingReadOnly": "An approval is waiting for you — you can continue once it's resolved."
     },
     "approval": {
       "requestLabel": "APPROVAL REQUEST",

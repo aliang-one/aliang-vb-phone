@@ -191,3 +191,28 @@ describe('导入/TUI 驱动回合不尝试 steer(2026-10-24 状态矩阵清洗 G
     expect(sendAiMessageMock).not.toHaveBeenCalled();
   });
 });
+
+describe('审批等待期全 provider 硬拦(2026-10-24 codex 审批锁)', () => {
+  it('codex × waiting_approval(v2 paused 形态)→ 拒发,两通道都不打', async () => {
+    // 审批等待 = 会话暂停、球在用户侧。此刻的「新消息」会经 server 把
+    // runState 从 waiting_approval 顶成 queued、agent 端撞 already running、
+    // 最终会话翻 failed 并自动拒绝那条待审批(五路核查实锤的破坏性楔子)——
+    // 此前 shouldBlockConcurrentSend 跳过 codex,正是这个洞。
+    useControlCenterStore.setState(state => ({
+      vibeRuns: state.vibeRuns.map(run => ({
+        ...run,
+        provider: 'codex',
+        status: 'paused',
+        runState: 'waiting_approval',
+        runStateVersion: 11,
+      })),
+    }));
+
+    await expect(
+      useControlCenterStore.getState().appendAgentMessage('s1', '审批期发送', 'text'),
+    ).rejects.toThrow('Approval is pending');
+
+    expect(sendAiSteerMock).not.toHaveBeenCalled();
+    expect(sendAiMessageMock).not.toHaveBeenCalled();
+  });
+});

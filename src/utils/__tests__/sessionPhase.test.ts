@@ -314,6 +314,19 @@ describe('shouldSendAsSteer / shouldBlockConcurrentSend (发送路径选择)', (
     expect(shouldBlockConcurrentSend(true, 'codex', false)).toBe(false);
   });
 
+  it('审批等待期全 provider 硬拦（含 codex）——2026-10-24 codex 审批锁', () => {
+    // 审批等待 = 会话暂停、球在用户侧。此刻的新消息是「新回合请求」：server 端
+    // 会把 runState 从 waiting_approval 顶成 queued、agent 端撞 already running、
+    // 最终会话翻 failed 并自动拒绝那条待审批（五路核查实锤的破坏性楔子）。
+    expect(shouldBlockConcurrentSend(true, 'codex', true, true)).toBe(true);
+    expect(shouldBlockConcurrentSend(true, 'codex', false, true)).toBe(true);
+    expect(shouldBlockConcurrentSend(true, 'claude_code', false, true)).toBe(true);
+    expect(shouldBlockConcurrentSend(true, 'opencode', false, true)).toBe(true);
+    // 非审批态保持原契约。
+    expect(shouldBlockConcurrentSend(true, 'codex', false, false)).toBe(false);
+    expect(shouldBlockConcurrentSend(false, 'codex', false, true)).toBe(false);
+  });
+
   it('claude_code 有 ai_steer_claude → 运行中走 steer，不拦', () => {
     const steer = shouldSendAsSteer(true, 'claude_code', true);
     expect(steer).toBe(true);
@@ -384,8 +397,13 @@ describe('shouldLockComposerForProvider (composer 锁与相位同源)', () => {
     expect(shouldLockComposerForProvider(false, 'running', 'opencode')).toBe(false);
   });
 
-  it('codex 支持排队→ 永不锁,即便 live', () => {
+  it('codex 支持排队→ 运行中永不锁;审批等待锁(2026-10-24 codex 审批锁)', () => {
     expect(shouldLockComposerForProvider(true, 'running', 'codex')).toBe(false);
+    // 审批等待 = 会话暂停、球在用户侧:任何 provider(含 codex)都锁。
+    // waitingApproval 由屏侧 canonical 谓词传入,覆盖 v2 status='paused' 形态。
+    expect(shouldLockComposerForProvider(false, 'waiting_approval', 'codex')).toBe(true);
+    expect(shouldLockComposerForProvider(false, 'paused', 'codex', false, true)).toBe(true);
+    expect(shouldLockComposerForProvider(false, 'running', 'codex', false, true)).toBe(true);
   });
 
   it('未知/缺失 provider → 活跃回合按锁定处理(不接受插话就只读,G4)', () => {

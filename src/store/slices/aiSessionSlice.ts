@@ -1109,9 +1109,14 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       provider,
       canSteerClaude || (tuiDrivenRun && canSteerExternal),
     );
-    if (shouldBlockConcurrentSend(turnActive, provider, sendAsSteer)) {
+    if (shouldBlockConcurrentSend(turnActive, provider, sendAsSteer, waitingApproval)) {
       pendingMessageSends.delete(sendKey);
-      // 走到这里 provider 必为 opencode/claude_code；?? 只为满足类型收窄。
+      // 审批等待期全 provider 硬拦（2026-10-24 codex 审批锁）：新消息会顶掉
+      // waiting_approval 并把待审批打翻成 denied。运行中的单进程 CLI 拦截
+      // （opencode/claude_code 无 steer 通道）维持原文案。
+      if (waitingApproval) {
+        throw new Error('Approval is pending. Resolve it before sending another message.');
+      }
       throw new Error(`${providerLabel(provider ?? 'claude_code')} is still running. Stop it before sending another message.`);
     }
     // OPTIMISTIC UPDATE — render the user's message and flip the session to
