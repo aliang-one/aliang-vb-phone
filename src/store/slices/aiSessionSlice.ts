@@ -841,6 +841,9 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       throw new Error('Platform connection is required before interrupting a VibeCoding turn.');
     }
     const interruptedAt = activityNowMs();
+    // 乐观翻 idle 前记住原值：HTTP 失败时回写，别让本地停在假 idle 等 WS 纠正
+    // （2026-10-24 清洗 G10c——此前失败无回滚，顶部相位/composer 锁一起被带偏）。
+    const previousRun = get().vibeRuns.find(run => run.id === sessionId);
     set(state => {
       const vibeRuns = state.vibeRuns.map(run =>
         run.id === sessionId
@@ -858,7 +861,31 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
       };
     });
-    const serverSession = await platformTransport.interruptAiSession(sessionId);
+    let serverSession;
+    try {
+      serverSession = await platformTransport.interruptAiSession(sessionId);
+    } catch (error) {
+      if (previousRun) {
+        set(state => {
+          const vibeRuns = state.vibeRuns.map(run =>
+            run.id === sessionId
+              ? {
+                  ...run,
+                  status: previousRun.status,
+                  currentStep: previousRun.currentStep,
+                  lastActivityMs: previousRun.lastActivityMs,
+                  updatedAt: previousRun.updatedAt,
+                }
+              : run,
+          );
+          return {
+            vibeRuns,
+            devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
+          };
+        });
+      }
+      throw error;
+    }
     set(state => {
       const nextRun = serverAiSessionToVibeRun(serverSession, state.devices, state.projects);
       const vibeRuns = state.vibeRuns.map(run =>
@@ -1062,8 +1089,19 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     const canSteerClaude = Boolean(
       steerDevice?.capabilities?.includes('ai_steer_claude'),
     ) && currentRun?.executor !== 'tui';
+    // 导入/外部 TUI 驱动的回合（扫描上报 running、无 v2 runStateVersion、与
+    // 终端共享 sourceSessionId）在 agent 侧根本没有对应会话，任何 steer 都会
+    // 撞 not_running——与屏侧 canSteerTurn 的排除同源（2026-10-24 清洗 G1c）。
+    // 此前只排 executor==='tui'，语音草稿路径在该形态下会把消息当 steer 打进
+    // 一条没有注入通道的运行（740cc99 同款事故）。对所有 provider 一律按
+    // 「无 steer」处理：claude/opencode 落入硬闸，codex 退化为排队普通发送。
+    const tuiDrivenRun =
+      currentRun != null &&
+      currentRun.sourceSessionId != null &&
+      currentRun.status === 'running' &&
+      currentRun.runStateVersion === undefined;
     const sendAsSteer = shouldSendAsSteer(
-      executionActive,
+      executionActive && !tuiDrivenRun,
       provider,
       canSteerClaude,
     );

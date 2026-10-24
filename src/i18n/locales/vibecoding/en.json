@@ -442,7 +442,8 @@
     "composer": {
       "claudeRunning": "Claude Code is running; stop it to continue typing.",
       "userDefault": "user default",
-      "tuiStopGreyed": "A turn is running in the terminal TUI — press Esc once there to stop it."
+      "tuiStopGreyed": "This turn is running in the desktop terminal — tap stop to end it; keep chatting once it finishes.",
+      "tuiRunningReadOnly": "This turn is running in the desktop terminal — you can continue once it finishes."
     },
     "approval": {
       "requestLabel": "APPROVAL REQUEST",

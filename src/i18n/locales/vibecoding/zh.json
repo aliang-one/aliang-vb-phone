@@ -442,7 +442,8 @@
     "composer": {
       "claudeRunning": "Claude Code 正在运行，停止后可继续输入。",
       "userDefault": "用户默认",
-      "tuiStopGreyed": "终端 TUI 正在运行对话——请在终端里按一次 Esc 停止本轮。"
+      "tuiStopGreyed": "本回合正跑在桌面终端里——可以直接点停止键结束本轮；回合结束后即可继续对话。",
+      "tuiRunningReadOnly": "本回合正跑在桌面终端里，等回合结束后再继续输入。"
     },
     "approval": {
       "requestLabel": "APPROVAL REQUEST",

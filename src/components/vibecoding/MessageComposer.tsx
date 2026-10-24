@@ -29,6 +29,7 @@ import type { UseVoiceSttResult } from '../../hooks/useVoiceStt';
 import { SlashCommandSuggestions } from './SlashCommandSuggestions';
 import type { AgentCommandInfo } from '../../data/platformModels';
 import { isGoalCommand } from '../../utils/goalComposer';
+import { GOAL_UI_ENABLED } from '../../config/featureFlags';
 
 export type ComposerMode = 'voice' | 'text';
 
@@ -44,16 +45,17 @@ export interface MessageComposerProps {
   sendingMessage: boolean;
   interruptingTurn?: boolean;
   canInterruptTurn?: boolean;
-  /** Turn is driven by the terminal TUI (scan-reported running, no v2 run):
-      the stop button renders greyed-out — the phone cannot stop an external
-      TUI process, and tapping it would do nothing. It also moves the
-      "desktop" marker out of the action slot into a tab above the composer,
-      so the narrow input row keeps its width. */
+  /** Turn runs in the desktop terminal TUI (scan-reported running, no v2 run).
+      No longer greys the stop button — the agent interrupts external TUI turns
+      via SIGINT (>= v1.1.36). It only renders the "runs on the desktop"
+      bookmark tab above the composer so the narrow input row keeps its width. */
   interruptGreyed?: boolean;
+  /** Expanded text of the TUI bookmark tab (context: where this turn runs). */
   interruptGreyedHint?: string;
-  /** 回合进行中是否还有一条可用的插话(steer)通道。为 true 时,停止按钮左侧
-      会多出一个发送按钮(仅在输入非空时出现)。父级按 provider + 设备能力位
-      (ai_steer_claude) 判定,与 store 里 shouldSendAsSteer 同源。 */
+  /** 回合进行中是否还有一条可用的插话(steer)通道。为 true 且正在输入
+      (文本非空或已选素材)时,动作槽渲染 [停止][发送]——发送键恒在最右。
+      父级按 provider + 设备能力位(ai_steer_claude) + 回合来源判定,
+      与 store 里 appendAgentMessage 的 sendAsSteer 同源。 */
   canSteer?: boolean;
   deviceOffline: boolean;
   readOnlyReason?: string;
@@ -338,7 +340,10 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
   const isRecording = status === 'recording';
   const hasDraft = Boolean(voiceDraft);
   const composerDisabled = !(goalDraft || goalSession) && (deviceOffline || Boolean(readOnlyReason));
-  const isGoalCommandInput = isGoalCommand(input);
+  // /goal 形态输入的特判必须与屏侧同源门控 GOAL_UI_ENABLED：flag 关闭时
+  // /goal 就是普通文本，不得绕过 composerDisabled，更不能把回合中的停止键
+  // 顶掉（2026-10-24 状态矩阵清洗 G5）。
+  const isGoalCommandInput = GOAL_UI_ENABLED && isGoalCommand(input);
   // Slash-command typeahead: active only while the whole input is a single
   // `/token` (slash first, command-name chars, no space yet) in text mode. A
   // space ends the command name and hides the dropdown.
@@ -448,7 +453,9 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
     // by accident.
     const targetMode: ComposerMode = mode === 'text' ? 'voice' : 'text';
     const iconName: ComposerIconName = mode === 'text' ? 'mic' : 'keyboard';
-    const disabled = Boolean(readOnlyReason) || isVoiceActive;
+    // 只读态不禁用切换：用户若困在语音视图（如草稿录到一半回合被锁），
+    // 必须能切回文本视图看到只读原因行（G6，2026-10-24）。
+    const disabled = isVoiceActive;
     return (
       <TouchableOpacity
         accessibilityRole="button"
@@ -469,7 +476,8 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
     const canSend =
       (input.trim().length > 0 || attachmentCount > 0) &&
       !sendingMessage &&
-      (!composerDisabled || isGoalCommandInput || goalDraft);
+      // goalDraft 时 composerDisabled 本就为 false，无需重复放行。
+      (!composerDisabled || isGoalCommandInput);
     return (
       <TouchableOpacity
         accessibilityRole="button"
@@ -497,32 +505,28 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
     );
   };
 
-  const renderStopButton = (greyed: boolean) => (
+  // 停止键一律可点（禁用仅限：打断请求在途 / 设备离线）。历史上有过
+  // 「TUI 驱动回合置灰」形态，但 agent 自 v1.1.36 起就支持对外部终端
+  // Claude Code 回合发 SIGINT（=按一次 Esc，经 server 附 source_session_id
+  // 下发），置灰属于过时的保守——2026-10-24 状态矩阵清洗 G1a 放开。
+  const renderStopButton = () => (
     <TouchableOpacity
       accessibilityRole="button"
-      accessibilityLabel={greyed ? interruptGreyedHint : t('composer.stopGenerate')}
-      accessibilityState={greyed ? { disabled: true } : undefined}
-      disabled={greyed || interruptingTurn || deviceOffline}
-      // Greyed = the turn runs in an external TUI; there is nothing to call.
-      // Drop onPress entirely so the control is structurally inert, not merely
-      // disabled — a stray tap can never reach the store.
-      onPress={greyed ? undefined : onInterruptTurn}
+      accessibilityLabel={t('composer.stopGenerate')}
+      accessibilityState={interruptingTurn ? { busy: true } : undefined}
+      disabled={interruptingTurn || deviceOffline}
+      onPress={onInterruptTurn}
       testID="composer-interrupt"
       style={[
         styles.ctrlBtn,
         {
           borderRadius: theme.borderRadius.full,
-          backgroundColor: greyed
-            ? theme.colors.onSurfaceVariant
-            : interruptingTurn
-              ? ctrlBg.backgroundColor
-              : theme.colors.error,
-          opacity: greyed ? 0.45 : 1,
-          ...(!greyed && !interruptingTurn && isDark ? theme.glow.primary : {}),
+          backgroundColor: interruptingTurn ? ctrlBg.backgroundColor : theme.colors.error,
+          ...(!interruptingTurn && isDark ? theme.glow.primary : {}),
         },
       ]}
     >
-      {interruptingTurn && !greyed ? (
+      {interruptingTurn ? (
         <Text style={[theme.typography.labelMd, { color: theme.colors.onSurfaceVariant }]}>
           …
         </Text>
@@ -539,29 +543,22 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
     // and showing one signals a different (tap-to-stop) model, which confused
     // the interaction. During a voice recording the slot falls through to the
     // non-interactive placeholder, unless a turn is streaming (then interrupt).
-    if (canInterruptTurn && interruptGreyed && onInterruptTurn && !isGoalCommandInput && !goalDraft) {
-      // TUI-driven turn (scan-reported running, no v2 run): the phone cannot
-      // stop an external terminal process — render the stop control greyed.
-      // The "this turn runs on the desktop" marker used to live here as a
-      // desktop icon; it now sits in a bookmark tab ABOVE the composer, which
-      // frees ~40pt of the narrow input row for actual text.
-      return renderStopButton(true);
-    }
     if (canInterruptTurn && onInterruptTurn && !isGoalCommandInput && !goalDraft) {
-      // A live turn used to take the whole action slot (stop only), which left
-      // no way to send a steer message — the send branch below was unreachable
-      // for the entire duration of every turn. With a steer channel available
-      // (canSteer) the send button comes back as the primary action, with stop
-      // as the secondary: [➤][■] while there is text, [■] while there is not.
-      if (canSteer && mode === 'text' && input.trim().length > 0) {
+      // A live turn takes the action slot. With a steer channel available
+      // (canSteer) the send button is the primary action and sits RIGHTMOST
+      // (user spec 2026-10-24：输入时最右侧必须是发送键，停止键退居左侧)；
+      // 无 steer 通道（或语音模式）时只留停止键。TUI 驱动的回合不再置灰
+      // 停止键——外部 SIGINT 通道已存在，见 renderStopButton 注释；桌面
+      // 标记继续以书签 tab 形式出现在输入框上方（interruptGreyed 驱动）。
+      if (canSteer && mode === 'text' && (input.trim().length > 0 || attachmentCount > 0)) {
         return (
           <View style={styles.ctrlGroup}>
+            {renderStopButton()}
             {renderSendButton()}
-            {renderStopButton(false)}
           </View>
         );
       }
-      return renderStopButton(false);
+      return renderStopButton();
     }
     if (mode === 'text') {
       return renderSendButton();
@@ -581,6 +578,10 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
   // ----- the adaptive content area -----
 
   const renderContent = () => {
+    // 只读文案行。goal 豁免是承重墙,不是冗余:goalDraft 可以出现在**已有会话**
+    // 里(purpose 尚未翻成 goal),此时父层的 tuiDrivenRunning/锁判定可能为真,
+    // 豁免能保证 goal 目标草稿永远可输入(2026-10-24 曾误判为冗余想删,复测
+    // __tests__/MessageComposer.test.tsx 的 goalDraft 用例后保留)。
     if (readOnlyReason && !(goalDraft || goalSession)) {
       return (
         <View style={styles.inlineRow}>
@@ -916,7 +917,9 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
               onPress={onSendVoice}
               variant="primary"
               loading={sendingMessage}
-              disabled={deviceOffline || sendingMessage}
+              // 只读态（回合锁定 / TUI 驱动回合）禁用发送：父层 handleSendVoice
+              // 对锁定态是静默 return，按钮若不跟着禁用就成了「可点但没反应」。
+              disabled={deviceOffline || sendingMessage || Boolean(readOnlyReason)}
               style={styles.draftBtn}
             />
             <GlowButton

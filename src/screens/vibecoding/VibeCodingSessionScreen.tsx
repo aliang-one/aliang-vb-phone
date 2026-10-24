@@ -105,6 +105,7 @@ import {
 import {
   LIVE_TURN_WINDOW_MS,
   isAuthoritativeRunLive,
+  isWaitingApprovalStatus,
   liveAssistantMessageId,
   phaseLabel,
   sessionPhaseType,
@@ -821,10 +822,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
       session.status,
     );
   // TUI 驱动的运行:扫描上报的 running(无 v2 runStateVersion)且会话与终端
-  // 共享(sourceSessionId 在)。这种运行手机停止不了——停止走的是 agent 取消
-  // 自己 spawn 进程的通道,外部 TUI 进程不在这条通道上——停止按钮置灰并告知
-  // 去处,避免「点了没用还闪回运行中」的假动作。(手机自己发起的运行
-  // runStateVersion 必有值,停止真实有效,不受此影响。)
+  // 共享(sourceSessionId 在)。停止是真实有效的——server 给 ai.stop 附
+  // source_session_id,agent 对外部终端 Claude Code 回合发一次 SIGINT
+  // (≈按一次 Esc;agent >= v1.1.36 即支持),所以停止键不再置灰(2026-10-24
+  // 状态矩阵清洗 G1a)。但 **steer 通道不存在**:外部 TUI 进程不在 agent 的
+  // 会话表里,注入无处可去(连 agent v1.1.67 的 UDS steer 也只覆盖 agent 自己
+  // spawn 的注入回合,CAP-6)——运行期间 composer 只读,回合结束再续写。
   const tuiDrivenRunning =
     !isDraft &&
     session?.sourceSessionId != null &&
@@ -1188,8 +1191,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
     session?.status,
     effectiveProvider,
     // TUI 运行没有 steer 通道：即使设备宣称 ai_steer_claude（那是设备级能力，
-    // 只代表 CLI 支持 stream-json），本轮也不能插话，按「运行中锁 composer」处理。
-    canSteerClaude && !tuiExecutorRunning,
+    // 只代表 CLI 支持 stream-json），本轮也不能插话，按「运行中锁 composer」
+    // 处理。tuiDrivenRunning（导入/外部 TUI 回合）同理排除——锁谓词与
+    // canSteerTurn 必须同源，否则出现「可打字却没有发送键」的混合态
+    // （2026-10-24 状态矩阵清洗 G1b；这里主要是防御，主门在
+    // composerReadOnlyReason 的 tuiDrivenRunning 分支）。
+    canSteerClaude && !tuiExecutorRunning && !tuiDrivenRunning,
   );
 
   const goalContext = () => {
@@ -1644,10 +1651,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
       const content = agentMsg?.content?.trim();
       if (!content) return;
       void appendAgentMessage(session.id, content, 'text').catch(error => {
+        // 「会话忙」类拒绝（store 硬闸 / 服务端 409）：与文本发送路径同口径
+        // 弹横幅——重试点上去不该是无声无息（G10b，2026-10-24）。其余失败维持
+        // 既有 failed 气泡，不额外打扰。
+        const busyText = sessionBusyErrorText(error, t);
+        if (busyText) setDetailError(busyText);
         console.warn('[vibecoding] failed to retry turn', error);
       });
     },
-    [session, sendingMessage, transcript, appendAgentMessage],
+    [session, sendingMessage, transcript, appendAgentMessage, t],
   );
 
   const handleSendText = () => {
@@ -1695,9 +1707,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
         } else {
           // 发送被「会话忙」拒绝（服务端 409 ai_session_busy / agent tui_busy）：
           // 用既有 detailError 横幅给友好双语提示；其他失败维持既有 failed 气泡
-          // 机制，不额外打扰。
+          // 机制，不额外打扰。忙类拒绝发生在 store 乐观入列**之前**（消息没有
+          // 变成 failed 气泡），因此必须把原文还给输入框——否则用户整条消息
+          // 白打（G10a，2026-10-24）。不会触发「恢复输入导致与失败气泡拼接成
+          // 复合消息」的旧问题：那条路径的前提是气泡存在，忙类拒绝没有气泡。
           const busyText = sessionBusyErrorText(error, t);
-          if (busyText) setDetailError(busyText);
+          if (busyText) {
+            setDetailError(busyText);
+            setInput(current => current || nextInput);
+          }
         }
         console.warn('[vibecoding] failed to send text prompt', error);
       });
@@ -1909,9 +1927,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // running。失败原因由底部气泡 failedLabel(「会话失败 · 网关502…」)承担,这里不阻断输入。
   const composerReadOnlyReason = isDraft
     ? undefined
-    : session?.purpose !== 'goal' && shouldDisableComposerForProvider
-      ? t('session.composer.claudeRunning')
-      : undefined;
+    : session?.purpose !== 'goal' && tuiDrivenRunning
+      // TUI 驱动回合运行中：无 steer 通道，composer 只读并说明去处
+      // （不变量：不接受插话就不得出现「可输入但无发送键」，G1b）。
+      ? t('session.composer.tuiRunningReadOnly')
+      : session?.purpose !== 'goal' && shouldDisableComposerForProvider
+        ? t('session.composer.claudeRunning')
+        : undefined;
   // TUI 共享提示(低成本方案):仅对「终端里发起」的导入会话展示——它们与
   // 桌面终端共用同一份会话文件,手机上发送的内容不会出现在已打开的 TUI
   // 界面里,TUI 端需重启 resume 才能同步。可手动关闭。
@@ -1936,22 +1958,28 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // 停止按钮显隐:与顶部相位 / composer 锁同源(看 isSessionLive),不裸读 session.status。
   // 旧版用 `serviceThinksRunning`(裸 status)会在回合答完后 status 卡陈旧 running 时,
   // 让停止按钮常驻显示——顶部已「已完成」、输入框已解锁,唯独停止按钮还在(脱节 bug)。
-  // waiting_approval 是服务端主动推送的可靠态(区别于 settle 的陈旧 running),沿用:
-  // 审批等待中仍允许打断回合。
+  // 审批等待(runState 感知,含 v2 快照的 status='paused' + runState='waiting_approval'
+  // 形态,G7)仍视为可打断。2026-10-24 清洗:不再因 deviceOffline / interruptingTurn
+  // 把停止键整体藏掉——离线时按钮渲染为禁用(诚实可见),打断请求在途时渲染为
+  // 「…」进行中态,由 MessageComposer 的按钮级禁用承担,可见性归可见性、可点性归可点性。
+  const waitingApproval = isWaitingApprovalStatus(
+    session?.status,
+    session?.runStateVersion,
+    session?.runState,
+  );
   const canInterruptTurn =
     session?.purpose !== 'goal' &&
     !goalDraftActive &&
-    !deviceOffline &&
-    !interruptingTurn &&
     session?.status !== 'failed' &&
     session?.status !== 'completed' &&
-    (isSessionLive || session?.status === 'waiting_approval');
+    (isSessionLive || waitingApproval);
 
-  // 回合进行中是否还有可用的「插话」(steer) 通道 —— composer 据此在停止按钮
-  // 左侧放回发送按钮。判据与 store 里 appendAgentMessage 的 sendAsSteer 同源
-  // (utils/sessionPhase.shouldSendAsSteer)，避免「按钮可点但发出去必失败」。
-  // TUI 驱动的回合额外排除：那条 run 不在 agent 自己的 sessions 表里，没有
-  // steer 通道(外部 TUI 进程的注入只在 TUI 空闲时可用)，只能等回合结束。
+  // 回合进行中是否还有可用的「插话」(steer) 通道 —— composer 据此把发送键
+  // 放回动作槽最右（停止键居左）。判据与 store 里 appendAgentMessage 的
+  // sendAsSteer 同源 (utils/sessionPhase.shouldSendAsSteer)，避免「按钮可点
+  // 但发出去必失败」。TUI 驱动的回合额外排除：那条 run 不在 agent 自己的
+  // sessions 表里，没有 steer 通道（连 v1.1.67 的 UDS steer 也只覆盖 agent
+  // spawn 的注入回合），只能等回合结束——期间 composer 只读（见上）。
   // 手机发起但由 TUI 执行的回合同理（tuiExecutorRunning）：注入帧只有文本，
   // 运行中发图/插话都没有通道，必须等回合结束再发。
   const canSteerTurn =

@@ -4,6 +4,7 @@ import {
   deriveSessionPhase,
   isAuthoritativeRunLive,
   isSessionTurnActive,
+  isWaitingApprovalStatus,
   lastUnrepliedUserMessageId,
   liveAssistantMessageId,
   phaseAccentColor,
@@ -385,7 +386,15 @@ describe('shouldLockComposerForProvider (composer 锁与相位同源)', () => {
 
   it('codex 支持排队→ 永不锁,即便 live', () => {
     expect(shouldLockComposerForProvider(true, 'running', 'codex')).toBe(false);
-    expect(shouldLockComposerForProvider(true, 'running', undefined)).toBe(false);
+  });
+
+  it('未知/缺失 provider → 活跃回合按锁定处理(不接受插话就只读,G4)', () => {
+    // 旧契约「未知 provider 永不锁」正是「可输入却无发送键」混合态的成因之一:
+    // 没有 steer 证据的 provider,活跃回合必须锁,与 claude/opencode 同口径。
+    expect(shouldLockComposerForProvider(true, 'running', undefined)).toBe(true);
+    expect(shouldLockComposerForProvider(false, 'waiting_approval', undefined)).toBe(true);
+    expect(shouldLockComposerForProvider(false, 'running', undefined)).toBe(false);
+    expect(shouldLockComposerForProvider(true, 'running', 'unknown_provider')).toBe(true);
   });
 });
 
@@ -457,5 +466,20 @@ describe('phaseGlow (GlassPanel 光晕键,仅暗色生效)', () => {
 
   it('completed → none(默认态不强调)', () => {
     expect(phaseGlow('completed')).toBe('none');
+  });
+});
+
+describe('isWaitingApprovalStatus (runState 感知的审批等待,G7)', () => {
+  it('v2 回合:legacy status 被服务端置 paused,权威态在 runState', () => {
+    // 服务端 runProtocol 在审批等待期把 legacy status 置 'paused'——只看裸
+    // status 的旧判据会三重断裂(顶部显待审批、停止键消失、composer 不锁)。
+    expect(isWaitingApprovalStatus('paused', 9, 'waiting_approval')).toBe(true);
+    expect(isWaitingApprovalStatus('paused', 9, 'running')).toBe(false);
+  });
+
+  it('legacy 会话(无 runStateVersion):退回裸 status', () => {
+    expect(isWaitingApprovalStatus('waiting_approval', undefined, undefined)).toBe(true);
+    expect(isWaitingApprovalStatus('running', undefined, undefined)).toBe(false);
+    expect(isWaitingApprovalStatus(undefined, undefined, undefined)).toBe(false);
   });
 });

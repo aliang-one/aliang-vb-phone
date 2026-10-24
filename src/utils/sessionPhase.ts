@@ -298,6 +298,23 @@ export function isSessionTurnActive(status: VibeStatus): boolean {
 }
 
 /**
+ * 此刻该会话是否卡在「待审批」。**runState 感知**:v2 回合在审批等待期,服务端
+ * 会把 legacy `status` 置成 `paused` 而权威态在 `runState='waiting_approval'`
+ * (runProtocol 映射)。只看裸 status 的旧判据在「冷启/推送丢失后仅剩快照」时
+ * 会三重断裂——顶部相位(runDisplayPhase 认 runState)显待审批,但 composer 锁、
+ * 停止键审批腿全失效。本 helper 与 store 里 appendAgentMessage 的 waitingApproval
+ * 判定(aiSessionSlice)同形:runStateVersion 在场认 runState,否则退 legacy status。
+ */
+export function isWaitingApprovalStatus(
+  status: VibeStatus | undefined,
+  runStateVersion: number | undefined,
+  runState: VibeCodingRun['runState'] | undefined,
+): boolean {
+  if (runStateVersion !== undefined) return runState === 'waiting_approval';
+  return status === 'waiting_approval';
+}
+
+/**
  * Composer 是否因 provider 并发而锁定(Claude Code / OpenCode 是单进程 CLI,跑回合时不能并发收新消息)。
  *
  * **关键**:用「生命迹象」(isSessionLive)而不是裸 `session.status` 判活。回合答完后
@@ -358,7 +375,12 @@ export function shouldLockComposerForProvider(
   provider: string | undefined,
   canSteer: boolean = false,
 ): boolean {
-  if (provider !== 'claude_code' && provider !== 'opencode') return false;
+  // codex 是唯一支持排队并发收消息的 provider,永不锁;其余(claude_code /
+  // opencode / 未知或缺失 provider)一律按单进程语义处理——未知 provider 没有
+  // 任何 steer 证据,活跃回合锁定才满足「不接受插话就只读」不变量
+  // (2026-10-24 状态矩阵清洗 G4;旧默认「不认识就不锁」正是「可输入却无发送键」
+  // 混合态的成因之一)。
+  if (provider === 'codex') return false;
   // Claude Code 在新 agent 上支持回合中插话（steer）：运行中不再锁 composer，
   // 否则用户根本发不出 steer（消息会在本地被硬闸拦下）。审批等待仍锁——那是
   // 单进程 CLI 卡在权限请求上，语义与「运行中插话」不同，保持旧行为。

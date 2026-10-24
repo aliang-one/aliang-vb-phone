@@ -140,3 +140,25 @@ describe('TUI 执行器运行中不尝试 steer(2026-10-23 图片事故)', () =>
     expect(sendAiMessageMock).not.toHaveBeenCalled();
   });
 });
+
+describe('导入/TUI 驱动回合不尝试 steer(2026-10-24 状态矩阵清洗 G1c)', () => {
+  it('tuiDriven(sourceSessionId + 无 runStateVersion) + running → 硬拦,两个通道都不打', async () => {
+    // 导入会话在 agent 侧没有对应会话记录,任何 steer 都撞 not_running——
+    // 此前 store 只排 executor==='tui',语音草稿路径会把消息当 steer 打进
+    // 一条没有注入通道的运行。与屏侧 canSteerTurn 的排除同源。
+    useControlCenterStore.setState(state => ({
+      vibeRuns: state.vibeRuns.map(run => ({
+        ...run,
+        sourceSessionId: 'uuid-tui-1',
+        runStateVersion: undefined,
+      })),
+    }));
+
+    await expect(
+      useControlCenterStore.getState().appendAgentMessage('s1', '语音转的插话', 'voice'),
+    ).rejects.toThrow('still running');
+
+    expect(sendAiSteerMock).not.toHaveBeenCalled();
+    expect(sendAiMessageMock).not.toHaveBeenCalled();
+  });
+});

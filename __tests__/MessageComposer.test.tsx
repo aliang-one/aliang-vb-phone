@@ -180,12 +180,16 @@ describe('MessageComposer', () => {
       />,
     );
     expect(root.root.findByType(TextInput).props.placeholder).toBe('描述这个 Goal…');
-    expect(findByTestID(root, 'composer-toggle').props.disabled).toBe(true);
+    // 2026-10-24 清洗 G6:只读态不再禁用模式切换——用户不能被困在语音视图。
+    expect(findByTestID(root, 'composer-toggle').props.disabled).toBe(false);
     expect(findByTestID(root, 'composer-send').props.disabled).toBe(false);
     expect(() => findByTestID(root, 'composer-interrupt')).toThrow();
   });
 
-  it('keeps /goal sendable while an ordinary provider turn is running', () => {
+  it('treats /goal input as plain text while GOAL_UI_ENABLED is off (2026-10-24 G5)', () => {
+    // 旧契约「/goal 形态输入绕过全部打断分支 + 击穿 composerDisabled」是缺陷:
+    // flag 关闭时 /goal 就是普通文本——回合中它不得顶掉停止键,更不能借 goal
+    // 特判在锁定/离线态复活发送键(store 会把这条 steer 打进必败链路)。
     const root = wrap(
       <MessageComposer
         {...defaultProps({
@@ -197,17 +201,17 @@ describe('MessageComposer', () => {
         })}
       />,
     );
-    expect(() => findByTestID(root, 'composer-send')).not.toThrow();
-    expect(findByTestID(root, 'composer-send').props.disabled).toBe(false);
-    expect(() => findByTestID(root, 'composer-interrupt')).toThrow();
+    expect(() => findByTestID(root, 'composer-send')).toThrow();
+    expect(() => findByTestID(root, 'composer-interrupt')).not.toThrow();
   });
 
-  it('greys the stop control and collapses the terminal hint behind a desktop tab', () => {
-    // TUI 驱动的 running(无 v2 runStateVersion):手机停止不了外部终端进程
-    // ——按钮置灰且不挂 onPress。完整原因文字收进输入框上方的书签 tab
-    // (点击才展开):常驻文字会挤爆 composer 行(溢出),tab 默认只占一格。
+  it('keeps the stop control live for TUI-driven turns and collapses the hint behind a desktop tab', () => {
+    // TUI 驱动的 running(无 v2 runStateVersion):停止键保持可点——agent
+    // (>= v1.1.36)经 SIGINT 可停外部终端回合(2026-10-24 清洗 G1a,旧的
+    // 「置灰 + 不挂 onPress」契约已废)。完整说明文字收进输入框上方的书签
+    // tab(点击才展开):常驻文字会挤爆 composer 行(溢出),tab 默认只占一格。
     const onInterruptTurn = jest.fn();
-    const hint = '终端 TUI 正在运行对话——请在终端里按一次 Esc 停止本轮。';
+    const hint = '本回合正跑在桌面终端里——可以直接点停止键结束本轮。';
     const root = wrap(
       <MessageComposer
         {...defaultProps({
@@ -219,10 +223,8 @@ describe('MessageComposer', () => {
       />,
     );
     const stop = findByTestID(root, 'composer-interrupt');
-    expect(stop.props.disabled).toBe(true);
-    // 置灰态不挂 onPress:结构上就不可能触发回调(而非点了没效果)。
-    expect(stop.props.onPress).toBeUndefined();
-    expect(onInterruptTurn).not.toHaveBeenCalled();
+    expect(stop.props.disabled).toBe(false);
+    expect(stop.props.onPress).toBe(onInterruptTurn);
     // 默认只有书签 tab,提示文字不渲染。
     expect(() => findByTestID(root, 'composer-tui-hint')).not.toThrow();
     expect(allTexts(root).some(t => t === hint)).toBe(false);
