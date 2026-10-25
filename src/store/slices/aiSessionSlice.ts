@@ -117,7 +117,9 @@ const messageSendKey = (
 // 会被**静默降级成 codex**，用户选了内置内核却跑起外部 CLI（或反之报错），
 // 而类型检查也拦不住——三元链的 else 永远兜得住。改成 switch 后，联合类型
 // 一旦扩展而这里没跟上，`never` 分支会直接编译失败。
-const providerWireValue = (
+//
+// 导出仅为单测断言线上 wire 值（见 __tests__/providerWireValue.test.ts）。
+export const providerWireValue = (
   provider: AgentProvider,
 ): 'codex' | 'claudecode' | 'opencode' | 'agentcore' => {
   switch (provider) {
