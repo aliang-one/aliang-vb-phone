@@ -48,6 +48,23 @@
       "inProgressDetail": "已有下载任务进行中",
       "notConfiguredDetail": "当前设备下载不可用"
     },
+    "transfer": {
+      "menuItem": "同步到别的设备",
+      "targetLabel": "同步到",
+      "sourceLabel": "来自 {{name}}",
+      "noTargets": "没有其他在线设备可接收",
+      "confirmAction": "发起同步",
+      "cancel": "取消",
+      "retry": "重试",
+      "transferring": "正在跨设备同步…",
+      "doneTitle": "已同步",
+      "doneDetail": "文件已在 {{name}} 的收件目录就绪",
+      "failedTitle": "同步失败",
+      "capabilityDetail": "设备版本过旧，暂不支持文件互传",
+      "selfDetail": "源设备与目标设备不能相同",
+      "busyDetail": "这两台设备之间已有传输进行中",
+      "disabledDetail": "文件互传功能当前未启用"
+    },
     "error": {
       "pathMissingTitle": "项目路径缺失",
       "pathMissingDetail": "该项目尚未上报路径。请在设备页执行「扫描项目」，或返回后重新选择项目。",

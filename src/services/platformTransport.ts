@@ -156,6 +156,26 @@ export interface PlatformFileDownloadStatus {
   reason?: string;
 }
 
+/**
+ * Normalized `transfer.updated` push payload: the server-side snapshot of one
+ * device-to-device transfer (camelCased twin of `TransferStatus` in
+ * api/transfers). The phone receives state changes only — per-byte progress
+ * frames (`transfer.progress`) stay server↔device and are never forwarded to
+ * mobiles, so `bytesDone` moves in coarse snapshot steps.
+ */
+export interface PlatformTransferStatus {
+  transferId: string;
+  filename: string;
+  sizeBytes: number;
+  isDirectoryArchive: boolean;
+  state: 'pending' | 'uploading' | 'completing' | 'ready' | 'receiving' | 'done' | 'failed' | 'cancelled' | 'expired';
+  bytesDone: number;
+  sourceDeviceId: string;
+  targetDeviceId: string;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
 export type PlatformTransportEvent =
   | { type: 'transport.status'; status: WsConnectionState }
   | { type: 'mobile.connected'; user?: unknown; raw: Record<string, unknown> }
@@ -193,6 +213,7 @@ export type PlatformTransportEvent =
   | { type: 'preview.ready'; preview: PlatformPreviewSnapshot; expiresIn: string; raw: Record<string, unknown> }
   | { type: 'preview.updated'; preview: PlatformPreviewSnapshot; raw: Record<string, unknown> }
   | { type: 'file_download'; download: PlatformFileDownloadStatus; raw: Record<string, unknown> }
+  | { type: 'transfer.updated'; transfer: PlatformTransferStatus; raw: Record<string, unknown> }
   | { type: 'project.updated'; project: PlatformProjectSnapshot; raw: Record<string, unknown> }
   | { type: 'project.deleted'; projectId: string; raw: Record<string, unknown> }
   | { type: 'projects.updated'; deviceId?: string; raw: Record<string, unknown> }
@@ -937,6 +958,26 @@ class PlatformTransport {
           url: asString(download.url),
           expiresAt: asString(download.expires_at),
           reason: asString(download.reason),
+        },
+        raw: message,
+      };
+    }
+
+    if (type === 'transfer.updated' && message.transfer && typeof message.transfer === 'object') {
+      const transfer = message.transfer as Record<string, unknown>;
+      return {
+        type: 'transfer.updated',
+        transfer: {
+          transferId: String(transfer.transfer_id ?? ''),
+          filename: String(transfer.filename ?? ''),
+          sizeBytes: typeof transfer.size_bytes === 'number' ? transfer.size_bytes : 0,
+          isDirectoryArchive: transfer.is_directory_archive === true,
+          state: String(transfer.state ?? 'pending') as PlatformTransferStatus['state'],
+          bytesDone: typeof transfer.bytes_done === 'number' ? transfer.bytes_done : 0,
+          sourceDeviceId: String(transfer.source_device_id ?? ''),
+          targetDeviceId: String(transfer.target_device_id ?? ''),
+          errorCode: asString(transfer.error_code),
+          errorMessage: asString(transfer.error_message),
         },
         raw: message,
       };

@@ -48,6 +48,23 @@
       "inProgressDetail": "Another download is already running",
       "notConfiguredDetail": "Download is not available for this device"
     },
+    "transfer": {
+      "menuItem": "Send to device",
+      "targetLabel": "Sync to",
+      "sourceLabel": "From {{name}}",
+      "noTargets": "No other online devices to receive this file",
+      "confirmAction": "Start sync",
+      "cancel": "Cancel",
+      "retry": "Retry",
+      "transferring": "Transferring between devices…",
+      "doneTitle": "Synced",
+      "doneDetail": "The file is ready in {{name}}'s inbox",
+      "failedTitle": "Sync failed",
+      "capabilityDetail": "A device is too old to support transfers",
+      "selfDetail": "Source and target device must differ",
+      "busyDetail": "A transfer between these devices is already running",
+      "disabledDetail": "Device transfers are currently disabled"
+    },
     "error": {
       "pathMissingTitle": "Project path missing",
       "pathMissingDetail": "This project has not reported a path yet. Run \"Scan project\" on the devices page, or go back and reselect the project.",

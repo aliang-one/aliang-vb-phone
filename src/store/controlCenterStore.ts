@@ -68,6 +68,7 @@ import { createApprovalSlice } from './slices/approvalSlice';
 import { createAiSessionSlice } from './slices/aiSessionSlice';
 import { createDeviceProjectSlice } from './slices/deviceProjectSlice';
 import { createFileDownloadSlice } from './slices/fileDownloadSlice';
+import { createTransferSlice } from './slices/transferSlice';
 import { reconcileStructured } from './slices/structuredSlice';
 
 const EMPTY_SESSION_APPROVALS: ControlCenterState['approvals'] = [];
@@ -494,6 +495,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
       ...createAiSessionSlice(set, get, store),
       ...createDeviceProjectSlice(set, get, store),
       ...createFileDownloadSlice(set, get, store),
+      ...createTransferSlice(set, get, store),
 
       // Only the global activity log lives here; all domain data is owned by slices.
       events: [],
@@ -1773,6 +1775,14 @@ export const useControlCenterStore = create<ControlCenterState>()(
               // slice ignores pushes it cannot attribute (stale/foreign
               // request ids), so no filtering needed here.
               get().handleFileDownloadEvent(transportEvent.download);
+              return;
+
+            case 'transfer.updated':
+              // State-change snapshot for the single in-flight device
+              // transfer. The slice ignores pushes it cannot attribute
+              // (stale/foreign transfer ids); per-byte progress frames are
+              // device↔server only and never surface here.
+              get().handleTransferEvent(transportEvent.transfer);
               return;
 
             case 'client.presence.updated':

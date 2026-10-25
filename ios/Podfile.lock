@@ -2711,7 +2711,7 @@ SPEC CHECKSUMS:
   React: e2dc35338068bbd299c66f043ae0d7f25de8499e
   React-callinvoker: 28b25d21b124c26cebaea713ba7d801b9351dc48
   React-Core: 02ed7d2ffb70437bdf2aba074a13078a7b0b9ff0
-  React-Core-prebuilt: 874e54e9cd91238ec817df71feb959ca68947fac
+  React-Core-prebuilt: 99cdadc98b61bdb209cd607e5c4c5581e40c389a
   React-CoreModules: b3a5a42dadcde3b5d47b325bd912eb2ced89e146
   React-cxxreact: fe8f88dda044e5905e99a00f41b7a874c3908716
   React-debug: 92944dc4d89f56d640e75498266cbde557a48189
@@ -2776,19 +2776,19 @@ SPEC CHECKSUMS:
   React-utils: ccc01da318979af773259c4f6cdb1876f6f86f1a
   React-webperformancenativemodule: f8b97c2cb6cfa94e92a503c09ad6d491c50a1390
   ReactAppDependencyProvider: 25c9c516839be2c5e3d3344f95dc7da5f7e63fc2
-  ReactCodegen: c8f81e6c6f762dcf442a6203a1fb58f7dafc8014
+  ReactCodegen: dfe41c3f92bdf782bcf9b2c9d7c12cb9cfd82cb7
   ReactCommon: 7dfc3250793bf36cf221096ff59e1179e13eef7f
-  ReactNativeDependencies: 02bac4ec75f7de777f6792820121fbd7da67addf
+  ReactNativeDependencies: d8f8abb8006181d8990d546957fc08ff3e6c1e4f
   RNCClipboard: 715fa7c6c8366f17d00f05a439ee7488f390fa5f
   RNGestureHandler: 2ff61eac036eaf89f6818bf4ed9c39771a17d134
   RNKeychain: 6778b35b5bd067c322f8479526ac09b1d61f31d0
   RNLiveAudioStream: 93ac2bb6065be9018d0b00157b220f11cebc1513
   RNNotifee: 1c5f94920fb98ca179fa40b0a602bfaed628ce00
-  RNReanimated: f735b1747a7a93bda7ca102c6d37a3cf54b6d5e8
+  RNReanimated: 07fe6682b1d90b9d536540614562850503c63dbb
   RNScreens: 991cc417cd396602a6cf59a42139e5a9d91462a9
   RNShare: 7344a3a7d4e5df58c356ad0f79e4a3ef1325c635
   RNSVG: 0e52210d4d43165e7e2cf9c890a9848b27e513ac
-  RNWorklets: 4931990f73bc8f347586918b2e13f11dfadf3b75
+  RNWorklets: 2b1732dea513e38333481dc919029c1e14dc647d
   VisionCamera: 204d37d39a6a59b31bc48c777094be3096594810
   Yoga: 77dfa8673de2874e1855002ae59c68b8be9b007b
 
