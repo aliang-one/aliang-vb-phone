@@ -556,7 +556,13 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                       { color: theme.colors.onSurfaceVariant },
                     ]}
                   >
-                    {session.model}
+                    {/* agent 位:展示 agent 名(provider 标签),不是模型名。
+                        agentcore 会话的 model 恒为具体模型(手机强制显式下发),
+                        直接画 model 会把「AliangCode」的位置让给「glm-5.2」。
+                        provider 未知的旧会话回落显示 model 文本。 */}
+                    {session.provider
+                      ? providerLabel(session.provider)
+                      : session.model}
                   </Text>
                   <Text
                     numberOfLines={1}

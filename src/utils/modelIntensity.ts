@@ -8,7 +8,9 @@
 // splice an effort tier into the model string.
 //
 // `effort` is provider-specific (codex: low/medium/high/xhigh; claude_code:
-// low/medium/high/xhigh/max/ultracode; opencode: low/medium/high). Provider-aware presets live below as a
+// low/medium/high/xhigh/max/ultracode; opencode: low/medium/high; agentcore:
+// low/medium/high/xhigh/max/ultracode — 2026-10-26 起与 claude_code 同档).
+// Provider-aware presets live below as a
 // fallback ladder; the live catalog is fetched at runtime (effortOptionsFor).
 //
 // The `Intensity` / `INTENSITY_*` / `parseModelIntensity` / `composeModel`
@@ -25,11 +27,14 @@ const inheritLabel = () => i18n.t('account:common.default');
 /** Provider discriminant for effort presets (mirrors AgentProvider). */
 export type EffortProvider = 'codex' | 'claude_code' | 'opencode' | 'agentcore';
 
+// agentcore 排首位:创建页/各设置页的芯片行按此顺序渲染,而 4 颗芯片在手机
+// 宽度下必然横向溢出(见创建页 providerRow 的横向 rail),排最后会把
+// 「AliangCode」挤出首屏。
 export const EFFORT_PROVIDERS: EffortProvider[] = [
+  'agentcore',
   'codex',
   'claude_code',
   'opencode',
-  'agentcore',
 ];
 
 export const providerLabel = (provider: EffortProvider): string => {
@@ -41,7 +46,7 @@ export const providerLabel = (provider: EffortProvider): string => {
     case 'agentcore':
       // 内置内核。与外部 CLI 并列出现时必须一眼看出是「我们自带的」，
       // 否则用户会以为又是另一个需要自己安装的工具。
-      return 'Aliang Agent';
+      return 'AliangCode';
     default:
       return 'Claude Code';
   }
@@ -57,7 +62,9 @@ export const providerLabel = (provider: EffortProvider): string => {
 //   codex:        low / medium / high / xhigh
 //   claude_code:  low / medium / high / xhigh / max / ultracode
 //   opencode:     low / medium / high
-//   agentcore:    (无档位)
+//   agentcore:    low / medium / high / xhigh / max / ultracode(2026-10-26 起与
+//                 claude_code 同档;server seed 的 agentcore efforts 仍为空数组,
+//                 空目录正好让本 ladder 兜底生效)
 export const EFFORT_PRESETS: Record<
   EffortProvider,
   Array<{ label: string; value: string }>
@@ -84,10 +91,19 @@ export const EFFORT_PRESETS: Record<
     { label: 'medium', value: 'medium' },
     { label: 'high', value: 'high' },
   ],
-  // 内置内核首期不传达 effort：模型名后缀是 codex 专用约定、--effort 是
-  // claude CLI 的 argv，进程内内核两者都没有。只留「默认」，多给档位就是
-  // 让选择器骗人。与 PhoneServer 的 seed 目录保持一致。
-  agentcore: [{ label: inheritLabel(), value: '' }],
+  // 内置内核曾因「进程内内核没有 effort 通道」只留「默认」；2026-10-26 起按
+  // 用户决定放开为与 claude_code 完全同档（effort 随 ai.session.create 透传，
+  // server 对 agentcore 无按 provider 白名单，不拦）。设备未上报 agentcore
+  // 的 efforts 能力表时不钳制——档位由内核侧决定如何落地。
+  agentcore: [
+    { label: inheritLabel(), value: '' },
+    { label: 'low', value: 'low' },
+    { label: 'medium', value: 'medium' },
+    { label: 'high', value: 'high' },
+    { label: 'xhigh', value: 'xhigh' },
+    { label: 'max', value: 'max' },
+    { label: 'ultracode', value: 'ultracode' },
+  ],
 };
 
 export const effortPresetsFor = (provider: EffortProvider) =>
@@ -435,13 +451,16 @@ export const INTENSITY_OPTIONS: Array<{ label: string; value: Intensity }> = [
 // `VibeCodingRun.model` is a DISPLAY label: when no concrete model is set it
 // falls back to one of these provider names (see aiSessionModelLabel in
 // internals.ts). Treat those as "no explicit model".
-// 'Aliang Agent' 是 providerLabel('agentcore') 的返回值：没有具体 model 的
+// 'AliangCode' 是 providerLabel('agentcore') 的返回值：没有具体 model 的
 // agentcore 会话，其 model 标签就是这串字。漏掉它，用户第一次改模型时
 // parseModelIntensity 会把这串「显示名」当成真实 base 塞回去。
+// 2026-10-26 由 'Aliang Agent' 改名为 'AliangCode'；旧串保留——历史会话快照
+// 里可能还躺着旧显示名，parse 仍须把它们认成「无具体模型」。
 export const PROVIDER_DEFAULT_LABELS = new Set([
   'Claude Code',
   'GPT-5 Codex',
   'OpenCode',
+  'AliangCode',
   'Aliang Agent',
 ]);
 

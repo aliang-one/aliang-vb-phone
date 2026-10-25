@@ -52,16 +52,14 @@ jest.mock('../src/hooks/useModelOptions', () => ({
     userDefault: mockUserDefault,
     refresh: mockRefresh,
   }),
-  // 与真实目录同形：agentcore 没有 effort 档位（只有「默认」），其余 provider
-  // 有可选项。handleCreate 靠「是否有非空档位」判断 effort 这一维适不适用，
-  // mock 若对所有 provider 都返回档位，agentcore 的用例就测不出真行为。
-  catalogEffortOptions: (provider: string) =>
-    provider === 'agentcore'
-      ? [{ label: '默认', value: '' }]
-      : [
-          { label: 'LOW', value: 'low' },
-          { label: 'HIGH', value: 'high' },
-        ],
+  // 与真实 fallback 同形：2026-10-26 起 agentcore effort 与其余 provider 一样
+  // 有可选档位（见 modelIntensity.ts EFFORT_PRESETS）。handleCreate 靠
+  // 「是否有非空档位」判断 effort 这一维适不适用——如今四个 provider 都适用,
+  // 留「默认」一律先弹确认 sheet。
+  catalogEffortOptions: () => [
+    { label: 'LOW', value: 'low' },
+    { label: 'HIGH', value: 'high' },
+  ],
 }));
 
 jest.mock('../src/hooks/useRecentModelOptions', () => ({
@@ -458,20 +456,22 @@ describe('CreateVibeCodingScreen model confirm sheet', () => {
     expect(mockReplace.mock.calls[0][1].draftConfig.effort).toBeUndefined();
   });
 
-  it('agentcore:选中即预填 glm-5.2,Start 直通且 model 显式下发', async () => {
+  it('agentcore:选中即预填 glm-5.2,effort 留默认先弹窗,选档后直通下发', async () => {
     // 内置内核没有「CLI 自带默认模型」:手机传空 = 宿主回落到本机配置里的模型,
     // 而那个模型手机上从没显示过。所以选中它就必须带出一个具体模型并下发。
+    // 2026-10-26 起 agentcore effort 与 claude_code 同档:留「默认」与其他
+    // provider 同规先弹确认 sheet,选了档位才直通。
     root = await wrap(<CreateVibeCodingScreen />);
     tap(root.root, 'provider-chip-agentcore');
     pressStart(root);
-    // effort 没有档位 ≠ 没指定 → 不该弹确认 sheet
-    expect(byTestID(root.root, 'sheet-model-value')).toBeUndefined();
+    expect(byTestID(root.root, 'sheet-model-value')).toBeTruthy();
+    tap(root.root, 'effort-chip-high');
+    pressStart(root);
     expect(mockReplace).toHaveBeenCalledTimes(1);
     const draft = mockReplace.mock.calls[0][1].draftConfig;
     expect(draft.provider).toBe('agentcore');
     expect(draft.model).toBe('glm-5.2');
-    // 内核首期不传达 effort → 不下发空串
-    expect(draft.effort).toBeUndefined();
+    expect(draft.effort).toBe('high');
   });
 
   it('agentcore:模型芯片里没有「默认」(不下发模型)选项', async () => {

@@ -22,6 +22,7 @@ import {
 } from '../../api/modelConfig';
 import {
   EFFORT_PROVIDERS,
+  effortOptionsFor,
   normalizeProvider,
   providerLabel,
   type EffortProvider,
@@ -106,17 +107,11 @@ export const ModelPresetLibraryCard: React.FC = () => {
       providerCatalog.find(item => item.provider === provider)?.models ?? [],
     [providerCatalog],
   );
-  const effortOptionsFor = useCallback(
-    (provider: EffortProvider) => {
-      const efforts =
-        providerCatalog.find(item => item.provider === provider)?.efforts ?? [];
-      const list = [...efforts];
-      if (!list.some(o => o.value === '')) {
-        list.unshift({ label: t('common.default'), value: '' });
-      }
-      return list;
-    },
-    [providerCatalog, t],
+  // 与创建页同源(catalog 命中用 catalog,否则回落硬编码 ladder);
+  // 2026-10-26 起本地副本改名避免与 util 撞名。
+  const presetEffortOptionsFor = useCallback(
+    (provider: EffortProvider) => effortOptionsFor(provider, providerCatalog),
+    [providerCatalog],
   );
 
   const handleAdd = () => {
@@ -201,7 +196,7 @@ export const ModelPresetLibraryCard: React.FC = () => {
   ];
 
   const draftModelOptions = editing ? modelOptionsFor(editing.provider) : [];
-  const draftEffortOptions = editing ? effortOptionsFor(editing.provider) : [];
+  const draftEffortOptions = editing ? presetEffortOptionsFor(editing.provider) : [];
 
   const sortedPresets = useMemo(
     () => [...presets].sort((a, b) => a.label.localeCompare(b.label)),

@@ -80,6 +80,7 @@
     "effortHintCodex": "Codex reasoning effort: codex uses xhigh; leave empty to inherit the user default.",
     "effortHintOpencode": "OpenCode models use provider/model; leave empty to inherit the user default.",
     "effortHintClaude": "Claude reasoning effort: claude uses max; leave empty to inherit the user default.",
+    "effortHintAgentcore": "AliangCode reasoning effort: the tier is sent to the kernel with the session; leave empty to inherit the user default.",
     "permissions": {
       "title": "Permissions",
       "approvalLabel": "Approval",

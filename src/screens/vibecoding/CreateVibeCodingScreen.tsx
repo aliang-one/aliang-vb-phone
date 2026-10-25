@@ -293,9 +293,9 @@ export const CreateVibeCodingScreen: React.FC = () => {
 
   const handleCreate = () => {
     if (creating || !device) return;
-    // 没有 effort 档位的 provider(内置内核首期不传达 effort)不是「没指定」,
-    // 而是这个维度不适用——拿它去触发确认弹窗,用户每次点 Start 都会被拦一次,
-    // 弹窗里还写着「provider 内置默认」,而内核根本没有这层默认。
+    // effortApplicable = 该 provider 是否真的有可选档位。2026-10-26 起
+    // agentcore 也放开了与 claude_code 同档(见 modelIntensity.ts),如今四个
+    // provider 都适用——留「默认」且模型未显式指定时,照旧走确认弹窗。
     const effortApplicable = effortOptions.some(option => option.value !== '');
     // 任一字段未手动指定 → 先弹确认;都指定了 → 保持原直通,零打扰。
     if (model.trim() === '' || (effortApplicable && effort.trim() === '')) {
@@ -546,7 +546,13 @@ export const CreateVibeCodingScreen: React.FC = () => {
           ]}>
           4. AGENT PROVIDER
         </Text>
-        <View style={styles.providerRow}>
+        {/* 4 个 agent 并列时 flex:1 均分一行会把气泡压到比文字窄(文字溢出
+            气泡)。改成横向滚动 rail:芯片按内容自适应宽度,放不下就滑——
+            同屏 1. DEVICE 的 rowScroller 同款做法。滚动条不关:手机宽度下
+            4 颗芯片必然溢出,指示条是「右边还有」的唯一可见 affordance。 */}
+        <ScrollView
+          horizontal
+          contentContainerStyle={styles.providerRow}>
           {EFFORT_PROVIDERS.map(item => {
             const active = provider === item;
             const enabled = availability[item];
@@ -605,7 +611,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
               </TouchableOpacity>
             );
           })}
-        </View>
+        </ScrollView>
         {noProviderAvailable ? (
           <Text
             style={[
@@ -768,7 +774,9 @@ export const CreateVibeCodingScreen: React.FC = () => {
             ? t('createScreen.effortHintCodex')
             : provider === 'opencode'
               ? t('createScreen.effortHintOpencode')
-              : t('createScreen.effortHintClaude')}
+              : provider === 'agentcore'
+                ? t('createScreen.effortHintAgentcore')
+                : t('createScreen.effortHintClaude')}
         </Text>
 
         <Text
@@ -980,9 +988,10 @@ const styles = StyleSheet.create({
   providerRow: {
     flexDirection: 'row',
     gap: 8,
+    // 横向 rail 的 contentContainer:给首尾芯片留一点触达边距。
+    paddingHorizontal: 4,
   },
   providerButton: {
-    flex: 1,
     borderWidth: 1,
     minHeight: 42,
     flexDirection: 'row',

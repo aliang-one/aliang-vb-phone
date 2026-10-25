@@ -32,6 +32,7 @@ import { useProjectSessions } from '../../hooks/useProjectSessions';
 import { useSessionRescan } from '../../hooks/useSessionRescan';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { formatActivityLabel } from '../../store/internals';
+import { providerLabel } from '../../utils/modelIntensity';
 import { compareSessionsByStableActivity } from '../../utils/sessionPhase';
 import { describeDeviceError } from '../../utils/deviceError';
 import { refreshFeedback } from '../../utils/refreshFeedback';
@@ -269,7 +270,12 @@ const SessionCard: React.FC<SessionCardProps> = React.memo(
               <Text
                 numberOfLines={1}
                 style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-                {session.model} / {projectName} / {deviceName}
+                {/* agent 位与 VibeSessionCard 同规:展示 agent 名而非模型名
+                    (agentcore 会话的 model 恒为具体模型)。 */}
+                {session.provider
+                  ? providerLabel(session.provider)
+                  : session.model}{' '}
+                / {projectName} / {deviceName}
               </Text>
             </View>
             <StatusChip

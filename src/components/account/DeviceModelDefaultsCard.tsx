@@ -16,6 +16,7 @@ import {
 } from '../../api/modelConfig';
 import {
   EFFORT_PROVIDERS,
+  effortOptionsFor,
   normalizeProvider,
   providerLabel,
   type EffortProvider,
@@ -62,16 +63,12 @@ const DeviceRow: React.FC<DeviceRowProps> = ({
   const dirty =
     provider !== '' || model.trim() !== '' || effort.trim() !== '';
 
-  const effortOptions = useMemo(() => {
-    const resolved = provider || 'codex';
-    const efforts =
-      providerCatalog.find(item => item.provider === resolved)?.efforts ?? [];
-    const list = [...efforts];
-    if (!list.some(o => o.value === '')) {
-      list.unshift({ label: t('common.default'), value: '' });
-    }
-    return list;
-  }, [provider, providerCatalog, t]);
+  // 与创建页同源:catalog 命中用 catalog,否则回落硬编码 ladder——
+  // agentcore 的 server seed 是空数组,纯 catalog 读法会永远只剩「默认」。
+  const effortOptions = useMemo(
+    () => effortOptionsFor(provider || 'codex', providerCatalog),
+    [provider, providerCatalog],
+  );
 
   const handleSave = async () => {
     setSaving(true);

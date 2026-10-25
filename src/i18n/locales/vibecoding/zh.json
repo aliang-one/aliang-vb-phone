@@ -80,6 +80,7 @@
     "effortHintCodex": "Codex 推理强度：codex 用 xhigh；留空继承用户默认。",
     "effortHintOpencode": "OpenCode 模型使用 provider/model；留空继承用户默认。",
     "effortHintClaude": "Claude 推理强度：claude 用 max；留空继承用户默认。",
+    "effortHintAgentcore": "AliangCode 推理强度：档位随会话下发内核；留空继承用户默认。",
     "permissions": {
       "title": "权限",
       "approvalLabel": "审批策略",

@@ -50,11 +50,14 @@ describe('modelIntensity · effort taxonomy', () => {
     expect(values.slice(1)).toEqual(['low', 'medium', 'high']);
   });
 
-  it('agentcore has ONLY the inherit option (no effort channel in phase 1)', () => {
-    // 进程内内核既没有 codex 的 <base>-<effort> 模型后缀，也没有 claude 的
-    // --effort argv，首期不传达 effort。多给档位就是让选择器骗人。
+  it('agentcore mirrors the claude_code ladder (2026-10-26 起放开档位)', () => {
+    // 曾因「进程内内核没有 effort 通道」只留「默认」;现按用户决定与
+    // claude_code 完全同档。effort 随 ai.session.create 透传,server 不拦。
     const values = EFFORT_PRESETS.agentcore.map(o => o.value);
-    expect(values).toEqual(['']);
+    expect(values).toEqual(
+      EFFORT_PRESETS.claude_code.map(o => o.value),
+    );
+    expect(values[0]).toBe('');
   });
 
   it('each option carries a non-empty label', () => {
@@ -389,7 +392,7 @@ describe('modelIntensity · availableProviders', () => {
 
 describe('modelIntensity · provider labels', () => {
   it('providerLabel names the built-in kernel distinctly', () => {
-    expect(providerLabel('agentcore')).toBe('Aliang Agent');
+    expect(providerLabel('agentcore')).toBe('AliangCode');
     expect(providerLabel('codex')).toBe('Codex');
     expect(providerLabel('opencode')).toBe('OpenCode');
     expect(providerLabel('claude_code')).toBe('Claude Code');
@@ -398,7 +401,8 @@ describe('modelIntensity · provider labels', () => {
   it('parseModelIntensity treats every provider default label as "no model"', () => {
     // aiSessionModelLabel 在没有具体 model 时会退回 providerLabel(provider)。
     // 这些显示名若被当成真实 base 回填，下次保存就会写进一个不存在的模型。
-    for (const label of ['Claude Code', 'GPT-5 Codex', 'OpenCode', 'Aliang Agent']) {
+    // 'Aliang Agent' 是 2026-10-26 改名前的旧显示名——历史会话快照里可能还在。
+    for (const label of ['Claude Code', 'GPT-5 Codex', 'OpenCode', 'AliangCode', 'Aliang Agent']) {
       expect(parseModelIntensity(label)).toEqual({ base: '', intensity: 'none' });
     }
   });

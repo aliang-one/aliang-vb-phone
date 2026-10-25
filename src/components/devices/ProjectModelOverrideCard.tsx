@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
@@ -235,7 +236,11 @@ export const ProjectModelSelectionCard: React.FC<ProjectModelSelectionCardProps>
         </View>
       </View>
 
-      <View style={styles.providerTabs}>
+      {/* 与创建页 provider 行同规:横向 rail,fallback 到 flex:1 会把四颗
+          tab 挤到文字溢出气泡。 */}
+      <ScrollView
+        horizontal
+        contentContainerStyle={styles.providerTabs}>
         {PROVIDER_TABS.map(tab => {
           const active = activeProvider === tab.value;
           const hasSelection = Boolean(
@@ -260,7 +265,7 @@ export const ProjectModelSelectionCard: React.FC<ProjectModelSelectionCardProps>
             </TouchableOpacity>
           );
         })}
-      </View>
+      </ScrollView>
 
       <Text
         style={[
@@ -393,9 +398,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     marginBottom: 4,
+    paddingHorizontal: 4,
   },
   providerTab: {
-    flex: 1,
     minHeight: 38,
     paddingVertical: 8,
     paddingHorizontal: 10,
