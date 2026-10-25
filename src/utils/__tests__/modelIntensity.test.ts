@@ -14,6 +14,7 @@ import {
   modelPresetsFor,
   normalizeProvider,
   parseModelIntensity,
+  providerLabel,
   supportedEffortsFor,
 } from '../modelIntensity';
 
@@ -46,6 +47,13 @@ describe('modelIntensity · effort taxonomy', () => {
     expect(values.slice(1)).toEqual(['low', 'medium', 'high']);
   });
 
+  it('agentcore has ONLY the inherit option (no effort channel in phase 1)', () => {
+    // 进程内内核既没有 codex 的 <base>-<effort> 模型后缀，也没有 claude 的
+    // --effort argv，首期不传达 effort。多给档位就是让选择器骗人。
+    const values = EFFORT_PRESETS.agentcore.map(o => o.value);
+    expect(values).toEqual(['']);
+  });
+
   it('each option carries a non-empty label', () => {
     for (const provider of EFFORT_PROVIDERS) {
       for (const option of EFFORT_PRESETS[provider]) {
@@ -58,6 +66,7 @@ describe('modelIntensity · effort taxonomy', () => {
     expect(effortPresetsFor('codex')).toBe(EFFORT_PRESETS.codex);
     expect(effortPresetsFor('claude_code')).toBe(EFFORT_PRESETS.claude_code);
     expect(effortPresetsFor('opencode')).toBe(EFFORT_PRESETS.opencode);
+    expect(effortPresetsFor('agentcore')).toBe(EFFORT_PRESETS.agentcore);
   });
 });
 
@@ -129,9 +138,14 @@ describe('modelIntensity · provider normalization', () => {
     expect(normalizeProvider('opencode')).toBe('opencode');
     expect(normalizeProvider('open_code')).toBe('opencode');
     expect(normalizeProvider('open-code')).toBe('opencode');
+    expect(normalizeProvider('agentcore')).toBe('agentcore');
+    expect(normalizeProvider('AGENTCORE')).toBe('agentcore');
+    expect(normalizeProvider('agent-core')).toBe('agentcore');
+    expect(normalizeProvider('agent_core')).toBe('agentcore');
     expect(normalizeProvider('auto', 'codex')).toBe('codex');
     expect(normalizeProvider('auto', 'claudecode')).toBe('claude_code');
     expect(normalizeProvider('auto', 'opencode')).toBe('opencode');
+    expect(normalizeProvider('auto', 'agentcore')).toBe('agentcore');
     expect(normalizeProvider('unknown')).toBeUndefined();
     expect(normalizeProvider(undefined, undefined)).toBeUndefined();
   });
@@ -197,6 +211,13 @@ describe('modelIntensity · per-provider model presets', () => {
     ]);
   });
 
+  it('agentcore presets mirror the kernel default model', () => {
+    expect(MODEL_PRESETS_BY_PROVIDER.agentcore.map(m => m.value)).toEqual([
+      'claude-sonnet-4-5',
+      'claude-sonnet-4-6',
+    ]);
+  });
+
   it('modelPresetsFor falls back to codex for unknown provider', () => {
     expect(modelPresetsFor('codex' as never).map(m => m.value)).toEqual([
       'gpt-5.4',
@@ -232,27 +253,73 @@ describe('modelIntensity · per-provider model presets', () => {
 
 describe('modelIntensity · availableProviders', () => {
   it('all providers available when tools empty (agent not yet reported)', () => {
-    expect(availableProviders([])).toEqual({ codex: true, claude_code: true, opencode: true });
+    expect(availableProviders([])).toEqual({
+      codex: true,
+      claude_code: true,
+      opencode: true,
+      agentcore: true,
+    });
     expect(availableProviders(undefined)).toEqual({
       codex: true,
       claude_code: true,
       opencode: true,
+      agentcore: true,
     });
   });
 
   it('maps codex/claude/opencode tool availability', () => {
     expect(
       availableProviders([{ id: 'codex', available: true }]),
-    ).toEqual({ codex: true, claude_code: false, opencode: false });
+    ).toEqual({
+      codex: true,
+      claude_code: false,
+      opencode: false,
+      agentcore: false,
+    });
     expect(
       availableProviders([{ id: 'claude', available: true }]),
-    ).toEqual({ codex: false, claude_code: true, opencode: false });
+    ).toEqual({
+      codex: false,
+      claude_code: true,
+      opencode: false,
+      agentcore: false,
+    });
     expect(
       availableProviders([{ id: 'claudecode', available: true }]),
-    ).toEqual({ codex: false, claude_code: true, opencode: false });
+    ).toEqual({
+      codex: false,
+      claude_code: true,
+      opencode: false,
+      agentcore: false,
+    });
     expect(
       availableProviders([{ id: 'opencode', available: true }]),
-    ).toEqual({ codex: false, claude_code: false, opencode: true });
+    ).toEqual({
+      codex: false,
+      claude_code: false,
+      opencode: true,
+      agentcore: false,
+    });
+  });
+
+  it('maps the agentcore tool id (built-in kernel) to agentcore availability', () => {
+    expect(
+      availableProviders([{ id: 'agentcore', available: true }]),
+    ).toEqual({
+      codex: false,
+      claude_code: false,
+      opencode: false,
+      agentcore: true,
+    });
+    // 老版 agent 二进制不上报 agentcore —— 那时它确实跑不起来，必须为 false。
+    expect(
+      availableProviders([{ id: 'claude', available: true }]),
+    ).toEqual({
+      codex: false,
+      claude_code: true,
+      opencode: false,
+      agentcore: false,
+    });
   });
 
   it('respects available===false', () => {
@@ -262,7 +329,12 @@ describe('modelIntensity · availableProviders', () => {
         { id: 'claude', available: true },
         { id: 'opencode', available: false },
       ]),
-    ).toEqual({ codex: false, claude_code: true, opencode: false });
+    ).toEqual({
+      codex: false,
+      claude_code: true,
+      opencode: false,
+      agentcore: false,
+    });
   });
 
   it('all true when all CLIs present', () => {
@@ -271,8 +343,31 @@ describe('modelIntensity · availableProviders', () => {
         { id: 'codex', available: true },
         { id: 'claude', available: true },
         { id: 'opencode', available: true },
+        { id: 'agentcore', available: true },
       ]),
-    ).toEqual({ codex: true, claude_code: true, opencode: true });
+    ).toEqual({
+      codex: true,
+      claude_code: true,
+      opencode: true,
+      agentcore: true,
+    });
+  });
+});
+
+describe('modelIntensity · provider labels', () => {
+  it('providerLabel names the built-in kernel distinctly', () => {
+    expect(providerLabel('agentcore')).toBe('Aliang Agent');
+    expect(providerLabel('codex')).toBe('Codex');
+    expect(providerLabel('opencode')).toBe('OpenCode');
+    expect(providerLabel('claude_code')).toBe('Claude Code');
+  });
+
+  it('parseModelIntensity treats every provider default label as "no model"', () => {
+    // aiSessionModelLabel 在没有具体 model 时会退回 providerLabel(provider)。
+    // 这些显示名若被当成真实 base 回填，下次保存就会写进一个不存在的模型。
+    for (const label of ['Claude Code', 'GPT-5 Codex', 'OpenCode', 'Aliang Agent']) {
+      expect(parseModelIntensity(label)).toEqual({ base: '', intensity: 'none' });
+    }
   });
 });
 

@@ -44,6 +44,11 @@ const buildBuiltinAgentCommands = (): Record<EffortProvider, AgentCommandInfo[]>
     { name: 'undo', description: i18n.t('vibecoding:command.undo.description'), scope: 'builtin', remote: 'local' },
     { name: 'redo', description: i18n.t('vibecoding:command.redo.description'), scope: 'builtin', remote: 'local' },
   ],
+  // 内置内核刻意留空：上面这些是各 CLI 的 REPL 内建命令，由 CLI 自己解释。
+  // 内核没有 REPL、也没有 /clear 或 /model 的处理器，列出来只会让用户点完
+  // 发现这条「命令」被当成普通文本发给了模型。空列表让面板只剩产品级命令
+  // （/goal）和 agent 真实上报的项目/用户命令——少即是准。
+  agentcore: [],
 });
 
 /**

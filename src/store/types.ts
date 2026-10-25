@@ -11,6 +11,7 @@ import type {
   PlatformTransportEvent,
 } from '../services/platformTransport';
 import type { AiAttachmentMeta } from '../api/attachments';
+import type { EffortProvider } from '../utils/modelIntensity';
 
 // --- Type definitions ---
 
@@ -29,7 +30,10 @@ export type TerminalSessionStatus =
   | 'stopped'
   | 'waiting_approval';
 
-export type AgentProvider = 'claude_code' | 'codex' | 'opencode';
+// agentcore = alianggate 自带的内核（不需要装任何外部 CLI）。
+// 直接取 EffortProvider 的别名：两者必须同集合，用注释去保证迟早会漂移，
+// 用类型别名则由编译器保证。
+export type AgentProvider = EffortProvider;
 
 /**
  * Outcome of a `refreshFromServer` call. Resolves (never rejects) so callers

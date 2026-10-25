@@ -1,6 +1,7 @@
 import type { ApprovalScheme } from '../api/devices';
 import type { ProjectProviderModelConfig } from '../api/modelConfig';
 import type { AiAttachmentMeta, AttachmentCapability } from '../api/attachments';
+import type { EffortProvider } from '../utils/modelIntensity';
 
 export interface Project {
   id: string;
@@ -28,7 +29,7 @@ export interface Project {
   /** Project-scoped model/effort selections keyed by provider tab. */
   modelConfig?: ProjectProviderModelConfig;
   /** Legacy single-provider override from older server payloads. */
-  provider?: 'codex' | 'claude_code' | 'opencode';
+  provider?: EffortProvider;
   model?: string;
   effort?: string;
 }
@@ -381,7 +382,7 @@ export interface VibeCodingRun {
    * presets and codex-vs-claude rendering. Undefined only for legacy snapshots
    * that lack the field — callers apply a sensible default.
    */
-  provider?: 'codex' | 'claude_code' | 'opencode';
+  provider?: EffortProvider;
   /**
    * Server-resolved effective model config (the concrete provider/model/effort
    * the agent runs with + each field's provenance). Surfaced read-only in the

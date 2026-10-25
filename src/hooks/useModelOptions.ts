@@ -36,6 +36,9 @@ const fallbackModelOptions: ModelOptions = {
     { provider: 'codex', models: [], efforts: effortPresetsFor('codex') },
     { provider: 'claude_code', models: [], efforts: effortPresetsFor('claude_code') },
     { provider: 'opencode', models: [], efforts: effortPresetsFor('opencode') },
+    // 内置内核：模型留给 MODEL_PRESETS_BY_PROVIDER 兜底（与 server seed 一致），
+    // effort 档位为空是刻意的——首期不传达 effort，见 modelIntensity.ts。
+    { provider: 'agentcore', models: [], efforts: effortPresetsFor('agentcore') },
   ],
   presets: [],
   user_default: {

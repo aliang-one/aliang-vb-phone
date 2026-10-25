@@ -12,6 +12,20 @@ import type { AiAttachmentMeta, AttachmentCapability } from './attachments';
 const AI_TURN_REQUEST_TIMEOUT_MS = 120_000;
 const aiSessionDetailRequests = new Map<string, Promise<ServerAiSession>>();
 
+/**
+ * Provider spelling as it appears on the wire to PhoneServer.
+ *
+ * 注意这**不是** UI 层的 AgentProvider：'claude_code' 在 wire 上拼作
+ * 'claudecode'，由 aiSessionSlice 的 providerWireValue 统一转换。
+ * agentcore 两侧同拼写。
+ */
+export type AiProviderWire =
+  | 'codex'
+  | 'claude'
+  | 'claudecode'
+  | 'opencode'
+  | 'agentcore';
+
 export interface ServerAiTranscriptPage {
   limit: number;
   count: number;
@@ -173,8 +187,8 @@ export interface ServerAiSession {
   title?: string;
   objective?: string;
   model?: string;
-  provider?: 'codex' | 'claude' | 'claudecode' | 'opencode';
-  tool?: 'codex' | 'claude' | 'claudecode' | 'opencode';
+  provider?: AiProviderWire;
+  tool?: AiProviderWire;
   source_session_id?: string;
   risk?: 'low' | 'medium' | 'high';
   /**
@@ -457,8 +471,8 @@ export const createAiSession = (input: {
    */
   message?: string;
   model?: string;
-  provider?: 'codex' | 'claude' | 'claudecode' | 'opencode';
-  tool?: 'codex' | 'claude' | 'claudecode' | 'opencode';
+  provider?: AiProviderWire;
+  tool?: AiProviderWire;
   risk?: 'low' | 'medium' | 'high';
   effort?: string;
   /**

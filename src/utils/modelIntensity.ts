@@ -23,16 +23,29 @@ import i18n from '../i18n';
 const inheritLabel = () => i18n.t('account:common.default');
 
 /** Provider discriminant for effort presets (mirrors AgentProvider). */
-export type EffortProvider = 'codex' | 'claude_code' | 'opencode';
+export type EffortProvider = 'codex' | 'claude_code' | 'opencode' | 'agentcore';
 
-export const EFFORT_PROVIDERS: EffortProvider[] = ['codex', 'claude_code', 'opencode'];
+export const EFFORT_PROVIDERS: EffortProvider[] = [
+  'codex',
+  'claude_code',
+  'opencode',
+  'agentcore',
+];
 
-export const providerLabel = (provider: EffortProvider): string =>
-  provider === 'codex'
-    ? 'Codex'
-    : provider === 'opencode'
-      ? 'OpenCode'
-      : 'Claude Code';
+export const providerLabel = (provider: EffortProvider): string => {
+  switch (provider) {
+    case 'codex':
+      return 'Codex';
+    case 'opencode':
+      return 'OpenCode';
+    case 'agentcore':
+      // 内置内核。与外部 CLI 并列出现时必须一眼看出是「我们自带的」，
+      // 否则用户会以为又是另一个需要自己安装的工具。
+      return 'Aliang Agent';
+    default:
+      return 'Claude Code';
+  }
+};
 
 // Provider-aware reasoning-effort presets. "默认" (value '') means no override
 // — the server/CLI default reasoning level is used. This hardcoded ladder is a
@@ -44,6 +57,7 @@ export const providerLabel = (provider: EffortProvider): string =>
 //   codex:        low / medium / high / xhigh
 //   claude_code:  low / medium / high / xhigh / max / ultracode
 //   opencode:     low / medium / high
+//   agentcore:    (无档位)
 export const EFFORT_PRESETS: Record<
   EffortProvider,
   Array<{ label: string; value: string }>
@@ -70,6 +84,10 @@ export const EFFORT_PRESETS: Record<
     { label: 'medium', value: 'medium' },
     { label: 'high', value: 'high' },
   ],
+  // 内置内核首期不传达 effort：模型名后缀是 codex 专用约定、--effort 是
+  // claude CLI 的 argv，进程内内核两者都没有。只留「默认」，多给档位就是
+  // 让选择器骗人。与 PhoneServer 的 seed 目录保持一致。
+  agentcore: [{ label: inheritLabel(), value: '' }],
 };
 
 export const effortPresetsFor = (provider: EffortProvider) =>
@@ -84,6 +102,7 @@ export const effortPresetsFor = (provider: EffortProvider) =>
 //   codex:        gpt-5.4 / gpt-5.5
 //   claude_code:  glm-5.1 / glm-5.2
 //   opencode:     anthropic/claude-sonnet-4-5 / openai/gpt-5
+//   agentcore:    claude-sonnet-4-5 / claude-sonnet-4-6
 export const MODEL_PRESETS_BY_PROVIDER: Record<
   EffortProvider,
   Array<{ label: string; value: string }>
@@ -99,6 +118,12 @@ export const MODEL_PRESETS_BY_PROVIDER: Record<
   opencode: [
     { label: 'anthropic/claude-sonnet-4-5', value: 'anthropic/claude-sonnet-4-5' },
     { label: 'openai/gpt-5', value: 'openai/gpt-5' },
+  ],
+  // 与 PhoneServer 的 seed 目录一致；claude-sonnet-4-5 同时是 Go 侧
+  // agentCoreDefaultModel，选「默认」时手机显示的模型名与实际请求对得上。
+  agentcore: [
+    { label: 'claude-sonnet-4-5', value: 'claude-sonnet-4-5' },
+    { label: 'claude-sonnet-4-6', value: 'claude-sonnet-4-6' },
   ],
 };
 
@@ -193,6 +218,13 @@ export function normalizeProvider(
     ) {
       return 'claude_code';
     }
+    if (
+      value === 'agentcore' ||
+      value === 'agent-core' ||
+      value === 'agent_core'
+    ) {
+      return 'agentcore';
+    }
   }
   return undefined;
 }
@@ -201,6 +233,7 @@ export interface ProviderAvailability {
   codex: boolean;
   claude_code: boolean;
   opencode: boolean;
+  agentcore: boolean;
 }
 
 /**
@@ -212,6 +245,10 @@ export interface ProviderAvailability {
  * Empty/unknown tool list → all providers available: the agent may simply not have
  * reported tools yet, and we must not block session creation in that case.
  * Structural tool type so this util stays free of device-type dependencies.
+ *
+ * agentcore 也走 `has()` 而不是恒 true：它是内置的没错，但老版 agent 二进制
+ * 里根本没有这个内核，tools 里不会出现它——那时给 true 只会让用户选到一个
+ * 跑不起来的 provider。空列表的全 true 分支已经覆盖了「还没上报」的情况。
  */
 export function availableProviders(
   tools:
@@ -219,14 +256,19 @@ export function availableProviders(
     | undefined,
 ): ProviderAvailability {
   if (!tools || !tools.length) {
-    return { codex: true, claude_code: true, opencode: true };
+    return { codex: true, claude_code: true, opencode: true, agentcore: true };
   }
   const has = (provider: EffortProvider) =>
     tools.some(tool => {
       if (tool.available === false) return false;
       return normalizeProvider(tool.id) === provider;
     });
-  return { codex: has('codex'), claude_code: has('claude_code'), opencode: has('opencode') };
+  return {
+    codex: has('codex'),
+    claude_code: has('claude_code'),
+    opencode: has('opencode'),
+    agentcore: has('agentcore'),
+  };
 }
 
 /**
@@ -362,7 +404,15 @@ export const INTENSITY_OPTIONS: Array<{ label: string; value: Intensity }> = [
 // `VibeCodingRun.model` is a DISPLAY label: when no concrete model is set it
 // falls back to one of these provider names (see aiSessionModelLabel in
 // internals.ts). Treat those as "no explicit model".
-export const PROVIDER_DEFAULT_LABELS = new Set(['Claude Code', 'GPT-5 Codex', 'OpenCode']);
+// 'Aliang Agent' 是 providerLabel('agentcore') 的返回值：没有具体 model 的
+// agentcore 会话，其 model 标签就是这串字。漏掉它，用户第一次改模型时
+// parseModelIntensity 会把这串「显示名」当成真实 base 塞回去。
+export const PROVIDER_DEFAULT_LABELS = new Set([
+  'Claude Code',
+  'GPT-5 Codex',
+  'OpenCode',
+  'Aliang Agent',
+]);
 
 /**
  * Split a (possibly legacy baked) model string into base name + intensity
