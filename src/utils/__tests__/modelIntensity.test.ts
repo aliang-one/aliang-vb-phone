@@ -215,12 +215,19 @@ describe('modelIntensity · per-provider model presets', () => {
   });
 
   it('agentcore presets mirror the kernel default model', () => {
-    // 与 Go 侧 agentCoreDefaultModel、PhoneServer seed 同一套 id；
-    // 必须是网关真能路由的（claude-* 在本账号组 model_not_found）。
+    // 与 Go 侧 agentCoreDefaultModel、PhoneServer seed 同一套 id。
+    // 这 4 个都用 AGENTCORE_LIVE=1 真出网跑通过（56432 本地代理，两回合 +
+    // 一次 Read 工具调用），不是照抄来的。claude-* 在本账号组一律
+    // model_not_found，绝不能出现在这里。
     expect(MODEL_PRESETS_BY_PROVIDER.agentcore.map(m => m.value)).toEqual([
-      'glm-5.1',
+      'glm-5.3',
+      'glm-5.3-flash[1m]',
       'glm-5.2',
+      'glm-5.1',
     ]);
+    // 内核的兜底默认模型必须在列表里，否则用户选「默认」时手机显示的
+    // 模型名与实际请求的模型对不上。
+    expect(MODEL_PRESETS_BY_PROVIDER.agentcore.map(m => m.value)).toContain('glm-5.2');
   });
 
   it('modelPresetsFor falls back to codex for unknown provider', () => {
