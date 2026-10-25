@@ -32,7 +32,6 @@ import {
   getActiveEndpointId,
   discoverReachableBaseUrl,
   isPlatformServiceReachable,
-  markPlatformServiceUnreachable,
   rememberPlatformServiceBaseUrl,
   reportChannelFailure,
   __stopBackgroundReprobeForTests,
@@ -72,7 +71,10 @@ function resetMocks(): void {
     .mockReset()
     .mockResolvedValue('http://127.0.0.1:4000');
   jest.mocked(AsyncStorage.setItem).mockClear();
-  markPlatformServiceUnreachable();
+  // 注意:这里不再调 markPlatformServiceUnreachable()——它如今兼任通道
+  // 失败计数,每测试 +1 会让第 3 个测试的 beforeEach 触发通道翻转 + 防横
+  // 跳锁,把后面的择优断言搅成时区相关的烂泥。所有 reachable 断言都在
+  // discover 之后读状态,不依赖测试前的标记复位。
 }
 
 describe('platform service base url — single source of truth', () => {
@@ -164,7 +166,9 @@ describe('双通道探测与选择', () => {
 
   it('平手(30% 滞回带内)→ 用 AsyncStorage 先验裁决:存 nat0 则选 nat0', async () => {
     jest.mocked(AsyncStorage.getItem).mockResolvedValueOnce('nat0');
-    mockHealthByChannel({ primary: 40, nat0: 40 });
+    // 150ms 对称:滞回带是相对带宽(0.7×~1.43×),太短的延迟下 CI 一次
+    // ~18ms 的不对称事件循环停顿就能把平手挤出带外。
+    mockHealthByChannel({ primary: 150, nat0: 150 });
 
     const url = await discoverReachableBaseUrl();
 
@@ -173,7 +177,7 @@ describe('双通道探测与选择', () => {
   });
 
   it('连续 3 次 reportChannelFailure → 翻转通道,getPlatformServiceBaseUrl 立即返回新通道', async () => {
-    // 先清零失败计数,隔离 beforeEach 里 markPlatformServiceUnreachable 的 +1。
+    // 显式清零失败计数,不依赖前序用例的计数残留。
     await rememberPlatformServiceBaseUrl('warmup');
     const before = getActiveEndpointId();
 
@@ -201,5 +205,46 @@ describe('双通道探测与选择', () => {
     expect(getActiveEndpointId()).toBe(before);
     const urlUnchanged = before === 'nat0' ? NAT0_BASE_URL : PLATFORM_SERVICE_BASE_URL;
     await expect(getPlatformServiceBaseUrl()).resolves.toBe(urlUnchanged);
+  });
+
+  it('防横跳锁:故障切到 nat0 后,primary 探测快得多也不得立即切回', async () => {
+    await rememberPlatformServiceBaseUrl('warmup');
+    // 先把 activeId 钉到 primary(顺带清掉前序用例遗留的锁)。
+    mockHealthByChannel({ primary: 0, nat0: 120 });
+    await discoverReachableBaseUrl();
+    expect(getActiveEndpointId()).toBe('primary');
+
+    // 3 连败 → 切到 nat0,同时对 primary 上 5 分钟防横跳锁。
+    reportChannelFailure();
+    reportChannelFailure();
+    reportChannelFailure();
+    expect(getActiveEndpointId()).toBe('nat0');
+
+    // primary 探测快得多(winner=primary),但锁内 effective 保持 nat0。
+    mockHealthByChannel({ primary: 0, nat0: 120 });
+    const url = await discoverReachableBaseUrl();
+    expect(url).toBe(NAT0_BASE_URL);
+    expect(getActiveEndpointId()).toBe('nat0');
+  });
+
+  it('防横跳锁过期后:重探让 primary 赢回', async () => {
+    // 依赖上一用例遗留状态:activeId='nat0'、lockedAgainst='primary'。
+    expect(getActiveEndpointId()).toBe('nat0');
+
+    // 把时钟推过 lockUntil(FLIP_LOCK_MS=5min,取 6min 余量)。
+    // 用 spy 前捕获的真 Date.now 做偏移基点,保留 TTFB 真实差值
+    // (primary 0ms vs nat0 120ms 的择优依据不受时钟平移影响)。
+    const realDateNow = Date.now.bind(Date);
+    const clockSpy = jest
+      .spyOn(Date, 'now')
+      .mockImplementation(() => realDateNow() + 6 * 60 * 1000);
+    try {
+      mockHealthByChannel({ primary: 0, nat0: 120 });
+      const url = await discoverReachableBaseUrl();
+      expect(url).toBe(PLATFORM_SERVICE_BASE_URL);
+      expect(getActiveEndpointId()).toBe('primary');
+    } finally {
+      clockSpy.mockRestore();
+    }
   });
 });
