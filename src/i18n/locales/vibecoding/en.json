@@ -146,7 +146,13 @@
     "defaultChip": "Default"
   },
   "agentSessions": {
-    "messagesCount": "{{count}} messages"
+    "messagesCount": "{{count}} messages",
+    "rescan": {
+      "action": "Rescan computer",
+      "updated": "Computer scanned — list updated",
+      "timeout": "Computer is slow to respond — try again shortly",
+      "failed": "Rescan failed"
+    }
   },
   "transcript": {
     "roleUser": "user",

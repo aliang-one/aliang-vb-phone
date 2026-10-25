@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo } from 'react';
 import {
   FlatList,
+  RefreshControl,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -22,14 +23,18 @@ import { NewSessionButton } from '../../components/vibecoding/NewSessionButton';
 import { RootStackParamList } from '../../app/navigation/types';
 import { useTheme } from '../../theme/useTheme';
 import { useControlCenterStore, useConversationRuns } from '../../store/controlCenterStore';
+import { useToastStore } from '../../store/toastStore';
 import type { VibeCodingRun } from '../../data/platformModels';
 import { IconBadge } from '../../components/visual/IconBadge';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { useProjectSessions } from '../../hooks/useProjectSessions';
+import { useSessionRescan } from '../../hooks/useSessionRescan';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { formatActivityLabel } from '../../store/internals';
 import { compareSessionsByStableActivity } from '../../utils/sessionPhase';
+import { describeDeviceError } from '../../utils/deviceError';
+import { refreshFeedback } from '../../utils/refreshFeedback';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type AgentSessionsRoute = RouteProp<RootStackParamList, 'AgentSessions'>;
@@ -86,6 +91,61 @@ export const AgentSessionsScreen: React.FC = () => {
     ? devices.find(d => d.id === route.params?.deviceId)
     : devices[0];
 
+  // 下拉重扫接线:项目 scoped 下拉=轻推 agent 重扫电脑;全局/设备 scoped
+  // 数据源是 store 快照,退化为普通重取。外层组件此前没有 t(只有
+  // SessionCard 内有),这里补声明。
+  const { t } = useTranslation('vibecoding');
+  const show = useToastStore(s => s.show);
+  const refreshFromServer = useControlCenterStore(s => s.refreshFromServer);
+  const rescanProjectId = route.params?.projectId;
+  const { rescanning, rescan } = useSessionRescan(
+    rescanProjectId,
+    rescanProjectId ? projectScoped.reload : undefined,
+  );
+  const rescanDevice = useMemo(() => {
+    if (route.params?.deviceId) {
+      return devices.find(d => d.id === route.params?.deviceId);
+    }
+    const project = rescanProjectId
+      ? projects.find(p => p.id === rescanProjectId)
+      : undefined;
+    return project
+      ? devices.find(d => d.id === project.deviceId)
+      : undefined;
+  }, [route.params?.deviceId, rescanProjectId, devices, projects]);
+
+  // 离线提示复用 deviceError 的标准文案;`??` 兜底仅为类型收窄,哨兵必命中。
+  const offlineTitle =
+    describeDeviceError(new Error('device_offline'))?.title ??
+    t('agentSessions.rescan.failed');
+
+  const handleRefresh = useCallback(async () => {
+    // 全局/设备视图(数据源是 store 快照):退化为普通重取,不做重扫(范围外)。
+    // 失败必须给反馈(refreshFromServer 永不 reject,结果自带 ok/error)。
+    if (!rescanProjectId) {
+      const result = await refreshFromServer();
+      if (!result.ok) {
+        show(refreshFeedback(result, t).message, 'error');
+      }
+      return;
+    }
+    // 设备已知离线(指定 deviceId 或项目反查所得):不发注定失败的请求
+    // (照项目扫描屏先例;比 spec 的"仅指定 deviceId"更宽,有意为之,
+    // 与 spec 错误表一致,避免一次必败往返)。
+    if (rescanDevice?.status === 'offline') {
+      show(offlineTitle, 'error');
+      return;
+    }
+    const outcome = await rescan();
+    if (outcome === 'updated') show(t('agentSessions.rescan.updated'), 'success');
+    else if (outcome === 'timeout') show(t('agentSessions.rescan.timeout'), 'info');
+    else if (outcome === 'agent-offline') {
+      show(offlineTitle, 'error');
+    } else if (outcome === 'error') {
+      show(t('agentSessions.rescan.failed'), 'error');
+    }
+  }, [rescanProjectId, rescanDevice, rescan, refreshFromServer, show, t, offlineTitle]);
+
   const handleOpenSession = useCallback(
     (sessionId: string) =>
       navigation.navigate('VibeCodingSession', { sessionId }),
@@ -102,6 +162,14 @@ export const AgentSessionsScreen: React.FC = () => {
       <FlatList
         style={styles.scrollView}
         contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={rescanning}
+            onRefresh={handleRefresh}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+          />
+        }
         data={sessionList.visibleItems}
         keyExtractor={session => session.id}
         renderItem={({ item: session }) => {

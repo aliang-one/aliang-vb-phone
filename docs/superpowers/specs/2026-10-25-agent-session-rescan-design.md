@@ -61,7 +61,7 @@
 `server/src/modules/routes/projects.ts` 新增:
 
 - 路由:`POST /api/projects/:projectId/ai-sessions/refresh`
-- 流程:`requireUserId` → `getAccessibleProjectOrThrow` → 取项目所属 device → 检查 agent 连接状态(离线 → `409 agent_offline`)→ 向 agent WS 写 `{type:"agent.inventory.refresh"}` → 立即响应 `{status:"requested"}`(**不等待** agent 回 hello)
+- 流程:`requireUserId` → `getAccessibleProjectOrThrow` → 取项目所属 device → 复用 `requireOnlineAgentForPublish` 守卫(离线 → `409 device_offline`,与同文件兄弟路由及手机端 `describeDeviceError` 契约一致)→ 向 agent WS 写 `{type:"agent.inventory.refresh"}` → 立即响应 `{status:"requested"}`(**不等待** agent 回 hello)
 - 发送方式:fire-and-forget 写 agent 连接(不使用 `requestAgentPayload` 的请求-响应机制,理由见方案 B 否决理由)
 - 审计:`rememberAudit({ eventType: 'project.ai_sessions.rescan', ... })`
 
@@ -81,7 +81,7 @@ export const refreshProjectAiSessions = (projectId: string): Promise<{ status: s
 - 签名:`useSessionRescan(projectId: string | undefined)` → `{ rescanning: boolean; rescan: () => Promise<RescanOutcome> }`
 - `rescan()` 流程:
   1. 记录触发前的 `total_count` + 最新 session 的 `id`/`last_active_at` 快照(线字段名以 `publicAiSessionSummary` 下发的 `last_active_at` 为准;`updated_at` 在本仓库特指 agent 文件时钟,server 有意不下发,勿混用——2026-10-15 时钟污染修复)
-  2. 调 `refreshProjectAiSessions`;`409 agent_offline` → 直接返回 `agent-offline`,不发轮询
+  2. 调 `refreshProjectAiSessions`;`409 device_offline` → 直接返回 `agent-offline`,不发轮询
   3. 轮询 `fetchProjectAiSessions(projectId)`(照搬 `ProjectScanScreen.handleScan` 的 startCount/poll 模式):判定"变化" = `total_count` 增大 或 出现新的 session id 或 最新 `last_active_at` 变新
   4. 轮询节奏:首拍 1.2s,共最多 6 拍(~8s 封顶);任一拍检测到变化即返回 `updated`
 - **数据流单源**:hook 只负责触发/轮询/变化判定,不持有第二份会话列表状态;每拍(至少收尾拍)驱动屏幕既有的 `useProjectSessions.reload()` 刷新列表——避免双状态源闪烁/失同步
@@ -118,7 +118,7 @@ server: upsertReportedVibeSessions → publish ai.sessions.updated(现有链路,
 
 | 场景 | 行为 |
 | --- | --- |
-| 设备离线(agent 断连) | server 返回 409 `agent_offline`;手机不发轮询,toast 离线提示 |
+| 设备离线(agent 断连) | server 返回 409 `device_offline`(requireOnlineAgentForPublish 契约);手机不发轮询,toast 离线提示 |
 | refresh 请求网络失败 | toast 失败;不轮询 |
 | 轮询超时(~8s 无变化) | 最后 reload 一次;toast "电脑响应较慢,稍后下拉重试" |
 | agent 在线但重扫后仍无该会话 | 属于根因(路径不匹配/scanDirs 过滤);超时提示已覆盖,不掩盖也不误报成功 |

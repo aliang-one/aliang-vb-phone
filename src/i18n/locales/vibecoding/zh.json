@@ -146,7 +146,13 @@
     "defaultChip": "默认"
   },
   "agentSessions": {
-    "messagesCount": "{{count}} 条消息"
+    "messagesCount": "{{count}} 条消息",
+    "rescan": {
+      "action": "重扫电脑",
+      "updated": "已重扫电脑,列表已更新",
+      "timeout": "电脑响应较慢,稍后重试",
+      "failed": "重扫失败"
+    }
   },
   "transcript": {
     "roleUser": "user",

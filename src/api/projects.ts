@@ -338,3 +338,17 @@ export const fetchProjectFileContent = (
 
 export const scanDeviceProjects = (deviceId: string): Promise<{ status: string; device_id: string }> =>
   apiPost(`/api/devices/${deviceId}/scan`);
+
+/**
+ * 「重扫电脑」:请 server 轻推项目所属设备的 agent 立即扫描并上报会话列表。
+ * Fire-and-forget:server 只 ACK {status:'requested'},新会话是否到达由
+ * 调用方轮询 fetchProjectAiSessions 确认。agent 离线时 server 回 409
+ * device_offline(ApiResponseError)。
+ */
+export const refreshProjectAiSessions = (
+  projectId: string,
+): Promise<{ status: string }> =>
+  apiPost<{ status: string }>(
+    `/api/projects/${projectId}/ai-sessions/refresh`,
+    {},
+  );
