@@ -1,4 +1,8 @@
-import { getPlatformServiceBaseUrl, toWebSocketUrl } from '../config/localService';
+import {
+  getPlatformServiceBaseUrl,
+  reportChannelFailure,
+  toWebSocketUrl,
+} from '../config/localService';
 import {
   isAuthRejectionClose,
   notifySessionInvalidated,
@@ -162,6 +166,8 @@ export class MobileWebSocket {
         return;
       }
       if (!this.intentionalClose && !this.authRejected) {
+        // WS 建链失败计入通道故障计数;3 连败由 localService 翻转通道,下次重连自动走新通道
+        reportChannelFailure();
         this.scheduleReconnect();
       }
     };
@@ -216,6 +222,8 @@ export class MobileWebSocket {
       this.stopHeartbeat();
       this.onStateChange?.('disconnected');
       if (!this.intentionalClose && !this.authRejected) {
+        // WS 建链失败计入通道故障计数;3 连败由 localService 翻转通道,下次重连自动走新通道
+        reportChannelFailure();
         this.scheduleReconnect();
       }
     });
