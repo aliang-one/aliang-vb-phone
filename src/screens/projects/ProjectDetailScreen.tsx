@@ -403,10 +403,12 @@ export const ProjectDetailScreen: React.FC = () => {
           <SectionLabel label={t('projectDetail.vibeHistory')} count={totalCount} />
           <TouchableOpacity
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={t('vibecoding:agentSessions.rescan.action')}
+            testID="project-rescan-button"
             onPress={handleRescan}
             disabled={rescanPending}
-            style={styles.rescanButton}
-            accessibilityLabel={t('vibecoding:agentSessions.rescan.action')}>
+            style={styles.rescanButton}>
             {rescanPending ? (
               <ActivityIndicator size="small" color={theme.colors.primary} />
             ) : (
@@ -783,6 +785,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   rescanButton: {
-    padding: 4,
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
