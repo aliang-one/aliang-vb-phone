@@ -102,7 +102,7 @@ export const effortPresetsFor = (provider: EffortProvider) =>
 //   codex:        gpt-5.4 / gpt-5.5
 //   claude_code:  glm-5.1 / glm-5.2
 //   opencode:     anthropic/claude-sonnet-4-5 / openai/gpt-5
-//   agentcore:    glm-5.1 / glm-5.2
+//   agentcore:    glm-5.3 / glm-5.3-flash[1m] / glm-5.2 / glm-5.1
 export const MODEL_PRESETS_BY_PROVIDER: Record<
   EffortProvider,
   Array<{ label: string; value: string }>
@@ -124,8 +124,10 @@ export const MODEL_PRESETS_BY_PROVIDER: Record<
   // 而手机每次建会话显式传的 model 就是权威来源——这里写错等于让用户
   // 选一个必然失败的模型。
   agentcore: [
-    { label: 'glm-5.1', value: 'glm-5.1' },
+    { label: 'glm-5.3', value: 'glm-5.3' },
+    { label: 'glm-5.3-flash[1m]', value: 'glm-5.3-flash[1m]' },
     { label: 'glm-5.2', value: 'glm-5.2' },
+    { label: 'glm-5.1', value: 'glm-5.1' },
   ],
 };
 
