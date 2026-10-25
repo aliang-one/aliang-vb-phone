@@ -34,12 +34,12 @@ describe('domesticPrior', () => {
   afterEach(() => jest.restoreAllMocks());
   it('中国时区名 → nat0', () => {
     jest.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions')
-      .mockReturnValue({ locale: 'zh-CN', timeZone: 'Asia/Shanghai' } as ResolvedDateTimeFormatOptions);
+      .mockReturnValue({ locale: 'zh-CN', timeZone: 'Asia/Shanghai' } as Intl.ResolvedDateTimeFormatOptions);
     expect(domesticPrior()).toBe('nat0');
   });
   it('非中国时区(即便同为 UTC+8,如新加坡)→ primary', () => {
     jest.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions')
-      .mockReturnValue({ locale: 'en-SG', timeZone: 'Asia/Singapore' } as ResolvedDateTimeFormatOptions);
+      .mockReturnValue({ locale: 'en-SG', timeZone: 'Asia/Singapore' } as Intl.ResolvedDateTimeFormatOptions);
     expect(domesticPrior()).toBe('primary');
   });
   it('Intl 不可用 → 回落 UTC+8 offset 判定', () => {
