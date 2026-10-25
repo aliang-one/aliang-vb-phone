@@ -544,20 +544,17 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
     // the interaction. During a voice recording the slot falls through to the
     // non-interactive placeholder, unless a turn is streaming (then interrupt).
     if (canInterruptTurn && onInterruptTurn && !isGoalCommandInput && !goalDraft) {
-      // A live turn takes the action slot. With a steer channel available
-      // (canSteer) the send button is the primary action and sits RIGHTMOST
-      // (user spec 2026-10-24：输入时最右侧必须是发送键，停止键退居左侧)；
-      // 无 steer 通道（或语音模式）时只留停止键。TUI 驱动的回合不再置灰
-      // 停止键——外部 SIGINT 通道已存在，见 renderStopButton 注释；桌面
-      // 标记继续以书签 tab 形式出现在输入框上方（interruptGreyed 驱动）。
+      // 用户拍板 2026-10-25：正在输入（文本非空或已选素材）= 意图是发送而不是
+      // 停止——停止键整体让位（与发送交替占槽，不再同屏），既消除误触面，
+      // 也免去「输入时最右该是谁」的纠结。清空输入（发送或删除）后停止键
+      // 回来；回合不因输入而受影响。canSteer 与否只决定输入期有没有发送键，
+      // 无 steer 通道时输入区本就是只读，不会走到非空分支。
       if (canSteer && mode === 'text' && (input.trim().length > 0 || attachmentCount > 0)) {
-        return (
-          <View style={styles.ctrlGroup}>
-            {renderStopButton()}
-            {renderSendButton()}
-          </View>
-        );
+        return renderSendButton();
       }
+      // TUI 驱动的回合不再置灰停止键——外部 SIGINT 通道已存在，见
+      // renderStopButton 注释；桌面标记继续以书签 tab 形式出现在输入框
+      // 上方（interruptGreyed 驱动）。
       return renderStopButton();
     }
     if (mode === 'text') {
@@ -956,14 +953,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   innerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  // 注意：这里不能常驻 flex:1。折叠态下它和 contentArea 的 flex:1 会五五分，
-  // 把中间的语音提示压到一半宽度；提示行又不收缩(RN 默认 flexShrink:0)，
-  // 居中后向两侧溢出、压住左边的模式切换按钮。只有展开提示时才需要它占满。
-  ctrlGroup: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,

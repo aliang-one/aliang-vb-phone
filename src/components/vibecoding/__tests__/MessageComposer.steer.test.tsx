@@ -2,9 +2,10 @@
  * Composer 动作槽契约：回合进行中的发送/停止状态矩阵。
  *
  * 历史：renderAction() 曾把 canInterruptTurn 分支无条件 return，发送键整回合
- * 不可达（f05eb52 修复）。2026-10-24 状态矩阵清洗后契约升级：
- *   - canSteer=true + 有输入（文本或附件）→ [停止][发送]，发送键恒在最右
- *     （用户规格：输入时最右侧必须是发送键，停止键退居左侧）
+ * 不可达（f05eb52 修复）。2026-10-24 状态矩阵清洗后一度是 [停止][发送] 同屏；
+ * 2026-10-25 用户拍板改为**交替占槽**——输入中意图是发送，停止键整体让位
+ * （防误触，也免「输入时最右该是谁」的纠结）：
+ *   - canSteer=true + 有输入（文本或附件）→ 仅 [发送]
  *   - canSteer=true + 空输入 → [停止]（不摆一个永远 disabled 的发送键）
  *   - canSteer=false（无 steer 通道）→ 仅 [停止]（仍可点——离线/打断在途才禁用）
  *   - 只读态（composer 被锁）→ 只读文案行替代输入框，发送键不出现，停止键可点
@@ -86,17 +87,6 @@ const hasTestId = (
     node => node.props?.testID === testID && typeof node.type === 'string',
   ).length > 0;
 
-const testIdSequence = (
-  renderer: TestRenderer.ReactTestRenderer,
-  ids: string[],
-): string[] =>
-  renderer.root
-    .findAll(
-      node =>
-        ids.includes(node.props?.testID) && typeof node.type === 'string',
-    )
-    .map(node => node.props.testID as string);
-
 const interruptNode = (renderer: TestRenderer.ReactTestRenderer) =>
   // 复合节点(TouchableOpacity)上才有 disabled prop;内层宿主 View 只继承
   // testID。按「props 里真的带 disabled」挑节点。
@@ -107,22 +97,17 @@ const interruptNode = (renderer: TestRenderer.ReactTestRenderer) =>
   );
 
 describe('MessageComposer 回合中的动作槽', () => {
-  test('有 steer 通道 + 有输入：[停止][发送] 同时可见,发送键在最右', () => {
+  test('有 steer 通道 + 有输入：只有发送键（2026-10-25 拍板：输入中停止让位防误触）', () => {
     const renderer = render({ canSteer: true, input: '追加一句' });
     expect(hasTestId(renderer, 'composer-send')).toBe(true);
-    expect(hasTestId(renderer, 'composer-interrupt')).toBe(true);
-    // 顺序契约（用户规格 2026-10-24：输入时最右侧必须是发送键）：
-    // findAll 按深度优先先序遍历,兄弟节点按 JSX 顺序——停止键必须先于发送键。
-    expect(
-      testIdSequence(renderer, ['composer-interrupt', 'composer-send']).slice(0, 2),
-    ).toEqual(['composer-interrupt', 'composer-send']);
+    expect(hasTestId(renderer, 'composer-interrupt')).toBe(false);
     unmount(renderer);
   });
 
-  test('有 steer 通道 + 只选了素材、文本为空：发送键同样出现', () => {
+  test('有 steer 通道 + 只选了素材、文本为空：只有发送键', () => {
     const renderer = render({ canSteer: true, input: '', attachmentCount: 2 });
     expect(hasTestId(renderer, 'composer-send')).toBe(true);
-    expect(hasTestId(renderer, 'composer-interrupt')).toBe(true);
+    expect(hasTestId(renderer, 'composer-interrupt')).toBe(false);
     unmount(renderer);
   });
 
