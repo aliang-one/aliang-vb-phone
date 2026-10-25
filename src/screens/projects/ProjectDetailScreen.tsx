@@ -400,7 +400,14 @@ export const ProjectDetailScreen: React.FC = () => {
 
         {/* ── HISTORY ───────────────────────────────────────────────── */}
         <View style={styles.historyHeader}>
-          <SectionLabel label={t('projectDetail.vibeHistory')} count={totalCount} />
+          {/* 收缩容器:窄屏(如系统显示放大下 ~270pt 行宽)时标签行允许压缩,
+              保证右侧重扫按钮永不被推出屏幕;SectionLabel 内文本单行省略。 */}
+          <View style={styles.historyLabelWrap}>
+            <SectionLabel
+              label={t('projectDetail.vibeHistory')}
+              count={totalCount}
+            />
+          </View>
           <TouchableOpacity
             activeOpacity={0.7}
             accessibilityRole="button"
@@ -568,8 +575,10 @@ const SectionLabel: React.FC<{
   return (
     <View style={styles.sectionLabel}>
       <Text
+        numberOfLines={1}
         style={[
           theme.typography.labelCaps,
+          styles.sectionLabelText,
           { color: theme.colors.onSurfaceVariant },
         ]}>
         {label}
@@ -741,6 +750,10 @@ const styles = StyleSheet.create({
     marginTop: 18,
     marginBottom: 10,
   },
+  // 收缩场景(显示放大的窄逻辑宽)下标签文本让位,配合 numberOfLines 省略。
+  sectionLabelText: {
+    flexShrink: 1,
+  },
   countChip: {
     minWidth: 22,
     paddingHorizontal: 7,
@@ -783,6 +796,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  // 标签行的收缩容器:系统显示放大等窄逻辑宽场景下,行宽可能不足以同时
+  // 放下完整标签 + 按钮;flex:1 + minWidth:0 让 SectionLabel 优先收缩
+  // (其内部分隔线 flex:1 仍会撑满剩余空间),按钮保持固定 36pt 不被推出。
+  historyLabelWrap: {
+    flex: 1,
+    minWidth: 0,
   },
   rescanButton: {
     width: 36,
