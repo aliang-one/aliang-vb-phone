@@ -28,6 +28,8 @@ import {
 import { useToastStore } from '../../store/toastStore';
 import { useProjectSessions } from '../../hooks/useProjectSessions';
 import { useProjectPortMappings } from '../../hooks/useProjectPortMappings';
+import { useSessionRescan } from '../../hooks/useSessionRescan';
+import { describeDeviceError } from '../../utils/deviceError';
 import { refreshFeedback } from '../../utils/refreshFeedback';
 import { useTranslation } from 'react-i18next';
 
@@ -69,6 +71,30 @@ export const ProjectDetailScreen: React.FC = () => {
       limit: PROJECT_SESSION_PREVIEW_COUNT,
     },
   );
+  const { rescanning: rescanPending, rescan } = useSessionRescan(
+    project?.id,
+    reload,
+  );
+  // 离线提示复用 deviceError 的标准文案;`??` 兜底仅为类型收窄,哨兵必命中。
+  const offlineTitle =
+    describeDeviceError(new Error('device_offline'))?.title ??
+    t('vibecoding:agentSessions.rescan.failed');
+  const handleRescan = useCallback(async () => {
+    if (device && device.status === 'offline') {
+      show(offlineTitle, 'error');
+      return;
+    }
+    const outcome = await rescan();
+    if (outcome === 'updated') {
+      show(t('vibecoding:agentSessions.rescan.updated'), 'success');
+    } else if (outcome === 'timeout') {
+      show(t('vibecoding:agentSessions.rescan.timeout'), 'info');
+    } else if (outcome === 'agent-offline') {
+      show(offlineTitle, 'error');
+    } else {
+      show(t('vibecoding:agentSessions.rescan.failed'), 'error');
+    }
+  }, [device, rescan, show, t, offlineTitle]);
   // Hero "ports" metric only reads the active count here — the full list and
   // its management live on the ProjectPorts page the cell navigates to.
   const { activeCount: activePortCount, reload: reloadPorts } =
@@ -373,7 +399,21 @@ export const ProjectDetailScreen: React.FC = () => {
         </View>
 
         {/* ── HISTORY ───────────────────────────────────────────────── */}
-        <SectionLabel label={t('projectDetail.vibeHistory')} count={totalCount} />
+        <View style={styles.historyHeader}>
+          <SectionLabel label={t('projectDetail.vibeHistory')} count={totalCount} />
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={handleRescan}
+            disabled={rescanPending}
+            style={styles.rescanButton}
+            accessibilityLabel={t('vibecoding:agentSessions.rescan.action')}>
+            {rescanPending ? (
+              <ActivityIndicator size="small" color={theme.colors.primary} />
+            ) : (
+              <IconBadge name="refresh" tone="neutral" size={28} iconSize={15} />
+            )}
+          </TouchableOpacity>
+        </View>
         {sessions.length ? (
           <>
             {sessions.map(session => (
@@ -736,5 +776,13 @@ const styles = StyleSheet.create({
   viewAllArrow: {
     fontSize: 18,
     fontWeight: '600',
+  },
+  historyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  rescanButton: {
+    padding: 4,
   },
 });
