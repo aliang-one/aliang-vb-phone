@@ -31,9 +31,11 @@ import {
   EFFORT_PROVIDERS,
   availableProviders,
   catalogModelOptions,
+  defaultModelFor,
   degradeEffort,
   normalizeProvider,
   providerLabel,
+  requiresExplicitModel,
   supportedEffortsFor,
 } from '../../utils/modelIntensity';
 import { ModelConfirmSheet } from '../../components/vibecoding/ModelConfirmSheet';
@@ -86,6 +88,9 @@ export const CreateVibeCodingScreen: React.FC = () => {
   // the session runs inside that project's path — no directory picker shown.
   const [useCustomPath, setUseCustomPath] = useState(false);
   const [provider, setProvider] = useState<AgentProvider>('codex');
+  // agentcore 之类的 provider 没有「CLI 自带默认模型」——手机传空,宿主会回落
+  // 到本机配置里的模型,而那个模型手机上从没显示过。所以它们的 model 必须由
+  // 手机选定并每次下发,切到该 provider 时就预填默认值(见 requiresExplicitModel)。
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState('');
   // Live catalog drives the EFFORT chips for the selected provider; falls back
@@ -128,11 +133,16 @@ export const CreateVibeCodingScreen: React.FC = () => {
   const { modelOptions: recentFirstModelOptions, rememberModel } =
     useRecentModelOptions(provider, serverModelOptions);
   const modelOptions = useMemo(
-    () => [
-      { label: t('sessionSettings.defaultChip'), value: '' },
-      ...recentFirstModelOptions,
-    ],
-    [recentFirstModelOptions, t],
+    () =>
+      requiresExplicitModel(provider)
+        ? // 不提供「默认」:对内置内核来说「默认」= 不下发模型 = 宿主回落到本机
+          // 配置,用户看到的与实际请求的对不上。
+          recentFirstModelOptions
+        : [
+            { label: t('sessionSettings.defaultChip'), value: '' },
+            ...recentFirstModelOptions,
+          ],
+    [provider, recentFirstModelOptions, t],
   );
   // Keep the selected provider valid for this device: if it's unavailable (e.g.
   // defaulted to codex but only claude code is installed), switch to one that is.
@@ -167,6 +177,14 @@ export const CreateVibeCodingScreen: React.FC = () => {
       setEffort('');
     }
   }, [userDefault.provider, availability, provider]);
+  // 要求手机显式下发模型的 provider（目前只有内置内核）：选中它时预填默认模型，
+  // 让「默认」这个不下发模型的状态不可达。用户仍可在输入框/芯片里改成别的。
+  // 依赖 provider 而非 model：用户手动改完不会被反复覆盖。
+  useEffect(() => {
+    const preset = defaultModelFor(provider);
+    if (!preset) return;
+    setModel(prev => (prev.trim() ? prev : preset));
+  }, [provider]);
   const noProviderAvailable = !EFFORT_PROVIDERS.some(item => availability[item]);
   const project = useCustomPath
     ? undefined
@@ -275,8 +293,12 @@ export const CreateVibeCodingScreen: React.FC = () => {
 
   const handleCreate = () => {
     if (creating || !device) return;
+    // 没有 effort 档位的 provider(内置内核首期不传达 effort)不是「没指定」,
+    // 而是这个维度不适用——拿它去触发确认弹窗,用户每次点 Start 都会被拦一次,
+    // 弹窗里还写着「provider 内置默认」,而内核根本没有这层默认。
+    const effortApplicable = effortOptions.some(option => option.value !== '');
     // 任一字段未手动指定 → 先弹确认;都指定了 → 保持原直通,零打扰。
-    if (model.trim() === '' || effort.trim() === '') {
+    if (model.trim() === '' || (effortApplicable && effort.trim() === '')) {
       setConfirmOpen(true);
       return;
     }
@@ -543,7 +565,9 @@ export const CreateVibeCodingScreen: React.FC = () => {
                   // we never forward a level/model the newly-selected agent
                   // doesn't support.
                   setEffort('');
-                  setModel('');
+                  // 要求显式下发模型的 provider 直接落到它的默认模型——空着就是
+                  // 「不下发」,那正是要避免的状态。
+                  setModel(defaultModelFor(item) ?? '');
                 }}
                 style={[
                   styles.providerButton,

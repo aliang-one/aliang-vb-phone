@@ -52,10 +52,16 @@ jest.mock('../src/hooks/useModelOptions', () => ({
     userDefault: mockUserDefault,
     refresh: mockRefresh,
   }),
-  catalogEffortOptions: () => [
-    { label: 'LOW', value: 'low' },
-    { label: 'HIGH', value: 'high' },
-  ],
+  // 与真实目录同形：agentcore 没有 effort 档位（只有「默认」），其余 provider
+  // 有可选项。handleCreate 靠「是否有非空档位」判断 effort 这一维适不适用，
+  // mock 若对所有 provider 都返回档位，agentcore 的用例就测不出真行为。
+  catalogEffortOptions: (provider: string) =>
+    provider === 'agentcore'
+      ? [{ label: '默认', value: '' }]
+      : [
+          { label: 'LOW', value: 'low' },
+          { label: 'HIGH', value: 'high' },
+        ],
 }));
 
 jest.mock('../src/hooks/useRecentModelOptions', () => ({
@@ -450,6 +456,30 @@ describe('CreateVibeCodingScreen model confirm sheet', () => {
     // model/effort 已被清空 → draftConfig 不携带(而不是带着 gpt-5/high 投给 claude)
     expect(mockReplace.mock.calls[0][1].draftConfig.model).toBeUndefined();
     expect(mockReplace.mock.calls[0][1].draftConfig.effort).toBeUndefined();
+  });
+
+  it('agentcore:选中即预填 glm-5.2,Start 直通且 model 显式下发', async () => {
+    // 内置内核没有「CLI 自带默认模型」:手机传空 = 宿主回落到本机配置里的模型,
+    // 而那个模型手机上从没显示过。所以选中它就必须带出一个具体模型并下发。
+    root = await wrap(<CreateVibeCodingScreen />);
+    tap(root.root, 'provider-chip-agentcore');
+    pressStart(root);
+    // effort 没有档位 ≠ 没指定 → 不该弹确认 sheet
+    expect(byTestID(root.root, 'sheet-model-value')).toBeUndefined();
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+    const draft = mockReplace.mock.calls[0][1].draftConfig;
+    expect(draft.provider).toBe('agentcore');
+    expect(draft.model).toBe('glm-5.2');
+    // 内核首期不传达 effort → 不下发空串
+    expect(draft.effort).toBeUndefined();
+  });
+
+  it('agentcore:模型芯片里没有「默认」(不下发模型)选项', async () => {
+    root = await wrap(<CreateVibeCodingScreen />);
+    // codex 有「默认」芯片(testID 带空值)
+    expect(touchByTestID(root.root, 'model-chip-')).toBeTruthy();
+    tap(root.root, 'provider-chip-agentcore');
+    expect(touchByTestID(root.root, 'model-chip-')).toBeUndefined();
   });
 
   it('从 Me 页返回(focus)后重拉默认值,弹窗反映新默认', async () => {
