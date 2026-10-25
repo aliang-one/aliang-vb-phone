@@ -171,7 +171,7 @@ cd /Users/mac/MyProgram/AiProgram/vibe_on_phone/AliangPhoneServer && git status 
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextFunction, Request, Response } from 'express';
-import { projectsRouter } from '../../../src/modules/routes/projects.js';
+import { projectRouter } from '../../../src/modules/routes/projects.js';
 import {
   configureStore,
   devices,
@@ -200,7 +200,7 @@ vi.mock('../../../src/shared/ws/registry.js', () => ({
 const findHandler = (
   path: string,
 ): ((req: Request, res: Response) => Promise<void>) => {
-  const layer = projectsRouter.stack.find(
+  const layer = projectRouter.stack.find(
     l =>
       l.route?.path === path &&
       l.route.stack.some(h => h.method === 'post'),
@@ -343,7 +343,7 @@ Expected: FAIL,`POST /api/projects/:projectId/ai-sessions/refresh route not moun
 // (alianggate app/http/handlers/agent_handler.go 事故注),到达确认由
 // 手机端轮询列表接口完成;轻推本身不进重连缓存(cache:false),agent 重连
 // 时本就会自发 hello,重放无意义。
-router.post('/api/projects/:projectId/ai-sessions/refresh', (req, res, next) => {
+router.post('/api/projects/:projectId/ai-sessions/refresh', async (req, res, next) => {
   try {
     requireUserId(req);
     const project = getAccessibleProjectOrThrow(req, req.params.projectId);
@@ -371,8 +371,6 @@ router.post('/api/projects/:projectId/ai-sessions/refresh', (req, res, next) => 
   }
 });
 ```
-
-(回调签名用 `(req, res, next)` + async:写成 `async (req, res, next) => { try { ... await publishToAgent ... } catch (e) { next(e); } }`。)
 
 - [ ] **Step 5: 跑测试确认通过**
 
