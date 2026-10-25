@@ -420,6 +420,15 @@ interface BindDeviceResult {
   error?: string;
 }
 
+/**
+ * 部署级功能开关（server mobile snapshot `features` 下发）。字段缺失（旧
+ * server / 本地模式 / 未连接）一律按默认隐藏处理——审核安全侧。
+ */
+export interface PlatformFeatures {
+  /** 「我的」页 Account/Usage 区块展示开关（默认 false 隐藏）。 */
+  accountPortalVisible: boolean;
+}
+
 export interface ControlCenterState {
   // Connection state
   wsConnected: boolean;
@@ -430,6 +439,8 @@ export interface ControlCenterState {
   stale: boolean;
   /** 最近一次 initialize/refresh 失败的原因(成功时清空)。供「连接失败」卡片展示。 */
   lastConnectError: string | null;
+  // 部署级功能开关（snapshot 刷新；默认全隐藏）。
+  platformFeatures: PlatformFeatures;
   // Data
   devices: Device[];
   projects: Project[];

@@ -19,6 +19,7 @@ const SNAPSHOT_SYNC_TIMEOUT_MS = 30_000;
 type RealtimeSlice = Pick<
   ControlCenterState,
   | 'wsConnected' | 'serverMode' | 'lastSyncedAt' | 'stale' | 'lastConnectError'
+  | 'platformFeatures'
   | 'eventHistory' | 'eventHistoryPages' | 'loadEventHistory'
   | 'initializeFromServer' | 'refreshFromServer' | 'disconnectFromServer'
   | 'resetSessionData' | 'markStale'
@@ -49,6 +50,8 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
   lastSyncedAt: null,
   stale: false,
   lastConnectError: null,
+  // 默认全隐藏：未连平台 / 旧 server（无 features 字段）时保持隐藏。
+  platformFeatures: { accountPortalVisible: false },
   eventHistory: [],
   eventHistoryPages: {},
 

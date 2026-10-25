@@ -2179,6 +2179,10 @@ export function stateFromSnapshot(
     previewLinks,
     notifications,
     unreadNotificationsTotal: snapshot.unreadNotificationsTotal ?? 0,
+    // 部署级功能开关：严格 `=== true`——字段缺失（旧 server/本地模式）即隐藏。
+    platformFeatures: {
+      accountPortalVisible: snapshot.features?.account_portal_visible === true,
+    },
     events: [...warningEvents, ...realtimeEvents].slice(0, MAX_EVENTS),
   };
 }
@@ -2220,6 +2224,7 @@ export const emptySessionData = () => ({
   projectFiles: [],
   lastSyncedAt: null,
   stale: false,
+  platformFeatures: { accountPortalVisible: false },
 });
 
 /**
