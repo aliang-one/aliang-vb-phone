@@ -92,6 +92,18 @@ describe('useSessionRescan', () => {
     expect(mockedFetch).toHaveBeenCalledTimes(1); // 仅基线一拍
   });
 
+  it('非离线触发失败:返回 error,不轮询', async () => {
+    mockedFetch.mockResolvedValue(list(3) as never);
+    mockedRefresh.mockRejectedValue(new ApiResponseError('boom', 500));
+    const api = mount('p1');
+    let outcome!: RescanOutcome;
+    await act(async () => {
+      outcome = await api.rescan();
+    });
+    expect(outcome).toBe('error');
+    expect(mockedFetch).toHaveBeenCalledTimes(1); // 仅基线一拍
+  });
+
   it('六拍无变化:timeout,fetch 共 7 次(基线+6)', async () => {
     mockedFetch.mockResolvedValue(list(3) as never);
     mockedRefresh.mockResolvedValue({ status: 'requested' });

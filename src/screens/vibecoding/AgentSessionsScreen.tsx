@@ -34,6 +34,7 @@ import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { formatActivityLabel } from '../../store/internals';
 import { compareSessionsByStableActivity } from '../../utils/sessionPhase';
 import { describeDeviceError } from '../../utils/deviceError';
+import { refreshFeedback } from '../../utils/refreshFeedback';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type AgentSessionsRoute = RouteProp<RootStackParamList, 'AgentSessions'>;
@@ -113,36 +114,37 @@ export const AgentSessionsScreen: React.FC = () => {
       : undefined;
   }, [route.params?.deviceId, rescanProjectId, devices, projects]);
 
+  // 离线提示复用 deviceError 的标准文案;`??` 兜底仅为类型收窄,哨兵必命中。
+  const offlineTitle =
+    describeDeviceError(new Error('device_offline'))?.title ??
+    t('agentSessions.rescan.failed');
+
   const handleRefresh = useCallback(async () => {
     // 全局/设备视图(数据源是 store 快照):退化为普通重取,不做重扫(范围外)。
+    // 失败必须给反馈(refreshFromServer 永不 reject,结果自带 ok/error)。
     if (!rescanProjectId) {
-      await refreshFromServer();
+      const result = await refreshFromServer();
+      if (!result.ok) {
+        show(refreshFeedback(result, t).message, 'error');
+      }
       return;
     }
     // 设备已知离线(指定 deviceId 或项目反查所得):不发注定失败的请求
     // (照项目扫描屏先例;比 spec 的"仅指定 deviceId"更宽,有意为之,
     // 与 spec 错误表一致,避免一次必败往返)。
     if (rescanDevice?.status === 'offline') {
-      show(
-        describeDeviceError(new Error('device_offline'))?.title ||
-          t('agentSessions.rescan.failed'),
-        'error',
-      );
+      show(offlineTitle, 'error');
       return;
     }
     const outcome = await rescan();
     if (outcome === 'updated') show(t('agentSessions.rescan.updated'), 'success');
     else if (outcome === 'timeout') show(t('agentSessions.rescan.timeout'), 'info');
     else if (outcome === 'agent-offline') {
-      show(
-        describeDeviceError(new Error('device_offline'))?.title ||
-          t('agentSessions.rescan.failed'),
-        'error',
-      );
+      show(offlineTitle, 'error');
     } else if (outcome === 'error') {
       show(t('agentSessions.rescan.failed'), 'error');
     }
-  }, [rescanProjectId, rescanDevice, rescan, refreshFromServer, show, t]);
+  }, [rescanProjectId, rescanDevice, rescan, refreshFromServer, show, t, offlineTitle]);
 
   const handleOpenSession = useCallback(
     (sessionId: string) =>
