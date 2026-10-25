@@ -50,6 +50,15 @@ export interface ServerRealtimeEvent {
 export interface MobilePlatformSnapshot {
   generated_at: string;
   user: PlatformUser;
+  /**
+   * Deployment-level feature flags. Optional: an older server omits the field
+   * and every flag degrades to its hidden/disabled default.
+   * account_portal_visible gates the Me page Account/Usage sections (App Store
+   * review: billing/subscription surfaces stay hidden unless the server opts in).
+   */
+  features?: {
+    account_portal_visible?: boolean;
+  };
   summary: {
     devices_online: number;
     devices_total: number;

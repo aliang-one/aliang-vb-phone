@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeContext } from '../src/theme/ThemeContext';
 import { utilityMinimalist } from '../src/theme/themes/utilityMinimalist';
 import { useSessionStore } from '../stores/useSettingsStore';
+import { useControlCenterStore } from '../src/store/controlCenterStore';
 import { RingMeter } from '../src/components/visual/RingMeter';
 
 jest.mock('../src/services/localNotifications', () => ({
@@ -81,6 +82,11 @@ const renderScreen = () => {
 // 3) cell flex:1 等分、行容器不换行。
 describe('Me 页 usage 四环单行布局', () => {
   beforeEach(() => {
+    // 本组用例验证「门户开关打开时」的四环布局;显式打开开关(生产由 server
+    // snapshot features 下发,默认隐藏)。
+    useControlCenterStore.setState({
+      platformFeatures: { accountPortalVisible: true },
+    });
     useSessionStore.setState({
       accountData: {
         profile: { balance: 10 },
@@ -137,5 +143,20 @@ describe('Me 页 usage 四环单行布局', () => {
     const size = rings[0].props.size as number;
     expect(size).toBeLessThanOrEqual(Math.floor((320 - 64) / 4));
     expect(size).toBeGreaterThanOrEqual(56); // 下限:环内文字仍可读
+  });
+
+  // 账号门户开关(server 下发)关闭 = 审核安全默认:Account/Usage 区块连同
+  // 四环整体不渲染,避免计费/套餐面暴露给 App Store 审核。
+  it('keeps the account/usage sections hidden when the portal flag is off', () => {
+    act(() => {
+      useControlCenterStore.setState({
+        platformFeatures: { accountPortalVisible: false },
+      });
+      Dimensions.set({ window: { width: 390, height: 844 } as never });
+    });
+    const root = renderScreen().root;
+
+    // Usage 四环只存在于被门控的 usage 区块——隐藏即 0。
+    expect(root.findAllByType(RingMeter)).toHaveLength(0);
   });
 });

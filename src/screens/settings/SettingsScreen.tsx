@@ -85,6 +85,11 @@ export const SettingsScreen: React.FC = () => {
   const resetSessionData = useControlCenterStore(state => state.resetSessionData);
   const wsConnected = useControlCenterStore(state => state.wsConnected);
   const serverMode = useControlCenterStore(state => state.serverMode);
+  // 部署级开关（server snapshot features 下发，默认 false）：Account/Usage 区块
+  // 仅在服务端显式打开时展示——App Store 审核规避计费/套餐面。
+  const accountPortalVisible = useControlCenterStore(
+    state => state.platformFeatures.accountPortalVisible,
+  );
   const [refreshingAccount, setRefreshingAccount] = useState(false);
   const [notificationPermission, setNotificationPermission] =
     useState<LocalNotificationPermissionStatus>('unsupported');
@@ -404,6 +409,9 @@ export const SettingsScreen: React.FC = () => {
             </View>
           }>
           <>
+            {/* 账号门户开关：server 关闭/未下发时整段隐藏（默认隐藏）。 */}
+            {accountPortalVisible ? (
+              <>
             {renderSectionTitle(t('sections.account'))}
             <GlassPanel style={styles.panel}>
               <View style={styles.planHeader}>
@@ -495,6 +503,8 @@ export const SettingsScreen: React.FC = () => {
                 </Text>
               )}
             </GlassPanel>
+              </>
+            ) : null}
 
             {renderSectionTitle(t('sections.subscriptions'))}
             <GlassPanel style={styles.panel}>
@@ -527,15 +537,18 @@ export const SettingsScreen: React.FC = () => {
 
             <UsageSummaryCard summary={platformSummary} />
 
-            <View style={styles.serviceActions}>
-              <GlowButton
-                title={t('actions.refreshAccount')}
-                onPress={handleRefreshAccount}
-                loading={refreshingAccount}
-                variant="secondary"
-                style={styles.serviceButton}
-              />
-            </View>
+            {/* 刷新按钮只为 Account/Usage 数据存在，门户隐藏时一并隐藏。 */}
+            {accountPortalVisible ? (
+              <View style={styles.serviceActions}>
+                <GlowButton
+                  title={t('actions.refreshAccount')}
+                  onPress={handleRefreshAccount}
+                  loading={refreshingAccount}
+                  variant="secondary"
+                  style={styles.serviceButton}
+                />
+              </View>
+            ) : null}
 
             {renderSectionTitle(t('sections.notifications'))}
             <GlassPanel style={styles.panel}>

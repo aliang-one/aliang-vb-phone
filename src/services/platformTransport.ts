@@ -119,6 +119,10 @@ export interface PlatformSnapshot {
   unreadNotificationsTotal?: number;
   previewLinks: PlatformPreviewSnapshot[];
   realtimeEvents: PlatformRealtimeEventSnapshot[];
+  /** Deployment-level feature flags (server snapshot features.*; missing = defaults). */
+  features?: {
+    account_portal_visible?: boolean;
+  };
   loadedAt: string;
   warnings: string[];
 }
@@ -313,6 +317,7 @@ class PlatformTransport {
       unreadNotificationsTotal: snapshot.summary.unread_notifications,
       previewLinks: snapshot.preview_links.map(normalizeServerPreviewLink),
       realtimeEvents: snapshot.realtime_events,
+      features: snapshot.features,
       loadedAt: snapshot.generated_at,
       warnings: [],
     };
