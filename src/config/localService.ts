@@ -1,17 +1,20 @@
-// Platform service — single source of truth.
+// Platform service — 所有平台服务 URL 的唯一真相源(HTTP/WS/STT 三条消费链)。
 //
-// All platform-service traffic — HTTP (client.ts), realtime WebSocket
-// (websocket.ts) and STT WebSocket (sttSocket.ts) — targets ONE configured
-// URL. Change PLATFORM_SERVICE_BASE_URL below and every request + socket
-// reconnect picks it up. Nothing else needs editing.
+// 双通道不变量(2026-10 nat0 中继):
+//   1. 候选表 = 编译期常量(ENDPOINTS,加节点 = 加一行),不是运行时状态;
+//   2. AsyncStorage 只存"先验"(上次赢家 primary|nat0),且仅作探测平手时
+//      的裁决——不是缓存,不参与可达性判定;
+//   3. 每次冷启/后台重探都对双通道做真实 /health 探测择优,stale 先验
+//      钉不住流量。当年移除缓存的病根正是"先验赢了探测":旧版把
+//      AsyncStorage 里的宿主回插成首选候选,一个 stale
+//      http://127.0.0.1:4000 扛住了所有配置编辑(2026-10 事故)。
+//      候选表现以编译期常量回归,缓存则被阉割成只兜平手的先验。
 //
-// There is deliberately NO candidate list and NO persisted-host cache. An
-// earlier version had both: AsyncStorage cached whichever local host last won
-// a /health race, and discoverReachableBaseUrl() re-inserted that cached
-// "preferred" host on every call. A stale http://127.0.0.1:4000 therefore
-// survived every config edit — the local probe kept winning the race, so
-// editing the config did nothing. Removing both is the fix: the config
-// constant is the only source of the base URL.
+// 运行期通道态:activeId 起始 primary;网络层连续失败达阈值即翻转通道
+// (见 reportChannelFailure),成功上报清零计数。
+
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { pickChannel, domesticPrior, type EndpointId } from './channelSelector';
 
 // ---------------------------------------------------------------------------
 // Platform service — THE single config. Edit this one line to retarget.
@@ -39,6 +42,20 @@ export interface PlatformServiceHealth {
   baseUrl: string;
 }
 
+// —— 双通道候选(编译期常量;新增节点=加一行)——
+const PRIMARY_BASE_URL = PLATFORM_SERVICE_BASE_URL; // https://ws-vb-phone.aliang.one(HK)
+const NAT0_BASE_URL = normalizeServiceBaseUrl('https://ws-vb-phone.nat.aliang.one:16749');
+const ENDPOINTS: ReadonlyArray<{ id: EndpointId; baseUrl: string }> = [
+  { id: 'primary', baseUrl: PRIMARY_BASE_URL },
+  { id: 'nat0', baseUrl: NAT0_BASE_URL },
+];
+
+const PRIOR_STORAGE_KEY = 'nat.channel.prior';
+const PROBE_TIMEOUT_MS = 3000;
+const PROBE_SAMPLES = 2;
+const FAILURE_SWITCH_THRESHOLD = 3;
+const REPROBE_INTERVAL_MS = 10 * 60 * 1000;
+
 const DISCOVERY_TIMEOUT_MS = 2500;
 const DEFAULT_CHECK_TIMEOUT_MS = 5000;
 
@@ -59,28 +76,51 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 // client can skip re-probing /health on every request once the host answered.
 let platformServiceReachable = false;
 
+// 通道运行态:当前生效通道 + 连续失败计数(达阈值翻转)。
+let activeId: EndpointId = 'primary';
+let consecutiveFailures = 0;
+let reprobeTimer: ReturnType<typeof setInterval> | null = null;
+
+const endpointBy = (id: EndpointId) => ENDPOINTS.find(e => e.id === id)!;
+
+/** 当前通道 baseUrl —— HTTP/WS/STT 三条消费链唯一的 URL 入口。 */
+export async function getPlatformServiceBaseUrl(): Promise<string> {
+  return endpointBy(activeId).baseUrl;
+}
+
+/** 当前生效通道 id(诊断/测试观测用)。 */
+export function getActiveEndpointId(): EndpointId {
+  return activeId;
+}
+
 export function isPlatformServiceReachable(): boolean {
   return platformServiceReachable;
 }
 
+/** 网络层失败上报(client.ts markPlatformServiceUnreachable 与 WS 重连失败接线)。 */
+export function reportChannelFailure(): void {
+  platformServiceReachable = false;
+  consecutiveFailures += 1;
+  if (consecutiveFailures >= FAILURE_SWITCH_THRESHOLD) {
+    activeId = activeId === 'primary' ? 'nat0' : 'primary';
+    consecutiveFailures = 0;
+  }
+}
+
 // Mark the host unreachable (a request just failed with a network error) so
 // the next apiFetch re-probes instead of trusting the stale session flag.
+// 同时计入通道失败计数——网络层错误正是翻通道的信号源。
 export function markPlatformServiceUnreachable(): void {
-  platformServiceReachable = false;
+  reportChannelFailure();
 }
 
 // Retained for the HTTP client's call site (client.ts marks a host reachable
-// after a successful request). With a single fixed host there is nothing to
-// cache, so this only flips the session flag.
+// after a successful request). 成功即清零连续失败计数:间歇性抖动不翻通道。
 export async function rememberPlatformServiceBaseUrl(
   _baseUrl: string,
 ): Promise<void> {
   platformServiceReachable = true;
-}
-
-/** Always the single config — no cache, no candidates, no AsyncStorage. */
-export async function getPlatformServiceBaseUrl(): Promise<string> {
-  return PLATFORM_SERVICE_BASE_URL;
+  consecutiveFailures = 0;
 }
 
 async function probeHealth(baseUrl: string, timeoutMs: number): Promise<void> {
@@ -91,6 +131,76 @@ async function probeHealth(baseUrl: string, timeoutMs: number): Promise<void> {
   );
   if (!response.ok) {
     throw new Error(`${normalized} responded HTTP ${response.status}`);
+  }
+}
+
+/** 单通道 TTFB 采样:PROBE_SAMPLES 次 /health,均值;全部失败返回 null。 */
+async function probeTtfb(baseUrl: string): Promise<number | null> {
+  const normalized = normalizeServiceBaseUrl(baseUrl);
+  const samples: number[] = [];
+  for (let i = 0; i < PROBE_SAMPLES; i++) {
+    const startedAt = Date.now();
+    try {
+      const response = await withTimeout(
+        fetch(`${normalized}/health`, { method: 'GET' }),
+        PROBE_TIMEOUT_MS,
+      );
+      if (response.ok) samples.push(Date.now() - startedAt);
+    } catch { /* 该次样本作废 */ }
+  }
+  return samples.length
+    ? samples.reduce((a, b) => a + b, 0) / samples.length
+    : null;
+}
+
+/** 持久化先验:仅 'primary'|'nat0' 合法,其余(含幽灵 127.0.0.1)一律弃用,
+ * 回落地理先验。读失败同回落。 */
+async function loadPrior(): Promise<EndpointId> {
+  try {
+    const stored = await AsyncStorage.getItem(PRIOR_STORAGE_KEY);
+    if (stored === 'primary' || stored === 'nat0') return stored;
+  } catch { /* 读失败回落地理先验 */ }
+  return domesticPrior();
+}
+
+/**
+ * 冷启/重探入口:双通道并行探测 → 择优(30%滞回,平手用持久化先验→地理先验)。
+ * 先验只是平手裁决,不是缓存——每次都真探,坏通道钉不住流量。
+ * 双通道皆不可达时 throw(保持/翻转 reachable 标记)。
+ */
+export async function discoverReachableBaseUrl(
+  _timeoutMs: number = DISCOVERY_TIMEOUT_MS,
+): Promise<string> {
+  const prior = await loadPrior();
+  const probes = await Promise.all(
+    ENDPOINTS.map(async e => ({ id: e.id, ttfbMs: await probeTtfb(e.baseUrl) })),
+  );
+  const winner = pickChannel(probes, prior);
+  activeId = winner;
+  consecutiveFailures = 0;
+  await AsyncStorage.setItem(PRIOR_STORAGE_KEY, winner).catch(() => {});
+  scheduleBackgroundReprobe();
+  if (probes.find(p => p.id === winner)?.ttfbMs == null) {
+    platformServiceReachable = false;
+    throw new Error('Unable to reach platform service (primary & nat0 relay)');
+  }
+  platformServiceReachable = true;
+  return endpointBy(winner).baseUrl;
+}
+
+/** 周期后台重探,让坏通道自动回流。探测失败保持现状。 */
+function scheduleBackgroundReprobe(): void {
+  if (reprobeTimer) return;
+  reprobeTimer = setInterval(() => {
+    discoverReachableBaseUrl().catch(() => { /* 探测失败保持现状 */ });
+  }, REPROBE_INTERVAL_MS);
+}
+
+/** 测试专用:清掉后台重探定时器,防 jest open handle。生产代码勿调用。 */
+export function __stopBackgroundReprobeForTests(): void {
+  if (reprobeTimer) {
+    clearInterval(reprobeTimer);
+    reprobeTimer = null;
   }
 }
 
@@ -129,25 +239,7 @@ async function probePlatformService(
   }
 }
 
-/**
- * Probe the single configured host. Resolves to PLATFORM_SERVICE_BASE_URL when
- * it answers /health; throws a friendly "Unable to reach" error otherwise.
- * Bounded by `timeoutMs` (default ~2.5s).
- */
-export async function discoverReachableBaseUrl(
-  timeoutMs: number = DISCOVERY_TIMEOUT_MS,
-): Promise<string> {
-  try {
-    await probeHealth(PLATFORM_SERVICE_BASE_URL, timeoutMs);
-    platformServiceReachable = true;
-    return PLATFORM_SERVICE_BASE_URL;
-  } catch {
-    platformServiceReachable = false;
-    throw new Error(`Unable to reach platform service at ${PLATFORM_SERVICE_BASE_URL}`);
-  }
-}
-
-/** Connectivity check for the single host (diagnostics use). */
+/** Connectivity check for the primary host (diagnostics use). */
 export const checkPlatformService = async (
   timeoutMs: number = DEFAULT_CHECK_TIMEOUT_MS,
 ): Promise<PlatformServiceHealth> => {
