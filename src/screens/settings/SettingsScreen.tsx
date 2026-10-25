@@ -373,7 +373,8 @@ export const SettingsScreen: React.FC = () => {
               {profileName}
             </Text>
             <View style={styles.profileSub}>
-              {primaryGroup ? (
+              {/* 套餐类型 chip 同属订阅面,跟随账号门户开关(评审规避计费/套餐面)。 */}
+              {accountPortalVisible && primaryGroup ? (
                 <StatusChip label={primaryGroup.subscription_type?.toUpperCase() ?? t('states.group')} type="info" />
               ) : null}
               <Text
@@ -503,9 +504,8 @@ export const SettingsScreen: React.FC = () => {
                 </Text>
               )}
             </GlassPanel>
-              </>
-            ) : null}
 
+            {/* 套餐区块同属计费/订阅面(评审规避重点),随账号门户开关一起隐藏。 */}
             {renderSectionTitle(t('sections.subscriptions'))}
             <GlassPanel style={styles.panel}>
               {subscriptions.length === 0 ? (
@@ -529,6 +529,8 @@ export const SettingsScreen: React.FC = () => {
                 </>
               )}
             </GlassPanel>
+              </>
+            ) : null}
 
             {renderSectionTitle(t('sections.modelConfig'))}
             <UserModelDefaultCard />
