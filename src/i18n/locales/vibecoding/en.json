@@ -446,7 +446,7 @@
       "retryHintBusy": "⏳ Gateway busy, retrying {{attempt}}/{{max}}"
     },
     "composer": {
-      "claudeRunning": "Claude Code is running; stop it to continue typing.",
+      "claudeRunning": "The agent is running; stop it to continue typing.",
       "userDefault": "user default",
       "tuiStopGreyed": "This turn is running in the desktop terminal — tap stop to end it; keep chatting once it finishes.",
       "tuiSteerableHint": "This turn is running in the desktop terminal — your message will queue as a steer, or tap stop to end it.",
