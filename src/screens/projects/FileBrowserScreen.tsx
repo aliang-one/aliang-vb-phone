@@ -35,6 +35,7 @@ import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { BottomSheet } from '../../components/shared/BottomSheet';
 import { FileLongPressMenu } from '../../components/projects/FileLongPressMenu';
 import { FileDownloadSheet } from '../../components/projects/FileDownloadSheet';
+import { FileTransferSheet } from '../../components/projects/FileTransferSheet';
 import { CodeHighlight } from '../../components/shared/CodeHighlight';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { describeDeviceError } from '../../utils/deviceError';
@@ -183,6 +184,9 @@ export const FileBrowserScreen: React.FC = () => {
   // hand-off slot the download sheet (Task 16) consumes to start the download.
   const [menuFile, setMenuFile] = useState<ProjectFileEntry | null>(null);
   const [downloadFile, setDownloadFile] = useState<ProjectFileEntry | null>(null);
+  // Device-transfer sheet hand-off (long-press → 同步到别的设备). Same shape
+  // as downloadFile: the sheet is mounted while a run is live regardless.
+  const [transferFile, setTransferFile] = useState<ProjectFileEntry | null>(null);
   const project = projects.find(item => item.id === route.params.projectId);
   const device =
     (project?.deviceId ? devices.find(item => item.id === project.deviceId) : undefined) ??
@@ -976,26 +980,46 @@ export const FileBrowserScreen: React.FC = () => {
           {renderSheetBody()}
         </BottomSheet>
 
-        {/* File-row long-press menu + the download confirm/progress sheet —
-            mounted only when the server supports downloads. A close attempt
-            mid-download is a dead gesture (the sheet stays mounted while a run
-            is live); Cancel is the only way out of a running download. */}
-        {downloadEnabled && (
+        {/* File-row long-press menu + the download / device-transfer sheets.
+            The menu exists when either surface is available: downloads need
+            the server capability flag; transfers need the source device
+            online (capability mismatches surface as a 409 via the sheet's
+            failure body). A close attempt mid-run is a dead gesture (the
+            sheet stays mounted while a run is live); Cancel is the only way
+            out of a running task. */}
+        {(downloadEnabled || (deviceOnline && !!device)) && (
           <>
             <FileLongPressMenu
               visible={!!menuFile}
               fileName={menuFile?.name ?? ''}
               onClose={() => setMenuFile(null)}
               actions={[
-                {
-                  label: t('fileBrowser.download.menuItem'),
-                  tone: 'primary',
-                  onPress: () => {
-                    const file = menuFile;
-                    setMenuFile(null);
-                    if (file) setDownloadFile(file);
-                  },
-                },
+                ...(downloadEnabled
+                  ? [
+                      {
+                        label: t('fileBrowser.download.menuItem'),
+                        tone: 'primary' as const,
+                        onPress: () => {
+                          const file = menuFile;
+                          setMenuFile(null);
+                          if (file) setDownloadFile(file);
+                        },
+                      },
+                    ]
+                  : []),
+                ...(deviceOnline && device
+                  ? [
+                      {
+                        label: t('fileBrowser.transfer.menuItem'),
+                        tone: 'default' as const,
+                        onPress: () => {
+                          const file = menuFile;
+                          setMenuFile(null);
+                          if (file) setTransferFile(file);
+                        },
+                      },
+                    ]
+                  : []),
               ]}
             />
             <FileDownloadSheet
@@ -1003,6 +1027,14 @@ export const FileBrowserScreen: React.FC = () => {
               projectId={route.params.projectId}
               onClose={() => setDownloadFile(null)}
             />
+            {device ? (
+              <FileTransferSheet
+                pendingFile={transferFile}
+                sourceDevice={device}
+                devices={devices}
+                onClose={() => setTransferFile(null)}
+              />
+            ) : null}
           </>
         )}
         </DeferredMount>

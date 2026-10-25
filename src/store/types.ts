@@ -8,6 +8,7 @@ import type {
 } from '../data/platformModels';
 import type {
   PlatformFileDownloadStatus,
+  PlatformTransferStatus,
   PlatformTransportEvent,
 } from '../services/platformTransport';
 import type { AiAttachmentMeta } from '../api/attachments';
@@ -336,6 +337,42 @@ export interface ActiveDownload {
   reason?: string;
 }
 
+/**
+ * Client-side lifecycle of one device-to-device transfer (server snapshot is
+ * the truth; see transferSlice):
+ *
+ *   idle          no task
+ *   requesting    POST /api/transfers in flight (transferId still '')
+ *   transferring  server orchestration running (upload → complete → receive)
+ *   done          target device confirmed the transfer
+ *   failed        failed/expired on the server (`reason` carries the code)
+ *   cancelled     user cancelled (transient — the sheet closes itself)
+ */
+export type TransferPhase =
+  | 'idle'
+  | 'requesting'
+  | 'transferring'
+  | 'done'
+  | 'failed'
+  | 'cancelled';
+
+/** The one in-flight (or just-finished, pre-reset) transfer. */
+export interface ActiveTransfer {
+  sourceDeviceId: string;
+  targetDeviceId: string;
+  /** '' while the start POST is in flight. */
+  transferId: string;
+  /** Absolute path on the source device (what we asked it to pack). */
+  sourcePath: string;
+  /** Display name for the sheet (from the file list entry). */
+  filename: string;
+  /** True when the source path is a directory (server archives it as .zip). */
+  isDirectoryArchive: boolean;
+  totalBytes: number;
+  bytesDone: number;
+  reason?: string;
+}
+
 interface StartAgentInput {
   deviceId: string;
   clientRequestId?: string;
@@ -435,6 +472,12 @@ export interface ControlCenterState {
    */
   fileDownloadActive: ActiveDownload | null;
   fileDownloadPhase: FileDownloadPhase;
+  /**
+   * The single in-flight device-to-device transfer (null = none).
+   * Client-side only, never part of the server snapshot.
+   */
+  transferActive: ActiveTransfer | null;
+  transferPhase: TransferPhase;
   // Actions
   initializeFromServer: (token?: string) => Promise<void>;
   refreshFromServer: () => Promise<RefreshOutcome>;
@@ -700,4 +743,21 @@ export interface ControlCenterState {
   markDone: () => void;
   markFailed: (reason?: string) => void;
   resetFileDownload: () => void;
+  // --- Device-to-device transfer (single in-flight task; see transferSlice) ---
+  /** POST /api/transfers; failures land in markTransferFailed (never rejects). */
+  startTransfer: (input: {
+    sourceDeviceId: string;
+    targetDeviceId: string;
+    sourcePath: string;
+    filename: string;
+    isDirectoryArchive: boolean;
+  }) => Promise<void>;
+  /** Apply one normalized `transfer.updated` push (WS or REST reconcile). */
+  handleTransferEvent: (transfer: PlatformTransferStatus) => void;
+  /** Reconcile with GET status while a transfer is active (404 → reset). */
+  refreshTransferStatus: () => Promise<void>;
+  /** Cancel via POST /cancel; user cancel lands in `cancelled`. */
+  cancelTransfer: () => Promise<void>;
+  markTransferFailed: (reason?: string) => void;
+  resetTransfer: () => void;
 }
