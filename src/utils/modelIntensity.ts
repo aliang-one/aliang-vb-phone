@@ -102,7 +102,7 @@ export const effortPresetsFor = (provider: EffortProvider) =>
 //   codex:        gpt-5.4 / gpt-5.5
 //   claude_code:  glm-5.1 / glm-5.2
 //   opencode:     anthropic/claude-sonnet-4-5 / openai/gpt-5
-//   agentcore:    claude-sonnet-4-5 / claude-sonnet-4-6
+//   agentcore:    glm-5.1 / glm-5.2
 export const MODEL_PRESETS_BY_PROVIDER: Record<
   EffortProvider,
   Array<{ label: string; value: string }>
@@ -119,16 +119,45 @@ export const MODEL_PRESETS_BY_PROVIDER: Record<
     { label: 'anthropic/claude-sonnet-4-5', value: 'anthropic/claude-sonnet-4-5' },
     { label: 'openai/gpt-5', value: 'openai/gpt-5' },
   ],
-  // 与 PhoneServer 的 seed 目录一致；claude-sonnet-4-5 同时是 Go 侧
-  // agentCoreDefaultModel，选「默认」时手机显示的模型名与实际请求对得上。
+  // 与 PhoneServer 的 seed 目录、Go 侧 agentCoreDefaultModel 同一套 id。
+  // 必须是网关真能路由的：claude-* 在本账号组一律 model_not_found，
+  // 而手机每次建会话显式传的 model 就是权威来源——这里写错等于让用户
+  // 选一个必然失败的模型。
   agentcore: [
-    { label: 'claude-sonnet-4-5', value: 'claude-sonnet-4-5' },
-    { label: 'claude-sonnet-4-6', value: 'claude-sonnet-4-6' },
+    { label: 'glm-5.1', value: 'glm-5.1' },
+    { label: 'glm-5.2', value: 'glm-5.2' },
   ],
 };
 
 export const modelPresetsFor = (provider: EffortProvider) =>
   MODEL_PRESETS_BY_PROVIDER[provider] ?? MODEL_PRESETS_BY_PROVIDER.codex;
+
+/**
+ * 必须由手机**显式指定**模型的 provider → 它的默认模型。
+ *
+ * 外部 CLI（codex/claude/opencode）都有自己的默认模型：手机传空 = 「用 CLI
+ * 的默认」，语义完整，所以它们不在这里。
+ *
+ * 内置内核没有这层默认：手机传空，宿主会回落到**本机** settings 里的模型
+ * （本机就落在 glm-5.3[1m]），而那个模型手机上从没显示过——用户看到的和
+ * 实际请求的对不上。所以这个 provider 的 model 必须由手机选定并每次下发。
+ *
+ * glm-5.2 与 Go 侧 agentCoreDefaultModel、PhoneServer seed 一致。
+ */
+export const DEFAULT_MODEL_BY_PROVIDER: Partial<Record<EffortProvider, string>> = {
+  agentcore: 'glm-5.2',
+};
+
+/**
+ * 该 provider 是否要求手机显式下发模型（见 DEFAULT_MODEL_BY_PROVIDER）。
+ * 为真时创建页要预填默认模型、并且不提供「默认」(不下发) 选项。
+ */
+export const requiresExplicitModel = (provider: EffortProvider): boolean =>
+  Boolean(DEFAULT_MODEL_BY_PROVIDER[provider]);
+
+/** 手机端为该 provider 预填的默认模型；不要求显式模型的返回 undefined。 */
+export const defaultModelFor = (provider: EffortProvider): string | undefined =>
+  DEFAULT_MODEL_BY_PROVIDER[provider];
 
 /**
  * Resolve the selectable MODEL options for a provider, preferring the live

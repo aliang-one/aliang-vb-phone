@@ -1,4 +1,5 @@
 import {
+  DEFAULT_MODEL_BY_PROVIDER,
   EFFORT_DEGRADE_ORDER,
   EFFORT_PROVIDERS,
   EFFORT_PRESETS,
@@ -6,6 +7,7 @@ import {
   availableProviders,
   catalogModelOptions,
   composeModel,
+  defaultModelFor,
   degradeEffort,
   effortOptionsFor,
   effortPresetsFor,
@@ -15,6 +17,7 @@ import {
   normalizeProvider,
   parseModelIntensity,
   providerLabel,
+  requiresExplicitModel,
   supportedEffortsFor,
 } from '../modelIntensity';
 
@@ -212,9 +215,11 @@ describe('modelIntensity · per-provider model presets', () => {
   });
 
   it('agentcore presets mirror the kernel default model', () => {
+    // 与 Go 侧 agentCoreDefaultModel、PhoneServer seed 同一套 id；
+    // 必须是网关真能路由的（claude-* 在本账号组 model_not_found）。
     expect(MODEL_PRESETS_BY_PROVIDER.agentcore.map(m => m.value)).toEqual([
-      'claude-sonnet-4-5',
-      'claude-sonnet-4-6',
+      'glm-5.1',
+      'glm-5.2',
     ]);
   });
 
@@ -223,6 +228,27 @@ describe('modelIntensity · per-provider model presets', () => {
       'gpt-5.4',
       'gpt-5.5',
     ]);
+  });
+
+  it('只有内置内核要求手机显式下发模型', () => {
+    // 外部 CLI 自带默认模型：手机传空 = 「用 CLI 默认」，语义完整。
+    // 内置内核没有这层默认，传空会落到宿主本机配置里的模型上——用户
+    // 在手机上从没看到过那个模型。所以它必须预填并每次下发。
+    expect(requiresExplicitModel('agentcore')).toBe(true);
+    expect(requiresExplicitModel('codex')).toBe(false);
+    expect(requiresExplicitModel('claude_code')).toBe(false);
+    expect(requiresExplicitModel('opencode')).toBe(false);
+    // 预填值必须来自它自己的可选模型列表，否则等于给用户一个选不到的模型。
+    const preset = defaultModelFor('agentcore');
+    expect(preset).toBe('glm-5.2');
+    expect(MODEL_PRESETS_BY_PROVIDER.agentcore.map(m => m.value)).toContain(
+      preset,
+    );
+    expect(defaultModelFor('codex')).toBeUndefined();
+  });
+
+  it('DEFAULT_MODEL_BY_PROVIDER 只覆盖内置内核', () => {
+    expect(Object.keys(DEFAULT_MODEL_BY_PROVIDER)).toEqual(['agentcore']);
   });
 
   it('catalogModelOptions prefers the catalog, falls back to presets', () => {
