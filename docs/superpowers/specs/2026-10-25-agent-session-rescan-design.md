@@ -80,10 +80,11 @@ export const refreshProjectAiSessions = (projectId: string): Promise<{ status: s
 
 - 签名:`useSessionRescan(projectId: string | undefined)` → `{ rescanning: boolean; rescan: () => Promise<RescanOutcome> }`
 - `rescan()` 流程:
-  1. 记录触发前的 `total_count` + 最新 session 的 `id`/`updated_at` 快照
+  1. 记录触发前的 `total_count` + 最新 session 的 `id`/`last_active_at` 快照(线字段名以 `publicAiSessionSummary` 下发的 `last_active_at` 为准;`updated_at` 在本仓库特指 agent 文件时钟,server 有意不下发,勿混用——2026-10-15 时钟污染修复)
   2. 调 `refreshProjectAiSessions`;`409 agent_offline` → 直接返回 `agent-offline`,不发轮询
-  3. 轮询 `fetchProjectAiSessions(projectId)`(照搬 `ProjectScanScreen.handleScan` 的 startCount/poll 模式):判定"变化" = `total_count` 增大 或 出现新的 session id 或 最新 `updated_at` 变新
-  4. 轮询节奏:首拍 1.2s,共最多 6 拍(~8s 封顶);任一拍检测到变化即返回 `updated`,期间每次拉取都刷新本地列表状态(喂给调用方)
+  3. 轮询 `fetchProjectAiSessions(projectId)`(照搬 `ProjectScanScreen.handleScan` 的 startCount/poll 模式):判定"变化" = `total_count` 增大 或 出现新的 session id 或 最新 `last_active_at` 变新
+  4. 轮询节奏:首拍 1.2s,共最多 6 拍(~8s 封顶);任一拍检测到变化即返回 `updated`
+- **数据流单源**:hook 只负责触发/轮询/变化判定,不持有第二份会话列表状态;每拍(至少收尾拍)驱动屏幕既有的 `useProjectSessions.reload()` 刷新列表——避免双状态源闪烁/失同步
 - 轮询循环与"变化判定"抽为纯函数(如 `resolveRescanTick`)放 `src/screens/vibecoding/`(与 `sessionRefreshDispatch.ts` 同模式),便于 jest 钉测试
 - 超时:返回 `timeout`,由调用方 toast;hook 内部最后做一次 reload 保证最终态
 
@@ -110,7 +111,7 @@ agent:  handleRemoteAgentMessage → sendAgentHello(reason="server_requested")
         (collectClaudeVibeSessions + collectCodexVibeSessions 全量扫描)
   → WS agent.hello {vibe_sessions:[...]}
 server: upsertReportedVibeSessions → publish ai.sessions.updated(现有链路,零改动)
-手机:   轮询 GET /api/projects/:id/ai-sessions → 检测到 total_count/updated_at 变化 → 停表,UI 确认
+手机:   轮询 GET /api/projects/:id/ai-sessions → 检测到 total_count/last_active_at 变化 → 停表,UI 确认
 ```
 
 ## 6. 错误处理
@@ -139,3 +140,5 @@ server: upsertReportedVibeSessions → publish ai.sessions.updated(现有链路,
 3. 手机端随下个 TestFlight/APK 版本——开始调用
 
 各端单独回滚均安全。
+
+兼容性注:旧版 agent 收到未知类型 `agent.inventory.refresh` 会回一帧 `agent.event.error`("unsupported remote agent event type");server 对无 `request_id` 的错误帧没有可匹配的 pending 请求,记录后丢弃——结论不受影响,新指令只由新 server 发出。
