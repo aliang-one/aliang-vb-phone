@@ -165,7 +165,7 @@ cd /Users/mac/MyProgram/AiProgram/vibe_on_phone/AliangPhoneServer && git status 
 
 ```ts
 // POST /api/projects/:projectId/ai-sessions/refresh — 手机端「重扫电脑」。
-// 鉴权 → 项目可达 → agent 在线(否则 409 agent_offline)→ 向 agent WS
+// 鉴权 → 项目可达 → agent 在线(requireOnlineAgentForPublish 守卫,离线 409 device_offline)→ 向 agent WS
 // fire-and-forget 轻推 agent.inventory.refresh;hello 回来后走既有
 // upsert + ai.sessions.updated 链路,本路由不等待扫描结果(冷扫描 30s+)。
 
@@ -179,8 +179,12 @@ import {
   resetAppState,
 } from '../../../src/store.js';
 import type { Device } from '../../../src/types.js';
+import { ApiError } from '../../../src/errors.js';
 import { publishToAgent } from '../../../src/shared/realtime/publish.js';
-import { isAgentConnected } from '../../../src/shared/ws/registry.js';
+import {
+  isAgentConnected,
+  requireOnlineAgentForPublish,
+} from '../../../src/shared/ws/registry.js';
 
 vi.mock('../../../src/shared/realtime/publish.js', () => ({
   publishToAgent: vi.fn(async () => undefined),
@@ -263,6 +267,10 @@ const runRefresh = async (projectId: string, auth = true) => {
 
 describe('POST /api/projects/:projectId/ai-sessions/refresh', () => {
   beforeEach(() => {
+    // 清调用史(本仓库无全局 clearMocks);注意 clearAllMocks 不清
+    // implementation,离线守卫的默认实现在此显式给出,消除用例间顺序耦合。
+    vi.clearAllMocks();
+    vi.mocked(requireOnlineAgentForPublish).mockImplementation(() => undefined);
     resetAppState();
     configureStore(
       { driver: 'sqlite', dbPath: ':memory:', saveDebounceMs: 1 },
@@ -286,7 +294,6 @@ describe('POST /api/projects/:projectId/ai-sessions/refresh', () => {
   });
 
   it('agent 在线:轻推 agent.inventory.refresh 并 200 {status:"requested"}', async () => {
-    vi.mocked(isAgentConnected).mockReturnValue(true);
     const { statusCode, payload } = await runRefresh('p1');
     expect(statusCode).toBe(200);
     expect(payload).toEqual({ status: 'requested' });
@@ -294,16 +301,16 @@ describe('POST /api/projects/:projectId/ai-sessions/refresh', () => {
     expect(vi.mocked(publishToAgent)).toHaveBeenCalledWith(
       'dev-a',
       { type: 'agent.inventory.refresh' },
-      expect.objectContaining({ direction: 'server_to_agent' }),
+      expect.objectContaining({ direction: 'server_to_agent', cache: false }),
     );
   });
 
-  it('agent 离线:409 agent_offline,不发轻推', async () => {
-    vi.mocked(isAgentConnected).mockReturnValue(false);
-    const { statusCode, thrown, payload } = await runRefresh('p1');
-    const err = thrown as { status?: number; code?: string };
-    expect(err.status === 409 || statusCode === 409).toBe(true);
-    expect(err.code ?? (payload as { code?: string })?.code).toBe('agent_offline');
+  it('agent 离线:409 device_offline,不发轻推', async () => {
+    vi.mocked(requireOnlineAgentForPublish).mockImplementation(() => {
+      throw new ApiError(409, 'device_offline');
+    });
+    const { thrown } = await runRefresh('p1');
+    expect(thrown).toMatchObject({ status: 409, code: 'device_offline' });
     expect(vi.mocked(publishToAgent)).not.toHaveBeenCalled();
   });
 
@@ -333,7 +340,7 @@ Expected: FAIL,`POST /api/projects/:projectId/ai-sessions/refresh route not moun
 
 - [ ] **Step 4: 实现路由**
 
-`server/src/modules/routes/projects.ts`,紧跟在 `router.get('/api/projects/:projectId/ai-sessions', ...)`(约 :395 结束)之后插入。`isAgentConnected`、`publishToAgent`、`ApiError`、`requireUserId`、`getAccessibleProjectOrThrow` 该文件均已 import;`rememberAudit` 若未 import 则从 `'../../store.js'` 补:
+`server/src/modules/routes/projects.ts`,紧跟在 `router.get('/api/projects/:projectId/ai-sessions', ...)`(约 :395 结束)之后插入。`requireOnlineAgentForPublish`、`isAgentConnected`、`publishToAgent`、`ApiError`、`requireUserId`、`getAccessibleProjectOrThrow` 该文件均已 import;`rememberAudit` 若未 import 则从 `'../../store.js'` 补:
 
 ```ts
 // POST /api/projects/:projectId/ai-sessions/refresh — 手机端「重扫电脑」:
@@ -342,14 +349,14 @@ Expected: FAIL,`POST /api/projects/:projectId/ai-sessions/refresh route not moun
 // 改动)。Fire-and-forget:不等待 agent 扫描——冷转录扫描实测 30s+
 // (alianggate app/http/handlers/agent_handler.go 事故注),到达确认由
 // 手机端轮询列表接口完成;轻推本身不进重连缓存(cache:false),agent 重连
-// 时本就会自发 hello,重放无意义。
+// 时本就会自发 hello,重放无意义。离线守卫复用兄弟路由同款
+// requireOnlineAgentForPublish(409 device_offline,手机端
+// describeDeviceError 已有标准文案)。
 router.post('/api/projects/:projectId/ai-sessions/refresh', async (req, res, next) => {
   try {
     requireUserId(req);
     const project = getAccessibleProjectOrThrow(req, req.params.projectId);
-    if (!isAgentConnected(project.deviceId)) {
-      throw new ApiError(409, 'agent_offline');
-    }
+    requireOnlineAgentForPublish(project.deviceId);
     await publishToAgent(
       project.deviceId,
       { type: 'agent.inventory.refresh' },
@@ -395,7 +402,7 @@ cd /Users/mac/MyProgram/AiProgram/vibe_on_phone/AliangPhoneServer && git add ser
 projects: 新增 ai-sessions/refresh 重扫路由(轻推 agent.inventory.refresh)
 
 手机「重扫电脑」链路的 server 端:鉴权+项目可达+agent 在线检查(409
-agent_offline),fire-and-forget 轻推后立即 200;不等待冷扫描,到达确认
+device_offline,requireOnlineAgentForPublish),fire-and-forget 轻推后立即 200;不等待冷扫描,到达确认
 归手机端轮询。审计 project.ai_sessions.rescan。
 
 Co-Authored-By: Claude Code <noreply@anthropic.com>
@@ -543,7 +550,7 @@ Expected: PASS(6 用例)。
  * 「重扫电脑」:请 server 轻推项目所属设备的 agent 立即扫描并上报会话列表。
  * Fire-and-forget:server 只 ACK {status:'requested'},新会话是否到达由
  * 调用方轮询 fetchProjectAiSessions 确认。agent 离线时 server 回 409
- * agent_offline(ApiResponseError)。
+ * device_offline(ApiResponseError)。
  */
 export const refreshProjectAiSessions = (
   projectId: string,
@@ -666,10 +673,10 @@ describe('useSessionRescan', () => {
     expect(polls).toBe(1);
   });
 
-  it('409 agent_offline:不轮询,返回 agent-offline', async () => {
+  it('409 device_offline:不轮询,返回 agent-offline', async () => {
     mockedFetch.mockResolvedValue(list(3) as never);
     mockedRefresh.mockRejectedValue(
-      new ApiResponseError('agent_offline', 409, 'agent_offline'),
+      new ApiResponseError('device_offline', 409, 'device_offline'),
     );
     const api = mount('p1');
     let outcome!: RescanOutcome;
@@ -834,7 +841,7 @@ const latestLastActiveAt = (
 
 const outcomeOfError = (error: unknown): RescanOutcome =>
   error instanceof ApiResponseError &&
-  (error.status === 409 || error.code === 'agent_offline')
+  (error.status === 409 || error.code === 'device_offline')
     ? 'agent-offline'
     : 'error';
 ```
@@ -1090,7 +1097,7 @@ scp 到 liang-dev 并替换运行中的二进制。**先在 liang-dev 上 `syste
 
 - [ ] **Step 2: 部署 server 到 k8s**
 
-走既有通道:buildx amd64 构建镜像 → push register.liang.home → 阿良板(`aliangboard` MCP)`update_image` 升 `nursor/aliang-phone-agent-server`(env count 不变,本次无新 env)。验证:pod 就绪后 `POST /api/projects/:id/ai-sessions/refresh` 对离线设备返回 409 `agent_offline`。
+走既有通道:buildx amd64 构建镜像 → push register.liang.home → 阿良板(`aliangboard` MCP)`update_image` 升 `nursor/aliang-phone-agent-server`(env count 不变,本次无新 env)。验证:pod 就绪后 `POST /api/projects/:id/ai-sessions/refresh` 对离线设备返回 409 `device_offline`。
 
 - [ ] **Step 3: 手机端打包安装**
 
