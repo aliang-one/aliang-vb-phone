@@ -743,15 +743,33 @@ export const VibeCodingSessionScreen: React.FC = () => {
     void clearAttachmentLibrary();
   }, [clearAttachmentLibrary]);
 
-  // 入口可用性：草稿会话没有 sessionId（上传无处可去）；goal 会话走
-  // queueGoalMessage，没有素材通道；服务端没配 COS 时 `enabled === false`。
-  // 能力位未知（列表快照不带 → undefined）按不可用处理——不让用户点进一条
-  // 注定失败的链路。
+  // 入口可用性：goal 会话走 queueGoalMessage，没有素材通道；服务端没配 COS
+  // 时 `enabled === false`。能力位未知（列表快照不带 → undefined）按不可用
+  // 处理——不让用户点进一条注定失败的链路。
+  //
+  // 草稿（首条消息前）曾经一票否决——「没有 sessionId 上传无处可去」。但
+  // capability 的 enabled 只取决于服务端 COS 配置，是**部署级全局**而非会话级
+  // （attachments/capability.ts），所以草稿可以用「任意已知会话的能力位」做
+  // 忠实代理：有任一会话报告 enabled，草稿将来也必然 enabled。素材本身在
+  // 挑选时只是本地 LocalAsset，上传发生在发送时——草稿发送路径已补上
+  // 「会话落地后立刻补发素材消息」（见 appendUserMessage 草稿分支）。
+  const draftAttachmentsCapability = useControlCenterStore(state => {
+    if (!draftConfig) return undefined;
+    // 先找同设备的会话（代理最忠实），退化到任意会话。
+    for (const run of state.vibeRuns) {
+      if (run.deviceId === draftConfig.deviceId && run.attachmentsCapability !== undefined) {
+        return run.attachmentsCapability;
+      }
+    }
+    for (const run of state.vibeRuns) {
+      if (run.attachmentsCapability !== undefined) return run.attachmentsCapability;
+    }
+    return undefined;
+  });
   const attachmentsEnabled =
-    !isDraft &&
-    session != null &&
-    session.purpose !== 'goal' &&
-    session.attachmentsCapability?.enabled === true;
+    session != null
+      ? session.purpose !== 'goal' && session.attachmentsCapability?.enabled === true
+      : isDraft && draftAttachmentsCapability?.enabled === true;
 
   const handleComposerTextInputFocus = useCallback(() => {
     setAutoFocusText(false);
@@ -1426,6 +1444,27 @@ export const VibeCodingSessionScreen: React.FC = () => {
         // "jump to a new same-layout page" right after the first send.
         setCreatedSessionId(sessionId);
         navigation.setParams({ sessionId, draftConfig: undefined });
+        // 草稿现在允许带素材（入口门控见 draftAttachmentsCapability）：create
+        // 的首条消息=objective 是原子的、没有素材字段，所以素材作为第二条
+        // 「素材消息」立刻补发（默认说明兜底，与活会话的 attachments-only
+        // 发送同一条 service 路径）。上传失败会 throw——此时 objective 已经
+        // 发出去了，素材留在 chips 里，用户可再点一次发送重试（此时已是
+        // 活会话路径）。
+        if (assets.length > 0) {
+          await sendUserMessageWithAssets({
+            sessionId,
+            content: defaultAttachmentCaption(assets, t),
+            assets,
+            send: (outgoingContent, metas) =>
+              appendAgentMessage(sessionId, outgoingContent, messageMode, metas),
+            onUploadError: () => showToast(t('attachments.error'), 'error'),
+            onSent: sentAssets => {
+              const sentIds = new Set(sentAssets.map(item => item.id));
+              setPendingAssets(prev => prev.filter(item => !sentIds.has(item.id)));
+              void Promise.all(sentAssets.map(item => touchAsset(item.id)));
+            },
+          });
+        }
         return true;
       } catch (error) {
         pendingScrollToEndRef.current = false;
