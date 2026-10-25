@@ -170,7 +170,7 @@ cd /Users/mac/MyProgram/AiProgram/vibe_on_phone/AliangPhoneServer && git status 
 // upsert + ai.sessions.updated 链路,本路由不等待扫描结果(冷扫描 30s+)。
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { projectsRouter } from '../../../src/modules/routes/projects.js';
 import {
   configureStore,
@@ -240,6 +240,13 @@ const runRefresh = async (projectId: string, auth = true) => {
   } as unknown as Request;
   let statusCode = 0;
   let payload: unknown;
+  // 路由是 try/catch + next(e) 形态:必须传捕获型 next,否则错误路径
+  // 会以 TypeError(next is not a function)告终,断言不到 ApiError。
+  // (照 terminalAttach.test.ts:70 的既有错误路径先例。)
+  let nextError: unknown;
+  const next: NextFunction = (error?: unknown) => {
+    nextError = error;
+  };
   const res = {
     status(code: number) {
       statusCode = code;
@@ -250,15 +257,8 @@ const runRefresh = async (projectId: string, auth = true) => {
       payload = p;
     },
   } as unknown as Response;
-  await refreshHandler(req, res).catch(error => {
-    // 路由把错误交给 next():这里模拟 express 的错误汇聚,断言 ApiError。
-    (res as unknown as { thrown?: unknown }).thrown = error;
-  });
-  return {
-    statusCode,
-    payload,
-    thrown: (res as unknown as { thrown?: unknown }).thrown,
-  };
+  await refreshHandler(req, res, next);
+  return { statusCode, payload, thrown: nextError };
 };
 
 describe('POST /api/projects/:projectId/ai-sessions/refresh', () => {
@@ -609,9 +609,10 @@ const mockedFetch =
 const mockedRefresh =
   refreshProjectAiSessions as jest.MockedFunction<typeof refreshProjectAiSessions>;
 
+// fixture 用真实线字段名(session_id / last_active_at),钉住 server 下发形状。
 const list = (count: number, latest = '2026-10-25T00:00:00Z') => ({
   sessions: Array.from({ length: count }, (_, i) => ({
-    id: `s${i + 1}`,
+    session_id: `s${i + 1}`,
     last_active_at: latest,
   })),
   total_count: count,
@@ -757,6 +758,12 @@ const delay = (ms: number) =>
  * 数据流单源:本 hook 不持有第二份会话列表状态——每拍驱动调用方传入的
  * onPoll(即 useProjectSessions.reload)刷新屏幕既有列表,hook 自身的
  * fetch 只服务于变化判定。
+ *
+ * 并发语义:进行中第二次触发直接返回 'error'(从简,不排队/不合并)。
+ * UI 层 RefreshControl refreshing={rescanning} 已抑制重复触发,此路径
+ * 实际不可达;系对 spec §6「复用同一轮询」的有意偏差。
+ * 线字段:会话 id 是 ServerAiSession 的 session_id(非 id),活跃时间是
+ * last_active_at(非 updated_at)——两个字段名都以 server 下发为准。
  */
 export function useSessionRescan(
   projectId: string | undefined,
@@ -783,7 +790,7 @@ export function useSessionRescan(
         await onPoll?.();
         const action = resolveRescanTick({
           polledCount: polled.total_count,
-          polledIds: polled.sessions.map(session => session.id),
+          polledIds: polled.sessions.map(session => session.session_id),
           polledLatestLastActiveAt: latestLastActiveAt(polled.sessions),
           baselineCount: baseline.count,
           baselineIds: baseline.ids,
@@ -813,7 +820,7 @@ type RescanSnapshot = {
 
 const snapshotOf = (list: ProjectAiSessionList): RescanSnapshot => ({
   count: list.total_count,
-  ids: list.sessions.map(session => session.id),
+  ids: list.sessions.map(session => session.session_id),
   latestLastActiveAt: latestLastActiveAt(list.sessions),
 });
 
@@ -899,6 +906,9 @@ EOF
 
 ```tsx
 const { show } = useToastStore(s => s.show);
+// 外层组件目前没有 t(只有 SessionCard 内有):补声明;useTranslation 的
+// 文件级 import 已存在,无需新增。
+const { t } = useTranslation('vibecoding');
 const refreshFromServer = useControlCenterStore(s => s.refreshFromServer);
 // projectScoped 已有:const projectScoped = useProjectSessions(...);
 const rescanProjectId = route.params?.projectId;
@@ -1004,8 +1014,6 @@ const handleRescan = useCallback(async () => {
     show(t('vibecoding:agentSessions.rescan.updated'), 'success');
   } else if (outcome === 'timeout') {
     show(t('vibecoding:agentSessions.rescan.timeout'), 'info');
-  } else if (outcome !== 'agent-offline' && outcome !== 'error') {
-    return;
   } else if (outcome === 'agent-offline') {
     show(describeDeviceError(new Error('device_offline')).title, 'error');
   } else {
