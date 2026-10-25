@@ -49,4 +49,16 @@ describe('resolveRescanTick — 重扫到达判定', () => {
       'stop-timeout',
     );
   });
+
+  it('数量收缩/ids 变少不是到达:继续轮询', () => {
+    expect(
+      resolveRescanTick({ ...base, polledCount: 2, polledIds: ['a', 'b'] }),
+    ).toBe('keep-polling');
+  });
+
+  it('变化优先于末拍:到达而非超时', () => {
+    expect(
+      resolveRescanTick({ ...base, polledCount: 4, isFinalTick: true }),
+    ).toBe('stop-changed');
+  });
 });
