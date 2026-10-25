@@ -2,6 +2,7 @@ import { apiFetch, apiGet, apiPost, apiPatch, apiDelete } from './client';
 import type { ServerAiSession } from './sessions';
 import type { AgentCommandInfo } from '../data/platformModels';
 import type { ProjectProviderModelConfig } from './modelConfig';
+import type { EffortProvider } from '../utils/modelIntensity';
 // Reuse the device-level approval type aliases — they describe the same enum
 // values the server now carries on the project. Do not redefine here.
 import type { ApprovalScheme, ApprovalDecision } from './devices';
@@ -60,8 +61,12 @@ export interface ServerProject {
   approval_policy?: ServerApprovalPolicy;
   /** Project-scoped model/effort choices per provider tab. */
   model_config?: ProjectProviderModelConfig;
-  /** Legacy single-provider override; kept for older server payloads. */
-  provider?: 'codex' | 'claude_code' | 'opencode' | null;
+  /**
+   * Legacy single-provider override; kept for older server payloads.
+   * 服务端这一字段是 EffortProvider（含 agentcore），这里只是镜像，漏了
+   * agentcore 会让读回的项目配置在类型上「不认识」自己刚写下去的值。
+   */
+  provider?: EffortProvider | null;
   model?: string | null;
   effort?: string | null;
   last_active_at?: string;
