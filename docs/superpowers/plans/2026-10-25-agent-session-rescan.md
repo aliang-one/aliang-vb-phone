@@ -86,7 +86,7 @@ func TestHandleRemoteInventoryRefreshSendsHello(t *testing.T) {
 
 	require.Len(t, hellos, 1, "inventory refresh must push exactly one hello")
 	// 不在 enabled-device 门控名单:未启用状态下也必须响应(只读动作)。
-	assert.NotContains(t, remoteAgentMessageRequiresEnabledDevice(models.AgentEventInventoryRefresh), true)
+	assert.False(t, remoteAgentMessageRequiresEnabledDevice(models.AgentEventInventoryRefresh))
 }
 ```
 
@@ -180,6 +180,7 @@ import {
 } from '../../../src/store.js';
 import type { Device } from '../../../src/types.js';
 import { publishToAgent } from '../../../src/shared/realtime/publish.js';
+import { isAgentConnected } from '../../../src/shared/ws/registry.js';
 
 vi.mock('../../../src/shared/realtime/publish.js', () => ({
   publishToAgent: vi.fn(async () => undefined),
@@ -187,6 +188,13 @@ vi.mock('../../../src/shared/realtime/publish.js', () => ({
   publishPresenceUpdate: vi.fn(async () => undefined),
   publishAiSessionState: vi.fn(),
   initRealtimePublisher: vi.fn(),
+}));
+
+// isAgentConnected 读真实 WS 连接表(测试进程永远为空),必须 mock——
+// 否则「agent 在线」用例永远走 409,正确实现也会被逼着改坏。
+vi.mock('../../../src/shared/ws/registry.js', () => ({
+  isAgentConnected: vi.fn(() => false),
+  requireOnlineAgentForPublish: vi.fn(),
 }));
 
 const findHandler = (
@@ -278,6 +286,7 @@ describe('POST /api/projects/:projectId/ai-sessions/refresh', () => {
   });
 
   it('agent 在线:轻推 agent.inventory.refresh 并 200 {status:"requested"}', async () => {
+    vi.mocked(isAgentConnected).mockReturnValue(true);
     const { statusCode, payload } = await runRefresh('p1');
     expect(statusCode).toBe(200);
     expect(payload).toEqual({ status: 'requested' });
@@ -290,13 +299,18 @@ describe('POST /api/projects/:projectId/ai-sessions/refresh', () => {
   });
 
   it('agent 离线:409 agent_offline,不发轻推', async () => {
-    // isAgentConnected 读 shared/ws/registry 的连接表;测试进程没有真连接,
-    // 默认即离线——这本身就是 409 路径。
+    vi.mocked(isAgentConnected).mockReturnValue(false);
     const { statusCode, thrown, payload } = await runRefresh('p1');
     const err = thrown as { status?: number; code?: string };
     expect(err.status === 409 || statusCode === 409).toBe(true);
     expect(err.code ?? (payload as { code?: string })?.code).toBe('agent_offline');
     expect(vi.mocked(publishToAgent)).not.toHaveBeenCalled();
+  });
+
+  it('未鉴权:401', async () => {
+    const { statusCode, thrown } = await runRefresh('p1', false);
+    const err = thrown as { status?: number };
+    expect(statusCode === 401 || err.status === 401).toBe(true);
   });
 
   it('项目不可达:404', async () => {
@@ -342,7 +356,6 @@ router.post('/api/projects/:projectId/ai-sessions/refresh', (req, res, next) => 
       {
         direction: 'server_to_agent',
         source: { kind: 'http', user_id: project.userId },
-        deviceId: project.deviceId,
         cache: false,
       },
     );
@@ -367,7 +380,7 @@ router.post('/api/projects/:projectId/ai-sessions/refresh', (req, res, next) => 
 cd /Users/mac/MyProgram/AiProgram/vibe_on_phone/AliangPhoneServer && npx vitest run server/test/modules/routes/projectAiSessionsRescan.test.ts
 ```
 
-Expected: PASS(3 用例)。
+Expected: PASS(4 用例)。
 
 - [ ] **Step 6: 全量回归 + 类型检查**
 
@@ -857,6 +870,7 @@ EOF
 
 ```json
 "rescan": {
+  "action": "Rescan computer",
   "updated": "Computer scanned — list updated",
   "timeout": "Computer is slow to respond — try again shortly",
   "failed": "Rescan failed"
@@ -867,6 +881,7 @@ EOF
 
 ```json
 "rescan": {
+  "action": "重扫电脑",
   "updated": "已重扫电脑,列表已更新",
   "timeout": "电脑响应较慢,稍后下拉重试",
   "failed": "重扫失败"
@@ -909,7 +924,9 @@ const handleRefresh = useCallback(async () => {
     await refreshFromServer();
     return;
   }
-  // 指定设备已知离线:不发注定失败的请求(照项目扫描屏先例)。
+  // 设备已知离线(指定 deviceId 或项目反查所得):不发注定失败的请求
+  // (照项目扫描屏先例;比 spec 的"仅指定 deviceId"更宽,有意为之,
+  // 与 spec 错误表一致,避免一次必败往返)。
   if (rescanDevice?.status === 'offline') {
     show(describeDeviceError(new Error('device_offline')).title, 'error');
     return;
@@ -970,10 +987,9 @@ EOF
 - [ ] **Step 1: 接线**
 
 1. import 增补:`useSessionRescan`、`describeDeviceError`、`TouchableOpacity`/`ActivityIndicator`(react-native,若缺)、`IconBadge`(若缺)
-2. 组件体内(`useProjectSessions` 解构处之后):
+2. 组件体内(`useProjectSessions` 解构处之后)。注意:`const show = useToastStore(s => s.show)` 该屏 **:60 已有,直接复用,勿重复声明**:
 
 ```tsx
-const { show } = useToastStore(s => s.show);
 const { rescanning: rescanPending, rescan } = useSessionRescan(
   project?.id,
   reload,
@@ -1010,7 +1026,7 @@ const handleRescan = useCallback(async () => {
     onPress={handleRescan}
     disabled={rescanPending}
     style={styles.rescanButton}
-    accessibilityLabel={t('vibecoding:agentSessions.rescan.updated')}>
+    accessibilityLabel={t('vibecoding:agentSessions.rescan.action')}>
     {rescanPending ? (
       <ActivityIndicator size="small" color={theme.colors.primary} />
     ) : (
@@ -1032,8 +1048,6 @@ rescanButton: {
   padding: 4,
 },
 ```
-
-(`accessibilityLabel` 临时占位不理想——若 Task 5 的 i18n 里能加一个 `rescan.action`("Rescan computer"/"重扫电脑"),三处(en/zh/两个屏幕)统一用它,优先这么做。)
 
 - [ ] **Step 2: 类型检查 + 回归**
 
