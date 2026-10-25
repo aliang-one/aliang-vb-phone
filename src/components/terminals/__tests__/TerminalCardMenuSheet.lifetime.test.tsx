@@ -136,14 +136,14 @@ describe('TerminalCardMenuSheet 有效期面板', () => {
     ).toThrow();
   });
 
-  it('设备离线 → 续期禁用并提示,删除同样禁用', () => {
+  it('设备离线 → 续期禁用并提示,删除仍可点(删除不随设备状态,2026-10-25)', () => {
     const onRenew = jest.fn().mockResolvedValue(undefined);
     const renderer = renderSheet(
       makeTerminal({
         expiresAt: new Date(now + HOUR).toISOString(),
         ttlGrantedAt: new Date(now - HOUR).toISOString(),
       }),
-      { onRenew, deleteDisabled: true },
+      { onRenew, renewDisabled: true },
     );
     const texts: string[] = [];
     renderer.root.findAllByType(Text).forEach(node => {
@@ -153,7 +153,9 @@ describe('TerminalCardMenuSheet 有效期面板', () => {
     expect(texts.some(value => value.includes('设备离线，无法续期'))).toBe(true);
     const chip = renderer.root.findByProps({ testID: 'terminal-menu-renew-24' });
     expect(chip.props.disabled).toBe(true);
-    expect(renderer.root.findByProps({ testID: 'terminal-menu-delete' }).props.disabled).toBe(true);
+    // 删除与设备在线状态彻底解绑:server 端 close 是 best-effort,离线也能删。
+    expect(renderer.root.findByProps({ testID: 'terminal-menu-delete' }).props.disabled).toBeFalsy();
+    expect(texts.some(value => value.includes('设备离线，无法删除'))).toBe(false);
   });
 
   it('点续期 → 以所选小时数回调;失败时给错误反馈', async () => {

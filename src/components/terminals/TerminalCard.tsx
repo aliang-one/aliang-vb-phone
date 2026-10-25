@@ -20,7 +20,8 @@ import { useTranslation } from 'react-i18next';
 interface TerminalCardProps {
   terminal: TerminalSession;
   deviceName?: string;
-  /** 设备离线时置灰并禁用 Resume;菜单里的"删除"同样禁用。 */
+  /** 设备离线时置灰并禁用 Resume;菜单里的"续期"随之禁用。删除不在此列
+   * ——与设备状态彻底解绑,离线也能删(2026-10-25 拍板,server 离线收刀兜底)。 */
   disabled?: boolean;
   onPress?: () => void;
   onClose?: () => void;
@@ -217,8 +218,9 @@ export const TerminalCard = React.memo<TerminalCardProps>(
 
             <View style={styles.actionSpacer} />
 
-            {/* 菜单按钮:删除/扫码/简介。不随设备离线置灰——扫码与简介不
-                依赖终端存续,只有菜单里的"删除"条目跟随 disabled。 */}
+            {/* 菜单按钮:删除/扫码/简介。不随设备离线置灰——删除与设备状态
+                彻底解绑(2026-10-25),扫码/简介本就不依赖终端存续;只有菜单
+                里的"续期"条目跟随 disabled。 */}
             <TouchableOpacity
               activeOpacity={0.7}
               accessibilityRole="button"
@@ -248,7 +250,7 @@ export const TerminalCard = React.memo<TerminalCardProps>(
         onClose={() => setMenuOpen(false)}
         terminal={terminal}
         deviceName={deviceName}
-        deleteDisabled={disabled}
+        renewDisabled={disabled}
         createdBy={accountUser?.username || accountUser?.email}
         onDelete={() => {
           setMenuOpen(false);

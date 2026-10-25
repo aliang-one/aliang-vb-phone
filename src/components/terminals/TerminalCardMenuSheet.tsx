@@ -17,8 +17,9 @@ interface TerminalCardMenuSheetProps {
   onClose: () => void;
   terminal: TerminalSession;
   deviceName?: string;
-  /** 设备离线时"删除/续期"置灰;扫码/简介与终端存续无关,不受影响。 */
-  deleteDisabled?: boolean;
+  /** 设备离线时"续期"置灰并提示(给连不上的设备续租没有意义);删除不在此列
+   * ——删除与设备状态彻底解绑,离线也能删(2026-10-25 拍板)。 */
+  renewDisabled?: boolean;
   /** 创建人显示名(当前登录账号);缺省展示 "-"。 */
   createdBy?: string;
   onDelete: () => void;
@@ -47,7 +48,7 @@ export function TerminalCardMenuSheet({
   onClose,
   terminal,
   deviceName,
-  deleteDisabled = false,
+  renewDisabled = false,
   createdBy,
   onDelete,
   onScan,
@@ -73,7 +74,7 @@ export function TerminalCardMenuSheet({
   const chip = getTerminalStatusChip(terminal.status);
   const activityMs = Date.parse(terminal.lastCommandAt ?? terminal.updatedAt);
   const live = isLiveStatus(terminal.status);
-  const canRenew = Boolean(onRenew) && live && !deleteDisabled;
+  const canRenew = Boolean(onRenew) && live && !renewDisabled;
 
   const expiresMs = Date.parse(terminal.expiresAt ?? '');
   const grantedMs = Date.parse(terminal.ttlGrantedAt ?? '');
@@ -155,14 +156,15 @@ export function TerminalCardMenuSheet({
       testID: 'terminal-menu-info',
     },
     // 删除固定最底:危险操作远离高频入口,误触面最小(产品要求 2026-10-22)。
+    // 删除不随设备在线状态置灰(2026-10-25 拍板):server 端 close 对离线
+    // 设备是 best-effort(记录照常关、重连由 reconcile 收刀),设备最需要
+    // 清理僵尸卡片的时刻恰恰是离线时刻。
     {
       key: 'delete',
       icon: 'trash',
       tone: 'error',
       label: t('menu.delete'),
-      hint: deleteDisabled ? t('menu.deleteOffline') : undefined,
       danger: true,
-      disabled: deleteDisabled,
       onPress: onDelete,
       testID: 'terminal-menu-delete',
     },
@@ -285,7 +287,7 @@ export function TerminalCardMenuSheet({
                       theme.typography.labelSm,
                       { color: theme.colors.onSurfaceVariant },
                     ]}>
-                    {deleteDisabled ? t('lifetime.offlineHint') : t('lifetime.renewTitle')}
+                    {renewDisabled ? t('lifetime.offlineHint') : t('lifetime.renewTitle')}
                   </Text>
                   <View style={styles.renewRow}>
                     {RENEW_CHOICES.map(hours => {

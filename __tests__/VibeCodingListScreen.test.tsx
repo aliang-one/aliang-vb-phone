@@ -175,7 +175,7 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
     );
   });
 
-  it('disables remote terminal actions when the owning device is offline', async () => {
+  it('disables Resume when the owning device is offline; delete stays enabled (2026-10-25 解绑)', async () => {
     useControlCenterStore.setState({
       devices: [device('device-1', 'MacBook', 'offline')],
     });
@@ -187,7 +187,7 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
     expect(
       findTerminalActionButton(screen!.root, 'RESUME')?.props.disabled,
     ).toBe(true);
-    // 菜单按钮本身不随离线置灰,置灰的是菜单里的"删除"条目。
+    // 菜单按钮本身不随离线置灰。
     expect(findByTestId(screen!.root, 'terminal-card-menu')[0]?.props.disabled)
       .toBeFalsy();
 
@@ -195,9 +195,10 @@ describe('VibeCodingListScreen remote terminal shortcuts', () => {
       findByTestId(screen!.root, 'terminal-card-menu')[0]?.props.onPress();
     });
     await act(async () => {});
+    // 删除与设备状态彻底解绑:离线也可删,清理僵尸卡片不再被拦。
     expect(
       findByTestId(screen!.root, 'terminal-menu-delete')[0]?.props.disabled,
-    ).toBe(true);
+    ).toBeFalsy();
   });
 
   it('opens a fresh terminal from the floating terminal action device picker', () => {

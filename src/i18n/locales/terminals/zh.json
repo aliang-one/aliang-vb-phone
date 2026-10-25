@@ -24,7 +24,6 @@
   "menu": {
     "title": "终端操作",
     "delete": "删除终端",
-    "deleteOffline": "设备离线，无法删除",
     "scan": "扫码配对",
     "scanHint": "扫 terminal.aliang.one 页面二维码",
     "info": "终端简介"

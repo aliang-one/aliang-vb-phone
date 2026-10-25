@@ -107,14 +107,14 @@ describe('TerminalCardMenuSheet', () => {
     expect(props.onDelete).not.toHaveBeenCalled();
   });
 
-  it('disables only the delete row while the device is offline', async () => {
+  it('keeps the delete row enabled regardless of device state (2026-10-25 解绑)', async () => {
     const props = baseProps(makeTerminal());
     const renderer = await wrap(
-      <TerminalCardMenuSheet {...props} deleteDisabled />,
+      <TerminalCardMenuSheet {...props} renewDisabled />,
     );
-    expect(buttonBy(renderer, { testID: 'terminal-menu-delete' })?.props.disabled).toBe(
-      true,
-    );
+    // 删除与设备状态彻底解绑:离线/在线删除都可点(server 离线 close 是
+    // best-effort,重连由 reconcile 收刀)。
+    expect(buttonBy(renderer, { testID: 'terminal-menu-delete' })?.props.disabled).toBeFalsy();
     expect(
       buttonBy(renderer, { testID: 'terminal-menu-scan' })?.props.disabled,
     ).toBeFalsy();

@@ -24,7 +24,6 @@
   "menu": {
     "title": "Terminal actions",
     "delete": "Delete terminal",
-    "deleteOffline": "Device offline — cannot delete",
     "scan": "Scan to pair",
     "scanHint": "Scan the terminal.aliang.one QR code",
     "info": "Terminal info"
