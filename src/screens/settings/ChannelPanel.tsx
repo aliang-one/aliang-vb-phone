@@ -30,6 +30,7 @@ export const ChannelPanel: React.FC = () => {
   const [manualId, setManualId] = useState<EndpointId>('primary');
   const [activeId, setActiveId] = useState<EndpointId>(getActiveEndpointId());
   const [status, setStatus] = useState<ChannelRowState[] | null>(null);
+  const [probing, setProbing] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -42,6 +43,17 @@ export const ChannelPanel: React.FC = () => {
     setStatus(statusRows as ChannelRowState[]);
     setActiveId(getActiveEndpointId());
   }, []);
+
+  // 手动模式下的「重新测速」:仅刷新延迟显示,不改变选择。
+  const handleRetest = useCallback(async () => {
+    setProbing(true);
+    setStatus(null);
+    try {
+      await load();
+    } finally {
+      setProbing(false);
+    }
+  }, [load]);
 
   useEffect(() => {
     void load();
@@ -89,7 +101,7 @@ export const ChannelPanel: React.FC = () => {
         : t('about.channel.routePrimary');
 
   const latencyLabel = (id: EndpointId): string => {
-    if (!status) return t('about.channel.probing');
+    if (!status || probing) return t('about.channel.probing');
     const row = status.find(s => s.id === id);
     if (!row || row.ttfbMs == null) return t('about.channel.unreachable');
     return `${Math.round(row.ttfbMs)}ms`;
@@ -128,6 +140,19 @@ export const ChannelPanel: React.FC = () => {
 
       {manual ? (
         <View style={styles.routeList}>
+          <TouchableOpacity
+            style={styles.retestRow}
+            onPress={() => void handleRetest()}
+            disabled={probing || busy}
+            accessibilityRole="button"
+            testID="settings-channel-retest">
+            <Text style={[theme.typography.bodyMd, { color: theme.colors.primary }]}>
+              {probing ? t('about.channel.retesting') : t('about.channel.retest')}
+            </Text>
+            <Text style={[theme.typography.labelMd, { color: theme.colors.primary }]}>
+              ↻
+            </Text>
+          </TouchableOpacity>
           {routes.map(id => {
             const selected = manualId === id;
             return (
@@ -181,6 +206,13 @@ const styles = StyleSheet.create({
     paddingTop: 4,
   },
   routeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  retestRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',

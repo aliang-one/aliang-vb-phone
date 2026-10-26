@@ -145,6 +145,8 @@
       "routeNat0Sub": "国内中继 · 直连加速",
       "routeHk": "香港备用",
       "routeHkSub": "国际备用线路",
+      "retest": "重新测速",
+      "retesting": "测速中…",
       "unreachable": "不可达",
       "probing": "探测中…",
       "manualHint": "已手动锁定:自动探测与故障切换已停用。"

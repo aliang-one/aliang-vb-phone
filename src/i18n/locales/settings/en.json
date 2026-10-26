@@ -145,6 +145,8 @@
       "routeNat0Sub": "CN relay · direct acceleration",
       "routeHk": "HK Backup",
       "routeHkSub": "International backup route",
+      "retest": "Re-test latency",
+      "retesting": "Testing…",
       "unreachable": "unreachable",
       "probing": "Probing…",
       "manualHint": "Manual route locked — auto probing and failover are off."
