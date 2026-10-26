@@ -70,7 +70,8 @@
     "cannotConnect": "无法连接语音服务",
     "connectTimeout": "语音服务连接超时，请稍后重试",
     "captureSilent": "麦克风没有采集到声音，请重试",
-    "noSpeechDetected": "未识别到语音内容，请靠近麦克风重试"
+    "noSpeechDetected": "未识别到语音内容，请靠近麦克风重试",
+    "micSilent": "麦克风采集异常（持续静音），请重试"
   },
   "permission": {
     "micTitle": "麦克风权限",

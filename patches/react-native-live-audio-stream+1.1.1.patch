@@ -64,3 +64,108 @@ index 20f454f..6d69ca0 100644
          isRecording = false;
      }
  }
+diff --git a/node_modules/react-native-live-audio-stream/index.js b/node_modules/react-native-live-audio-stream/index.js
+--- a/node_modules/react-native-live-audio-stream/index.js
++++ b/node_modules/react-native-live-audio-stream/index.js
+@@ -9,7 +9,10 @@
+ AudioRecord.stop = () => RNLiveAudioStream.stop();
+ 
+ const eventsMap = {
+-  data: 'data'
++  data: 'data',
++  // Surface native capture failures (audio-session category/activation,
++  // AudioQueue create/start) to JS — see the iOS setActive cycle patch.
++  error: 'error'
+ };
+ 
+ AudioRecord.on = (event, callback) => {
+diff --git a/node_modules/react-native-live-audio-stream/ios/RNLiveAudioStream.m b/node_modules/react-native-live-audio-stream/ios/RNLiveAudioStream.m
+--- a/node_modules/react-native-live-audio-stream/ios/RNLiveAudioStream.m
++++ b/node_modules/react-native-live-audio-stream/ios/RNLiveAudioStream.m
+@@ -4,6 +4,12 @@
+ 
+ RCT_EXPORT_MODULE();
+ 
++// Surface capture-pipeline failures to JS instead of failing silently. Paired
++// with the `error` entry in supportedEvents and the lib's eventsMap.
++- (void)emitError:(NSString *)message {
++    [self sendEventWithName:@"error" body:@{@"message": message ?: @""}];
++}
++
+ RCT_EXPORT_METHOD(init:(NSDictionary *) options) {
+     RCTLogInfo(@"[RNLiveAudioStream] init");
+     _recordState.mDataFormat.mSampleRate        = options[@"sampleRate"] == nil ? 44100 : [options[@"sampleRate"] doubleValue];
+@@ -40,14 +46,31 @@
+     }
+     if (!success || error != nil) {
+         RCTLog(@"[RNLiveAudioStream] Problem setting up AVAudioSession category and mode. Error: %@", error);
++        [self emitError:@"audio session category setup failed"];
+         return;
+     }
+ 
++    // Explicitly (re)activate the session for THIS take. Upstream only set the
++    // category and let AudioQueueStart implicitly activate; after a system
++    // interruption (call, Siri, another app's audio, route change) the session
++    // could stay deactivated and the queue then delivered ALL-ZERO PCM for the
++    // whole take — silence that looks like "no speech detected" on the phone.
++    // Paired with the setActive:NO in stop() so every take starts from a clean,
++    // fully re-initialized session instead of inheriting a stale one.
++    success = [audioSession setActive:YES error:&error];
++    if (!success || error != nil) {
++        RCTLog(@"[RNLiveAudioStream] Problem activating AVAudioSession. Error: %@", error);
++        [self emitError:@"audio session activation failed"];
++        return;
++    }
++
+     _recordState.mIsRunning = true;
+ 
+     OSStatus status = AudioQueueNewInput(&_recordState.mDataFormat, HandleInputBuffer, &_recordState, NULL, NULL, 0, &_recordState.mQueue);
+     if (status != 0) {
+         RCTLog(@"[RNLiveAudioStream] Record Failed. Cannot initialize AudioQueueNewInput. status: %i", (int) status);
++        _recordState.mIsRunning = false;
++        [self emitError:[NSString stringWithFormat:@"audio queue creation failed (%i)", (int) status]];
+         return;
+     }
+ 
+@@ -55,7 +78,14 @@
+         AudioQueueAllocateBuffer(_recordState.mQueue, _recordState.bufferByteSize, &_recordState.mBuffers[i]);
+         AudioQueueEnqueueBuffer(_recordState.mQueue, _recordState.mBuffers[i], 0, NULL);
+     }
+-    AudioQueueStart(_recordState.mQueue, NULL);
++    status = AudioQueueStart(_recordState.mQueue, NULL);
++    if (status != 0) {
++        RCTLog(@"[RNLiveAudioStream] Record Failed. Cannot start audio queue. status: %i", (int) status);
++        _recordState.mIsRunning = false;
++        AudioQueueDispose(_recordState.mQueue, true);
++        _recordState.mQueue = NULL;
++        [self emitError:[NSString stringWithFormat:@"audio queue start failed (%i)", (int) status]];
++    }
+ }
+ 
+ RCT_EXPORT_METHOD(stop) {
+@@ -67,6 +97,16 @@
+             AudioQueueFreeBuffer(_recordState.mQueue, _recordState.mBuffers[i]);
+         }
+         AudioQueueDispose(_recordState.mQueue, true);
++        _recordState.mQueue = NULL;
++
++        // Other half of the per-take activation cycle (see start()): release
++        // the session so the NEXT take re-activates from a known-good state
++        // instead of inheriting whatever an interruption left behind.
++        NSError *error = nil;
++        [[AVAudioSession sharedInstance]
++            setActive:NO
++          withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
++                error:&error];
+     }
+ }
+ 
+@@ -92,7 +132,7 @@
+ }
+ 
+ - (NSArray<NSString *> *)supportedEvents {
+-    return @[@"data"];
++    return @[@"data", @"error"];
+ }
+ 
+ - (void)dealloc {

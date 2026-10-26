@@ -70,7 +70,8 @@
     "cannotConnect": "Can't connect to the voice service",
     "connectTimeout": "Voice service connection timed out — please retry shortly",
     "captureSilent": "No audio captured from the mic — please try again",
-    "noSpeechDetected": "No speech detected — please try again closer to the mic"
+    "noSpeechDetected": "No speech detected — please try again closer to the mic",
+    "micSilent": "Mic captured only silence — please try again"
   },
   "permission": {
     "micTitle": "Microphone permission",

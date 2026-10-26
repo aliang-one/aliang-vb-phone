@@ -57,6 +57,18 @@ const STOP_SAFETY_MS = 7_000;
 const LIVE_CAPTION_THROTTLE_MS = 120;
 const MAX_BUFFERED_AUDIO_BYTES = 512_000;
 const MIN_RECORDING_MS = 450;
+// Digital-silence watchdog (production WAV forensics 2026-10-27, user report
+// "语音发出去后再录全是未识别到语音": after an iOS audio-session interruption the
+// patched-native queue could STILL deliver all-zero PCM (peak 0 / rms 0 for the
+// whole take) while the UI showed a healthy recording — the server faithfully
+// returned an empty transcript and the user burned 8s+ per take. Detect the
+// all-zero stream locally: 2s of strict digital silence (Int16 peak ≤ 1) trips
+// ONE transparent recorder restart; if the stream is still silent 2s later,
+// fail the take immediately instead of shipping zeros for the full duration.
+// Real speech peaks in the hundreds; even room tone on a live MEMS mic is
+// well above ±1 LSB, so false positives essentially require literal zeros.
+const MIC_SILENCE_RESTART_BYTES = 64_000; // 2s of 16kHz/16-bit mono
+const MIC_SILENCE_FAIL_BYTES = 128_000; // 4s of continuous digital silence
 // iOS start() can fail silently natively (setCategory / AudioQueueNewInput only
 // RCTLog) — the UI shows "recording" but zero frames ever arrive. Watchdog the
 // FIRST frame instead (audit 2026-10-16 R2/R8). The window is 5s, NOT shorter:
@@ -74,6 +86,19 @@ const EMPTY_RESULT_MIN_AUDIO_BYTES = 14_400;
 // audio filename, so a constant would collide across recordings.
 const newRequestId = () =>
   `voice-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+// True when every PCM sample in the frame is (almost exactly) zero — the
+// signature of a live capture pipeline that stopped seeing the microphone.
+// A single real sample (room tone, breath, dither) breaks the streak.
+const isDigitalSilence = (frame: ArrayBuffer): boolean => {
+  if (frame.byteLength < 2 || frame.byteLength % 2 !== 0) return false;
+  const samples = new Int16Array(frame);
+  for (let i = 0; i < samples.length; i++) {
+    const value = samples[i];
+    if (value > 1 || value < -1) return false;
+  }
+  return true;
+};
 
 const recorderErrorMessage = (message: string) =>
   message === 'voice_native_unavailable'
@@ -116,6 +141,12 @@ export function useVoiceStt(): UseVoiceSttResult {
   const recordingStartedAtRef = useRef(0);
   // Per-recording request id (server uses it as the stt_records PK + audio name).
   const requestIdRef = useRef('');
+  // Digital-silence watchdog state (see MIC_SILENCE_* constants): consecutive
+  // silent bytes this take, whether the one-shot recorder restart was used,
+  // and whether that restart is currently in flight.
+  const silentBytesRef = useRef(0);
+  const captureRecoveredRef = useRef(false);
+  const recoveringCaptureRef = useRef(false);
 
   const clearLiveCaptionFlush = useCallback(() => {
     if (!liveCaptionFlushTimerRef.current) return;
@@ -209,26 +240,6 @@ export function useVoiceStt(): UseVoiceSttResult {
     audioStreamingReadyRef.current = false;
   }, [flushBufferedAudio, stopVoiceRecorder]);
 
-  const handleAudioFrame = useCallback((frame: ArrayBuffer) => {
-    if (!firstFrameSeenRef.current) {
-      firstFrameSeenRef.current = true;
-      clearCaptureWatchdog();
-    }
-    const socket = socketRef.current;
-    if (audioStreamingReadyRef.current && socket?.isOpen) {
-      if (socket.sendBinary(frame)) sentAudioBytesRef.current += frame.byteLength;
-      return;
-    }
-    const byteLength = frame.byteLength;
-    if (byteLength > MAX_BUFFERED_AUDIO_BYTES) return;
-    while (bufferedAudioBytesRef.current + byteLength > MAX_BUFFERED_AUDIO_BYTES) {
-      const dropped = bufferedAudioRef.current.shift();
-      bufferedAudioBytesRef.current -= dropped?.byteLength ?? 0;
-    }
-    bufferedAudioRef.current.push(frame);
-    bufferedAudioBytesRef.current += byteLength;
-  }, []);
-
   const cleanup = useCallback(() => {
     recordingRequestedRef.current = false;
     stopRequestedRef.current = false;
@@ -242,7 +253,7 @@ export function useVoiceStt(): UseVoiceSttResult {
     socketRef.current?.close();
     socketRef.current = null;
     stopVoiceRecorder();
-  }, [clearLiveCaptionFlush, resetBufferedAudio, stopVoiceRecorder]);
+  }, [clearCaptureWatchdog, clearLiveCaptionFlush, resetBufferedAudio, stopVoiceRecorder]);
 
   useEffect(() => () => cleanup(), [cleanup]);
 
@@ -283,6 +294,80 @@ export function useVoiceStt(): UseVoiceSttResult {
     [clearCaptureWatchdog, clearLiveCaptionFlush, resetBufferedAudio, stopVoiceRecorder],
   );
 
+  // One transparent shot at reviving a digitally-silent capture pipeline (see
+  // MIC_SILENCE_* constants): recycle the native recorder mid-take — the STT
+  // socket and server session keep running, only the mic path is swapped.
+  const recoverCapture = useCallback(async () => {
+    try {
+      if (stopRequestedRef.current || !recordingRequestedRef.current) return;
+      const recovered = await voiceRecorder.recover();
+      // The user may have released (or the take already failed) while the
+      // native swap was in flight: never let the recycled queue outlive the
+      // take, and never clobber an established error state.
+      if (stopRequestedRef.current || erroredRef.current) {
+        void voiceRecorder.stop();
+        return;
+      }
+      if (!recovered && recordingRequestedRef.current) {
+        failWith(i18n.t('common:voice.micSilent'));
+      }
+    } catch {
+      if (!stopRequestedRef.current && recordingRequestedRef.current) {
+        failWith(i18n.t('common:voice.micSilent'));
+      }
+    } finally {
+      recoveringCaptureRef.current = false;
+    }
+  }, [failWith]);
+
+  const handleAudioFrame = useCallback(
+    (frame: ArrayBuffer) => {
+      if (!firstFrameSeenRef.current) {
+        firstFrameSeenRef.current = true;
+        clearCaptureWatchdog();
+      }
+      // Digital-silence accounting (see MIC_SILENCE_*). Any single real sample
+      // resets the streak; sustained literal zeros mean the mic path is dead.
+      if (isDigitalSilence(frame)) {
+        silentBytesRef.current += frame.byteLength;
+      } else {
+        silentBytesRef.current = 0;
+      }
+      if (
+        recordingRequestedRef.current &&
+        !stopRequestedRef.current &&
+        !recoveringCaptureRef.current
+      ) {
+        if (silentBytesRef.current >= MIC_SILENCE_FAIL_BYTES) {
+          failWith(i18n.t('common:voice.micSilent'));
+          return;
+        }
+        if (
+          silentBytesRef.current >= MIC_SILENCE_RESTART_BYTES &&
+          !captureRecoveredRef.current
+        ) {
+          captureRecoveredRef.current = true;
+          recoveringCaptureRef.current = true;
+          void recoverCapture();
+        }
+      }
+      const socket = socketRef.current;
+      if (audioStreamingReadyRef.current && socket?.isOpen) {
+        if (socket.sendBinary(frame)) sentAudioBytesRef.current += frame.byteLength;
+        return;
+      }
+      const byteLength = frame.byteLength;
+      if (byteLength > MAX_BUFFERED_AUDIO_BYTES) return;
+      while (bufferedAudioBytesRef.current + byteLength > MAX_BUFFERED_AUDIO_BYTES) {
+        const dropped = bufferedAudioRef.current.shift();
+        bufferedAudioBytesRef.current -= dropped?.byteLength ?? 0;
+      }
+      bufferedAudioRef.current.push(frame);
+      bufferedAudioBytesRef.current += byteLength;
+    },
+    [clearCaptureWatchdog, failWith, recoverCapture],
+  );
+
   // Fired when the recorder is "running" but the native layer never delivers a
   // single frame (iOS start() failures are silent: audit 2026-10-16 R2/R8).
   const armCaptureWatchdog = useCallback(() => {
@@ -304,6 +389,9 @@ export function useVoiceStt(): UseVoiceSttResult {
       transcriptRef.current = '';
       firstFrameSeenRef.current = false;
       sentAudioBytesRef.current = 0;
+      silentBytesRef.current = 0;
+      captureRecoveredRef.current = false;
+      recoveringCaptureRef.current = false;
       recordingStartedAtRef.current = Date.now();
       recorderStopRequestedRef.current = false;
       onCompleteRef.current = options?.onComplete ?? null;

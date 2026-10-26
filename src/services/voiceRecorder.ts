@@ -20,12 +20,15 @@ export interface VoiceRecorderOptions {
 const DEFAULT_SAMPLE_RATE = 16_000;
 const NATIVE_STOP_TIMEOUT_MS = 900;
 
-// The minimal surface of react-native-live-audio-stream we use.
+// The minimal surface of react-native-live-audio-stream we use. `error` is our
+// patched-in native event (see patches/react-native-live-audio-stream+1.1.1.patch):
+// audio-session / AudioQueue failures that upstream swallowed silently.
 interface LiveAudioStreamApi {
   init(options: Record<string, unknown>): void;
   start(): void;
   stop(): Promise<void> | void;
   on(event: 'data', callback: (data: string) => void): unknown;
+  on(event: 'error', callback: (payload: unknown) => void): unknown;
 }
 
 /**
@@ -197,6 +200,22 @@ class VoiceRecorderService {
     await stopping;
   }
 
+  /**
+   * One-shot mid-take recovery for a capture pipeline gone digitally silent
+   * (production forensics 2026-10-27: after an iOS audio-session interruption
+   * the native queue kept delivering all-zero PCM for the whole take while the
+   * UI showed a healthy recording). Recycles ONLY the native mic path with the
+   * same options — sockets and STT sessions keep running, so the transcript
+   * just misses a beat instead of the take dying. Resolves false when there
+   * was no active recording to recover (or the restart failed).
+   */
+  async recover(): Promise<boolean> {
+    const opts = this.options;
+    if (this.state !== 'recording' || !opts) return false;
+    await this.stop();
+    return this.start(opts);
+  }
+
   private attachDataListener(api: LiveAudioStreamApi) {
     if (this.dataListenerAttached) return;
     api.on('data', (data: string) => {
@@ -209,6 +228,20 @@ class VoiceRecorderService {
       } catch {
         // Ignore a single bad frame rather than aborting the session.
       }
+    });
+    // Native capture failures (audio-session category/activation, AudioQueue
+    // create/start) — upstream 1.1.1 logged-and-ignored these, leaving the UI
+    // in "recording" while nothing was captured. Body shape from the patch:
+    // { message: string }.
+    api.on('error', (payload: unknown) => {
+      if (this.state !== 'recording') return;
+      const message =
+        typeof payload === 'string'
+          ? payload
+          : typeof payload === 'object' && payload !== null && 'message' in payload
+            ? String((payload as { message: unknown }).message)
+            : 'voice_capture_error';
+      this.options?.onError?.(message);
     });
     this.dataListenerAttached = true;
   }
