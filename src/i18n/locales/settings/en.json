@@ -143,6 +143,8 @@
       "routePrimarySub": "Primary route · optimized for overseas",
       "routeNat0": "CN Relay",
       "routeNat0Sub": "CN relay · direct acceleration",
+      "routeHk": "HK Backup",
+      "routeHkSub": "International backup route",
       "unreachable": "unreachable",
       "probing": "Probing…",
       "manualHint": "Manual route locked — auto probing and failover are off."

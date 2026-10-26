@@ -53,9 +53,11 @@ export interface PlatformServiceHealth {
 // —— 双通道候选(编译期常量;新增节点=加一行)——
 const PRIMARY_BASE_URL = PLATFORM_SERVICE_BASE_URL; // https://ws-vb-phone.aliang.one(HK)
 const NAT0_BASE_URL = normalizeServiceBaseUrl('https://ws-vb-phone.liangsqrt.com:40557');
+const HK_BASE_URL = normalizeServiceBaseUrl('https://ws-vb-phone-hk.nat.aliang.one');
 const ENDPOINTS: ReadonlyArray<{ id: EndpointId; baseUrl: string }> = [
   { id: 'primary', baseUrl: PRIMARY_BASE_URL },
   { id: 'nat0', baseUrl: NAT0_BASE_URL },
+  { id: 'hk', baseUrl: HK_BASE_URL },
 ];
 
 const PRIOR_STORAGE_KEY = 'nat.channel.prior';
@@ -126,7 +128,9 @@ export async function getChannelMode(): Promise<ChannelModeState> {
     const mode = await AsyncStorage.getItem(MODE_STORAGE_KEY);
     if (mode === 'manual') {
       const manual = await AsyncStorage.getItem(MANUAL_STORAGE_KEY);
-      return { mode: 'manual', manual: manual === 'nat0' ? 'nat0' : 'primary' };
+      if (manual === 'primary' || manual === 'nat0' || manual === 'hk') {
+        return { mode: 'manual', manual };
+      }
     }
   } catch { /* 读失败按自动 */ }
   return { mode: 'auto', manual: 'primary' };
@@ -175,7 +179,9 @@ export function reportChannelFailure(): void {
     // 流量),故障恢复后的回切只能由后台重探/锁过期驱动,禁止立即横跳。
     lockedAgainst = activeId;
     lockUntil = Date.now() + FLIP_LOCK_MS;
-    activeId = activeId === 'primary' ? 'nat0' : 'primary';
+    // 循环切到下一通道(primary→nat0→hk→primary);被逃离通道由防横跳锁锁定
+    const idx = ENDPOINTS.findIndex(e => e.id === activeId);
+    activeId = ENDPOINTS[(idx + 1) % ENDPOINTS.length].id;
     consecutiveFailures = 0;
   }
 }
@@ -286,6 +292,17 @@ export function __stopBackgroundReprobeForTests(): void {
     clearInterval(reprobeTimer);
     reprobeTimer = null;
   }
+}
+
+/** 测试专用:复位全部通道运行态( activeId/计数/防横跳锁/重探定时器),
+ * 消除用例间的模块状态耦合。生产代码勿调用。 */
+export function __resetChannelStateForTests(): void {
+  __stopBackgroundReprobeForTests();
+  activeId = 'primary';
+  consecutiveFailures = 0;
+  lockedAgainst = null;
+  lockUntil = 0;
+  platformServiceReachable = false;
 }
 
 async function probePlatformService(

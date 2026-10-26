@@ -50,3 +50,40 @@ describe('domesticPrior', () => {
     expect(domesticPrior()).toBe('nat0');
   });
 });
+
+describe('第三通道 hk(三通道择优)', () => {
+  const P = (id: EndpointId, ttfbMs: number | null): ChannelProbe => ({ id, ttfbMs });
+
+  it('hk 快 30%+ → hk 胜出', () => {
+    expect(pickChannel([P('primary', 200), P('nat0', 210), P('hk', 100)], 'primary')).toBe('hk');
+  });
+  it('primary 最快 → primary(hk/nat0 不影响)', () => {
+    expect(pickChannel([P('primary', 100), P('nat0', 210), P('hk', 200)], 'nat0')).toBe('primary');
+  });
+  it('三方全在滞回带 → 先验裁决', () => {
+    expect(pickChannel([P('primary', 200), P('nat0', 190), P('hk', 185)], 'nat0')).toBe('nat0');
+    expect(pickChannel([P('primary', 200), P('nat0', 190), P('hk', 185)], 'primary')).toBe('primary');
+  });
+  it('primary 挂 → 剩余中最快者胜', () => {
+    expect(pickChannel([P('primary', null), P('nat0', 300), P('hk', 100)], 'primary')).toBe('hk');
+  });
+});
+
+describe('先验不得选出显著更慢的通道(三通道回归)', () => {
+  const P = (id: EndpointId, ttfbMs: number | null): ChannelProbe => ({ id, ttfbMs });
+
+  it('hk 与 primary 打平(2/2.5ms)、地理先验=nat0(122ms) → 不得选 nat0,取带内最快', () => {
+    // 2026-10-26 实测事故形态:两条快线打平进滞回带,地理先验把流量
+    // 判给慢 47 倍的第三通道。
+    const probes = [P('primary', 2.5), P('nat0', 122), P('hk', 2)];
+    expect(pickChannel(probes, 'nat0')).not.toBe('nat0');
+  });
+  it('先验在带内 → 先验裁决(语义保持)', () => {
+    const probes = [P('primary', 150), P('nat0', 150), P('hk', null)];
+    expect(pickChannel(probes, 'nat0')).toBe('nat0');
+  });
+  it('先验通道显著更快 → 先验当选(语义保持)', () => {
+    const probes = [P('primary', 100), P('nat0', 300), P('hk', null)];
+    expect(pickChannel(probes, 'primary')).toBe('primary');
+  });
+});

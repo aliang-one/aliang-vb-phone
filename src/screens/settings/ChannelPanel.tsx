@@ -82,7 +82,11 @@ export const ChannelPanel: React.FC = () => {
   const manual = mode === 'manual';
 
   const routeLabel = (id: EndpointId): string =>
-    id === 'nat0' ? t('about.channel.routeNat0') : t('about.channel.routePrimary');
+    id === 'nat0'
+      ? t('about.channel.routeNat0')
+      : id === 'hk'
+        ? t('about.channel.routeHk')
+        : t('about.channel.routePrimary');
 
   const latencyLabel = (id: EndpointId): string => {
     if (!status) return t('about.channel.probing');
@@ -97,7 +101,7 @@ export const ChannelPanel: React.FC = () => {
     ? `${t('about.channel.locked')} ${routeLabel(activeId)} · ${latencyLabel(activeId)}`
     : `${t('about.channel.autoTag')} · ${t('about.channel.activeNow')} ${routeLabel(activeId)} · ${latencyLabel(activeId)}`;
 
-  const routes: EndpointId[] = ['primary', 'nat0'];
+  const routes: EndpointId[] = ['primary', 'nat0', 'hk'];
 
   return (
     <View testID="settings-channel-panel">

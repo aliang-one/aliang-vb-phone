@@ -1,7 +1,8 @@
-// 双通道选择纯函数 — 零 RN/网络依赖,规则见 spec §5.2:
+// 多通道选择纯函数 — 零 RN/网络依赖,规则见 spec §5.2:
 // docs/superpowers/specs/2026-10-26-nat0-relay-dual-channel-design.md
-// 海外走 HK 主通道、国内走 nat0 直连 = 探测主判据 + 地理先验兜平手。
-export type EndpointId = 'primary' | 'nat0';
+// 探测主判据:最快者需比次快者快 ≥30% 才当选;滞回带内 → 地理/持久化先验裁决。
+// 通道列表由 config/localService 的 ENDPOINTS 决定(primary/nat0/hk)。
+export type EndpointId = 'primary' | 'nat0' | 'hk';
 
 export interface ChannelProbe {
   id: EndpointId;
@@ -9,7 +10,7 @@ export interface ChannelProbe {
   ttfbMs: number | null;
 }
 
-/** 中继当选所需的最小优势:比对手快 ≥30%(即 ≤ 对手×0.7) */
+/** 挑战者当选所需的最小优势:比次快者快 ≥30%(即 ≤ 对手×0.7) */
 export const RELAY_WIN_RATIO = 0.7;
 
 const CHINA_TIMEZONES = new Set([
@@ -29,20 +30,26 @@ export function domesticPrior(now: Date = new Date()): EndpointId {
   return now.getTimezoneOffset() === -480 ? 'nat0' : 'primary';
 }
 
+/**
+ * N 通道择优:最快者需比次快者快 ≥30%;滞回带内 → 先验裁决(地理先验兜平手)。
+ * 仅一条通道可达 → 直接选它;全部不可达 → 先验。
+ */
 export function pickChannel(probes: ChannelProbe[], prior: EndpointId): EndpointId {
-  const byId = new Map(probes.map(p => [p.id, p] as const));
-  const primary = byId.get('primary');
-  const nat0 = byId.get('nat0');
-  const primaryOk = !!primary && primary.ttfbMs !== null;
-  const nat0Ok = !!nat0 && nat0.ttfbMs !== null;
-  if (primaryOk && nat0Ok) {
-    const a = primary!.ttfbMs as number;
-    const b = nat0!.ttfbMs as number;
-    if (b <= a * RELAY_WIN_RATIO) return 'nat0';
-    if (a <= b * RELAY_WIN_RATIO) return 'primary';
-    return prior; // 平手 → 先验
+  const ok = probes.filter(p => p.ttfbMs !== null);
+  if (ok.length === 0) return prior;
+  const sorted = [...ok].sort((a, b) => (a.ttfbMs as number) - (b.ttfbMs as number));
+  const best = sorted[0];
+  if (ok.length === 1) return best.id;
+  const second = sorted[1];
+  // 位移规则(优先):最快者比次快者快 ≥30% → 直接当选,先验不参与
+  if ((best.ttfbMs as number) <= (second.ttfbMs as number) * RELAY_WIN_RATIO) {
+    return best.id;
   }
-  if (nat0Ok) return 'nat0';
-  if (primaryOk) return 'primary';
-  return prior; // 皆不可达 → 先验
+  // 滞回带:无人有 ≥30% 优势 → 先验裁决,但仅限带内成员
+  // (带内 = 与最快者差距 <43%;带外通道绝不能因先验当选——三通道下
+  // 两条快线打平、先验指向慢 47 倍的第三通道,实测事故形态)
+  const bandMax = (best.ttfbMs as number) / RELAY_WIN_RATIO;
+  const inBand = sorted.filter(p => (p.ttfbMs as number) <= bandMax);
+  const priorPick = inBand.find(p => p.id === prior);
+  return (priorPick ?? best).id;
 }

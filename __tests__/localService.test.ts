@@ -38,9 +38,11 @@ import {
   rememberPlatformServiceBaseUrl,
   reportChannelFailure,
   __stopBackgroundReprobeForTests,
+  __resetChannelStateForTests,
 } from '../src/config/localService';
 
 const NAT0_BASE_URL = 'https://ws-vb-phone.liangsqrt.com:40557';
+const HK_BASE_URL = 'https://ws-vb-phone-hk.nat.aliang.one';
 const PRIOR_STORAGE_KEY = 'nat.channel.prior';
 
 const delay = (ms: number) =>
@@ -55,10 +57,15 @@ const delay = (ms: number) =>
 function mockHealthByChannel(spec: {
   primary?: number | 'fail';
   nat0?: number | 'fail';
+  hk?: number | 'fail';
 }): void {
   fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
-    const isNat0 = String(input).includes('liangsqrt.com:40557');
-    const channel = isNat0 ? spec.nat0 : spec.primary;
+    const u = String(input);
+    const channel = u.includes('liangsqrt.com:40557')
+      ? spec.nat0
+      : u.includes('ws-vb-phone-hk.nat.aliang.one')
+        ? spec.hk
+        : spec.primary;
     if (channel === 'fail') throw new Error('probe failed');
     await delay(channel ?? 0);
     return { ok: true, status: 200 };
@@ -124,7 +131,10 @@ describe('platform service base url — single source of truth', () => {
 });
 
 describe('双通道探测与选择', () => {
-  beforeEach(resetMocks);
+  beforeEach(() => {
+    resetMocks();
+    __resetChannelStateForTests();
+  });
 
   afterEach(() => {
     __stopBackgroundReprobeForTests();
@@ -161,7 +171,7 @@ describe('双通道探测与选择', () => {
   });
 
   it('双通道均不可达 → throw /Unable to reach/ 且标记不可达', async () => {
-    mockHealthByChannel({ primary: 'fail', nat0: 'fail' });
+    mockHealthByChannel({ primary: 'fail', nat0: 'fail', hk: 'fail' });
 
     await expect(discoverReachableBaseUrl()).rejects.toThrow(/Unable to reach/);
     expect(isPlatformServiceReachable()).toBe(false);
@@ -170,8 +180,8 @@ describe('双通道探测与选择', () => {
   it('平手(30% 滞回带内)→ 用 AsyncStorage 先验裁决:存 nat0 则选 nat0', async () => {
     jest.mocked(AsyncStorage.getItem).mockResolvedValueOnce('nat0');
     // 150ms 对称:滞回带是相对带宽(0.7×~1.43×),太短的延迟下 CI 一次
-    // ~18ms 的不对称事件循环停顿就能把平手挤出带外。
-    mockHealthByChannel({ primary: 150, nat0: 150 });
+    // ~18ms 的不对称事件循环停顿就能把平手挤出带外。hk 同延迟:先验裁决。
+    mockHealthByChannel({ primary: 150, nat0: 150, hk: 150 });
 
     const url = await discoverReachableBaseUrl();
 
@@ -180,22 +190,25 @@ describe('双通道探测与选择', () => {
   });
 
   it('连续 3 次 reportChannelFailure → 翻转通道,getPlatformServiceBaseUrl 立即返回新通道', async () => {
-    // 显式清零失败计数,不依赖前序用例的计数残留。
-    await rememberPlatformServiceBaseUrl('warmup');
-    const before = getActiveEndpointId();
+    // 钉定起点为 primary(排除前序用例状态耦合),验证三通道循环翻转。
+    mockHealthByChannel({ primary: 0, nat0: 120, hk: 'fail' });
+    await discoverReachableBaseUrl();
+    __stopBackgroundReprobeForTests();
+    expect(getActiveEndpointId()).toBe('primary');
 
     reportChannelFailure();
     reportChannelFailure();
-    expect(getActiveEndpointId()).toBe(before); // 2 次不翻
-
     reportChannelFailure();
-    expect(getActiveEndpointId()).not.toBe(before); // 第 3 次翻转
-
-    const urlAfterFlip = before === 'nat0' ? PLATFORM_SERVICE_BASE_URL : NAT0_BASE_URL;
-    await expect(getPlatformServiceBaseUrl()).resolves.toBe(urlAfterFlip);
+    // 循环:primary → nat0;防横跳锁锁住 primary
+    expect(getActiveEndpointId()).toBe('nat0');
+    await expect(getPlatformServiceBaseUrl()).resolves.toBe(NAT0_BASE_URL);
   });
 
   it('成功上报清零失败计数:2 败 + 1 成功 + 2 败 → 不切换', async () => {
+    // 钉定起点 primary,隔离前序用例状态。
+    mockHealthByChannel({ primary: 0, nat0: 'fail', hk: 'fail' });
+    await discoverReachableBaseUrl();
+    __stopBackgroundReprobeForTests();
     await rememberPlatformServiceBaseUrl('warmup');
     const before = getActiveEndpointId();
 
@@ -205,9 +218,8 @@ describe('双通道探测与选择', () => {
     reportChannelFailure();
     reportChannelFailure();
 
-    expect(getActiveEndpointId()).toBe(before);
-    const urlUnchanged = before === 'nat0' ? NAT0_BASE_URL : PLATFORM_SERVICE_BASE_URL;
-    await expect(getPlatformServiceBaseUrl()).resolves.toBe(urlUnchanged);
+    expect(getActiveEndpointId()).toBe('primary');
+    await expect(getPlatformServiceBaseUrl()).resolves.toBe(PLATFORM_SERVICE_BASE_URL);
   });
 
   it('防横跳锁:故障切到 nat0 后,primary 探测快得多也不得立即切回', async () => {
@@ -230,8 +242,21 @@ describe('双通道探测与选择', () => {
     expect(getActiveEndpointId()).toBe('nat0');
   });
 
-  it('防横跳锁过期后:重探让 primary 赢回', async () => {
-    // 依赖上一用例遗留状态:activeId='nat0'、lockedAgainst='primary'。
+  it('防横跳锁过期后:重探让 primary 赢回(自包含前置)', async () => {
+    // 自建前置:钉 primary → 3 连败切 nat0(对 primary 上 5 分钟锁)。
+    mockHealthByChannel({ primary: 0, nat0: 120, hk: 'fail' });
+    await discoverReachableBaseUrl();
+    __stopBackgroundReprobeForTests();
+    expect(getActiveEndpointId()).toBe('primary');
+    reportChannelFailure();
+    reportChannelFailure();
+    reportChannelFailure();
+    expect(getActiveEndpointId()).toBe('nat0');
+
+    // 锁窗口内:primary 探测最快也不得切回(锁语义)。
+    mockHealthByChannel({ primary: 0, nat0: 120, hk: 'fail' });
+    const urlLocked = await discoverReachableBaseUrl();
+    expect(urlLocked).toBe(NAT0_BASE_URL);
     expect(getActiveEndpointId()).toBe('nat0');
 
     // 把时钟推过 lockUntil(FLIP_LOCK_MS=5min,取 6min 余量)。
@@ -242,7 +267,7 @@ describe('双通道探测与选择', () => {
       .spyOn(Date, 'now')
       .mockImplementation(() => realDateNow() + 6 * 60 * 1000);
     try {
-      mockHealthByChannel({ primary: 0, nat0: 120 });
+      mockHealthByChannel({ primary: 0, nat0: 120, hk: 'fail' });
       const url = await discoverReachableBaseUrl();
       expect(url).toBe(PLATFORM_SERVICE_BASE_URL);
       expect(getActiveEndpointId()).toBe('primary');
