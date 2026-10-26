@@ -329,28 +329,16 @@ export function isApprovalLikeLegacyStatus(status: VibeStatus | undefined): bool
 }
 
 /**
- * Composer 是否因 provider 并发而锁定(Claude Code / OpenCode 是单进程 CLI,跑回合时不能并发收新消息)。
- *
- * **关键**:用「生命迹象」(isSessionLive)而不是裸 `session.status` 判活。回合答完后
- * status 常停在陈旧的 `'running'`(settle 推送丢失 / `mergeVibeRunSnapshot` 的
- * staleDemotion 守卫卡住 running→idle),裸读 status 会让 composer 在顶部已显「已完成」时
- * 仍锁「Claude Code 正在运行」——与 L1 相位脱节。`isSessionLive` 与 `deriveSessionPhase`
- * 同源(8s 活动窗口 + active 思考/命令),保证顶部相位与底部 composer 锁对「是否在干活」
- * 的判定一致:顶部说「已完成」(无生命迹象)时,composer 也必须解锁。
- *
- * `waiting_approval` 仍锁:那是单进程 CLI 卡在权限请求上(服务端主动推送的可靠状态),
- * 与 settle 的陈旧 running 无关,沿用旧行为不放开。`failed`/`completed`/`idle`(非 live、
- * 非待审批)→ 不锁。
- *
- * 非单进程 provider(如 codex,支持排队并发收消息)→ 永不锁。
- */
-/**
  * 这条消息应当作为 steer（回合中插话）发出，还是作为普通新消息发出？
  *
  * - codex：app-server 的 turn/steer，历史通道；
  * - claude_code：需要设备具备 `ai_steer_claude`（新 agent 的 stream-json 常驻
  *   stdin 通道）。老 agent 无条件宣称 `ai_steer` 却只实现了 Codex，所以这里
  *   必须看专属能力位，否则消息会失败在 agent 侧；
+ * - agentcore：内置内核，steer 是**进程内**的 `agentAICoreSteerControl` 队列，
+ *   每轮 LLM 调用前由 `drainAgentCoreSteering` 取走。不依赖任何外部 CLI，也不
+ *   依赖设备能力位（能力位描述的是「对端 agent 版本够不够新」，内置内核永远
+ *   是当前版本）——所以无条件可 steer；
  * - opencode：没有 steer 通道。
  */
 export function shouldSendAsSteer(
@@ -360,6 +348,7 @@ export function shouldSendAsSteer(
 ): boolean {
   if (!executionActive) return false;
   if (provider === 'codex') return true;
+  if (provider === 'agentcore') return true;
   if (provider === 'claude_code') return canSteerClaude;
   return false;
 }
@@ -388,10 +377,29 @@ export function shouldBlockConcurrentSend(
 ): boolean {
   if (!turnActive) return false;
   if (waitingApproval) return true;
+  // 硬拦名单只列「单进程、拿不到 steer 就只能等」的 provider。
+  // agentcore 不在其中：内置内核的 steer 通道恒存在（见 shouldSendAsSteer），
+  // 运行中发消息一律走 steer，不存在「拦下来让用户先停」的必要。
   if (provider !== 'claude_code' && provider !== 'opencode') return false;
   return !sendAsSteer;
 }
 
+/**
+ * Composer 是否因 provider 并发而锁定(Claude Code / OpenCode 是单进程 CLI,跑回合时不能并发收新消息)。
+ *
+ * **关键**:用「生命迹象」(isSessionLive)而不是裸 `session.status` 判活。回合答完后
+ * status 常停在陈旧的 `'running'`(settle 推送丢失 / `mergeVibeRunSnapshot` 的
+ * staleDemotion 守卫卡住 running→idle),裸读 status 会让 composer 在顶部已显「已完成」时
+ * 仍锁「Claude Code 正在运行」——与 L1 相位脱节。`isSessionLive` 与 `deriveSessionPhase`
+ * 同源(8s 活动窗口 + active 思考/命令),保证顶部相位与底部 composer 锁对「是否在干活」
+ * 的判定一致:顶部说「已完成」(无生命迹象)时,composer 也必须解锁。
+ *
+ * `waiting_approval` 仍锁:那是单进程 CLI 卡在权限请求上(服务端主动推送的可靠状态),
+ * 与 settle 的陈旧 running 无关,沿用旧行为不放开。`failed`/`completed`/`idle`(非 live、
+ * 非待审批)→ 不锁。
+ *
+ * 非单进程 provider(如 codex,支持排队并发收消息)→ 永不锁。
+ */
 export function shouldLockComposerForProvider(
   isSessionLive: boolean,
   status: VibeStatus | undefined,
@@ -407,6 +415,10 @@ export function shouldLockComposerForProvider(
   // codex 传输层是常驻 app-server（转发即可），运行中永不锁；但审批等待
   // 与其它 provider 同构——暂停即锁。
   if (provider === 'codex') return isWaiting;
+  // agentcore 同 codex：内置内核的 steer 是进程内队列，运行中随时可插话。
+  // 这里若按默认分支锁 composer，用户连字都打不出来，steer 通道形同不存在
+  // ——「支持 steer」会变成一句空话。审批等待仍锁（同 codex：会话暂停）。
+  if (provider === 'agentcore') return isWaiting;
   // Claude Code 在新 agent 上支持回合中插话（steer）：运行中不再锁 composer，
   // 否则用户根本发不出 steer（消息会在本地被硬闸拦下）。审批等待仍锁——那是
   // 单进程 CLI 卡在权限请求上，语义与「运行中插话」不同，保持旧行为。
