@@ -447,7 +447,7 @@
       "retryHintBusy": "⏳ 网关繁忙，重试中 {{attempt}}/{{max}}"
     },
     "composer": {
-      "claudeRunning": "Claude Code 正在运行，停止后可继续输入。",
+      "claudeRunning": "Agent 正在运行，停止后可继续输入。",
       "userDefault": "用户默认",
       "tuiStopGreyed": "本回合正跑在桌面终端里——可以直接点停止键结束本轮；回合结束后即可继续对话。",
       "tuiSteerableHint": "本回合正跑在桌面终端里——可以直接插话（排队接续），也可以点停止键结束本轮。",
