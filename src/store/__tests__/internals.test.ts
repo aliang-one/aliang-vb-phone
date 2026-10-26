@@ -1217,3 +1217,41 @@ describe('serverAiSessionToVibeRun detailRefreshStatus 映射(C4:粘性诊断不
     expect(merged.detailState).toBeUndefined();
   });
 });
+
+describe('mergeAgentMessages — 心跳快照对象身份(2026-10-26 卡顿审计)', () => {
+  // agentTranscript 的 WeakMap 段落解析缓存按对象身份命中。旧规则只护
+  // 「current 更长」,等长内容也换新对象 → 每个 10s 心跳拍 / 每 100ms 流式
+  // flush 都把整个热窗冷解析一遍。等长且 pending 未变时必须保留旧引用。
+
+  it('内容与 pending 都没变 → 保留旧对象引用(WeakMap 缓存命中前提)', () => {
+    const existing: AgentMessage[] = [
+      { id: 'a1', role: 'assistant', content: 'same content', timestamp: 't1' },
+    ];
+    const incoming: AgentMessage[] = [
+      { id: 'a1', role: 'assistant', content: 'same content', timestamp: 't1' },
+    ];
+    const merged = mergeAgentMessages(existing, incoming);
+    expect(merged[0]).toBe(existing[0]);
+  });
+
+  it('流式增长(current 更长)仍取 current——旧语义不变', () => {
+    const existing: AgentMessage[] = [
+      { id: 'a2', role: 'assistant', content: '本地更长的流式内容……', timestamp: 't1' },
+    ];
+    const merged = mergeAgentMessages(existing, [
+      { id: 'a2', role: 'assistant', content: '短', timestamp: 't1' },
+    ]);
+    expect(merged[0]).toBe(existing[0]);
+  });
+
+  it('内容变化(变长)取 incoming 新对象——流式收尾正常换血', () => {
+    const existing: AgentMessage[] = [
+      { id: 'a3', role: 'assistant', content: '短', timestamp: 't1' },
+    ];
+    const incoming: AgentMessage[] = [
+      { id: 'a3', role: 'assistant', content: '变长后的最终内容……', timestamp: 't1' },
+    ];
+    const merged = mergeAgentMessages(existing, incoming);
+    expect(merged[0]).toBe(incoming[0]);
+  });
+});

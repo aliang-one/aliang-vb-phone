@@ -919,11 +919,37 @@ const cellAlign = (cell: string): TableAlign => {
   return null;
 };
 
-const lineStartsHeading = (line: string) => /^#{1,6}\s+/.test(line.trim());
+// isTablePairStart 判定「本行是表头且下一行是分隔行」——表格分支的可达性
+// 谓词。主循环、paragraph 收集、融合拆分三处共用,保证判定一致。
+const isTablePairStart = (
+  line: string | undefined,
+  nextLine: string | undefined,
+): boolean => {
+  if (!line || !nextLine || !line.includes('|')) return false;
+  const headerCells = splitTableRow(line);
+  const sepCells = splitTableRow(nextLine);
+  return (
+    headerCells.length >= 1 &&
+    sepCells.length === headerCells.length &&
+    sepCells.every(cell => /^:?-+:?$/.test(cell))
+  );
+};
+
+// 标题容错(2026-10-26 生产实证):GLM 系中文输出习惯写 `##标题`(# 后无空格),
+// 严格 CommonMark 形态会把它落成 paragraph、井号原样显示——agentcore 会话
+// 生产命中率 11%(claude 侧 0.9%,同族中文模型经 router 也有)。放宽为:
+// # 串后面要么是「空白+内容」,要么直接跟内容;`#######`(越界 # 串)与
+// 空标题(`## ` 只有尾随空格)仍不算。
+const lineStartsHeading = (line: string) => /^#{1,6}(\s+[^#\s]|[^#\s])/.test(line.trim());
 
 const lineStartsQuote = (line: string) => /^>\s?/.test(line.trim());
 
-const unorderedListMatch = (line: string) => line.match(/^\s*[-*+]\s+(.+)$/);
+// 列表容错(2026-10-26 生产实证,agentcore 22% 命中):GLM 中文输出常写
+// `-存档`(短横后无空格)。只放宽短横这一种标记:后一字符不得是空白/数字/
+// 短横(挡掉负数 `-5度`、`--flag`、`---` 分隔线);`*`/`+` 保持要求空格
+// (与 `*强调*` 歧义太大,不值得)。
+const unorderedListMatch = (line: string) =>
+  line.match(/^\s*[-*+]\s+(.+)$/) ?? line.match(/^\s*-(?![\s\d-])(.+)$/);
 
 const orderedListMatch = (line: string) => line.match(/^\s*\d+[.)]\s+(.+)$/);
 
@@ -979,16 +1005,26 @@ export const parseMarkdownBlocks = (
       continue;
     }
 
-    if (line.includes('|') && index + 1 < lines.length) {
-      const headerCells = splitTableRow(line);
-      const sepCells = splitTableRow(lines[index + 1]);
+    // 融合形态容错(2026-10-26 生产实证):GLM 会把表头直接接在标题文字后
+    // (`##📦 核心项目| 项目 | 技术栈 |`)。首根竖线前是标题、竖线后恰是
+    // 表头、下一行是匹配的分隔行 → 拆成 heading + table 两块,别整段落进
+    // paragraph 原样显示。
+    if (lineStartsHeading(line) && line.includes('|') && index + 1 < lines.length) {
+      const pipeIndex = line.indexOf('|');
+      const headingMatch = line.slice(0, pipeIndex).trim().match(/^(#{1,6})\s*(.+)$/);
+      const headerPart = line.slice(pipeIndex);
       if (
-        headerCells.length >= 1 &&
-        sepCells.length === headerCells.length &&
-        sepCells.every(cell => /^:?-+:?$/.test(cell))
+        headingMatch &&
+        isTablePairStart(headerPart, lines[index + 1])
       ) {
+        blocks.push({
+          kind: 'heading',
+          level: headingMatch[1].length,
+          children: parseInlineMarkdown(headingMatch[2], inlineTags),
+        });
+        const sepCells = splitTableRow(lines[index + 1]);
         const align = sepCells.map(cellAlign);
-        const headers = headerCells.map(cell =>
+        const headers = splitTableRow(headerPart).map(cell =>
           parseInlineMarkdown(cell, inlineTags),
         );
         index += 2;
@@ -999,10 +1035,7 @@ export const parseMarkdownBlocks = (
           lines[index].includes('|')
         ) {
           const rowCells = splitTableRow(lines[index]);
-          const padded = headers.map((_, i) =>
-            parseInlineMarkdown(rowCells[i] ?? '', inlineTags),
-          );
-          rows.push(padded);
+          rows.push(headers.map((_, i) => parseInlineMarkdown(rowCells[i] ?? '', inlineTags)));
           index += 1;
         }
         blocks.push({ kind: 'table', align, headers, rows });
@@ -1010,8 +1043,32 @@ export const parseMarkdownBlocks = (
       }
     }
 
+    if (isTablePairStart(line, lines[index + 1])) {
+      const sepCells = splitTableRow(lines[index + 1]);
+      const align = sepCells.map(cellAlign);
+      const headers = splitTableRow(line).map(cell =>
+        parseInlineMarkdown(cell, inlineTags),
+      );
+      index += 2;
+      const rows: TranscriptMarkdownInline[][][] = [];
+      while (
+        index < lines.length &&
+        !isBlank(lines[index]) &&
+        lines[index].includes('|')
+      ) {
+        const rowCells = splitTableRow(lines[index]);
+        const padded = headers.map((_, i) =>
+          parseInlineMarkdown(rowCells[i] ?? '', inlineTags),
+        );
+        rows.push(padded);
+        index += 1;
+      }
+      blocks.push({ kind: 'table', align, headers, rows });
+      continue;
+    }
+
     if (lineStartsHeading(line)) {
-      const match = trimmed.match(/^(#{1,6})\s+(.+)$/);
+      const match = trimmed.match(/^(#{1,6})\s*(.+)$/);
       if (match) {
         blocks.push({
           kind: 'heading',
@@ -1076,7 +1133,12 @@ export const parseMarkdownBlocks = (
     while (
       index < lines.length &&
       !isBlank(lines[index]) &&
-      !lineStartsBlock(lines[index])
+      !lineStartsBlock(lines[index]) &&
+      // 表格紧贴散文(2026-10-26 生产实证):GLM 写表格常不与上一行空行分隔,
+      // 不在这里中断的话,表头/分隔行/数据行会被整段吞进 paragraph,竖线
+      // 原样显示,表格分支(见上)永远轮不到。识别「本行像表头且下一行是
+      // 分隔行」即收笔,把扫描器停在表头行交还给主循环。
+      !isTablePairStart(lines[index], lines[index + 1])
     ) {
       paragraphLines.push(lines[index].trim());
       index += 1;

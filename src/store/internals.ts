@@ -909,12 +909,17 @@ export function mergeAgentMessages(
   const resolveMessage = (
     current: VibeCodingRun['transcript'][number] | undefined,
     item: VibeCodingRun['transcript'][number],
-  ) =>
-    current?.role === 'assistant' &&
-    item.role === 'assistant' &&
-    current.content.length > item.content.length
-      ? current
-      : item;
+  ) => {
+    if (current?.role !== 'assistant' || item.role !== 'assistant') return item;
+    // 心跳快照常态(2026-10-26 卡顿审计):内容与 pending 都没变 → 保留旧对象
+    // 身份。agentTranscript 的 WeakMap 段落解析缓存按对象身份命中,身份一断,
+    // 每个 10s 心跳拍(以及每 100ms 流式 flush)都会把整个热窗冷解析一遍。
+    // 等长内容在旧规则里也会换新对象(length 比较只护「current 更长」)。
+    if (current.content === item.content && current.pending === item.pending) {
+      return current;
+    }
+    return current.content.length > item.content.length ? current : item;
+  };
 
   const findPendingConfirmationIndex = (
     current: VibeCodingRun['transcript'][number],

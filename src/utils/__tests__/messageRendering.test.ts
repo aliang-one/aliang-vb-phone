@@ -320,3 +320,77 @@ describe('parseMessageContentSegments — harness 信封渲染', () => {
     expect(segs.some(s => s.kind === 'text')).toBe(true);
   });
 });
+
+describe('parseMarkdownBlocks — 容错(2026-10-26 GLM 输出风格生产实证)', () => {
+  // 生产占比:agentcore 会话无空格标题 11%、无空格列表 22%、表头接标题
+  // 文字 5.6%;claude 侧同族中文模型也有 ~1%。此前全部落 paragraph 原样
+  // 显示(标题井号/表格竖线肉眼可见)。
+
+  it('无空格标题 `##标题` → heading,不再落 paragraph 原文', () => {
+    const blocks = parseMarkdownBlocks(text('##标题\n正文段落'));
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].kind).toBe('heading');
+    if (blocks[0].kind !== 'heading') return;
+    expect(blocks[0].level).toBe(2);
+    expect(blocks[0].children).toEqual([{ kind: 'text', content: '标题' }]);
+  });
+
+  it('越界 # 串 `#######` 与空标题 `## ` 仍不算标题', () => {
+    for (const raw of ['#######七个\n正文', '##   \n正文']) {
+      const blocks = parseMarkdownBlocks(text(raw));
+      expect(blocks[0].kind).toBe('paragraph');
+    }
+  });
+
+  it('无空格标题后紧贴表格 → heading + table(表格行不被吞)', () => {
+    const blocks = parseMarkdownBlocks(
+      text('###小节\n| a | b |\n| --- | --- |\n| 1 | 2 |'),
+    );
+    expect(blocks.map(b => b.kind)).toEqual(['heading', 'table']);
+    if (blocks[1].kind !== 'table') return;
+    expect(blocks[1].rows).toHaveLength(1);
+  });
+
+  it('散文后紧贴表格 → paragraph + table(表格行不被 paragraph 吞掉)', () => {
+    const blocks = parseMarkdownBlocks(
+      text('结论如下：\n| a | b |\n| --- | --- |\n| 1 | 2 |'),
+    );
+    expect(blocks.map(b => b.kind)).toEqual(['paragraph', 'table']);
+  });
+
+  it('融合形态 `##标题文字| 项目 | 技术栈 |` 拆成 heading + table', () => {
+    const blocks = parseMarkdownBlocks(
+      text('##📦 核心项目| 项目 | 技术栈 |\n| --- | --- |\n| x | y |'),
+    );
+    expect(blocks.map(b => b.kind)).toEqual(['heading', 'table']);
+    if (blocks[0].kind !== 'heading' || blocks[1].kind !== 'table') return;
+    expect(blocks[0].children).toEqual([{ kind: 'text', content: '📦 核心项目' }]);
+    expect(blocks[1].headers).toEqual([
+      [{ kind: 'text', content: '项目' }],
+      [{ kind: 'text', content: '技术栈' }],
+    ]);
+  });
+
+  it('无空格短横列表 `-存档` → list item', () => {
+    const blocks = parseMarkdownBlocks(text('-存档\n-回滚'));
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].kind).toBe('list');
+    if (blocks[0].kind !== 'list') return;
+    expect(blocks[0].ordered).toBe(false);
+    expect(blocks[0].items).toHaveLength(2);
+  });
+
+  it('负数 `-5度` 与双短横 `--verbose` 不是列表(容错不越界)', () => {
+    for (const raw of ['-5度 是最低温\n正文', '--verbose 打开日志\n正文']) {
+      const blocks = parseMarkdownBlocks(text(raw));
+      expect(blocks[0].kind).toBe('paragraph');
+    }
+  });
+
+  it('回归:带空格的原有形态不受影响', () => {
+    const blocks = parseMarkdownBlocks(
+      text('# 标题\n\n- 项目\n\n| h |\n| - |\n| v |'),
+    );
+    expect(blocks.map(b => b.kind)).toEqual(['heading', 'list', 'table']);
+  });
+});
