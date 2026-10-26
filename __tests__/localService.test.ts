@@ -37,7 +37,7 @@ import {
   __stopBackgroundReprobeForTests,
 } from '../src/config/localService';
 
-const NAT0_BASE_URL = 'https://ws-vb-phone.nat.aliang.one:16749';
+const NAT0_BASE_URL = 'https://ws-vb-phone.nat.aliang.one:40557';
 const PRIOR_STORAGE_KEY = 'nat.channel.prior';
 
 const delay = (ms: number) =>
