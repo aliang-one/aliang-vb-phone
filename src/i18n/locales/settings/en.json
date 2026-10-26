@@ -140,9 +140,9 @@
       "autoTag": "Auto",
       "locked": "Locked",
       "routePrimary": "HK Primary",
-      "routePrimarySub": "ws-vb-phone.aliang.one",
+      "routePrimarySub": "Primary route · optimized for overseas",
       "routeNat0": "CN Relay",
-      "routeNat0Sub": "ws-vb-phone.liangsqrt.com",
+      "routeNat0Sub": "CN relay · direct acceleration",
       "unreachable": "unreachable",
       "probing": "Probing…",
       "manualHint": "Manual route locked — auto probing and failover are off."
