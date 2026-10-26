@@ -380,8 +380,26 @@ describe('parseMarkdownBlocks — 容错(2026-10-26 GLM 输出风格生产实证
     expect(blocks[0].items).toHaveLength(2);
   });
 
-  it('负数 `-5度` 与双短横 `--verbose` 不是列表(容错不越界)', () => {
-    for (const raw of ['-5度 是最低温\n正文', '--verbose 打开日志\n正文']) {
+  it('ASCII 短横行不是列表:diff 删除行/ls 权限串/箭头/负数/--flag(容错不越界)', () => {
+    for (const raw of [
+      '-const a = 1;\n+const a = 2;\n上下文行',
+      '-rw-r--r-- 1 user staff 1024\n正文',
+      '-> 表示回退箭头\n正文',
+      '-5度 是最低温\n正文',
+      '--verbose 打开日志\n正文',
+    ]) {
+      const blocks = parseMarkdownBlocks(text(raw));
+      expect(blocks[0].kind).toBe('paragraph');
+    }
+  });
+
+  it('ASCII 井号行不是标题:#123 / shebang / #include / #tag', () => {
+    for (const raw of [
+      '#123 号议题\n正文',
+      '#!/usr/bin/env node\nconsole.log(1)',
+      '#include <stdio.h>\n正文',
+      '#tag 这是话题标签\n正文',
+    ]) {
       const blocks = parseMarkdownBlocks(text(raw));
       expect(blocks[0].kind).toBe('paragraph');
     }

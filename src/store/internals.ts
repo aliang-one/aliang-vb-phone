@@ -896,6 +896,21 @@ export function serverAiSessionToVibeRun(
 export const hasLoadedSessionDetail = (run: VibeCodingRun) =>
   isAuthoritativeDetail(run.detailState);
 
+// shallowEqualMessage 逐自有键比较两条消息(键集合也要一致)。专用于心跳
+// 快照的对象身份保留:两条消息由同一映射函数产出,键形状一致;字段值全等
+// 即视为「快照没带任何更新」,旧对象可以继续服役。
+const shallowEqualMessage = (
+  a: VibeCodingRun['transcript'][number],
+  b: VibeCodingRun['transcript'][number],
+): boolean => {
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  const recordA = a as Record<string, unknown>;
+  const recordB = b as Record<string, unknown>;
+  return keysA.every(key => recordA[key] === recordB[key]);
+};
+
 export function mergeAgentMessages(
   existing: VibeCodingRun['transcript'],
   incoming: VibeCodingRun['transcript'],
@@ -911,13 +926,14 @@ export function mergeAgentMessages(
     item: VibeCodingRun['transcript'][number],
   ) => {
     if (current?.role !== 'assistant' || item.role !== 'assistant') return item;
-    // 心跳快照常态(2026-10-26 卡顿审计):内容与 pending 都没变 → 保留旧对象
-    // 身份。agentTranscript 的 WeakMap 段落解析缓存按对象身份命中,身份一断,
-    // 每个 10s 心跳拍(以及每 100ms 流式 flush)都会把整个热窗冷解析一遍。
-    // 等长内容在旧规则里也会换新对象(length 比较只护「current 更长」)。
-    if (current.content === item.content && current.pending === item.pending) {
-      return current;
-    }
+    // 心跳快照常态(2026-10-26 卡顿审计):字段全等 → 保留旧对象身份。
+    // agentTranscript 的 WeakMap 段落解析缓存按对象身份命中,身份一断,每个
+    // 10s 心跳拍(以及每 100ms 流式 flush)都会把整个热窗冷解析一遍。
+    // 必须逐字段比较而不是只看 content:审查实锤 hidden/goal_id 等字段会在
+    // content 不变时更新(goal 删除后的折叠),只比 content 会把这类更新吞掉。
+    // attachments 是每快照重建的数组实例,引用不等 → 自然回落旧规则,方向
+    // 安全(顶多少省一次解析,不会吞更新)。
+    if (shallowEqualMessage(current, item)) return current;
     return current.content.length > item.content.length ? current : item;
   };
 

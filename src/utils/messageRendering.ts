@@ -938,18 +938,25 @@ const isTablePairStart = (
 // 标题容错(2026-10-26 生产实证):GLM 系中文输出习惯写 `##标题`(# 后无空格),
 // 严格 CommonMark 形态会把它落成 paragraph、井号原样显示——agentcore 会话
 // 生产命中率 11%(claude 侧 0.9%,同族中文模型经 router 也有)。放宽为:
-// # 串后面要么是「空白+内容」,要么直接跟内容;`#######`(越界 # 串)与
-// 空标题(`## ` 只有尾随空格)仍不算。
-const lineStartsHeading = (line: string) => /^#{1,6}(\s+[^#\s]|[^#\s])/.test(line.trim());
+// # 串后面要么是「空白+内容」,要么直接跟**非 ASCII** 内容(审查定谳:ASCII
+// 放行会误伤 #123 / #!/usr/bin/env node / #include / #tag 这些行首合法形态,
+// 而生产样本的首字符全是 CJK/emoji);`#######`(越界 # 串)与空标题仍不算。
+const lineStartsHeading = (line: string) => {
+  const trimmed = line.trim();
+  if (/^#{1,6}\s+\S/.test(trimmed)) return true;
+  const match = trimmed.match(/^#{1,6}(\S)/u);
+  return Boolean(match && /\P{ASCII}/u.test(match[1]));
+};
 
 const lineStartsQuote = (line: string) => /^>\s?/.test(line.trim());
 
 // 列表容错(2026-10-26 生产实证,agentcore 22% 命中):GLM 中文输出常写
-// `-存档`(短横后无空格)。只放宽短横这一种标记:后一字符不得是空白/数字/
-// 短横(挡掉负数 `-5度`、`--flag`、`---` 分隔线);`*`/`+` 保持要求空格
-// (与 `*强调*` 歧义太大,不值得)。
+// `-存档`(短横后无空格)。只放宽短横、且要求短横后首字符为**非 ASCII**
+// (审查定谳:ASCII 放行会把未围栏 diff 删除行 `-const a = 1`、ls -l 权限串
+// `-rw-r--r--`、`--flag`、`->` 箭头误判成列表并吞掉短横;生产样本首字符
+// 全是 CJK)。`*`/`+` 保持要求空格(与 `*强调*` 歧义太大,不值得)。
 const unorderedListMatch = (line: string) =>
-  line.match(/^\s*[-*+]\s+(.+)$/) ?? line.match(/^\s*-(?![\s\d-])(.+)$/);
+  line.match(/^\s*[-*+]\s+(.+)$/) ?? line.match(/^\s*-(?=\P{ASCII})(.+)$/u);
 
 const orderedListMatch = (line: string) => line.match(/^\s*\d+[.)]\s+(.+)$/);
 

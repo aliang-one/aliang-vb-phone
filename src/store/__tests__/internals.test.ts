@@ -1254,4 +1254,28 @@ describe('mergeAgentMessages — 心跳快照对象身份(2026-10-26 卡顿审�
     const merged = mergeAgentMessages(existing, incoming);
     expect(merged[0]).toBe(incoming[0]);
   });
+
+  it('content 相等但 hidden 变化 → 取 incoming(goal 删除后的折叠不能被吞)', () => {
+    // 审查实锤:只比 content/pending 会吞掉 hidden/goal_id 等字段更新。
+    const existing: AgentMessage[] = [
+      { id: 'a4', role: 'assistant', content: 'goal 产物', timestamp: 't1' },
+    ];
+    const incoming: AgentMessage[] = [
+      { id: 'a4', role: 'assistant', content: 'goal 产物', timestamp: 't1', hidden: true },
+    ];
+    const merged = mergeAgentMessages(existing, incoming);
+    expect(merged[0]).toBe(incoming[0]);
+    expect((merged[0] as AgentMessage).hidden).toBe(true);
+  });
+
+  it('键集合不一致(旧版本映射产物)回落旧规则,方向安全', () => {
+    const existing: AgentMessage[] = [
+      { id: 'a5', role: 'assistant', content: 'same', timestamp: 't1' },
+    ];
+    const incoming: AgentMessage[] = [
+      { id: 'a5', role: 'assistant', content: 'same', timestamp: 't1', origin: 'phone' },
+    ];
+    const merged = mergeAgentMessages(existing, incoming);
+    expect(merged[0]).toBe(incoming[0]);
+  });
 });
