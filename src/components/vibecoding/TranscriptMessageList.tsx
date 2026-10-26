@@ -148,7 +148,12 @@ const systemMessageSummary = (
     if (segment.kind === 'folded') {
       labels.push(segment.label);
     } else if (segment.kind === 'callout') {
-      labels.push(segment.title);
+      // approval 家族标题与渲染层同源走 i18n；generic 无对应键，保留原文。
+      labels.push(
+        segment.variant === 'approval'
+          ? t('transcript.approvalCardTitle')
+          : segment.title,
+      );
     } else if (segment.kind === 'goalReport') {
       labels.push(
         `${t('transcript.reportTitle')} · ${t(
@@ -682,6 +687,60 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
 
   const renderCallout = (segment: TranscriptCalloutSegment) => {
     const color = foldedToneColor(segment.tone, theme.colors);
+
+    // Approval 家族（<approval-request> / aliang-options 方案卡）走专属卡
+    // 片：盾形徽标 + i18n 标题 + 待处理徽章（单选/多选区分），不再是通用
+    // 警示框。其余 callout 保持原样。
+    if (segment.variant === 'approval') {
+      const multi = segment.multi === true;
+      return (
+        <View
+          key={segment.id}
+          style={[
+            styles.calloutBlock,
+            styles.approvalCard,
+            {
+              borderColor: color,
+              backgroundColor: isDark
+                ? 'rgba(206, 145, 120, 0.08)'
+                : theme.colors.surfaceContainer,
+            },
+          ]}
+        >
+          <View style={styles.approvalHeader}>
+            <IconBadge
+              name="approval"
+              tone="warning"
+              size={24}
+              iconSize={13}
+              style={styles.approvalBadge}
+            />
+            <Text
+              style={[
+                theme.typography.labelCaps,
+                styles.approvalTitle,
+                { color },
+              ]}
+              numberOfLines={1}
+            >
+              {t('transcript.approvalCardTitle')}
+            </Text>
+            <StatusChip
+              label={
+                multi
+                  ? t('transcript.approvalMultiBadge')
+                  : t('transcript.approvalSingleBadge')
+              }
+              type="warning"
+              style={styles.approvalStatusChip}
+            />
+          </View>
+          <View style={styles.calloutContent}>
+            {renderMarkdownBlocks(segment.blocks, segment.id)}
+          </View>
+        </View>
+      );
+    }
 
     return (
       <View
@@ -1573,6 +1632,25 @@ const styles = StyleSheet.create({
   },
   calloutContent: {
     gap: 6,
+  },
+  approvalCard: {
+    borderRadius: 10,
+    padding: 10,
+    gap: 8,
+  },
+  approvalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  approvalBadge: {
+    flexShrink: 0,
+  },
+  approvalTitle: {
+    flexShrink: 1,
+  },
+  approvalStatusChip: {
+    marginLeft: 'auto',
   },
   goalReportCard: {
     paddingVertical: 10,

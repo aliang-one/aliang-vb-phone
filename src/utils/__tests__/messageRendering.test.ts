@@ -222,6 +222,51 @@ describe('parseMessageContentSegments — aliang-options 丢围栏兜底', () =>
       .filter(s => s.kind === 'callout')
       .map(s => (s.kind === 'callout' ? s.title : ''));
 
+  const calloutsOf = (content: string) =>
+    parseMessageContentSegments('msg_test', content).filter(
+      s => s.kind === 'callout',
+    );
+
+  it('approval 卡片带 variant=approval;显式 multi:false 不产生 multi attr', () => {
+    const [card] = calloutsOf('```aliang-options\n' + json + '\n```');
+    if (!card || card.kind !== 'callout') throw new Error('no approval card');
+    expect(card.variant).toBe('approval');
+    // 段级语义:只有 multi:true 会写成 attr 穿透;false/缺省都是 undefined,
+    // 渲染层按 multi !== true 判单选。
+    expect(card.multi).toBeUndefined();
+    expect(card.tone).toBe('warning');
+  });
+
+  it('multi:true 方案卡 → multi 标志为 true(单选/多选区分依据)', () => {
+    const multiPlan = JSON.stringify({ ...plan, multi: true });
+    for (const input of [
+      '```aliang-options\n' + multiPlan + '\n```',
+      multiPlan,
+      '<approval-request multi>请选择</approval-request>',
+    ]) {
+      const [card] = calloutsOf(input);
+      if (!card || card.kind !== 'callout') throw new Error('no approval card');
+      expect(card.multi).toBe(true);
+    }
+  });
+
+  it('multi 缺省 → multi 为 undefined(单选,不与显式 true 混淆)', () => {
+    const noMulti = JSON.stringify({
+      title: 't',
+      options: [{ id: 'a', label: 'A' }],
+    });
+    const [card] = calloutsOf('```aliang-options\n' + noMulti + '\n```');
+    if (!card || card.kind !== 'callout') throw new Error('no approval card');
+    expect(card.multi).toBeUndefined();
+  });
+
+  it('其他 callout 标签是 generic,不带 multi', () => {
+    const [card] = calloutsOf('<task-notification><status>completed</status></task-notification>');
+    if (!card || card.kind !== 'callout') throw new Error('no callout');
+    expect(card.variant).toBe('generic');
+    expect(card.multi).toBeUndefined();
+  });
+
   it('形态 B：裸 JSON 无围栏 → approval-request callout', () => {
     expect(calloutTags(json)).toEqual(['Approval request']);
   });

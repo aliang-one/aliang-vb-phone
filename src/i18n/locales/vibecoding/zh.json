@@ -179,7 +179,10 @@
       "failed": "失败",
       "no_progress": "无进展"
     },
-    "reportCompletionClaimed": "已声明完成 · 待机器校验"
+    "reportCompletionClaimed": "已声明完成 · 待机器校验",
+    "approvalCardTitle": "需要你的批准",
+    "approvalSingleBadge": "单选待处理",
+    "approvalMultiBadge": "多选待处理"
   },
   "activity": {
     "collapse": "收起工具活动",

@@ -2,6 +2,31 @@ import { extractGoalReport, type GoalReportKind } from './goalReportMarker';
 
 export type TranscriptTone = 'info' | 'warning' | 'neutral';
 
+/**
+ * Callout 展示家族。`approval`（`<approval-request>` 标签 / aliang-options
+ * 围栏与丢围栏兜底转换而来）在渲染层有专属卡片样式（盾形图标 + 待处理徽章 +
+ * i18n 标题）；`generic` 是其余标签的通用警示框外观。缺省即 `generic`。
+ */
+export type TranscriptCalloutVariant = 'generic' | 'approval';
+
+export interface TranscriptCalloutSegment {
+  id: string;
+  kind: 'callout';
+  variant: TranscriptCalloutVariant;
+  /**
+   * 仅 variant==='approval' 有意义：aliang-options 协议的 multi 标志——
+   * true 表示多选（可勾选多个方案），false/缺省为单选。由
+   * replaceAliangOptionsFences 写成开标签 attr（`<approval-request multi>`）
+   * 穿过 tokenize，再由 createCalloutSegment 读回——布尔值没法放进人读的
+   * 正文里，这是它抵达渲染层的唯一通道。
+   */
+  multi?: boolean;
+  title: string;
+  content: string;
+  tone: TranscriptTone;
+  blocks: TranscriptMarkdownBlock[];
+}
+
 export interface TranscriptTextSegment {
   id: string;
   kind: 'text';
@@ -15,15 +40,6 @@ export interface TranscriptFoldedSegment {
   label: string;
   content: string;
   tone: TranscriptTone;
-}
-
-export interface TranscriptCalloutSegment {
-  id: string;
-  kind: 'callout';
-  title: string;
-  content: string;
-  tone: TranscriptTone;
-  blocks: TranscriptMarkdownBlock[];
 }
 
 /**
@@ -117,6 +133,8 @@ interface CalloutTagConfig {
   display: 'callout';
   title: string;
   tone: TranscriptTone;
+  /** 展示家族；缺省 'generic'（通用警示框）。approval 走专属卡片样式。 */
+  variant?: TranscriptCalloutVariant;
 }
 
 interface FoldedTagConfig {
@@ -137,6 +155,8 @@ interface TagToken {
   tag: string;
   body: string;
   config: TagConfig;
+  /** 开标签 attr(如 <approval-request multi> 的 multi)。 */
+  attrs?: Readonly<Record<string, string>>;
 }
 
 type AgentMarkupToken = TextToken | TagToken;
@@ -231,11 +251,13 @@ const tagRegistry: Record<string, TagConfig> = {
     display: 'callout',
     title: 'Approval request',
     tone: 'warning',
+    variant: 'approval',
   },
   'approval-request': {
     display: 'callout',
     title: 'Approval request',
     tone: 'warning',
+    variant: 'approval',
   },
   'task-notification': {
     display: 'callout',
@@ -256,11 +278,13 @@ const tagRegistry: Record<string, TagConfig> = {
     display: 'callout',
     title: 'Approval request',
     tone: 'warning',
+    variant: 'approval',
   },
   'client-response': {
     display: 'callout',
     title: 'Approval request',
     tone: 'warning',
+    variant: 'approval',
   },
 };
 
@@ -288,7 +312,18 @@ const objectRecords = (value: unknown): Record<string, unknown>[] =>
       )
     : [];
 
-const formatAliangOptionsFence = (body: string) => {
+/**
+ * 把 aliang-options JSON 正文化为 approval 卡片正文。布尔返回值是 multi 标志
+ * 的数据通道：调用方（fenced/bare 两条路径）拿它决定给开标签写不写 `multi`
+ * attr——attr 是 multi 穿过 tokenizer 抵达渲染层的唯一通道，不能折进正文。
+ */
+const formatAliangOptionsFence = (
+  body: string,
+): { content: string; multi: boolean } => {
+  const fallback = (): { content: string; multi: boolean } => ({
+    content: cleanText(body) || 'The assistant is waiting for your approval.',
+    multi: false,
+  });
   try {
     const raw = JSON.parse(body) as Record<string, unknown>;
     const title = textValue(raw.title) || 'Choose next step';
@@ -304,11 +339,19 @@ const formatAliangOptionsFence = (body: string) => {
         return description ? `- ${label}: ${description}` : `- ${label}`;
       })
       .filter(Boolean);
-    return [title, '', summary, options.length ? ['', 'Options:', ...options].join('\n') : '']
-      .filter(Boolean)
-      .join('\n');
+    return {
+      content: [
+        title,
+        '',
+        summary,
+        options.length ? ['', 'Options:', ...options].join('\n') : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      multi: raw.multi === true,
+    };
   } catch {
-    return cleanText(body) || 'The assistant is waiting for your approval.';
+    return fallback();
   }
 };
 
@@ -367,8 +410,10 @@ const replaceAliangOptionsFences = (rawContent: string) => {
   const content = rawContent.replace(
     /```aliang-options\s*([\s\S]*?)```/gi,
     (_match, body) => {
-      const formatted = formatAliangOptionsFence(String(body ?? ''));
-      return `\n<approval-request>${formatted}</approval-request>\n`;
+      const { content: formatted, multi } = formatAliangOptionsFence(
+        String(body ?? ''),
+      );
+      return `\n<approval-request${multi ? ' multi' : ''}>${formatted}</approval-request>\n`;
     },
   );
   return replaceBareOptionJson(content);
@@ -465,7 +510,12 @@ const replaceBareOptionJson = (content: string) => {
   const objectSpans = collectBalancedObjectSpans(content);
   if (objectSpans.length === 0) return content;
   const fences = collectOptionFenceSpans(content);
-  const replacements: Array<{ start: number; end: number; body: string }> = [];
+  const replacements: Array<{
+    start: number;
+    end: number;
+    body: string;
+    multi: boolean;
+  }> = [];
   OPTION_JSON_MARKER.lastIndex = 0;
   let marker: RegExpExecArray | null;
   while ((marker = OPTION_JSON_MARKER.exec(content))) {
@@ -501,10 +551,12 @@ const replaceBareOptionJson = (content: string) => {
     // <approval-request> 标签留在 ``` 围栏里，被 markdown 当成代码块。
     const start = fence ? fence.start : best[0];
     const end = fence ? fence.end : best[1];
+    const { content: optionBody, multi } = formatAliangOptionsFence(json);
     replacements.push({
       start,
       end,
-      body: formatAliangOptionsFence(json),
+      body: optionBody,
+      multi,
     });
   }
   if (replacements.length === 0) return content;
@@ -513,7 +565,7 @@ const replaceBareOptionJson = (content: string) => {
   for (const replacement of replacements) {
     result +=
       content.slice(cursor, replacement.start) +
-      `\n<approval-request>${replacement.body}</approval-request>\n`;
+      `\n<approval-request${replacement.multi ? ' multi' : ''}>${replacement.body}</approval-request>\n`;
     cursor = replacement.end;
   }
   return result + content.slice(cursor);
@@ -1210,14 +1262,26 @@ const tokenizeAgentMarkup = (rawContent: string): AgentMarkupToken[] => {
     .replace(/\r\n/g, '\n');
   const codeRanges = collectMarkdownCodeRanges(content);
   const tokens: AgentMarkupToken[] = [];
-  const tagRegex = /<([a-zA-Z][\w:-]*)(?:\s[^>]*)?>/g;
+  const tagRegex = /<([a-zA-Z][\w:-]*)(?:\s([^>]*))?>/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
   while ((match = tagRegex.exec(content))) {
-    const [openingTag, rawTag] = match;
+    const [openingTag, rawTag, attrText] = match;
     const config = tagConfig(rawTag);
     if (!config || isInsideRange(match.index, codeRanges)) continue;
+
+    // 开标签 attr(<approval-request multi>):标记 attr 存进 token 随行,
+    // 供 createCalloutSegment 派生布尔段字段;标签正文仍是纯内容。
+    const attrs: Record<string, string> = {};
+    if (attrText) {
+      const attrRegex = /([\w:-]+)(?:\s*=\s*("([^"]*)"|'([^']*)'|[^\s"'>]+))?/g;
+      let attrMatch: RegExpExecArray | null;
+      while ((attrMatch = attrRegex.exec(attrText))) {
+        attrs[attrMatch[1].toLowerCase()] =
+          attrMatch[3] ?? attrMatch[4] ?? attrMatch[2] ?? '';
+      }
+    }
 
     const closingRegex = new RegExp(`</\\s*${escapeRegExp(rawTag)}\\s*>`, 'gi');
     closingRegex.lastIndex = match.index + openingTag.length;
@@ -1240,6 +1304,7 @@ const tokenizeAgentMarkup = (rawContent: string): AgentMarkupToken[] => {
       tag: normalizeTag(rawTag),
       body: content.slice(bodyStart, bodyEnd),
       config,
+      attrs,
     });
     lastIndex = fullEnd;
     tagRegex.lastIndex = fullEnd;
@@ -1275,12 +1340,15 @@ const createCalloutSegment = (
   tag: string,
   config: CalloutTagConfig,
   body: string,
+  attrs?: Readonly<Record<string, string>>,
 ): TranscriptCalloutSegment | null => {
   const content = cleanText(body);
   if (!content) return null;
   return {
     id: `${messageId}:callout:${index}:${tag}`,
     kind: 'callout',
+    variant: config.variant ?? 'generic',
+    multi: attrs?.multi != null ? true : undefined,
     title: config.title,
     content,
     tone: config.tone,
@@ -1356,6 +1424,7 @@ export const parseMessageContentSegments = (
             token.tag,
             token.config,
             token.body,
+            token.attrs,
           )
         : createFoldedSegment(
             messageId,

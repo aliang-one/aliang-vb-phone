@@ -179,7 +179,10 @@
       "failed": "Failed",
       "no_progress": "No progress"
     },
-    "reportCompletionClaimed": "Claims done · pending checks"
+    "reportCompletionClaimed": "Claims done · pending checks",
+    "approvalCardTitle": "Approval needed",
+    "approvalSingleBadge": "Single choice · pending",
+    "approvalMultiBadge": "Multi select · pending"
   },
   "activity": {
     "collapse": "Collapse tool activity",
