@@ -133,6 +133,19 @@
     "privacyPolicy": "隐私政策",
     "version": "版本",
     "checkUpdate": "检查更新",
+    "channel": {
+      "title": "线路",
+      "activeNow": "当前使用",
+      "modeAuto": "自动(推荐)",
+      "modeAutoSub": "双通道探测择优 + 故障切换",
+      "routePrimary": "HK 主通道",
+      "routePrimarySub": "ws-vb-phone.aliang.one",
+      "routeNat0": "国内中继",
+      "routeNat0Sub": "ws-vb-phone.nat.aliang.one",
+      "unreachable": "不可达",
+      "probing": "探测中…",
+      "manualHint": "已手动锁定:自动探测与故障切换已停用。"
+    },
     "update": {
       "title": "发现新版本",
       "forceTitle": "需要更新后才能继续",

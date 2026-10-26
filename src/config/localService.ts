@@ -15,6 +15,11 @@
 //
 // 运行期通道态:activeId 起始 primary;网络层连续失败达阈值即翻转通道
 // (见 reportChannelFailure),成功上报清零计数。
+//
+// 手动模式(About 线路面板,2026-10-26):mode='manual' 时用户完全接管——
+// 冷启不探测直接用手选通道,失败不翻转,不排后台重探;自动探测/择优/
+// 故障切换全部停用。模式与手选通道持久化于 nat.channel.mode / nat.channel.manual,
+// 每次 discover 从存储现读(与先验同理,模块态只是同步缓存)。
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { pickChannel, domesticPrior, type EndpointId } from './channelSelector';
@@ -54,6 +59,8 @@ const ENDPOINTS: ReadonlyArray<{ id: EndpointId; baseUrl: string }> = [
 ];
 
 const PRIOR_STORAGE_KEY = 'nat.channel.prior';
+const MODE_STORAGE_KEY = 'nat.channel.mode';
+const MANUAL_STORAGE_KEY = 'nat.channel.manual';
 const PROBE_TIMEOUT_MS = 3000;
 const PROBE_SAMPLES = 2;
 const FAILURE_SWITCH_THRESHOLD = 3;
@@ -86,6 +93,9 @@ let consecutiveFailures = 0;
 let lockedAgainst: EndpointId | null = null;
 let lockUntil = 0;
 let reprobeTimer: ReturnType<typeof setInterval> | null = null;
+// 手动模式的同步缓存:失败上报/重探调度是同步函数,读不了 AsyncStorage;
+// 该缓存由 discover(每次现读存储后)与 setChannelMode 刷新,初值 auto。
+let manualModeActive = false;
 
 const endpointBy = (id: EndpointId) => ENDPOINTS.find(e => e.id === id)!;
 
@@ -103,9 +113,61 @@ export function isPlatformServiceReachable(): boolean {
   return platformServiceReachable;
 }
 
+export type ChannelMode = 'auto' | 'manual';
+
+export interface ChannelModeState {
+  mode: ChannelMode;
+  manual: EndpointId;
+}
+
+/** 当前通道模式(存储现读;读失败/非法值一律按自动)。 */
+export async function getChannelMode(): Promise<ChannelModeState> {
+  try {
+    const mode = await AsyncStorage.getItem(MODE_STORAGE_KEY);
+    if (mode === 'manual') {
+      const manual = await AsyncStorage.getItem(MANUAL_STORAGE_KEY);
+      return { mode: 'manual', manual: manual === 'nat0' ? 'nat0' : 'primary' };
+    }
+  } catch { /* 读失败按自动 */ }
+  return { mode: 'auto', manual: 'primary' };
+}
+
+/**
+ * 设置通道模式。manual:立即切到手选通道、停后台重探、清计数与防横跳锁;
+ * auto:只落存储,下一次 discover 恢复完整探测择优(调用方可主动触发)。
+ */
+export async function setChannelMode(
+  mode: ChannelMode,
+  manual: EndpointId = 'primary',
+): Promise<void> {
+  await AsyncStorage.setItem(MODE_STORAGE_KEY, mode).catch(() => {});
+  if (mode === 'manual') {
+    await AsyncStorage.setItem(MANUAL_STORAGE_KEY, manual).catch(() => {});
+    manualModeActive = true;
+    activeId = manual;
+    consecutiveFailures = 0;
+    lockedAgainst = null;
+    lockUntil = 0;
+    __stopBackgroundReprobeForTests();
+  } else {
+    manualModeActive = false;
+  }
+}
+
+/** 双通道实时探测(线路面板展示用;与选择用同一采样语义)。 */
+export async function getChannelStatus(): Promise<
+  ReadonlyArray<{ id: EndpointId; ttfbMs: number | null }>
+> {
+  return Promise.all(
+    ENDPOINTS.map(async e => ({ id: e.id, ttfbMs: await probeTtfb(e.baseUrl) })),
+  );
+}
+
 /** 网络层失败上报(client.ts markPlatformServiceUnreachable 与 WS 重连失败接线)。 */
 export function reportChannelFailure(): void {
   platformServiceReachable = false;
+  // 手动模式:用户完全接管,失败只标记不可达,不计 数/不翻转。
+  if (manualModeActive) return;
   consecutiveFailures += 1;
   if (consecutiveFailures >= FAILURE_SWITCH_THRESHOLD) {
     // 防横跳锁(spec §5.2):先记下被逃离的通道再翻转。锁定期内即使它
@@ -171,6 +233,18 @@ async function loadPrior(): Promise<EndpointId> {
  * 双通道皆不可达时 throw(保持/翻转 reachable 标记)。
  */
 export async function discoverReachableBaseUrl(): Promise<string> {
+  // 手动模式:用户接管,不探测/不择优/不排重探,直接返回手选通道。
+  // (每次从存储现读,冷启语义与先验一致。)
+  const { mode, manual } = await getChannelMode();
+  if (mode === 'manual') {
+    manualModeActive = true;
+    activeId = manual;
+    consecutiveFailures = 0;
+    platformServiceReachable = true;
+    return endpointBy(manual).baseUrl;
+  }
+  manualModeActive = false;
+
   const prior = await loadPrior();
   const probes = await Promise.all(
     ENDPOINTS.map(async e => ({ id: e.id, ttfbMs: await probeTtfb(e.baseUrl) })),
@@ -197,10 +271,11 @@ export async function discoverReachableBaseUrl(): Promise<string> {
   return endpointBy(effective).baseUrl;
 }
 
-/** 周期后台重探,让坏通道自动回流。探测失败保持现状。 */
+/** 周期后台重探,让坏通道自动回流。探测失败保持现状;手动模式不排程。 */
 function scheduleBackgroundReprobe(): void {
-  if (reprobeTimer) return;
+  if (manualModeActive || reprobeTimer) return;
   reprobeTimer = setInterval(() => {
+    if (manualModeActive) return; // 期间被切手动:到点也不动
     discoverReachableBaseUrl().catch(() => { /* 探测失败保持现状 */ });
   }, REPROBE_INTERVAL_MS);
 }

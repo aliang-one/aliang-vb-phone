@@ -30,6 +30,7 @@ import { useToastStore } from '../../store/toastStore';
 import { ApiResponseError } from '../../api/client';
 import { getInstalledAppVersion } from '../../native/AppVersion';
 import { useAppUpdateStore } from '../../store/appUpdateStore';
+import { ChannelPanel } from './ChannelPanel';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -182,6 +183,11 @@ export const AboutScreen: React.FC = () => {
               ›
             </Text>
           </TouchableOpacity>
+        </GlassPanel>
+
+        {renderSectionTitle(t('about.channel.title'))}
+        <GlassPanel style={styles.panel}>
+          <ChannelPanel />
         </GlassPanel>
 
         {renderSectionTitle(t('dangerZone.title'))}

@@ -30,6 +30,9 @@ import {
   PLATFORM_SERVICE_BASE_URL,
   getPlatformServiceBaseUrl,
   getActiveEndpointId,
+  getChannelMode,
+  getChannelStatus,
+  setChannelMode,
   discoverReachableBaseUrl,
   isPlatformServiceReachable,
   rememberPlatformServiceBaseUrl,
@@ -246,5 +249,102 @@ describe('双通道探测与选择', () => {
     } finally {
       clockSpy.mockRestore();
     }
+  });
+});
+
+
+/**
+ * 通道模式用例专用:带内存 Map 的存储 mock——setChannelMode 写入后
+ * getChannelMode 能读回(真实回环语义);未声明的 key 仍吐幽灵地址,
+ * 保住 stale-host 哨兵。
+ */
+function useStorageMap(seed: Record<string, string> = {}): void {
+  jest
+    .mocked(AsyncStorage.getItem)
+    .mockImplementation(
+      async (key: string) => seed[key] ?? 'http://127.0.0.1:4000',
+    );
+  jest
+    .mocked(AsyncStorage.setItem)
+    .mockImplementation(async (key: string, value: string) => {
+      seed[key] = value;
+    });
+}
+
+describe('channel mode — auto/manual(线路面板语义)', () => {
+  beforeEach(resetMocks);
+
+  afterEach(() => {
+    __stopBackgroundReprobeForTests();
+  });
+
+  it('手动模式:discover 不探测直接返回手选通道,3 连败不翻转', async () => {
+    useStorageMap();
+    await setChannelMode('manual', 'nat0');
+    fetchMock.mockRejectedValue(new Error('manual 模式不该发起探测'));
+
+    await expect(discoverReachableBaseUrl()).resolves.toBe(NAT0_BASE_URL);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    reportChannelFailure();
+    reportChannelFailure();
+    reportChannelFailure();
+    expect(getActiveEndpointId()).toBe('nat0');
+    await expect(getPlatformServiceBaseUrl()).resolves.toBe(NAT0_BASE_URL);
+  });
+
+  it('手动切回自动:恢复探测择优(nat0 快 30% 以上则选 nat0)', async () => {
+    useStorageMap();
+    await setChannelMode('manual', 'primary');
+    await setChannelMode('auto');
+
+    mockHealthByChannel({ primary: 120, nat0: 0 });
+    const url = await discoverReachableBaseUrl();
+
+    expect(url).toBe(NAT0_BASE_URL);
+    expect(getActiveEndpointId()).toBe('nat0');
+  });
+
+  it('模式与手选通道都持久化', async () => {
+    useStorageMap();
+    await setChannelMode('manual', 'nat0');
+    expect(jest.mocked(AsyncStorage.setItem)).toHaveBeenCalledWith(
+      'nat.channel.mode',
+      'manual',
+    );
+    expect(jest.mocked(AsyncStorage.setItem)).toHaveBeenCalledWith(
+      'nat.channel.manual',
+      'nat0',
+    );
+
+    await setChannelMode('auto');
+    expect(jest.mocked(AsyncStorage.setItem)).toHaveBeenCalledWith(
+      'nat.channel.mode',
+      'auto',
+    );
+  });
+
+  it('冷启动读取持久化的手动模式:不探测直接用', async () => {
+    // 模块态此刻是 auto(上一测试收尾);冷启语义 = 每次从存储读模式。
+    jest
+      .mocked(AsyncStorage.getItem)
+      .mockImplementation(async (key: string) => {
+        if (key === 'nat.channel.mode') return 'manual';
+        if (key === 'nat.channel.manual') return 'nat0';
+        return 'http://127.0.0.1:4000';
+      });
+    fetchMock.mockRejectedValue(new Error('manual 冷启不该探测'));
+
+    await expect(discoverReachableBaseUrl()).resolves.toBe(NAT0_BASE_URL);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('getChannelStatus 返回双通道实时探测(面板展示用)', async () => {
+    mockHealthByChannel({ primary: 0, nat0: 'fail' });
+
+    const status = await getChannelStatus();
+
+    expect(status.find(s => s.id === 'primary')?.ttfbMs).not.toBeNull();
+    expect(status.find(s => s.id === 'nat0')?.ttfbMs).toBeNull();
   });
 });
