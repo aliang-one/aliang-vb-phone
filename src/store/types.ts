@@ -371,6 +371,8 @@ export interface ActiveTransfer {
   totalBytes: number;
   bytesDone: number;
   reason?: string;
+  /** 目标设备回报的最终落盘绝对路径（done 后有值）。 */
+  path?: string;
 }
 
 interface StartAgentInput {
@@ -751,6 +753,8 @@ export interface ControlCenterState {
     sourcePath: string;
     filename: string;
     isDirectoryArchive: boolean;
+    /** Optional landing subdirectory under the target inbox (empty = root). */
+    targetDir?: string;
   }) => Promise<void>;
   /** Apply one normalized `transfer.updated` push (WS or REST reconcile). */
   handleTransferEvent: (transfer: PlatformTransferStatus) => void;
