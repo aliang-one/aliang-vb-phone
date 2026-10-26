@@ -50,6 +50,7 @@ const toEventPayload = (status: TransferStatus): PlatformTransferStatus => ({
   targetDeviceId: status.target_device_id,
   errorCode: status.error_code,
   errorMessage: status.error_message,
+  path: status.path,
 });
 
 export const createTransferSlice: StateCreator<
@@ -85,6 +86,7 @@ export const createTransferSlice: StateCreator<
         source_path: input.sourcePath,
         filename: input.filename,
         is_directory_archive: input.isDirectoryArchive,
+        target_dir: input.targetDir?.trim() || undefined,
       });
       set(state => {
         const active = state.transferActive;
@@ -144,6 +146,7 @@ export const createTransferSlice: StateCreator<
         totalBytes: transfer.sizeBytes || active.totalBytes,
         bytesDone: Math.max(active.bytesDone, transfer.bytesDone),
         reason: transfer.errorMessage ?? active.reason,
+        path: transfer.path ?? active.path,
       },
       transferPhase: frozen ? current : nextPhase,
     });

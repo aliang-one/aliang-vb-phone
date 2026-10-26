@@ -50,6 +50,10 @@
     },
     "transfer": {
       "menuItem": "Send to device",
+      "targetDirLabel": "Target directory (optional, under the inbox)",
+      "targetDirPlaceholder": "Leave empty for inbox root",
+      "donePath": "Saved to: {{path}}",
+      "doneInboxHint": "Synced to inbox ~/AliangInbox/ on {{name}}",
       "targetLabel": "Sync to",
       "sourceLabel": "From {{name}}",
       "noTargets": "No other online devices to receive this file",

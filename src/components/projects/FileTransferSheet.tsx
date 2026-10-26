@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/useTheme';
 import { BottomSheet } from '../shared/BottomSheet';
@@ -93,6 +93,7 @@ export const FileTransferSheet: React.FC<FileTransferSheetProps> = ({
     [devices, sourceDevice.id],
   );
   const [targetId, setTargetId] = useState<string | undefined>(undefined);
+  const [targetDirInput, setTargetDirInput] = useState('');
   useEffect(() => {
     // Re-seed when the candidate set changes (sheet open/close, devices refresh).
     setTargetId(previous =>
@@ -134,6 +135,7 @@ export const FileTransferSheet: React.FC<FileTransferSheetProps> = ({
       sourcePath: pendingFile.path,
       filename: pendingFile.name,
       isDirectoryArchive: false,
+      targetDir: targetDirInput,
     });
   };
 
@@ -150,6 +152,7 @@ export const FileTransferSheet: React.FC<FileTransferSheetProps> = ({
       sourcePath: retryTarget.path,
       filename: retryTarget.name,
       isDirectoryArchive: false,
+      targetDir: targetDirInput,
     });
   };
 
@@ -197,6 +200,18 @@ export const FileTransferSheet: React.FC<FileTransferSheetProps> = ({
           {t('fileBrowser.transfer.noTargets')}
         </Text>
       )}
+      <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+        {t('fileBrowser.transfer.targetDirLabel')}
+      </Text>
+      <TextInput
+        value={targetDirInput}
+        onChangeText={setTargetDirInput}
+        placeholder={t('fileBrowser.transfer.targetDirPlaceholder')}
+        placeholderTextColor={theme.colors.onSurfaceVariant}
+        autoCapitalize="none"
+        autoCorrect={false}
+        style={[styles.targetDirInput, { borderColor: theme.colors.outline, color: theme.colors.onSurface }]}
+      />
       <GlowButton
         title={t('fileBrowser.transfer.confirmAction')}
         onPress={handleConfirm}
@@ -300,6 +315,15 @@ export const FileTransferSheet: React.FC<FileTransferSheetProps> = ({
           name: targets.find(entry => entry.id === (active?.targetDeviceId ?? targetId))?.name ?? '',
         })}
       </Text>
+      {active?.path ? (
+        <Text style={[theme.typography.bodySm, { color: theme.colors.onSurface }]} selectable>
+          {t('fileBrowser.transfer.donePath', { path: active.path })}
+        </Text>
+      ) : (
+        <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+          {t('fileBrowser.transfer.doneInboxHint', { name: (active?.targetDeviceId ?? targetId) || '' })}
+        </Text>
+      )}
       <GlowButton
         title={t('common:close')}
         onPress={handleClose}
@@ -341,6 +365,13 @@ const styles = StyleSheet.create({
   },
   facts: {
     gap: 6,
+  },
+  targetDirInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
   },
   action: {
     marginTop: 4,

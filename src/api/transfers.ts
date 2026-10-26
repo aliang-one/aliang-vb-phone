@@ -37,6 +37,8 @@ export interface TransferStatus {
   expires_at: string;
   error_code?: string;
   error_message?: string;
+  /** 目标设备回报的最终落盘绝对路径（done 后有值）。 */
+  path?: string;
 }
 
 export interface StartTransferInput {
@@ -45,6 +47,9 @@ export interface StartTransferInput {
   source_path: string;
   filename: string;
   is_directory_archive?: boolean;
+  /** Optional landing subdirectory under the target's inbox (fenced server-
+   * and device-side). Empty/omitted = inbox root. */
+  target_dir?: string;
 }
 
 /** Ask the server to orchestrate the transfer (201 + initial snapshot). */

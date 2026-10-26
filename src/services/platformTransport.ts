@@ -178,6 +178,8 @@ export interface PlatformTransferStatus {
   targetDeviceId: string;
   errorCode?: string;
   errorMessage?: string;
+  /** 目标设备回报的最终落盘绝对路径（done 后有值）。 */
+  path?: string;
 }
 
 export type PlatformTransportEvent =
@@ -978,6 +980,7 @@ class PlatformTransport {
           sizeBytes: typeof transfer.size_bytes === 'number' ? transfer.size_bytes : 0,
           isDirectoryArchive: transfer.is_directory_archive === true,
           state: String(transfer.state ?? 'pending') as PlatformTransferStatus['state'],
+          path: transfer.path == null ? undefined : String(transfer.path),
           bytesDone: typeof transfer.bytes_done === 'number' ? transfer.bytes_done : 0,
           sourceDeviceId: String(transfer.source_device_id ?? ''),
           targetDeviceId: String(transfer.target_device_id ?? ''),

@@ -50,6 +50,10 @@
     },
     "transfer": {
       "menuItem": "同步到别的设备",
+      "targetDirLabel": "目标目录（可选，收件箱下的子目录）",
+      "targetDirPlaceholder": "留空 = 收件箱根目录",
+      "donePath": "已保存到：{{path}}",
+      "doneInboxHint": "文件已同步到 {{name}} 的收件箱 ~/AliangInbox/",
       "targetLabel": "同步到",
       "sourceLabel": "来自 {{name}}",
       "noTargets": "没有其他在线设备可接收",
