@@ -136,8 +136,9 @@
     "channel": {
       "title": "线路",
       "activeNow": "当前使用",
-      "modeAuto": "自动(推荐)",
-      "modeAutoSub": "双通道探测择优 + 故障切换",
+      "manualToggle": "手动选择",
+      "autoTag": "自动",
+      "locked": "已锁定",
       "routePrimary": "HK 主通道",
       "routePrimarySub": "ws-vb-phone.aliang.one",
       "routeNat0": "国内中继",

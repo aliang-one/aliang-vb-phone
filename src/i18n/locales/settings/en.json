@@ -136,8 +136,9 @@
     "channel": {
       "title": "Network Route",
       "activeNow": "In use",
-      "modeAuto": "Auto (recommended)",
-      "modeAutoSub": "Probe both routes and fail over automatically",
+      "manualToggle": "Manual selection",
+      "autoTag": "Auto",
+      "locked": "Locked",
       "routePrimary": "HK Primary",
       "routePrimarySub": "ws-vb-phone.aliang.one",
       "routeNat0": "CN Relay",
