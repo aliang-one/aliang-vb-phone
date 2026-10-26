@@ -142,7 +142,7 @@
       "routePrimary": "HK 主通道",
       "routePrimarySub": "ws-vb-phone.aliang.one",
       "routeNat0": "国内中继",
-      "routeNat0Sub": "ws-vb-phone.nat.aliang.one",
+      "routeNat0Sub": "ws-vb-phone.liangsqrt.com",
       "unreachable": "不可达",
       "probing": "探测中…",
       "manualHint": "已手动锁定:自动探测与故障切换已停用。"

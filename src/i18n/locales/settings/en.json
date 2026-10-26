@@ -142,7 +142,7 @@
       "routePrimary": "HK Primary",
       "routePrimarySub": "ws-vb-phone.aliang.one",
       "routeNat0": "CN Relay",
-      "routeNat0Sub": "ws-vb-phone.nat.aliang.one",
+      "routeNat0Sub": "ws-vb-phone.liangsqrt.com",
       "unreachable": "unreachable",
       "probing": "Probing…",
       "manualHint": "Manual route locked — auto probing and failover are off."

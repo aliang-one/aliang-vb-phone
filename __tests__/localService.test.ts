@@ -40,7 +40,7 @@ import {
   __stopBackgroundReprobeForTests,
 } from '../src/config/localService';
 
-const NAT0_BASE_URL = 'https://ws-vb-phone.nat.aliang.one:40557';
+const NAT0_BASE_URL = 'https://ws-vb-phone.liangsqrt.com:40557';
 const PRIOR_STORAGE_KEY = 'nat.channel.prior';
 
 const delay = (ms: number) =>
@@ -57,7 +57,7 @@ function mockHealthByChannel(spec: {
   nat0?: number | 'fail';
 }): void {
   fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
-    const isNat0 = String(input).includes('nat.aliang.one');
+    const isNat0 = String(input).includes('liangsqrt.com:40557');
     const channel = isNat0 ? spec.nat0 : spec.primary;
     if (channel === 'fail') throw new Error('probe failed');
     await delay(channel ?? 0);
