@@ -353,6 +353,27 @@ describe('shouldSendAsSteer / shouldBlockConcurrentSend (发送路径选择)', (
     expect(shouldBlockConcurrentSend(true, 'opencode', steer)).toBe(true);
   });
 
+  it('agentcore 内置内核 → 运行中走 steer，不拦', () => {
+    // 内置内核的 steer 是进程内队列（agentAICoreSteerControl），每轮 LLM 调用
+    // 前由内核取走。它不依赖外部 CLI，所以不需要 ai_steer_claude 这种「对端版本
+    // 够不够新」的能力位——第三个参数传 false 也必须能 steer。
+    const steer = shouldSendAsSteer(true, 'agentcore', false);
+    expect(steer).toBe(true);
+    expect(shouldBlockConcurrentSend(true, 'agentcore', steer)).toBe(false);
+    // 即便按「设备声称支持」传 true，结论一致（不该出现两种口径）。
+    expect(shouldSendAsSteer(true, 'agentcore', true)).toBe(true);
+  });
+
+  it('agentcore 审批等待期同样硬拦', () => {
+    // 审批等待 = 会话暂停、球在用户侧，与 provider 无关。
+    expect(shouldBlockConcurrentSend(true, 'agentcore', true, true)).toBe(true);
+  });
+
+  it('agentcore 回合未在跑 → 普通发送，不拦', () => {
+    expect(shouldSendAsSteer(false, 'agentcore', false)).toBe(false);
+    expect(shouldBlockConcurrentSend(false, 'agentcore', false)).toBe(false);
+  });
+
   it('回合未在跑 → 普通发送，不拦', () => {
     expect(shouldSendAsSteer(false, 'claude_code', true)).toBe(false);
     expect(shouldBlockConcurrentSend(false, 'claude_code', false)).toBe(false);
@@ -405,6 +426,19 @@ describe('shouldLockComposerForProvider (composer 锁与相位同源)', () => {
     expect(shouldLockComposerForProvider(false, 'waiting_approval', 'codex')).toBe(true);
     expect(shouldLockComposerForProvider(false, 'paused', 'codex', false, true)).toBe(true);
     expect(shouldLockComposerForProvider(false, 'running', 'codex', false, true)).toBe(true);
+  });
+
+  it('agentcore 内置内核 → 运行中不锁(否则发不出 steer),审批仍锁', () => {
+    // 这一条是「支持 steer」能不能落地的前提:默认分支会把 agentcore 判成
+    // isSessionLive||isWaiting,composer 一锁用户连字都打不出来,steer 通道
+    // 形同不存在。canSteer 传 false 也必须解锁——内置内核不需要能力位。
+    expect(shouldLockComposerForProvider(true, 'running', 'agentcore')).toBe(false);
+    expect(shouldLockComposerForProvider(true, 'running', 'agentcore', false)).toBe(false);
+    expect(shouldLockComposerForProvider(false, 'waiting_approval', 'agentcore')).toBe(true);
+    expect(shouldLockComposerForProvider(false, 'paused', 'agentcore', false, true)).toBe(true);
+    // 回合结束后照常解锁。
+    expect(shouldLockComposerForProvider(false, 'running', 'agentcore')).toBe(false);
+    expect(shouldLockComposerForProvider(false, 'completed', 'agentcore')).toBe(false);
   });
 
   it('未知/缺失 provider → 活跃回合按锁定处理(不接受插话就只读,G4)', () => {
