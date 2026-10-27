@@ -3,11 +3,25 @@ import { extractGoalReport, type GoalReportKind } from './goalReportMarker';
 export type TranscriptTone = 'info' | 'warning' | 'neutral';
 
 /**
+ * task-notification 卡片携带的结构化字段。status 驱动卡片徽章配色
+ * （completed/failed/其他），outputFile 渲染成 mono 元数据行，result 是子
+ * agent 的收尾输出——可能很长，卡片里默认折叠。
+ */
+export interface TranscriptTaskMeta {
+  status?: string;
+  outputFile?: string;
+  result?: string;
+}
+
+/**
  * Callout 展示家族。`approval`（`<approval-request>` 标签 / aliang-options
  * 围栏与丢围栏兜底转换而来）在渲染层有专属卡片样式（盾形图标 + 待处理徽章 +
- * i18n 标题）；`generic` 是其余标签的通用警示框外观。缺省即 `generic`。
+ * i18n 标题）；`task`（task-notification 信封，含无包裹的裸字段簇）走
+ * 后台任务卡（agent 徽标 + 状态徽章 + 输出文件行 + 可折叠任务输出）；
+ * `command`（斜杠命令簇合并卡）走终端图标 + mono 命令行外观；
+ * `generic` 是其余标签的通用警示框外观。缺省即 `generic`。
  */
-export type TranscriptCalloutVariant = 'generic' | 'approval';
+export type TranscriptCalloutVariant = 'generic' | 'approval' | 'task' | 'command';
 
 export interface TranscriptCalloutSegment {
   id: string;
@@ -21,6 +35,8 @@ export interface TranscriptCalloutSegment {
    * 正文里，这是它抵达渲染层的唯一通道。
    */
   multi?: boolean;
+  /** 仅 variant==='task' 有意义：状态/输出文件/任务输出三件套。 */
+  meta?: TranscriptTaskMeta;
   title: string;
   content: string;
   tone: TranscriptTone;
@@ -263,11 +279,13 @@ const tagRegistry: Record<string, TagConfig> = {
     display: 'callout',
     title: 'Background task',
     tone: 'info',
+    variant: 'task',
   },
   'harness-command': {
     display: 'callout',
     title: 'Slash command',
     tone: 'neutral',
+    variant: 'command',
   },
   'cross-session-message': {
     display: 'callout',
@@ -365,18 +383,27 @@ const harnessField = (body: string, field: string): string => {
   return match ? match[1].trim() : '';
 };
 
+/**
+ * 把 task-notification 信封体（包裹式或裸字段簇，两者字段同名）规整为
+ * 「人读 headline + 机器字段标签」的统一信封体：headline 是 summary 一句话，
+ * status/output-file/result 以嵌套标签随行——tokenizer 消费外层标签时整体
+ * 跳过内层（lastIndex 越过整个信封），createCalloutSegment 再拆出来进
+ * meta。task-id / tool-use-id / note 是纯管线字段，对手机读者只是噪音。
+ */
 const formatTaskNotificationBody = (body: string): string => {
   const status = harnessField(body, 'status');
   const summary = harnessField(body, 'summary');
   const outputFile = harnessField(body, 'output-file');
-  // task-id / tool-use-id / note 是纯管线字段，对手机读者只是噪音。
-  if (!status && !summary && !outputFile) return cleanText(body);
-  const glyph = status === 'completed' ? '✅' : status === 'failed' ? '❌' : 'ℹ️';
-  const lines: string[] = [];
-  const headline = [glyph, status, summary].filter(Boolean).join(status && summary ? ' — ' : ' ');
-  if (headline.trim()) lines.push(headline);
-  if (outputFile) lines.push(`\`${outputFile}\``);
-  return lines.join('\n');
+  const result = harnessField(body, 'result');
+  if (!status && !summary && !outputFile && !result) return cleanText(body);
+  const machine = [
+    status ? `<task-status>${status}</task-status>` : '',
+    outputFile ? `<task-output-file>${outputFile}</task-output-file>` : '',
+    result ? `<task-result>${result}</task-result>` : '',
+  ]
+    .filter(Boolean)
+    .join('');
+  return `${summary || status}${machine}`;
 };
 
 const replaceTaskNotificationEnvelope = (content: string) =>
@@ -385,6 +412,24 @@ const replaceTaskNotificationEnvelope = (content: string) =>
     (_match, body) =>
       `\n<task-notification>${formatTaskNotificationBody(String(body ?? ''))}</task-notification>\n`,
   );
+
+// 裸 task-notification 簇：CC 的后台任务通知更常见的形态是不带
+// <task-notification> 包裹、直接一串 <task-id>/<tool-use-id>/<output-file>/
+// <status>/<summary>/<note>/<result> 裸字段（生产实锤，用户聊天里"经常出现
+// 这种"）。相邻裸字段簇合并成一张后台任务卡，避免逐字段漏出成原文。
+// 反向引用 </\\1> 保证 <result> 体内出现 </status> 字样不会截断配对。
+const TASK_FIELD_TAG =
+  'task-id|tool-use-id|output-file|status|summary|note|result';
+const BARE_TASK_FIELD_CLUSTER = new RegExp(
+  `(?:\\s*<(${TASK_FIELD_TAG})>[\\s\\S]*?</\\1>)+`,
+  'gi',
+);
+
+const replaceBareTaskNotificationCluster = (content: string) =>
+  content.replace(BARE_TASK_FIELD_CLUSTER, cluster => {
+    if (!/<task-id>/i.test(cluster)) return cluster;
+    return `\n<task-notification>${formatTaskNotificationBody(cluster)}</task-notification>\n`;
+  });
 
 // 斜杠命令簇：<command-message>+<command-name>+<command-args>(+<skill-format>)
 // 相邻出现时合并为一张 Slash command 卡片，替代"零碎三段"。
@@ -404,7 +449,9 @@ const replaceHarnessCommandCluster = (content: string) =>
   });
 
 const formatHarnessEnvelopes = (content: string) =>
-  replaceHarnessCommandCluster(replaceTaskNotificationEnvelope(content));
+  replaceHarnessCommandCluster(
+    replaceBareTaskNotificationCluster(replaceTaskNotificationEnvelope(content)),
+  );
 
 const replaceAliangOptionsFences = (rawContent: string) => {
   const content = rawContent.replace(
@@ -1342,13 +1389,34 @@ const createCalloutSegment = (
   body: string,
   attrs?: Readonly<Record<string, string>>,
 ): TranscriptCalloutSegment | null => {
-  const content = cleanText(body);
-  if (!content) return null;
+  // task 卡：正文 = headline（summary 一句话），status/output-file/result 从
+  // 机器字段标签拆进 meta——它们不该再出现在人读文本里。
+  let displayBody = body;
+  let meta: TranscriptTaskMeta | undefined;
+  if ((config.variant ?? 'generic') === 'task') {
+    const status = harnessField(body, 'task-status');
+    const outputFile = harnessField(body, 'task-output-file');
+    const result = harnessField(body, 'task-result');
+    if (status || outputFile || result) {
+      meta = {
+        status: status || undefined,
+        outputFile: outputFile || undefined,
+        result: result || undefined,
+      };
+      displayBody = body
+        .replace(/<task-status>[\s\S]*?<\/task-status>/gi, '')
+        .replace(/<task-output-file>[\s\S]*?<\/task-output-file>/gi, '')
+        .replace(/<task-result>[\s\S]*?<\/task-result>/gi, '');
+    }
+  }
+  const content = cleanText(displayBody);
+  if (!content && !meta) return null;
   return {
     id: `${messageId}:callout:${index}:${tag}`,
     kind: 'callout',
     variant: config.variant ?? 'generic',
     multi: attrs?.multi != null ? true : undefined,
+    meta,
     title: config.title,
     content,
     tone: config.tone,

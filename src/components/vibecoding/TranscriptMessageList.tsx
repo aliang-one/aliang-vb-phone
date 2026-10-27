@@ -3,7 +3,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { IconBadge } from '../visual/IconBadge';
+import { IconBadge, IconGlyph } from '../visual/IconBadge';
 import { GlassPanel } from '../shared/GlassPanel';
 import { StatusChip } from '../shared/StatusChip';
 import { ActivityBlock } from './ActivityBlock';
@@ -148,12 +148,17 @@ const systemMessageSummary = (
     if (segment.kind === 'folded') {
       labels.push(segment.label);
     } else if (segment.kind === 'callout') {
-      // approval 家族标题与渲染层同源走 i18n；generic 无对应键，保留原文。
-      labels.push(
-        segment.variant === 'approval'
-          ? t('transcript.approvalCardTitle')
-          : segment.title,
-      );
+      // 专属卡片家族（approval/task/command）标题与渲染层同源走 i18n；
+      // generic 无对应键，保留原文。
+      if (segment.variant === 'approval') {
+        labels.push(t('transcript.approvalCardTitle'));
+      } else if (segment.variant === 'task') {
+        labels.push(t('transcript.taskCardTitle'));
+      } else if (segment.variant === 'command') {
+        labels.push(compactText(segment.content, 48));
+      } else {
+        labels.push(segment.title);
+      }
     } else if (segment.kind === 'goalReport') {
       labels.push(
         `${t('transcript.reportTitle')} · ${t(
@@ -738,6 +743,186 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
           <View style={styles.calloutContent}>
             {renderMarkdownBlocks(segment.blocks, segment.id)}
           </View>
+        </View>
+      );
+    }
+
+    // 后台任务卡（task-notification 信封，含无包裹裸字段簇）：agent 徽标 +
+    // 状态徽章 + summary + 输出文件行 + 默认折叠的任务输出。完成态按 house
+    // rule 走蓝（success=蓝），失败走红。
+    if (segment.variant === 'task') {
+      const status = segment.meta?.status;
+      const failed = status === 'failed';
+      const done = status === 'completed';
+      const accent = failed
+        ? theme.colors.error
+        : foldedToneColor(segment.tone, theme.colors);
+      const chipType: 'success' | 'error' | 'info' | undefined = failed
+        ? 'error'
+        : done
+        ? 'success'
+        : status
+        ? 'info'
+        : undefined;
+      const resultKey = `${segment.id}:result`;
+      const resultOpen = Boolean(expanded[resultKey]);
+      return (
+        <View
+          key={segment.id}
+          style={[
+            styles.calloutBlock,
+            styles.taskCard,
+            {
+              borderColor: accent,
+              backgroundColor: isDark
+                ? 'rgba(255,255,255,0.04)'
+                : theme.colors.surfaceContainer,
+            },
+          ]}
+        >
+          <View style={styles.approvalHeader}>
+            <IconBadge
+              name="agent"
+              tone={failed ? 'error' : done ? 'success' : 'primary'}
+              size={24}
+              iconSize={13}
+              style={styles.approvalBadge}
+            />
+            <Text
+              style={[
+                theme.typography.labelCaps,
+                styles.approvalTitle,
+                { color: accent },
+              ]}
+              numberOfLines={1}
+            >
+              {t('transcript.taskCardTitle')}
+            </Text>
+            {chipType ? (
+              <StatusChip
+                label={
+                  done
+                    ? t('transcript.taskStatusCompleted')
+                    : failed
+                    ? t('transcript.taskStatusFailed')
+                    : status ?? ''
+                }
+                type={chipType}
+                style={styles.approvalStatusChip}
+              />
+            ) : null}
+          </View>
+          <View style={styles.calloutContent}>
+            {renderMarkdownBlocks(segment.blocks, segment.id)}
+          </View>
+          {segment.meta?.outputFile ? (
+            <View style={styles.taskMetaRow}>
+              <IconGlyph
+                name="external"
+                size={12}
+                color={theme.colors.onSurfaceVariant}
+              />
+              <Text
+                selectable
+                numberOfLines={2}
+                style={[
+                  theme.typography.codeSm,
+                  styles.taskMetaText,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
+                {segment.meta.outputFile}
+              </Text>
+            </View>
+          ) : null}
+          {segment.meta?.result ? (
+            <View
+              style={[
+                styles.taskResultBlock,
+                { borderColor: theme.colors.outlineVariant },
+              ]}
+            >
+              <TouchableOpacity
+                activeOpacity={0.75}
+                onPress={() => toggleSegment(resultKey)}
+                style={styles.taskResultHeader}
+              >
+                <Text
+                  style={[
+                    theme.typography.labelCaps,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {resultOpen
+                    ? t('transcript.taskResultHide')
+                    : t('transcript.taskResultShow')}
+                </Text>
+                <Text
+                  style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}
+                >
+                  {resultOpen ? '-' : '+'}
+                </Text>
+              </TouchableOpacity>
+              {resultOpen ? (
+                <Text
+                  selectable
+                  style={[
+                    theme.typography.codeSm,
+                    styles.taskResultBody,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {segment.meta.result}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+      );
+    }
+
+    // 斜杠命令卡（/命令 簇合并）：终端徽标 + mono 命令行，替代通用警示框。
+    if (segment.variant === 'command') {
+      return (
+        <View
+          key={segment.id}
+          style={[
+            styles.calloutBlock,
+            styles.commandCard,
+            {
+              borderColor: theme.colors.outlineVariant,
+              backgroundColor: isDark
+                ? 'rgba(255,255,255,0.035)'
+                : theme.colors.surfaceContainer,
+            },
+          ]}
+        >
+          <View style={styles.approvalHeader}>
+            <IconBadge
+              name="terminal"
+              tone="neutral"
+              size={24}
+              iconSize={13}
+              style={styles.approvalBadge}
+            />
+            <Text
+              style={[
+                theme.typography.labelCaps,
+                styles.approvalTitle,
+                { color: theme.colors.onSurfaceVariant },
+              ]}
+              numberOfLines={1}
+            >
+              {t('transcript.commandCardTitle')}
+            </Text>
+          </View>
+          <Text
+            selectable
+            numberOfLines={3}
+            style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}
+          >
+            {segment.content}
+          </Text>
         </View>
       );
     }
@@ -1651,6 +1836,39 @@ const styles = StyleSheet.create({
   },
   approvalStatusChip: {
     marginLeft: 'auto',
+  },
+  taskCard: {
+    borderRadius: 10,
+    padding: 10,
+    gap: 8,
+  },
+  taskMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  taskMetaText: {
+    flexShrink: 1,
+  },
+  taskResultBlock: {
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  taskResultHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  taskResultBody: {
+    paddingHorizontal: 8,
+    paddingBottom: 8,
+  },
+  commandCard: {
+    borderRadius: 10,
+    padding: 10,
+    gap: 8,
   },
   goalReportCard: {
     paddingVertical: 10,

@@ -182,7 +182,13 @@
     "reportCompletionClaimed": "已声明完成 · 待机器校验",
     "approvalCardTitle": "需要你的批准",
     "approvalSingleBadge": "单选待处理",
-    "approvalMultiBadge": "多选待处理"
+    "approvalMultiBadge": "多选待处理",
+    "taskCardTitle": "后台任务",
+    "taskStatusCompleted": "已完成",
+    "taskStatusFailed": "失败",
+    "taskResultShow": "查看任务输出",
+    "taskResultHide": "收起任务输出",
+    "commandCardTitle": "斜杠命令"
   },
   "activity": {
     "collapse": "收起工具活动",

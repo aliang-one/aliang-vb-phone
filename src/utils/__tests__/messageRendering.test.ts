@@ -261,7 +261,7 @@ describe('parseMessageContentSegments — aliang-options 丢围栏兜底', () =>
   });
 
   it('其他 callout 标签是 generic,不带 multi', () => {
-    const [card] = calloutsOf('<task-notification><status>completed</status></task-notification>');
+    const [card] = calloutsOf('<command-message>review</command-message>');
     if (!card || card.kind !== 'callout') throw new Error('no callout');
     expect(card.variant).toBe('generic');
     expect(card.multi).toBeUndefined();
@@ -322,25 +322,84 @@ describe('parseMessageContentSegments — harness 信封渲染', () => {
       Extract<ReturnType<typeof parseMessageContentSegments>[number], { kind: 'callout' }>
     >;
 
-  it('task-notification → Background task 卡片:状态+摘要正文化,管线字段不再裸奔', () => {
+  it('task-notification → task 卡片:summary 进正文,状态/输出文件进 meta,管线字段不再裸奔', () => {
     const callouts = calloutsOf(taskNotice);
     expect(callouts).toHaveLength(1);
     expect(callouts[0].title).toBe('Background task');
-    expect(callouts[0].content).toContain('completed');
+    expect(callouts[0].variant).toBe('task');
     expect(callouts[0].content).toContain('Release 构建');
-    expect(callouts[0].content).toContain('/private/tmp/claude-502/tasks/b876t1utc.output');
+    expect(callouts[0].content).not.toContain('/private/tmp/claude-502/tasks/b876t1utc.output');
     expect(callouts[0].content).not.toContain('<task-id>');
     expect(callouts[0].content).not.toContain('<tool-use-id>');
     expect(callouts[0].content).not.toContain('<status>');
+    expect(callouts[0].meta).toEqual({
+      status: 'completed',
+      outputFile: '/private/tmp/claude-502/tasks/b876t1utc.output',
+    });
   });
 
-  it('task-notification 失败态带 ❌;无 summary 也能出卡', () => {
+  it('task-notification 失败态 meta.status=failed;无 summary 也能出卡', () => {
     const failed = taskNotice
       .replace('<status>completed</status>', '<status>failed</status>')
       .replace(/<summary>[\s\S]*?<\/summary>\n?/, '');
     const callouts = calloutsOf(failed);
     expect(callouts).toHaveLength(1);
+    expect(callouts[0].meta?.status).toBe('failed');
     expect(callouts[0].content).toContain('failed');
+  });
+
+  it('task-notification 携带 result → meta.result 摘走,不漏正文', () => {
+    const withResult = taskNotice.replace(
+      '</task-notification>',
+      '<result>[harness: subagent output]</result></task-notification>',
+    );
+    const callouts = calloutsOf(withResult);
+    expect(callouts).toHaveLength(1);
+    expect(callouts[0].meta?.result).toBe('[harness: subagent output]');
+    expect(callouts[0].content).not.toContain('subagent output');
+  });
+
+  it('裸字段簇(无包裹 task-notification)合并为单张 task 卡——生产常见形态', () => {
+    const bare = [
+      '<task-id>a3ca66e044a44168c</task-id>',
+      '<tool-use-id>call_9c5928bbbd5d4f30aae5a575</tool-use-id>',
+      '<output-file>/private/tmp/claude-502/tasks/a3ca66e044a44168c.output</output-file>',
+      '<status>completed</status>',
+      '<summary>Agent "Implement Task 5" finished</summary>',
+      '<note>A task-notification fires each time this agent stops.</note>',
+      '<result>实现完成,e2e 全绿。</result>',
+    ].join('\n');
+    const callouts = calloutsOf(bare);
+    expect(callouts).toHaveLength(1);
+    expect(callouts[0].variant).toBe('task');
+    expect(callouts[0].title).toBe('Background task');
+    expect(callouts[0].content).toContain('Implement Task 5');
+    expect(callouts[0].meta).toEqual({
+      status: 'completed',
+      outputFile: '/private/tmp/claude-502/tasks/a3ca66e044a44168c.output',
+      result: '实现完成,e2e 全绿。',
+    });
+    const raw = segmentsOf(bare).map(s => s.kind === 'text' ? s.content : '').join('');
+    expect(raw).not.toContain('<task-id>');
+    expect(raw).not.toContain('<note>');
+  });
+
+  it('裸字段簇的 result 体内出现 </status> 字样不会截断配对', () => {
+    const tricky = [
+      '<task-id>t1</task-id>',
+      '<status>completed</status>',
+      '<summary>done</summary>',
+      '<result>片段 <status>伪装</status> 继续输出</result>',
+    ].join('\n');
+    const callouts = calloutsOf(tricky);
+    expect(callouts).toHaveLength(1);
+    expect(callouts[0].meta?.result).toContain('继续输出');
+  });
+
+  it('散文里的孤立 <status> 字样(无 task-id)不触发合并', () => {
+    const segs = segmentsOf('状态如下 <status>ok</status> 请查收');
+    expect(segs.some(s => s.kind === 'callout' && s.variant === 'task')).toBe(false);
+    expect(segs.some(s => s.kind === 'text' && s.content.includes('请查收'))).toBe(true);
   });
 
   it('命令簇合并为单张 Slash command 卡片(不再三段零碎)', () => {

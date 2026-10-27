@@ -182,7 +182,13 @@
     "reportCompletionClaimed": "Claims done · pending checks",
     "approvalCardTitle": "Approval needed",
     "approvalSingleBadge": "Single choice · pending",
-    "approvalMultiBadge": "Multi select · pending"
+    "approvalMultiBadge": "Multi select · pending",
+    "taskCardTitle": "Background task",
+    "taskStatusCompleted": "Completed",
+    "taskStatusFailed": "Failed",
+    "taskResultShow": "View task output",
+    "taskResultHide": "Hide task output",
+    "commandCardTitle": "Slash command"
   },
   "activity": {
     "collapse": "Collapse tool activity",

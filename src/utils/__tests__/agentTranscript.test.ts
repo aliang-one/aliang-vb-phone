@@ -143,6 +143,20 @@ describe('buildDisplayTranscript — harness 信封消息重分类为 system', (
     expect(out[0].role).toBe('system');
   });
 
+  it('裸字段簇(无包裹的后台任务通知)同样 → system 角色,不再冒充用户', () => {
+    const bare = [
+      '<task-id>a3ca66e044a44168c</task-id>',
+      '<tool-use-id>call_9c5928bbbd5d4f30aae5a575</tool-use-id>',
+      '<output-file>/private/tmp/claude-502/tasks/a3ca66e044a44168c.output</output-file>',
+      '<status>completed</status>',
+      '<summary>Agent "Implement Task 5" finished</summary>',
+      '<result>实现完成。</result>',
+    ].join('\n');
+    const out = buildDisplayTranscript([msg({ id: 't3', role: 'user', content: bare })]);
+    expect(out).toHaveLength(1);
+    expect(out[0].role).toBe('system');
+  });
+
   it('命令簇(user 触发的 /command 记录) → system 角色', () => {
     const cluster = '<command-message>review</command-message>\n<command-name>/review</command-name>\n<command-args></command-args>';
     const out = buildDisplayTranscript([msg({ id: 'c1', role: 'user', content: cluster })]);

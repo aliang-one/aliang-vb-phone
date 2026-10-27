@@ -89,8 +89,11 @@ const isSystemToolStatusNoise = (message: AgentMessage): boolean =>
 // 信封形态注入 user 消息流（生产 ai_messages 实证：task-notification 71 条、
 // 命令簇 86 条，全是 user 角色）。纯信封消息不是用户说的话——显示层重分类为
 // system，吃现成的灰条折叠 UI，不占用用户气泡。混合（散文+信封）保持 user。
+// 裸字段簇（task-id/tool-use-id/…/result，CC 后台任务通知的无包裹形态）与
+// 渲染层 formatTaskNotificationBody 派生的 task-* 嵌套标签也在列：纯裸字段
+// 消息同样不是用户话语。
 const HARNESS_ENVELOPE_TAG =
-  'task-notification|system-reminder|local-command-stdout|local-command-stderr|local-command-caveat|local-command-status|command-message|command-name|command-args|command-contents|command-output|command-stdout|command-stderr|command-status|skill-format';
+  'task-notification|task-id|tool-use-id|output-file|status|summary|note|result|task-status|task-output-file|task-result|system-reminder|local-command-stdout|local-command-stderr|local-command-caveat|local-command-status|command-message|command-name|command-args|command-contents|command-output|command-stdout|command-stderr|command-status|skill-format';
 const HARNESS_ENVELOPE_RE = new RegExp(
   `<(?:${HARNESS_ENVELOPE_TAG})>[\\s\\S]*?</(?:${HARNESS_ENVELOPE_TAG})>`,
   'gi',
@@ -112,7 +115,7 @@ const CC_SKILL_INJECTION_RE = /^base directory for this skill:\s+\S*\/\S*/i;
 // isPureHarnessEnvelope 的整信封匹配兜不住。行首前缀兜底（与 server 端
 // CC_META_CONTENT_PREFIXES 同源；只碰行首，正文"提及"标签不受影响）。
 const CC_META_UNCLOSED_PREFIX_RE =
-  /^<(?:command-name|command-message|local-command-caveat|local-command-stdout|system-reminder)>/;
+  /^<(?:command-name|command-message|local-command-caveat|local-command-stdout|system-reminder|task-id|task-notification)>/;
 
 /**
  * CC 写进 user 流、但不是用户话语的 meta 内容（纯信封 / 截断信封 / 技能注入
