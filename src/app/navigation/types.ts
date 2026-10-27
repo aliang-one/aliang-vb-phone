@@ -57,6 +57,8 @@ export type RootStackParamList = {
       provider: EffortProvider;
       model?: string;
       effort?: string;
+      /** 会话上下文窗口（tokens）——创建时随会话下发。 */
+      contextWindow?: number;
       approvalScheme?: 'allow_all' | 'ask_all' | 'read_only';
       canRead?: boolean;
       canModify?: boolean;

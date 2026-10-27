@@ -10,6 +10,7 @@ import {
 import { useTheme } from '../../theme/useTheme';
 import { GlassPanel } from '../shared/GlassPanel';
 import { GlowButton } from '../shared/GlowButton';
+import { ContextWindowSlider } from '../shared/ContextWindowSlider';
 import { IconBadge } from '../visual/IconBadge';
 import { ApiResponseError } from '../../api/client';
 import {
@@ -29,6 +30,10 @@ import {
   type EffortProvider,
 } from '../../utils/modelIntensity';
 import { useTranslation } from 'react-i18next';
+import {
+  formatContextWindow,
+  resolveContextWindow,
+} from '../../utils/contextWindow';
 
 type ProviderDraft = EffortProvider | '';
 
@@ -44,6 +49,11 @@ export const UserModelDefaultCard: React.FC = () => {
   const [provider, setProvider] = useState<ProviderDraft>(initialProvider);
   const [model, setModel] = useState(userDefault.model ?? '');
   const [effort, setEffort] = useState(userDefault.effort ?? '');
+  // 上下文默认值：本地编辑态；PUT 时「未改」则省略字段，避免把「Me → 上下文」
+  // 卡片刚保存的值覆盖回旧值（服务端语义：省略 = 保持原值）。
+  const [contextWindow, setContextWindow] = useState(
+    resolveContextWindow(userDefault.context_window),
+  );
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -52,7 +62,13 @@ export const UserModelDefaultCard: React.FC = () => {
     setProvider(normalizeProvider(userDefault.provider ?? undefined) ?? 'codex');
     setModel(userDefault.model ?? '');
     setEffort(userDefault.effort ?? '');
-  }, [userDefault.provider, userDefault.model, userDefault.effort]);
+    setContextWindow(resolveContextWindow(userDefault.context_window));
+  }, [
+    userDefault.provider,
+    userDefault.model,
+    userDefault.effort,
+    userDefault.context_window,
+  ]);
 
   const effortOptions = useMemo(
     () => catalogEffortOptions(provider || 'codex', providerCatalog),
@@ -66,10 +82,12 @@ export const UserModelDefaultCard: React.FC = () => {
     [provider, providerCatalog],
   );
   const savedProvider = normalizeProvider(userDefault.provider ?? undefined) ?? 'codex';
+  const savedContextWindow = resolveContextWindow(userDefault.context_window);
   const dirty =
     provider !== savedProvider ||
     model.trim() !== (userDefault.model ?? '') ||
-    effort.trim() !== (userDefault.effort ?? '');
+    effort.trim() !== (userDefault.effort ?? '') ||
+    contextWindow !== savedContextWindow;
 
   const accent = theme.colors.primary;
   const providerLabel = (provider?: CatalogProvider | null) =>
@@ -97,10 +115,15 @@ export const UserModelDefaultCard: React.FC = () => {
         provider: provider || null,
         model: model.trim() || null,
         effort: effort.trim() || null,
+        // 只在本地改动时下发，避免与「Me → 上下文」卡片互相覆盖。
+        ...(contextWindow !== savedContextWindow
+          ? { context_window: contextWindow }
+          : {}),
       });
       setProvider(normalizeProvider(next.provider ?? undefined) ?? 'codex');
       setModel(next.model ?? '');
       setEffort(next.effort ?? '');
+      setContextWindow(resolveContextWindow(next.context_window));
       refreshModelOptions();
       refresh();
       setStatus(t('userDefault.savedStatus'));
@@ -161,7 +184,7 @@ export const UserModelDefaultCard: React.FC = () => {
 
       <Text
         style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-        {t('userDefault.currentPrefix')} {providerLabel(userDefault.provider)} · model={userDefault.model || t('common.default')} · effort={userDefault.effort || t('common.default')}
+        {t('userDefault.currentPrefix')} {providerLabel(userDefault.provider)} · model={userDefault.model || t('common.default')} · effort={userDefault.effort || t('common.default')} · context={formatContextWindow(userDefault.context_window)}
       </Text>
 
       {expanded ? (
@@ -247,6 +270,17 @@ export const UserModelDefaultCard: React.FC = () => {
               );
             })}
           </View>
+
+          <Text
+            style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }, styles.fieldLabel]}>
+            {t('common.contextFieldLabel')}
+          </Text>
+          <ContextWindowSlider
+            value={contextWindow}
+            onChange={setContextWindow}
+            label={t('common.contextFieldLabel')}
+            testID="model-context-window"
+          />
 
           {status ? (
             <Text

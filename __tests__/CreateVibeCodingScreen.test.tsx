@@ -273,14 +273,15 @@ describe('CreateVibeCodingScreen permissions section', () => {
     expect(params.draftConfig.canRun).toBe(true);
   });
 
-  it('section title renumbered to 7. PERMISSIONS (no 8.)', async () => {
+  it('section titles renumbered: context window is 7, permissions is 8', async () => {
     root = await wrap(<CreateVibeCodingScreen />);
     const allText = root.root
       .findAllByType(Text)
       .map(t => String(t.props.children))
       .join('|');
-    expect(allText).toContain('7. PERMISSIONS');
-    expect(allText).not.toContain('8. PERMISSIONS');
+    expect(allText).toContain('7. CONTEXT WINDOW');
+    expect(allText).toContain('8. PERMISSIONS');
+    expect(allText).not.toContain('9. PERMISSIONS');
   });
 
   it('old decorative permissions array removed (no "Expose preview ports" toggle)', async () => {
@@ -506,5 +507,56 @@ describe('CreateVibeCodingScreen model confirm sheet', () => {
     // Me 默认现在适用 → 确认/返回按钮组(而非 Me 空引导)
     expect(touchByTestID(root.root, 'sheet-btn-confirm')).toBeTruthy();
     expect(touchByTestID(root.root, 'sheet-btn-go-me')).toBeUndefined();
+  });
+});
+
+describe('CreateVibeCodingScreen context window section', () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  beforeEach(() => {
+    mockReplace.mockReset();
+    // 上面的用例会改写模块级 mockUserDefault；这里恢复干净基线。
+    Object.assign(mockUserDefault, { provider: null, model: null, effort: null });
+    delete mockUserDefault.context_window;
+  });
+
+  afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+  });
+
+  const startAndGetDraft = () => {
+    pressStart(root);
+    confirmSheetIfOpen(root);
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+    return mockReplace.mock.calls[0][1].draftConfig;
+  };
+
+  it('默认上下文=200k 随 draftConfig 下发', async () => {
+    root = await wrap(<CreateVibeCodingScreen />);
+    const draft = startAndGetDraft();
+    expect(draft.contextWindow).toBe(200000);
+  });
+
+  it('Me 里的用户默认上下文会预填到新建页', async () => {
+    mockUserDefault.context_window = 300000;
+    root = await wrap(<CreateVibeCodingScreen />);
+    const draft = startAndGetDraft();
+    expect(draft.contextWindow).toBe(300000);
+  });
+
+  it('手动输入 K 值覆盖默认并下发', async () => {
+    root = await wrap(<CreateVibeCodingScreen />);
+    const input = byTestID(root.root, 'create-context-window-input');
+    expect(input).toBeTruthy();
+    act(() => {
+      input.props.onChangeText?.('400');
+    });
+    act(() => {
+      input.props.onSubmitEditing?.();
+    });
+    const draft = startAndGetDraft();
+    expect(draft.contextWindow).toBe(400000);
   });
 });

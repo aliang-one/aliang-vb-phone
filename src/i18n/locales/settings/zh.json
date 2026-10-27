@@ -22,6 +22,7 @@
     "usage": "用量 USAGE",
     "subscriptions": "订阅 SUBSCRIPTIONS",
     "modelConfig": "模型配置 MODEL CONFIG",
+    "context": "上下文 CONTEXT",
     "platformService": "PLATFORM SERVICE",
     "notifications": "通知 NOTIFICATIONS",
     "capacity": "CAPACITY",

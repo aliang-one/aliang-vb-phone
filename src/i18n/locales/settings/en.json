@@ -22,6 +22,7 @@
     "usage": "USAGE",
     "subscriptions": "SUBSCRIPTIONS",
     "modelConfig": "MODEL CONFIG",
+    "context": "CONTEXT",
     "platformService": "PLATFORM SERVICE",
     "notifications": "NOTIFICATIONS",
     "capacity": "CAPACITY",

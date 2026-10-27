@@ -81,6 +81,10 @@
     "effortHintOpencode": "OpenCode 模型使用 provider/model；留空继承用户默认。",
     "effortHintClaude": "Claude 推理强度：claude 用 max；留空继承用户默认。",
     "effortHintAgentcore": "AliangCode 推理强度：档位随会话下发内核；留空继承用户默认。",
+    "contextLabel": "上下文窗口",
+    "contextHintClaude": "作为 claude 的自动压缩阈值（--autocompact）下发；默认跟随 Me → 上下文。",
+    "contextHintAgentcore": "AliangCode 内核按此窗口自动压缩历史，/compact 手动压缩同样生效；默认跟随 Me → 上下文。",
+    "contextHintUnused": "该 provider 暂不使用此设置（仅 claude 系与 AliangCode 生效）。",
     "permissions": {
       "title": "权限",
       "approvalLabel": "审批策略",

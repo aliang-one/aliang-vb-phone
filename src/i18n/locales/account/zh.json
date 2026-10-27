@@ -4,6 +4,7 @@
     "providerFieldLabel": "PROVIDER",
     "modelFieldLabel": "MODEL",
     "effortFieldLabel": "EFFORT",
+    "contextFieldLabel": "CONTEXT WINDOW",
     "saving": "保存中…",
     "save": "保存",
     "loadingCatalog": "正在加载模型目录…",
@@ -43,6 +44,12 @@
     "saveDefault": "保存默认配置",
     "upToDate": "已是最新",
     "failureStatusPrefix": "保存失败"
+  },
+  "contextCard": {
+    "title": "默认上下文",
+    "subtitle": "用户级 · 新建会话的上下文窗口，创建时仍可单独调整",
+    "hint": "100k – 1M。Claude 会作为自动压缩阈值（--autocompact）下发；AliangCode 内核按此窗口自动压缩，手动 /compact 同样生效。",
+    "savedStatus": "已保存默认上下文窗口。"
   },
   "deviceDefault": {
     "title": "设备默认",

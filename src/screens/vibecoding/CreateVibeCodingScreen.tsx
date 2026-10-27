@@ -17,6 +17,7 @@ import { TopAppBar } from '../../components/layout/TopAppBar';
 import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
+import { ContextWindowSlider } from '../../components/shared/ContextWindowSlider';
 import { RootStackParamList } from '../../app/navigation/types';
 import {
   AgentProvider,
@@ -39,6 +40,10 @@ import {
   supportedEffortsFor,
 } from '../../utils/modelIntensity';
 import { ModelConfirmSheet } from '../../components/vibecoding/ModelConfirmSheet';
+import {
+  DEFAULT_CONTEXT_WINDOW,
+  resolveContextWindow,
+} from '../../utils/contextWindow';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type CreateRoute = RouteProp<RootStackParamList, 'CreateVibeCoding'>;
@@ -93,6 +98,9 @@ export const CreateVibeCodingScreen: React.FC = () => {
   // 手机选定并每次下发,切到该 provider 时就预填默认值(见 requiresExplicitModel)。
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState('');
+  // 会话上下文窗口（tokens）：预填 Me 里的默认上下文，用户拖动/输入后钉住。
+  const [contextWindow, setContextWindow] = useState(DEFAULT_CONTEXT_WINDOW);
+  const contextWindowTouchedRef = useRef(false);
   // Live catalog drives the EFFORT chips for the selected provider; falls back
   // to the hardcoded ladder before it loads. "默认" =
   // inherit (don't specify), which is the default selection.
@@ -177,6 +185,11 @@ export const CreateVibeCodingScreen: React.FC = () => {
       setEffort('');
     }
   }, [userDefault.provider, availability, provider]);
+  // Me 页「上下文」默认值预填（与 provider 同一套路：用户手动改过就不再覆盖）。
+  useEffect(() => {
+    if (contextWindowTouchedRef.current) return;
+    setContextWindow(resolveContextWindow(userDefault.context_window));
+  }, [userDefault.context_window]);
   // 要求手机显式下发模型的 provider（目前只有内置内核）：选中它时预填默认模型，
   // 让「默认」这个不下发模型的状态不可达。用户仍可在输入框/芯片里改成别的。
   // 依赖 provider 而非 model：用户手动改完不会被反复覆盖。
@@ -283,6 +296,7 @@ export const CreateVibeCodingScreen: React.FC = () => {
         provider,
         model: model.trim() || undefined,
         effort: clampedEffort.trim() || undefined,
+        contextWindow,
         approvalScheme: approval === 'inherit' ? undefined : approval,
         canRead,
         canModify,
@@ -785,7 +799,37 @@ export const CreateVibeCodingScreen: React.FC = () => {
             { color: theme.colors.onSurfaceVariant },
             styles.sectionTitle,
           ]}>
-          7. PERMISSIONS
+          7. CONTEXT WINDOW
+        </Text>
+        <ContextWindowSlider
+          value={contextWindow}
+          onChange={next => {
+            contextWindowTouchedRef.current = true;
+            setContextWindow(next);
+          }}
+          label={t('createScreen.contextLabel')}
+          testID="create-context-window"
+        />
+        <Text
+          style={[
+            theme.typography.bodySm,
+            { color: theme.colors.onSurfaceVariant },
+            styles.modelHint,
+          ]}>
+          {provider === 'agentcore'
+            ? t('createScreen.contextHintAgentcore')
+            : provider === 'codex' || provider === 'opencode'
+              ? t('createScreen.contextHintUnused')
+              : t('createScreen.contextHintClaude')}
+        </Text>
+
+        <Text
+          style={[
+            theme.typography.labelCaps,
+            { color: theme.colors.onSurfaceVariant },
+            styles.sectionTitle,
+          ]}>
+          8. PERMISSIONS
         </Text>
         <Text
           style={[

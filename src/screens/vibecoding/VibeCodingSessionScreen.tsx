@@ -1425,6 +1425,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
           objective: normalizedContent,
           model: draftConfig.model,
           effort: draftConfig.effort,
+          contextWindow: draftConfig.contextWindow,
           // Forward per-session permission override (create-flow "session
           // permissions"). approvalScheme is undefined when 'inherit' — the
           // store/API omit it on the wire so the server keeps the resolved

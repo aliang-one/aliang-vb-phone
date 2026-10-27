@@ -79,12 +79,15 @@ export interface ModelOptions {
     provider?: CatalogProvider | null;
     model?: string | null;
     effort?: string | null;
+    /** 上下文窗口（tokens）；null/缺省 = 未设置（服务端回落 200k）。 */
+    context_window?: number | null;
   };
   /** Backward-compatible alias; currently mirrors user_default from the server. */
   server_default: {
     provider?: CatalogProvider | null;
     model?: string | null;
     effort?: string | null;
+    context_window?: number | null;
   };
 }
 
@@ -97,6 +100,11 @@ export interface UserModelDefault {
   provider?: CatalogProvider | null;
   model?: string | null;
   effort?: string | null;
+  /**
+   * 上下文窗口（tokens，服务端钳到 [100k,1M]）。PUT 语义：
+   * 省略 = 保持原值；number = 设置；null = 清除。
+   */
+  context_window?: number | null;
 }
 
 /** Body for legacy device/project model-config endpoints. */

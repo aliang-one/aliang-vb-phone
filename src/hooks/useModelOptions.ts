@@ -31,6 +31,15 @@ let inflight: Promise<ModelOptions | null> | null = null;
 // their preset library / user defaults on the account screen).
 let cacheEpoch = 0;
 
+// 已挂载的 useModelOptions 订阅者。缓存一变就主动通知，让「Me → 模型」与
+// 「Me → 上下文」两张卡片在任一保存后立即看到新默认值（否则要等下次聚焦
+// 重新挂载才刷新）。
+const subscribers = new Set<() => void>();
+
+function publishCache(): void {
+  for (const notify of subscribers) notify();
+}
+
 const fallbackModelOptions: ModelOptions = {
   provider_catalog: [
     { provider: 'codex', models: [], efforts: effortPresetsFor('codex') },
@@ -61,11 +70,13 @@ async function loadModelOptions(): Promise<ModelOptions | null> {
       const data = await fetchModelOptions();
       cached = { data, loading: false, error: null };
       cacheEpoch += 1;
+      publishCache();
       return data;
     } catch (err) {
       if (err instanceof ApiResponseError && err.status === 404) {
         cached = { data: fallbackModelOptions, loading: false, error: null };
         cacheEpoch += 1;
+        publishCache();
         return fallbackModelOptions;
       }
       cached = {
@@ -74,6 +85,7 @@ async function loadModelOptions(): Promise<ModelOptions | null> {
         error: err instanceof Error ? err.message : i18n.t('common:model.loadCatalogFailed'),
       };
       cacheEpoch += 1;
+      publishCache();
       return null;
     } finally {
       inflight = null;
@@ -85,6 +97,7 @@ async function loadModelOptions(): Promise<ModelOptions | null> {
 /** Force every `useModelOptions` subscriber to refetch on next render. */
 export const refreshModelOptions = (): void => {
   cacheEpoch += 1;
+  publishCache();
 };
 
 export interface UseModelOptionsResult {
@@ -126,6 +139,18 @@ export const catalogEffortOptions = (
 export const useModelOptions = (): UseModelOptionsResult => {
   const [localEpoch, setLocalEpoch] = useState(cacheEpoch);
   const [state, setState] = useState<CachedModelOptions>(cached);
+
+  useEffect(() => {
+    // 缓存/纪元变化（保存了新的用户默认值）→ 立即同步到本订阅者。
+    const onCachePublished = () => {
+      setLocalEpoch(cacheEpoch);
+      setState(cached);
+    };
+    subscribers.add(onCachePublished);
+    return () => {
+      subscribers.delete(onCachePublished);
+    };
+  }, []);
 
   useEffect(() => {
     // If this subscriber mounted after the epoch advanced (cache already warm),

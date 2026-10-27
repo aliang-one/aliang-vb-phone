@@ -401,6 +401,11 @@ interface StartAgentInput {
    */
   effort?: string;
   /**
+   * 会话上下文窗口（tokens，[100k,1M]）。omit = 服务端按
+   * 用户默认（Me → 上下文）回落；创建后随会话保存，不可中途更改。
+   */
+  contextWindow?: number;
+  /**
    * Per-session approval-policy override (create-flow "session permissions").
    * Forwarded to the server's aiCreateSchema; omit/undefined = inherit the
    * resolved project/device policy (do NOT send 'inherit' to the server — only

@@ -81,6 +81,10 @@
     "effortHintOpencode": "OpenCode models use provider/model; leave empty to inherit the user default.",
     "effortHintClaude": "Claude reasoning effort: claude uses max; leave empty to inherit the user default.",
     "effortHintAgentcore": "AliangCode reasoning effort: the tier is sent to the kernel with the session; leave empty to inherit the user default.",
+    "contextLabel": "Context window",
+    "contextHintClaude": "Sent as claude's auto-compact threshold (--autocompact). Defaults to Me → Context.",
+    "contextHintAgentcore": "The AliangCode kernel auto-compacts history to this window; manual /compact works too. Defaults to Me → Context.",
+    "contextHintUnused": "Not used by this provider (applies to claude providers and AliangCode).",
     "permissions": {
       "title": "Permissions",
       "approvalLabel": "Approval",

@@ -476,6 +476,12 @@ export const createAiSession = (input: {
   risk?: 'low' | 'medium' | 'high';
   effort?: string;
   /**
+   * 会话上下文窗口（tokens）。服务端钳到 [100k,1M] 后经 executionProfile
+   * 下发给宿主：claude 系转成 CLI 的 --autocompact，agentcore 作为内核
+   * 自动压缩窗口。省略 = 继承用户默认（Me 里设置）→ 200k。
+   */
+  context_window?: number;
+  /**
    * Per-session approval-policy override (create-flow "session permissions").
    * camelCase on the wire to match the server's aiCreateSchema field naming.
    * Omit/undefined = inherit the resolved project/device policy (the server
