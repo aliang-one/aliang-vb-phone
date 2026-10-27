@@ -45,12 +45,11 @@ export const UserModelDefaultCard: React.FC = () => {
   const { theme, isDark } = useTheme();
   const { t } = useTranslation('account');
   const { providerCatalog, userDefault, loading, error, refresh } = useModelOptions();
-  const initialProvider = normalizeProvider(userDefault.provider ?? undefined) ?? 'codex';
+  const initialProvider = normalizeProvider(userDefault.provider ?? undefined) ?? '';
   const [provider, setProvider] = useState<ProviderDraft>(initialProvider);
   const [model, setModel] = useState(userDefault.model ?? '');
   const [effort, setEffort] = useState(userDefault.effort ?? '');
-  // 上下文默认值：本地编辑态；PUT 时「未改」则省略字段，避免把「Me → 上下文」
-  // 卡片刚保存的值覆盖回旧值（服务端语义：省略 = 保持原值）。
+  // 上下文默认值：本地编辑态（这是它唯一的设置入口，保存时随 PUT 下发）。
   const [contextWindow, setContextWindow] = useState(
     resolveContextWindow(userDefault.context_window),
   );
@@ -59,7 +58,7 @@ export const UserModelDefaultCard: React.FC = () => {
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    setProvider(normalizeProvider(userDefault.provider ?? undefined) ?? 'codex');
+    setProvider(normalizeProvider(userDefault.provider ?? undefined) ?? '');
     setModel(userDefault.model ?? '');
     setEffort(userDefault.effort ?? '');
     setContextWindow(resolveContextWindow(userDefault.context_window));
@@ -81,7 +80,7 @@ export const UserModelDefaultCard: React.FC = () => {
         : [],
     [provider, providerCatalog],
   );
-  const savedProvider = normalizeProvider(userDefault.provider ?? undefined) ?? 'codex';
+  const savedProvider = normalizeProvider(userDefault.provider ?? undefined) ?? '';
   const savedContextWindow = resolveContextWindow(userDefault.context_window);
   const dirty =
     provider !== savedProvider ||
@@ -113,12 +112,10 @@ export const UserModelDefaultCard: React.FC = () => {
     try {
       const next: UserModelDefault = await putUserModelDefault({
         provider: provider || null,
+        // 每项独立:清空 = null = 回到该项的内置默认(CLI 默认模型/effort/200k)。
         model: model.trim() || null,
         effort: effort.trim() || null,
-        // 只在本地改动时下发，避免与「Me → 上下文」卡片互相覆盖。
-        ...(contextWindow !== savedContextWindow
-          ? { context_window: contextWindow }
-          : {}),
+        context_window: contextWindow,
       });
       setProvider(normalizeProvider(next.provider ?? undefined) ?? 'codex');
       setModel(next.model ?? '');
@@ -184,7 +181,7 @@ export const UserModelDefaultCard: React.FC = () => {
 
       <Text
         style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
-        {t('userDefault.currentPrefix')} {providerLabel(userDefault.provider)} · model={userDefault.model || t('common.default')} · effort={userDefault.effort || t('common.default')} · context={formatContextWindow(userDefault.context_window)}
+        {t('userDefault.currentPrefix')} {userDefault.provider ? providerLabel(userDefault.provider) : t('userDefault.notSet')} · model={userDefault.model || t('common.default')} · effort={userDefault.effort || t('common.default')} · context={formatContextWindow(userDefault.context_window)}
       </Text>
 
       {expanded ? (
@@ -194,16 +191,19 @@ export const UserModelDefaultCard: React.FC = () => {
             {t('common.providerFieldLabel')}
           </Text>
           <View style={styles.chipRow}>
-            {PROVIDER_OPTIONS.map(opt => {
+            {(
+              [
+                // '' = 不设 provider 默认:四项各自独立生效,这项同样可以不设。
+                { label: t('userDefault.notSet'), value: '' as ProviderDraft },
+                ...PROVIDER_OPTIONS,
+              ] as Array<{ label: string; value: ProviderDraft }>
+            ).map(opt => {
               const active = provider === opt.value;
               return (
                 <TouchableOpacity
                   key={opt.value}
                   activeOpacity={0.75}
-                  onPress={() => {
-                    setProvider(opt.value);
-                    setEffort('');
-                  }}
+                  onPress={() => setProvider(opt.value)}
                   style={chipStyle(active)}>
                   <Text style={chipText(active)}>{opt.label}</Text>
                 </TouchableOpacity>

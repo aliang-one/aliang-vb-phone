@@ -80,12 +80,14 @@ describe('ModelConfirmSheet', () => {
     expect(touchByTestID(root.root, 'sheet-btn-confirm')).toBeUndefined();
   });
 
-  it('跨 provider:Me 默认不适用,标 CLI 默认且出现引导', async () => {
+  it('跨 provider:Me 默认逐字段照常生效(2026-10-28 起不再整组门控)', async () => {
     Object.assign(mockUserDefault, { provider: 'claude_code', model: 'glm-5.2', effort: 'high' });
     const root = await wrap(<ModelConfirmSheet {...baseProps} />);
-    expect(allText(root)).not.toContain('glm-5.2');
-    expect(allText(root)).toContain('CLI 默认');
-    expect(touchByTestID(root.root, 'sheet-btn-go-me')).toBeTruthy();
+    expect(allText(root)).toContain('glm-5.2');
+    expect(allText(root)).toContain('high');
+    // 有 Me 来源 → 不再出现「去 Me 页设置」引导,按钮组=返回/确认。
+    expect(touchByTestID(root.root, 'sheet-btn-go-me')).toBeUndefined();
+    expect(touchByTestID(root.root, 'sheet-btn-confirm')).toBeTruthy();
   });
 
   it('手动指定字段标「本次选择」,未指定字段按 Me/CLI 解析', async () => {
