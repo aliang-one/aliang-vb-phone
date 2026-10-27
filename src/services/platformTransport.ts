@@ -209,7 +209,7 @@ export type PlatformTransportEvent =
   | { type: 'terminal.created'; sessionId: string; raw: Record<string, unknown> }
   | { type: 'terminal.closed'; sessionId: string; raw: Record<string, unknown> }
   | { type: 'terminal.exit'; sessionId: string; failed: boolean; reason?: string; raw: Record<string, unknown> }
-  | { type: 'terminal.geometry_changed'; sessionId: string; cols: number; rows: number; origin: 'web' | 'phone'; raw: Record<string, unknown> }
+  | { type: 'terminal.geometry_changed'; sessionId: string; cols: number; rows: number; origin: 'web' | 'phone'; deferred?: boolean; raw: Record<string, unknown> }
   | { type: 'terminal.quota.challenge'; challengeId: string; sessionId: string; seq: number; terminalName?: string; usedBytes: number; killAtBytes: number; maxBytes: number; raw: Record<string, unknown> }
   | { type: 'terminal.quota.challenge_resolved'; challengeId: string; verdict: string; raw: Record<string, unknown> }
   | { type: 'approval.requested'; approval: PlatformApprovalSnapshot; raw: Record<string, unknown> }
@@ -851,6 +851,9 @@ class PlatformTransport {
     // 几何跟随(设计 §1):server 在 resize 成功后广播 terminal.geometry_changed
     // (snake_case,与 agent-relayed terminal.* 同组)。缺 cols/rows 或 origin 不在
     // 'web' | 'phone' 闭集内时不 return —— 按闭合 union 惯例落到 raw 通道。
+    // deferred(2026-10-27 浏览器优先):server 对「网页授权在线时手机自动
+    // resize」的降级纠偏帧(单播回送现网页几何),客户端必须绕过 2.5s 自发
+    // 防抖窗口直接跟随;普通广播不带此字段。
     if (type === 'terminal.geometry_changed') {
       const cols = num(message.cols);
       const rows = num(message.rows);
@@ -866,6 +869,7 @@ class PlatformTransport {
           cols,
           rows,
           origin,
+          ...(message.deferred === true ? { deferred: true as const } : {}),
           raw: message,
         };
       }

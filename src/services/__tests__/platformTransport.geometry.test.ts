@@ -93,6 +93,63 @@ describe('platformTransport terminal.geometry_changed', () => {
     ]);
   });
 
+  it('carries deferred:true on a browser-priority correction frame', () => {
+    const events: unknown[] = [];
+    const frame = {
+      type: 'terminal.geometry_changed',
+      session_id: 't1',
+      cols: 132,
+      rows: 43,
+      origin: 'web',
+      deferred: true,
+    };
+
+    platformTransport.connect(event => {
+      events.push(event);
+    });
+    socketHandler?.(frame);
+
+    expect(events).toEqual([
+      {
+        type: 'terminal.geometry_changed',
+        sessionId: 't1',
+        cols: 132,
+        rows: 43,
+        origin: 'web',
+        deferred: true,
+        raw: frame,
+      },
+    ]);
+  });
+
+  it('leaves deferred off ordinary broadcasts (non-true values ignored)', () => {
+    const events: unknown[] = [];
+    const frame = {
+      type: 'terminal.geometry_changed',
+      session_id: 't1',
+      cols: 120,
+      rows: 30,
+      origin: 'web',
+      deferred: false,
+    };
+
+    platformTransport.connect(event => {
+      events.push(event);
+    });
+    socketHandler?.(frame);
+
+    expect(events).toEqual([
+      {
+        type: 'terminal.geometry_changed',
+        sessionId: 't1',
+        cols: 120,
+        rows: 30,
+        origin: 'web',
+        raw: frame,
+      },
+    ]);
+  });
+
   it('drops malformed geometry frames to raw instead of the typed channel', () => {
     const events: unknown[] = [];
     const missingCols = {

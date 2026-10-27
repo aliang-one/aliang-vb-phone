@@ -880,10 +880,10 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
     });
 
     expect(mockCreateTerminalSession).not.toHaveBeenCalled();
+    // 浏览器优先(2026-10-27):attach 不携带几何,进屏对齐由桥侧启动 fit →
+    // resize 上报负责。
     expect(mockAttachTerminalSession).toHaveBeenCalledWith('term-2', {
       deviceId: 'device-1',
-      rows: 24,
-      cols: 80,
     });
     expect(
       screen!.root.findByProps({ testID: 'terminal-directory-other' }).props

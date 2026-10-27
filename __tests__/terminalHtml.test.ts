@@ -112,7 +112,23 @@ describe('terminalHtml', () => {
   it('启动 fit 带 follow 防护;还原体提取为 restoreFromFollow 两分支共用', () => {
     const html = getTerminalHtml(true);
 
-    expect(html).toContain('if (!followState.active) { fitAddon.fit(); }');
+    const startupGuard = html.indexOf('if (!followState.active) {');
+    expect(startupGuard).toBeGreaterThanOrEqual(0);
+    const startupBlock = html.slice(
+      startupGuard,
+      html.indexOf('term.refresh(0, term.rows - 1)'),
+    );
+
+    // 浏览器优先的入口握手(2026-10-27):启动 fit 后若网格未变(onResize
+    // 不会触发,典型是 WebView 默认 80×24),手动补报一条 resize,服务端才
+    // 知道本机几何;follow 防护仍在,active 时整块跳过。
+    expect(startupBlock).toContain('fitAddon.fit()');
+    expect(startupBlock).toContain('var beforeCols = term.cols;');
+    expect(startupBlock).toContain('var beforeRows = term.rows;');
+    expect(startupBlock).toContain(
+      'term.cols === beforeCols && term.rows === beforeRows',
+    );
+    expect(startupBlock).toContain("type: 'resize'");
     expect(html).toContain('function restoreFromFollow()');
 
     const unfollowBranch = html.slice(

@@ -2,8 +2,9 @@
  * TerminalEmulator replay rendering (attach flow, P3).
  *
  * Contract under test:
- *   1. WebView ready → terminal.resize is sent BEFORE any replay chunk is
- *      injected (the TUI redraws at the new size, then history is written).
+ *   1. WebView ready sends NO terminal.resize (2026-10-27 浏览器优先:attach
+ *      不再用 WebView 默认 80×24 砸服务端网格;进屏对齐由桥侧启动 fit →
+ *      resize 消息驱动), and no replay chunk is injected before ready.
  *   2. If the session's replay stream is complete (replayReady), the buffered
  *      scrollback is injected into xterm as `replay` chunks — in order — and
  *      ONLY THEN is the live output handler registered (registry pending is
@@ -15,6 +16,8 @@
  *      live wiring right after ready, no `replay` injections, no badge.
  *   5. replayStatus 'exited' renders the "session ended" banner; a completed
  *      non-empty replay shows the "已回放" badge.
+ *   6. 桥侧 resize 消息是进屏几何的唯一上报口:普通上报不带 takeover;
+ *      跟随徽章打的显式夺回标记让紧随的一次上报带 takeover:true。
  */
 jest.mock('react-native-webview', () => {
   const React = require('react');
@@ -37,6 +40,7 @@ jest.mock('../../../services/platformTransport', () => ({
   platformTransport: {
     send: jest.fn((message: { type: string }) => {
       mockTimeline.push(`transport:${message.type}`);
+      mockSentMessages.push(message as Record<string, unknown>);
     }),
     loadSnapshot: jest.fn(),
     disconnect: jest.fn(),
@@ -53,6 +57,11 @@ import {
   routeTerminalOutputToEmulator,
   unregisterTerminalOutputHandler,
 } from '../../../services/terminalOutputRegistry';
+import {
+  isLocalTerminalResizeRecent,
+  markTerminalGeometryTakeover,
+  resetTerminalGeometryFollowForTests,
+} from '../../../services/terminalGeometryFollow';
 import { TERMINAL_OUTPUT_FLUSH_MS } from '../../../utils/terminalOutputBatcher';
 import { TerminalEmulator } from '../TerminalEmulator';
 import type { WebViewMessageEvent } from 'react-native-webview';
@@ -60,6 +69,7 @@ import type { WebViewMessageEvent } from 'react-native-webview';
 let mockInjectJavaScript = jest.fn();
 let mockLastWebViewProps: Record<string, unknown> = {};
 let mockTimeline: string[] = [];
+let mockSentMessages: Array<Record<string, unknown>> = [];
 
 const fireWebViewMessage = (payload: Record<string, unknown>) => {
   const onMessage = mockLastWebViewProps.onMessage as
@@ -130,6 +140,8 @@ describe('TerminalEmulator replay rendering', () => {
     mockInjectJavaScript = jest.fn();
     mockLastWebViewProps = {};
     mockTimeline = [];
+    mockSentMessages = [];
+    resetTerminalGeometryFollowForTests();
   });
 
   afterEach(() => {
@@ -158,8 +170,9 @@ describe('TerminalEmulator replay rendering', () => {
     expect(injectTypes()).toEqual(['theme', 'replay', 'replay']);
     expect(injectPayloads('replay')).toEqual(['$ ls\r\n', 'file-a\n']);
 
-    // ...resize was requested before the replay stream started...
-    expect(mockTimeline).toEqual(['transport:terminal.resize']);
+    // ...ready 不再替桥侧上报默认几何(浏览器优先:attach/ready 都不带
+    // 80×24 默认网格,进屏对齐由启动 fit 的 resize 消息负责)...
+    expect(mockTimeline).toEqual([]);
 
     // ...and the live feed is wired: routed chunks inject behind the replay.
     expect(
@@ -329,6 +342,53 @@ describe('TerminalEmulator replay rendering', () => {
       'b-1\n',
       'b-2\n',
       'b-3\n',
+    ]);
+  });
+
+  it('桥侧 resize 消息 → 上报终端几何并标记自发窗口(进屏对齐的唯一出口)', () => {
+    act(() => {
+      renderEmulator({ replayChunks: [], replayReady: true });
+    });
+    fireWebViewMessage({ type: 'ready', cols: 80, rows: 24 });
+
+    fireWebViewMessage({ type: 'resize', cols: 100, rows: 30 });
+
+    expect(mockSentMessages).toEqual([
+      {
+        type: 'terminal.resize',
+        session_id: 'term-replay-1',
+        cols: 100,
+        rows: 30,
+      },
+    ]);
+    // 自发窗口被打点:紧随的 geometry_changed 回显不会反向建立跟随。
+    expect(isLocalTerminalResizeRecent('term-replay-1')).toBe(true);
+  });
+
+  it('显式夺回标记只放行紧随的一次 resize(takeover:true),之后的上报不再携带', () => {
+    act(() => {
+      renderEmulator({ replayChunks: [], replayReady: true });
+    });
+    fireWebViewMessage({ type: 'ready', cols: 80, rows: 24 });
+
+    markTerminalGeometryTakeover('term-replay-1');
+    fireWebViewMessage({ type: 'resize', cols: 100, rows: 30 });
+    fireWebViewMessage({ type: 'resize', cols: 101, rows: 30 });
+
+    expect(mockSentMessages).toEqual([
+      {
+        type: 'terminal.resize',
+        session_id: 'term-replay-1',
+        cols: 100,
+        rows: 30,
+        takeover: true,
+      },
+      {
+        type: 'terminal.resize',
+        session_id: 'term-replay-1',
+        cols: 101,
+        rows: 30,
+      },
     ]);
   });
 });

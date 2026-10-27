@@ -51,12 +51,14 @@ const geometryEvent = (over: {
   cols?: number;
   rows?: number;
   origin?: 'web' | 'phone';
+  deferred?: boolean;
 }) => ({
   type: 'terminal.geometry_changed' as const,
   sessionId: over.sessionId,
   cols: over.cols ?? 120,
   rows: over.rows ?? 40,
   origin: over.origin ?? 'web',
+  ...(over.deferred === true ? { deferred: true as const } : {}),
   raw: {},
 });
 
@@ -103,6 +105,52 @@ describe('terminal.geometry_changed → geometryFollow (dispatcher)', () => {
     dispatch(geometryEvent({ sessionId: 'term-1', cols: 132, rows: 43 }));
 
     expect(getTerminal('term-1').geometryFollow).toBeUndefined();
+  });
+
+  // 浏览器优先(2026-10-27):服务端对手机自动 resize 的单播降级帧(deferred)
+  // 必然紧跟本机自发 resize,必须绕过 2.5s 自发窗口,否则手机永远学不到
+  // 网页几何、也无法进入跟随。
+  it('a deferred frame bypasses the local-resize window', () => {
+    markLocalTerminalResize('term-1');
+    dispatch(
+      geometryEvent({
+        sessionId: 'term-1',
+        cols: 132,
+        rows: 43,
+        origin: 'web',
+        deferred: true,
+      }),
+    );
+
+    expect(getTerminal('term-1').geometryFollow).toEqual({
+      cols: 132,
+      rows: 43,
+      origin: 'web',
+    });
+  });
+
+  it('a deferred frame still records outside the window (no special casing needed)', () => {
+    jest.useFakeTimers();
+    try {
+      markLocalTerminalResize('term-1');
+      jest.advanceTimersByTime(2500);
+      dispatch(
+        geometryEvent({
+          sessionId: 'term-1',
+          cols: 90,
+          rows: 28,
+          deferred: true,
+        }),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(getTerminal('term-1').geometryFollow).toEqual({
+      cols: 90,
+      rows: 28,
+      origin: 'web',
+    });
   });
 
   it('still records after the local window has passed (another client resized)', () => {

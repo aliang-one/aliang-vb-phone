@@ -69,6 +69,7 @@ import {
 } from '../../utils/terminalInputDispatch';
 import { describeDeviceError } from '../../utils/deviceError';
 import { useAiCommandSuggestions } from '../../hooks/useAiCommandSuggestions';
+import { markTerminalGeometryTakeover } from '../../services/terminalGeometryFollow';
 import { TerminalSuggestionRow } from '../../components/terminal/TerminalSuggestionRow';
 import { TerminalVoiceFab } from '../../components/terminal/TerminalVoiceFab';
 import { TerminalAiStatusStrip } from '../../components/terminal/TerminalAiStatusStrip';
@@ -503,16 +504,12 @@ export const DeviceTerminalScreen: React.FC = () => {
       attachedTerminalIdRef.current = terminalId;
       let cancelled = false;
       setTerminalOpening(true);
-      // 跟随挂起时 attach 传跟随几何(复审 F-1):server 的 driveAgentAttach
-      // 会用这里的几何覆写 session 并重驱 agent resize,且该路径没有
-      // geometry_changed 广播——若仍传固定 24×80,pty 被拉回 80×24 而双端
-      // 网格锁在跟随几何,错位要等任一端下次 resize 才自愈。无跟随路径
-      // 行为不变(24/80 兜底)。
-      attachTerminalSession(terminalId, {
-        deviceId,
-        rows: terminal?.geometryFollow?.rows ?? 24,
-        cols: terminal?.geometryFollow?.cols ?? 80,
-      })
+      // 浏览器优先(2026-10-27):attach 不携带几何。服务端沿用会话现有
+      // cols/rows(跟随中就等于跟随几何;旧实现只在跟随分支传几何,无跟随
+      // 时用 24×80 兜底,正是「手机进屏把网页网格砸回默认」的元凶之一)。
+      // 进屏对齐改由桥侧启动 fit → resize 上报完成,服务端对网页授权在线
+      // 的手机 resize 会降级回网页几何(deferred),由 store 侧跟随。
+      attachTerminalSession(terminalId, { deviceId })
         .then(() => {
           if (!cancelled) {
             setTerminalOpenError(null);
@@ -1738,7 +1735,14 @@ export const DeviceTerminalScreen: React.FC = () => {
                         borderColor: outlineColor,
                       },
                     ]}
-                    onPress={() => clearTerminalGeometryFollow(terminal.id)}
+                    onPress={() => {
+                      // 显式夺回(2026-10-27 浏览器优先):徽章文案就是
+                      // 「点击接管」——打一次性标记,让随 unfollow 而来的
+                      // 那次 fit resize 带上 takeover:true,服务端才会在
+                      // 网页授权在线时也放行手机几何。
+                      markTerminalGeometryTakeover(terminal.id);
+                      clearTerminalGeometryFollow(terminal.id);
+                    }}
                   >
                     <Text
                       style={[

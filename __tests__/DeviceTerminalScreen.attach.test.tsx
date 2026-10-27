@@ -198,11 +198,10 @@ describe('DeviceTerminalScreen attach flow', () => {
       screen = renderScreen();
     });
 
-    // 无跟随:attach 传固定的默认几何(现状不变)。
+    // 浏览器优先(2026-10-27):attach 不携带几何,服务端沿用会话现值;
+    // 进屏对齐由桥侧启动 fit → resize 上报负责。
     expect(mockAttach).toHaveBeenCalledWith('term-1', {
       deviceId: 'device-1',
-      rows: 24,
-      cols: 80,
     });
     expect(mockCreate).not.toHaveBeenCalled();
     // The session renders and stays interactive.
@@ -212,11 +211,11 @@ describe('DeviceTerminalScreen attach flow', () => {
     ).toBe(false);
   });
 
-  it('attaches with the pending follow geometry so the pty re-locks to it (F-1)', async () => {
+  it('never sends geometry on attach even with a pending follow (browser priority, 2026-10-27)', async () => {
     mockRouteParams = { deviceId: 'device-1', directory: '~/project', terminalId: 'term-1' };
-    // 挂起跟随:server 的 driveAgentAttach 用 attach 几何覆写 session 且该
-    // 路径无 geometry_changed 广播——必须传跟随几何,否则 pty 停在 80×24
-    // 而双端网格锁 120×30,持续错位。
+    // 浏览器优先(2026-10-27):挂起跟随时也不再让 attach 用跟随几何覆写
+    // session——网页持有有效授权时,手机进屏的几何申报会让位给网页;进屏
+    // 对齐统一由桥侧启动 fit → resize(必要时 takeover)完成。
     useControlCenterStore.setState({
       terminalSessions: [
         makeSession({
@@ -231,8 +230,6 @@ describe('DeviceTerminalScreen attach flow', () => {
 
     expect(mockAttach).toHaveBeenCalledWith('term-1', {
       deviceId: 'device-1',
-      rows: 30,
-      cols: 120,
     });
   });
 
@@ -291,8 +288,6 @@ describe('DeviceTerminalScreen attach flow', () => {
 
     expect(mockAttach).toHaveBeenCalledWith('term-newest', {
       deviceId: 'device-1',
-      rows: 24,
-      cols: 80,
     });
     expect(mockCreate).not.toHaveBeenCalled();
   });
@@ -345,8 +340,6 @@ describe('DeviceTerminalScreen attach flow', () => {
 
     expect(mockAttach).toHaveBeenCalledWith('term-1', {
       deviceId: 'device-1',
-      rows: 24,
-      cols: 80,
     });
     // The ended strip with the explicit new-session entry is present.
     expect(
@@ -379,8 +372,6 @@ describe('DeviceTerminalScreen attach flow', () => {
 
     expect(mockAttach).toHaveBeenCalledWith('term-1', {
       deviceId: 'device-1',
-      rows: 24,
-      cols: 80,
     });
     // The hint replaces the emulator: no more typing into a dead pty.
     expect(screen!.root.findAllByProps({ testID: 'terminal-emulator' }).length).toBe(0);
@@ -454,10 +445,12 @@ describe('attachTerminalSession store thunk', () => {
 
     const id = await useControlCenterStore
       .getState()
-      .attachTerminalSession('term-1', { deviceId: 'device-1', rows: 30, cols: 100 });
+      .attachTerminalSession('term-1', { deviceId: 'device-1' });
 
     expect(id).toBe('term-1');
-    expect(attachApi).toHaveBeenCalledWith('term-1', { rows: 30, cols: 100 });
+    // 浏览器优先(2026-10-27):attach 不再携带几何,服务端沿用会话现值;
+    // 进屏对齐由桥侧启动 fit → resize 上报负责。
+    expect(attachApi).toHaveBeenCalledWith('term-1', {});
     const stored = useControlCenterStore
       .getState()
       .terminalSessions.find(item => item.id === 'term-1');

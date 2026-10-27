@@ -184,9 +184,13 @@ export const createTerminalSlice: StateCreator<
     });
 
     try {
+      // 浏览器优先(2026-10-27):attach 一律不带几何——服务端沿用会话现有
+      // cols/rows(省略即保持现值)。旧实现在这里带 `options?.rows ?? 24` 的
+      // 默认值,手机进屏会静默把 PTY 砸回 80×24 并让网页 letterbox;进屏
+      // 的对齐改由桥侧启动 fit → resize 上报(+ 服务端降级/夺回协议)负责。
       const serverSession = await platformTransport.attachTerminalSession(
         sessionId,
-        { rows: options?.rows ?? 24, cols: options?.cols ?? 80 },
+        {},
       );
       const incoming = serverTerminalSessionToClient(serverSession);
       set(state => ({

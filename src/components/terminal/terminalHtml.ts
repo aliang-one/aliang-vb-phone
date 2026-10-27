@@ -250,8 +250,23 @@ export function getTerminalHtml(isDark: boolean): string {
       // gate (TerminalEmulator resize branch): a follow injected before this
       // 100ms timer must not be clobbered by a fit that would derive a fake
       // geometry from the shrunk font and echo it back as a bogus takeover.
+      // 每次进屏都要向服务端申报一次本机几何(浏览器优先的入口握手):fit
+      // 改变了网格时 onResize 自然上报;尺寸恰好没变(= WebView 默认 80×24)
+      // 时 onResize 不触发,这里手动补报一条,否则手机永远不知道网页授权
+      // 在线、也不会收到降级帧跟上网页网格。
       setTimeout(function() {
-        if (!followState.active) { fitAddon.fit(); }
+        if (!followState.active) {
+          var beforeCols = term.cols;
+          var beforeRows = term.rows;
+          fitAddon.fit();
+          if (term.cols === beforeCols && term.rows === beforeRows) {
+            postBridgeMessage({
+              type: 'resize',
+              cols: term.cols,
+              rows: term.rows
+            });
+          }
+        }
         term.refresh(0, term.rows - 1);
         announceRendered();
       }, 100);

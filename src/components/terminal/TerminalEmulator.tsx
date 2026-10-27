@@ -15,7 +15,10 @@ import {
   TERMINAL_OUTPUT_FLUSH_MS,
   type TerminalOutputBatcher,
 } from '../../utils/terminalOutputBatcher';
-import { markLocalTerminalResize } from '../../services/terminalGeometryFollow';
+import {
+  consumeTerminalGeometryTakeover,
+  markLocalTerminalResize,
+} from '../../services/terminalGeometryFollow';
 import { useControlCenterStore } from '../../store/controlCenterStore';
 
 /** Geometry-follow descriptor (设计 §1/§2,与 store 的 `geometryFollow` 同构)。 */
@@ -449,6 +452,11 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
               payload.cols === follow.cols &&
               payload.rows === follow.rows;
             if (!isFollowEcho) {
+              // 显式夺回(2026-10-27 浏览器优先):跟随徽章 tap 先打一次性
+              // 标记再 clearFollow;紧随这次 unfollow 的 fit 上报消费标记,
+              // 升级为 takeover:true——服务端对「网页授权在线」的手机
+              // resize 平时会降级回网页几何,只有显式夺回才放行。
+              const takeover = consumeTerminalGeometryTakeover(sessionId);
               markLocalTerminalResize(sessionId);
               useControlCenterStore
                 .getState()
@@ -458,6 +466,7 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
                 session_id: sessionId,
                 cols: payload.cols,
                 rows: payload.rows,
+                ...(takeover ? { takeover: true } : {}),
               });
             }
           }
@@ -467,24 +476,12 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
         case 'ready': {
           readyRef.current = true;
           injectTerminalData('theme', terminalThemeJson);
-          // While a geometry follow is pending (store-preserved re-entry), the
-          // follow injection below locks the grid to the pty geometry — an
-          // initial resize here would race ahead of it, yank the pty back to
-          // the phone's own geometry and clear the follow. Skip it entirely
-          // (no send, no mark, no clear); only the follow-free path reports
-          // the initial fit — and marks it, since it is a self-originated
-          // resize whose geometry_changed echo must be filtered.
-          if (payload.cols && payload.rows && !followRef.current) {
-            // Resize first: the agent re-renders the TUI at the new size, so
-            // the replayed scrollback and live stream land in the right shape.
-            markLocalTerminalResize(sessionId);
-            platformTransport.send({
-              type: 'terminal.resize',
-              session_id: sessionId,
-              cols: payload.cols,
-              rows: payload.rows,
-            });
-          }
+          // 进屏 resize 不在这里发(2026-10-27 浏览器优先):attach 已不带
+          // 几何,服务端保持会话现有网格;这里携带的 cols/rows 只是 WebView
+          // 的默认网格(80×24),先发就会把 PTY 砸回默认、让网页 letterbox。
+          // 真正的进屏对齐由桥侧 100ms 启动 fit → onResize 走上面的 resize
+          // 分支上报(尺寸没变时桥侧也会补报一条),再配合服务端的
+          // 「网页授权在线 → 降级回网页几何(deferred)」协议决定跟随或夺回。
           setWebViewReady(true);
           break;
         }
@@ -522,7 +519,9 @@ export const TerminalEmulator: React.FC<TerminalEmulatorProps> = ({
     <View
       style={styles.container}
       onLayout={() => {
-        injectTerminalData('fit');
+        // ready 前注入没有意义:桥侧还没装好 fit addon/测量函数,命令只会
+        // 落到空实现上;ready 后的启动 fit 会补上首次对齐。
+        if (readyRef.current) injectTerminalData('fit');
       }}
     >
       {replayStatus === 'exited' ? (

@@ -157,12 +157,11 @@ describe('TerminalEmulator WebView bridge', () => {
       webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
     });
 
-    expect(platformTransport.send).toHaveBeenCalledWith({
-      type: 'terminal.resize',
-      session_id: 'term-1',
-      cols: 80,
-      rows: 24,
-    });
+    // 浏览器优先(2026-10-27):ready 不再上报 WebView 默认 80×24 网格——
+    // attach/ready 都不带几何,进屏对齐由桥侧启动 fit → resize 消息负责。
+    expect(platformTransport.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'terminal.resize' }),
+    );
     expect(onRendered).not.toHaveBeenCalled();
 
     act(() => {
@@ -248,12 +247,9 @@ describe('TerminalEmulator WebView bridge', () => {
       webview.props.onMessage(message('input', { data: 'pwd\r', encoding: 'text' }));
     });
 
-    expect(platformTransport.send).toHaveBeenCalledWith({
-      type: 'terminal.resize',
-      session_id: 'term-1',
-      cols: 80,
-      rows: 24,
-    });
+    expect(platformTransport.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'terminal.resize' }),
+    );
     expect(onRendered).toHaveBeenCalledTimes(1);
 
     act(() => {
@@ -346,12 +342,29 @@ describe('TerminalEmulator WebView bridge', () => {
     expect(onRenderError).toHaveBeenCalledWith('Terminal constructor is missing');
   });
 
-  it('injects fit on native layout changes', () => {
+  it('injects fit on native layout changes after ready, never before', () => {
     const terminalRef: React.MutableRefObject<TerminalEmulatorHandle | null> = {
       current: null,
     };
     const tree = renderTerminal({ terminalRef });
     const container = tree.root.findAllByType(View)[0];
+
+    // ready 前的 onLayout 不注入:桥侧 fit addon 尚未就绪,命令只会落到空
+    // 实现上;ready 后的启动 fit 补上首次对齐。
+    act(() => {
+      container.props.onLayout();
+    });
+    expect(
+      mockWebViewInjectJavaScript.mock.calls.some(call =>
+        String(call[0]).includes('"fit"'),
+      ),
+    ).toBe(false);
+
+    act(() => {
+      tree.root
+        .findByType(WebView)
+        .props.onMessage(message('ready', { cols: 80, rows: 24 }));
+    });
 
     act(() => {
       container.props.onLayout();
@@ -758,7 +771,7 @@ describe('TerminalEmulator geometry follow', () => {
     );
   });
 
-  it('still sends the ready initial resize when no follow is pending', () => {
+  it('sends no ready initial resize even with no follow pending (startup fit owns the entry report)', () => {
     const tree = renderTerminal();
     const webview = tree.root.findByType(WebView);
 
@@ -766,14 +779,13 @@ describe('TerminalEmulator geometry follow', () => {
       webview.props.onMessage(message('ready', { cols: 80, rows: 24 }));
     });
 
-    expect(platformTransport.send).toHaveBeenCalledWith({
-      type: 'terminal.resize',
-      session_id: 'term-1',
-      cols: 80,
-      rows: 24,
-    });
-    // ready 的初始 resize 也是手机自发 resize —— 打点开防抖窗口滤自回显。
-    expect(isLocalTerminalResizeRecent('term-1')).toBe(true);
+    // 浏览器优先(2026-10-27):ready 的 80×24 是 WebView 默认网格,先发会把
+    // pty 砸回默认、让在线网页 letterbox。进屏几何一律由桥侧启动 fit 的
+    // resize 消息上报(尺寸恰好没变时桥侧也会补报一条)。
+    expect(platformTransport.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'terminal.resize' }),
+    );
+    expect(isLocalTerminalResizeRecent('term-1')).toBe(false);
   });
 });
 

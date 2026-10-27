@@ -543,7 +543,7 @@ export interface ControlCenterState {
    */
   attachTerminalSession: (
     sessionId: string,
-    options?: { deviceId?: string; rows?: number; cols?: number },
+    options?: { deviceId?: string },
   ) => Promise<string>;
   executeTerminalCommand: (terminalId: string, command: string) => void;
   clearTerminal: (terminalId: string) => void;

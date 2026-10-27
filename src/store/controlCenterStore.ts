@@ -1248,8 +1248,12 @@ export const useControlCenterStore = create<ControlCenterState>()(
             case 'terminal.geometry_changed': {
               // 几何跟随(设计 §1/§2):server resize 成功后广播;自己的回显经 2.5s
               // 自发窗口过滤(服务 mark 见 terminalGeometryFollow.ts)。
-              const { sessionId, cols, rows, origin } = transportEvent;
-              if (isLocalTerminalResizeRecent(sessionId)) return;
+              // deferred(2026-10-27 浏览器优先):这是服务端对手机自动 resize
+              // 的**单播降级帧**(网页授权在线 → 回送现网页几何)。它必然紧跟
+              // 在手机自发 resize 之后,若也被自发窗口滤掉,手机就永远跟不上
+              // 网页——必须绕过窗口。
+              const { sessionId, cols, rows, origin, deferred } = transportEvent;
+              if (!deferred && isLocalTerminalResizeRecent(sessionId)) return;
               set(state => ({
                 terminalSessions: state.terminalSessions.map(ts =>
                   ts.id === sessionId
