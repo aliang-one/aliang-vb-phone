@@ -52,6 +52,12 @@ export interface EffectiveModelConfig {
   model?: string | null;
   effort?: string | null;
   /**
+   * 生效的上下文窗口（token），恒有值（服务端 session → 用户默认 → 200k）。
+   * 键名是 camelCase：effective_model_config 整个子对象按服务端
+   * `EffectiveModelConfig` 原样序列化，不与外层 snake_case 对齐。
+   */
+  contextWindow?: number | null;
+  /**
    * Provenance of each resolved field (e.g. 'session' | 'project' | 'device' |
    * 'server'). The phone only displays it as a hint, so keep it loose.
    */
@@ -59,6 +65,8 @@ export interface EffectiveModelConfig {
     provider?: string;
     model?: string;
     effort?: string;
+    /** 窗口来源：session | user | cli。 */
+    context?: string;
   };
 }
 

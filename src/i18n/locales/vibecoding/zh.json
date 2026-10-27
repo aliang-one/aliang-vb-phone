@@ -6,7 +6,7 @@
     "editingFiles": "📝 编辑 {{count}} 个文件",
     "done": "已完成",
     "processing": "处理中…",
-  "subagentRunning": "🤖 子 Agent · {{step}}", 
+    "subagentRunning": "🤖 子 Agent · {{step}}",
     "awaitingInput": "等待你的输入"
   },
   "devicePin": {
@@ -203,14 +203,14 @@
     "thinkingLabel": "思考过程",
     "thinkingChars": "{{count}} 字符",
     "tasksLabel": "任务 TASKS",
-  "subagentsLabel": "子 Agent SUBAGENTS",
-  "subagentStarted": "启动中",
-  "subagentProgress": "进行中",
-  "subagentCompleted": "已完成",
-  "subagentFailed": "失败",
-  "subagentInterrupted": "已中断",
-  "subagentDuration": "{{seconds}} 秒",
-  "subagentToolUses": "{{count}} 次工具调用",
+    "subagentsLabel": "子 Agent SUBAGENTS",
+    "subagentStarted": "启动中",
+    "subagentProgress": "进行中",
+    "subagentCompleted": "已完成",
+    "subagentFailed": "失败",
+    "subagentInterrupted": "已中断",
+    "subagentDuration": "{{seconds}} 秒",
+    "subagentToolUses": "{{count}} 次工具调用",
     "loading": "加载中…",
     "outputTruncated": "· 输出已截断",
     "diffTruncated": "· diff 已截断",
@@ -262,6 +262,8 @@
     "effective": "当前有效",
     "modelLabel": "模型 MODEL",
     "effortLabel": "思考深度 EFFORT",
+    "contextLabel": "上下文 CONTEXT",
+    "contextHint": "这个对话的上下文窗口。窗口越大，一次能带上的历史越多，也越晚触发自动压缩。改完下一轮发送生效。",
     "defaultModel": "默认",
     "modelPlaceholder": "留空 = 用户默认",
     "saveFailed": "保存失败,请重试。",
@@ -285,6 +287,20 @@
     "scopePlugin": "插件",
     "scopeBuiltin": "内置",
     "empty": "该 Agent 暂未上报可用命令或 Skill。"
+  },
+  "messageActions": {
+    "sheetTitle": "选择文本",
+    "sheetSubtitle": "已全选这条消息的文字，可直接复制或长按局部选择。",
+    "copyAll": "复制全文",
+    "copied": "已复制",
+    "close": "关闭",
+    "empty": "这条消息没有可复制的文字。",
+    "openHint": "长按消息可全选复制"
+  },
+  "imageViewer": {
+    "close": "关闭图片",
+    "hint": "双指缩放 · 放大后拖动 · 轻点关闭",
+    "failed": "图片加载失败"
   },
   "sessionCard": {
     "originPhone": "手机发起",

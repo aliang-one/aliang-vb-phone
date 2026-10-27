@@ -366,6 +366,12 @@ export interface VibeCodingRun {
   projectBudget?: AgentBudgetInfo;
   /** Reasoning effort (provider-specific); undefined = no override. */
   effort?: string;
+  /**
+   * 会话级上下文窗口（tokens）。undefined = 未设置（服务端回落用户默认 →
+   * 200k）。可随时在输入框 Tools 里改，下一轮生效；展示用的「生效值」看
+   * `effectiveModelConfig.contextWindow`（含来源）。
+   */
+  contextWindow?: number;
   /** Monotonic server version for session-level model/effort edits. */
   modelConfigVersion?: number;
   /** Immutable profile captured for the active or most recently issued Run. */
@@ -374,6 +380,7 @@ export interface VibeCodingRun {
     provider?: string;
     model?: string;
     effort?: string;
+    contextWindow?: number;
     capturedAt: string;
   };
   /**
@@ -393,10 +400,13 @@ export interface VibeCodingRun {
     provider?: string | null;
     model?: string | null;
     effort?: string | null;
+    /** 生效的上下文窗口（camelCase，服务端原样序列化，恒有值）。 */
+    contextWindow?: number | null;
     source?: {
       provider?: string;
       model?: string;
       effort?: string;
+      context?: string;
     };
   };
   /**

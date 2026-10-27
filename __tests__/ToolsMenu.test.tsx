@@ -220,7 +220,8 @@ describe('ToolsMenu', () => {
         {...defaultProps({ provider: 'codex', model: 'glm-5.2-xhigh' })}
       />,
     );
-    const modelInput = root.root.findByType(TextInput);
+    // 上下文滑杆也是 TextInput，按 testID 取模型输入框，别按类型取。
+    const modelInput = findByTestID(root, 'tools-model-input');
     expect(modelInput.props.value).toBe('glm-5.2');
     // The xhigh effort chip is the active (seeded) one.
     expect(() => findByTestID(root, 'tools-effort-xhigh')).not.toThrow();
@@ -298,5 +299,64 @@ describe('ToolsMenu', () => {
       model: 'glm-5.2',
       effort: 'high',
     });
+  });
+});
+
+describe('ToolsMenu · 本会话上下文窗口', () => {
+  // findByProps 会先撞到复合组件那一层（没有 accessibilityValue），
+  // 取真正带无障碍值的那个宿主节点。
+  const sliderValue = (root: ReactTestRenderer.ReactTestRenderer) =>
+    root.root.findAll(
+      node =>
+        node.props?.testID === 'tools-context-slider' &&
+        typeof node.props?.accessibilityValue?.text === 'string',
+    )[0].props.accessibilityValue as { text: string };
+
+  it('未设置时按默认 200k 显示（与 server 默认一致）', () => {
+    const root = wrap(<ToolsMenu {...defaultProps()} />);
+    expect(sliderValue(root).text).toBe('200k');
+  });
+
+  it('传入会话已存的 contextWindow 时按它显示', () => {
+    const root = wrap(<ToolsMenu {...defaultProps({ contextWindow: 500_000 })} />);
+    expect(sliderValue(root).text).toBe('500k');
+  });
+
+  it('只改模型 → 保存不带 contextWindow（不把默认值盖进会话）', async () => {
+    const onSaveSettings = jest.fn().mockResolvedValue(undefined);
+    const root = wrap(<ToolsMenu {...defaultProps({ onSaveSettings })} />);
+
+    act(() => {
+      findByTestID(root, 'tools-model-input').props.onChangeText('glm-5.2');
+    });
+    await act(async () => {
+      await chipByLabel(root, '保存')!.props.onPress();
+    });
+
+    const payload = onSaveSettings.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload).toHaveProperty('model', 'glm-5.2');
+    expect(payload).not.toHaveProperty('contextWindow');
+  });
+
+  it('改了就随保存一起提交（K 输入框 → token 数）', async () => {
+    const onSaveSettings = jest.fn().mockResolvedValue(undefined);
+    const root = wrap(<ToolsMenu {...defaultProps({ onSaveSettings })} />);
+
+    const input = findByTestID(root, 'tools-context-slider-input');
+    act(() => {
+      input.props.onChangeText('400');
+    });
+    act(() => {
+      input.props.onSubmitEditing();
+    });
+    expect(sliderValue(root).text).toBe('400k');
+
+    await act(async () => {
+      await chipByLabel(root, '保存')!.props.onPress();
+    });
+
+    expect(onSaveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ contextWindow: 400_000 }),
+    );
   });
 });

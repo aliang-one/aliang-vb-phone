@@ -799,6 +799,9 @@ export function serverAiSessionToVibeRun(
     objective: session.objective ?? '',
     model,
     effort: session.effort || undefined,
+    // 会话级上下文窗口：老 server 不发 → undefined（= 未设置，UI 显示用户
+    // 默认值），绝不用 effective 值伪造会话值（两者来源不同）。
+    contextWindow: session.context_window ?? undefined,
     modelConfigVersion: session.model_config_version ?? 1,
     activeExecutionProfile: session.active_execution_profile
       ? {
@@ -806,6 +809,7 @@ export function serverAiSessionToVibeRun(
           provider: session.active_execution_profile.provider,
           model: session.active_execution_profile.model,
           effort: session.active_execution_profile.effort,
+          contextWindow: session.active_execution_profile.context_window,
           capturedAt: session.active_execution_profile.captured_at,
         }
       : undefined,
@@ -1241,6 +1245,9 @@ export function mergeVibeRunSnapshot(
       incoming.attachmentsCapability ?? existing.attachmentsCapability,
     modelConfigVersion:
       incoming.modelConfigVersion ?? existing.modelConfigVersion,
+    // 同理 context_window：列表/重命名/打断等部分快照不带它，裸 spread 会把
+    // 用户刚设的窗口抹成 undefined，滑块下次打开跳回默认值。
+    contextWindow: incoming.contextWindow ?? existing.contextWindow,
     activeExecutionProfile:
       incoming.activeExecutionProfile ?? existing.activeExecutionProfile,
     lastMessage:

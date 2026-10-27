@@ -402,7 +402,8 @@ interface StartAgentInput {
   effort?: string;
   /**
    * 会话上下文窗口（tokens，[100k,1M]）。omit = 服务端按
-   * 用户默认（Me → 上下文）回落；创建后随会话保存，不可中途更改。
+   * 用户默认（Me → 上下文）回落。创建后仍可改：输入框 Tools 里的
+   * 「上下文」滑块走 updateAgentSession，下一轮生效。
    */
   contextWindow?: number;
   /**
@@ -669,6 +670,11 @@ export interface ControlCenterState {
       risk: 'low' | 'medium' | 'high';
       /** Reasoning effort (provider-specific); "" clears, omit = unchanged. */
       effort: string;
+      /**
+       * 会话级上下文窗口（tokens）。omit = 不变，`null` = 清除（回落用户
+       * 默认）。下一轮生效；计入 modelConfigVersion。
+       */
+      contextWindow: number | null;
     }>,
   ) => Promise<void>;
   /**
