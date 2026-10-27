@@ -200,11 +200,19 @@ export interface ServerAiSession {
    */
   effort?: string;
   model_config_version?: number;
+  /**
+   * 会话级上下文窗口（tokens）。缺省 = 未设置，服务端逐层回落（会话 →
+   * 用户默认 → 200k，见 server `modelConfig.ts`）。PATCH 可随时改，
+   * 下一轮生效：服务端每轮 `ai.message` 前重发 `ai.session.create`。
+   */
+  context_window?: number;
   active_execution_profile?: {
     version: number;
     provider?: string;
     model?: string;
     effort?: string;
+    /** 该轮锁定的上下文窗口（profile 不可变，改设置不影响进行中的那一轮）。 */
+    context_window?: number;
     captured_at: string;
   };
   /**
@@ -218,10 +226,18 @@ export interface ServerAiSession {
     provider?: string | null;
     model?: string | null;
     effort?: string | null;
+    /**
+     * 生效的上下文窗口（token）。**注意大小写**：这个子对象是服务端
+     * `EffectiveModelConfig` 原样序列化，键名是 camelCase，和同层的
+     * snake_case 字段不一致（见 server `types.ts`）。恒有值。
+     */
+    contextWindow?: number | null;
     source?: {
       provider?: string;
       model?: string;
       effort?: string;
+      /** 窗口来源：session | user | cli。 */
+      context?: string;
     };
   };
   current_step?: string;
@@ -606,6 +622,12 @@ export const updateAiSession = (
      * codex reasoning level from it (NOT from the model name).
      */
     effort: string;
+    /**
+     * 会话级上下文窗口（tokens）。omit = 不变；`null` = 清除（回落到用户
+     * 默认）。服务端会把它算进 modelConfigVersion，所以改窗口和改
+     * model/effort 一样要走 `expected_model_config_version`。
+     */
+    context_window: number | null;
     expected_model_config_version: number;
   }>,
 ): Promise<ServerAiSession> =>

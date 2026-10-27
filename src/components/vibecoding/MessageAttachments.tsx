@@ -12,11 +12,14 @@
  *
  * **永远不显示裂图**：URL 失效时换成占位文案，而不是让 Image 组件把
  * 系统默认的破图标亮出来。
+ *
+ * 点缩略图 → 全屏 viewer（双指缩放 / 下滑关闭，见 ImageViewerModal）。
  */
-import React, { useEffect, useSyncExternalStore } from 'react';
+import React, { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Pressable,
   StyleSheet,
   Text,
   View,
@@ -25,6 +28,7 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/useTheme';
 import type { AiAttachmentMeta } from '../../api/attachments';
 import { localFileUri } from '../../services/attachmentLibrary';
+import { ImageViewerModal } from '../shared/ImageViewerModal';
 import {
   attachmentUrlFailed,
   ensureAttachmentUrls,
@@ -51,7 +55,9 @@ export interface MessageAttachmentsProps {
 const MessageAttachmentImage: React.FC<{
   attachment: AiAttachmentMeta;
   sessionId?: string;
-}> = ({ attachment, sessionId }) => {
+  /** 点图 → 全屏看大图（由 MessageAttachments 打开 viewer）。 */
+  onOpen?: (target: { uri: string; name?: string }) => void;
+}> = ({ attachment, sessionId, onOpen }) => {
   const { theme } = useTheme();
   const { t } = useTranslation('vibecoding');
   const assetId = attachment.asset_id;
@@ -99,14 +105,21 @@ const MessageAttachmentImage: React.FC<{
 
   if (uri) {
     return (
-      <Image
-        testID={`message-attachment-image-${assetId}`}
-        source={{ uri }}
-        style={[styles.image, { width, height, borderColor: theme.colors.outlineVariant }]}
-        resizeMode="cover"
-        accessibilityIgnoresInvertColors
+      <Pressable
+        testID={`message-attachment-open-${assetId}`}
+        accessibilityRole="imagebutton"
         accessibilityLabel={attachment.name}
-      />
+        onPress={() => onOpen?.({ uri, name: attachment.name })}
+        style={styles.imageButton}>
+        <Image
+          testID={`message-attachment-image-${assetId}`}
+          source={{ uri }}
+          style={[styles.image, { width, height, borderColor: theme.colors.outlineVariant }]}
+          resizeMode="cover"
+          accessibilityIgnoresInvertColors
+          accessibilityLabel={attachment.name}
+        />
+      </Pressable>
     );
   }
 
@@ -182,20 +195,35 @@ export const MessageAttachments: React.FC<MessageAttachmentsProps> = ({
   attachments,
   sessionId,
 }) => {
+  // 点图看大图的状态放在这层：每张缩略图只管上报自己的 uri，谁来呈现由
+  // 气泡统一决定（顺便保证一屏最多只有一个 viewer）。
+  const [preview, setPreview] = useState<{ uri: string; name?: string } | null>(
+    null,
+  );
+
   // ASCII 已在正文代码块里；没有图片就整块不渲染，别在气泡里留空白。
   const images = (attachments ?? []).filter(item => item.kind !== 'ascii');
   if (images.length === 0) return null;
 
   return (
-    <View testID="message-attachments" style={styles.wrap}>
-      {images.map(item => (
-        <MessageAttachmentImage
-          key={item.asset_id}
-          attachment={item}
-          sessionId={sessionId}
-        />
-      ))}
-    </View>
+    <>
+      <View testID="message-attachments" style={styles.wrap}>
+        {images.map(item => (
+          <MessageAttachmentImage
+            key={item.asset_id}
+            attachment={item}
+            sessionId={sessionId}
+            onOpen={setPreview}
+          />
+        ))}
+      </View>
+      <ImageViewerModal
+        visible={preview !== null}
+        uri={preview?.uri}
+        name={preview?.name}
+        onClose={() => setPreview(null)}
+      />
+    </>
   );
 };
 
@@ -204,6 +232,9 @@ const styles = StyleSheet.create({
     gap: 6,
     marginBottom: 6,
     alignSelf: 'flex-start',
+  },
+  imageButton: {
+    borderRadius: 10,
   },
   image: {
     borderRadius: 10,

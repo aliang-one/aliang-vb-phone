@@ -117,6 +117,16 @@ jest.mock('react-native-image-picker', () => ({
   launchImageLibrary: jest.fn(() => Promise.resolve({ didCancel: true })),
 }));
 
+// 多个共享组件(ImageViewerModal / BottomSheet)要取安全区 inset;真机上由
+// SafeAreaProvider 注入,测试环境没有 Provider 会直接抛错。用官方 mock 给全零
+// insets,组件渲染路径不再依赖测试各自包 Provider。
+jest.mock('react-native-safe-area-context', () => {
+  // 官方 mock 是 `export default {...}` 的 ESM 形状,直接 require 出来拿不到具名
+  // 导出(组件 `import { useSafeAreaInsets }` 会变成 undefined),这里摊平一层。
+  const mock = require('react-native-safe-area-context/jest/mock').default;
+  return { __esModule: true, ...mock };
+});
+
 jest.mock('react-native-view-shot', () => ({
   __esModule: true,
   default: jest.fn(() => Promise.resolve('/tmp/mock-shot.png')),

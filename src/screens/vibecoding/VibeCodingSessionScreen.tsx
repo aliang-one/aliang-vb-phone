@@ -114,6 +114,7 @@ import {
 } from '../../utils/sessionPhase';
 import { isSessionSnapshotStale } from '../../utils/sessionSnapshotStale';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
+import { formatContextWindow } from '../../utils/contextWindow';
 import { isGoalCommand, parseGoalCommand } from '../../utils/goalComposer';
 import { GOAL_UI_ENABLED } from '../../config/featureFlags';
 import { sessionBusyErrorText } from '../../utils/sessionBusyError';
@@ -395,6 +396,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
             model: draftConfig.model ?? '',
             provider: draftConfig.provider,
             effort: draftConfig.effort,
+            // 草稿也有上下文窗口（创建页滑块），Tools 菜单要能显示并改它。
+            contextWindow: draftConfig.contextWindow,
             risk: 'medium',
             currentStep: '',
             branch: '',
@@ -2186,10 +2189,18 @@ export const VibeCodingSessionScreen: React.FC = () => {
     return positions;
   }, [conversationItems, orphanActivityMessageIds.length]);
   const handleSaveToolsSettings = useCallback(
-    async (patch: { model: string; effort: string }) => {
+    async (patch: { model: string; effort: string; contextWindow?: number }) => {
       if (isDraft && draftConfig) {
         navigation.setParams({
-          draftConfig: { ...draftConfig, model: patch.model, effort: patch.effort },
+          draftConfig: {
+            ...draftConfig,
+            model: patch.model,
+            effort: patch.effort,
+            // 只在用户动过滑块时写，避免把「未设置」固化成显式默认值。
+            ...(patch.contextWindow !== undefined
+              ? { contextWindow: patch.contextWindow }
+              : {}),
+          },
         });
         return;
       }
@@ -2537,6 +2548,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
         effective.source?.model ? `(${effective.source.model})` : '',
         `· effort=${effective.effort || t('session.composer.userDefault')}`,
         effective.source?.effort ? `(${effective.source.effort})` : '',
+        `· ctx=${formatContextWindow(effective.contextWindow)}`,
+        effective.source?.context ? `(${effective.source.context})` : '',
       ]
         .filter(Boolean)
         .join(' ')
@@ -2546,8 +2559,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
     ? [
         `model=${activeExecution.model || t('session.composer.userDefault')}`,
         `· effort=${activeExecution.effort || t('session.composer.userDefault')}`,
+        // 老 server 的 profile 不带窗口 → 不写 200k 假装知道（那一轮实际
+        // 用的值我们核对不了）。
+        activeExecution.contextWindow
+          ? `· ctx=${formatContextWindow(activeExecution.contextWindow)}`
+          : '',
         `· v${activeExecution.version}`,
-      ].join(' ')
+      ]
+        .filter(Boolean)
+        .join(' ')
     : null;
   const modelStatusLabel = [
     session.model,
@@ -3640,6 +3660,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
               model={session.model}
               provider={sessionProvider}
               effort={session.effort ?? ''}
+              contextWindow={session.contextWindow}
               serverModelOptions={sessionModelOptions}
               effortOptions={sessionEffortOptions}
               supportedEfforts={sessionSupportedEfforts}

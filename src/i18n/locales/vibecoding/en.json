@@ -6,7 +6,7 @@
     "editingFiles": "📝 Editing {{count}} files",
     "done": "Done",
     "processing": "Processing…",
-  "subagentRunning": "🤖 Subagent · {{step}}", 
+    "subagentRunning": "🤖 Subagent · {{step}}",
     "awaitingInput": "Awaiting your input"
   },
   "devicePin": {
@@ -203,14 +203,14 @@
     "thinkingLabel": "Thinking",
     "thinkingChars": "{{count}} chars",
     "tasksLabel": "任务 TASKS",
-  "subagentsLabel": "Subagents",
-  "subagentStarted": "Starting",
-  "subagentProgress": "Running",
-  "subagentCompleted": "Completed",
-  "subagentFailed": "Failed",
-  "subagentInterrupted": "Interrupted",
-  "subagentDuration": "{{seconds}} sec",
-  "subagentToolUses": "{{count}} tool calls",
+    "subagentsLabel": "Subagents",
+    "subagentStarted": "Starting",
+    "subagentProgress": "Running",
+    "subagentCompleted": "Completed",
+    "subagentFailed": "Failed",
+    "subagentInterrupted": "Interrupted",
+    "subagentDuration": "{{seconds}} sec",
+    "subagentToolUses": "{{count}} tool calls",
     "loading": "Loading…",
     "outputTruncated": "· Output truncated",
     "diffTruncated": "· diff truncated",
@@ -262,6 +262,8 @@
     "effective": "Current effective",
     "modelLabel": "模型 MODEL",
     "effortLabel": "思考深度 EFFORT",
+    "contextLabel": "Context CONTEXT",
+    "contextHint": "Context window for this conversation. Larger keeps more history per turn and compacts later. Applies from the next message.",
     "defaultModel": "Default",
     "modelPlaceholder": "Empty = user default",
     "saveFailed": "Save failed, please retry.",
@@ -285,6 +287,20 @@
     "scopePlugin": "Plugin",
     "scopeBuiltin": "Built-in",
     "empty": "This agent has not reported any available commands or Skills yet."
+  },
+  "messageActions": {
+    "sheetTitle": "Select text",
+    "sheetSubtitle": "The whole message is selected — copy it, or long-press to select part of it.",
+    "copyAll": "Copy all",
+    "copied": "Copied",
+    "close": "Close",
+    "empty": "This message has no copyable text.",
+    "openHint": "Long-press a message to select and copy it"
+  },
+  "imageViewer": {
+    "close": "Close image",
+    "hint": "Pinch to zoom · drag when zoomed · tap to close",
+    "failed": "Failed to load image"
   },
   "sessionCard": {
     "originPhone": "Phone",

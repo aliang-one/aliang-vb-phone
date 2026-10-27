@@ -983,8 +983,14 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       // Separate field. "" clears, undefined = unchanged. Gateway derives the
       // codex reasoning level from it; never bake it into the model name.
       effort: input.effort,
+      // 会话级上下文窗口：undefined = 不变，null = 清除（回落用户默认）。
+      // 服务端把它和 model/effort 一起算进 modelConfigVersion，所以三者任一
+      // 变动都要带期望版本做 CAS。
+      context_window: input.contextWindow,
       expected_model_config_version:
-        input.model !== undefined || input.effort !== undefined
+        input.model !== undefined ||
+        input.effort !== undefined ||
+        input.contextWindow !== undefined
           ? current?.modelConfigVersion
           : undefined,
     });

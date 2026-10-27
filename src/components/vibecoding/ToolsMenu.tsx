@@ -12,9 +12,14 @@ import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
 import { GlassPanel } from '../shared/GlassPanel';
 import { GlowButton } from '../shared/GlowButton';
+import { ContextWindowSlider } from '../shared/ContextWindowSlider';
 import { IconBadge } from '../visual/IconBadge';
 import { Logo } from '../visual/Logo';
 import type { AgentCommandInfo } from '../../data/platformModels';
+import {
+  formatContextWindow,
+  resolveContextWindow,
+} from '../../utils/contextWindow';
 import {
   degradeEffort,
   effortPresetsFor,
@@ -40,6 +45,11 @@ export interface ToolsMenuProps {
   sessionId?: string;
   /** Current reasoning effort (provider-specific); undefined/'' = no override. */
   effort?: string;
+  /**
+   * 本会话的上下文窗口（tokens）。undefined = 会话未设置，滑块显示回落后的
+   * 默认值（用户 Me 默认 → 200k）。改动后下一轮生效。
+   */
+  contextWindow?: number;
   /** Server-recommended models for this provider, supplied by the session. */
   serverModelOptions?: Array<{ label: string; value: string }>;
   /**
@@ -71,7 +81,12 @@ export interface ToolsMenuProps {
   onGoalModeChange?: (mode: 'ordinary' | 'draft') => void;
   /** Persist the edited model + effort. Empty strings clear; the model is a
    *  clean base name (effort is sent as a separate field, never baked in). */
-  onSaveSettings: (patch: { model: string; effort: string }) => Promise<void>;
+  onSaveSettings: (patch: {
+    model: string;
+    effort: string;
+    /** 仅在用户动过滑块时出现（omit = 不改，避免无谓的 version bump）。 */
+    contextWindow?: number;
+  }) => Promise<void>;
   /** Insert a `/`-style entry as editable prompt text (parent routes to input). */
   onInsertCommand: (text: string) => void;
 }
@@ -95,6 +110,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
   provider,
   commands,
   effort,
+  contextWindow,
   effortOptions,
   supportedEfforts,
   serverModelOptions,
@@ -139,6 +155,13 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settingsDirty, setSettingsDirty] = useState(false);
+  // 上下文窗口：滑块永远有具体值（未设置时展示回落后的默认），只有用户真的
+  // 拖过/改过才写回服务端——否则每次保存都会把「未设置」洗成显式值并 bump
+  // modelConfigVersion。
+  const [contextWindowDraft, setContextWindowDraft] = useState(
+    resolveContextWindow(contextWindow),
+  );
+  const [contextWindowTouched, setContextWindowTouched] = useState(false);
 
   // Auto-sync discovered `/`-commands on open. force=false → the store applies
   // its 1h gate + in-flight dedup, so within the hour this is a cheap persisted
@@ -181,9 +204,11 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
         // so an old session's tier can't crash a downgraded CLI.
         model: modelBase.trim(),
         effort: degradeEffort(effortDraft.trim(), supportedEfforts),
+        ...(contextWindowTouched ? { contextWindow: contextWindowDraft } : {}),
       });
       rememberModel(modelBase);
       setSettingsDirty(false);
+      setContextWindowTouched(false);
       setSaving(false);
       // Auto-close on a successful save (clear `saving` first so we don't
       // setState on the about-to-unmount component).
@@ -342,6 +367,7 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
           {t('toolsMenu.modelLabel')}
         </Text>
         <TextInput
+          testID="tools-model-input"
           value={modelBase}
           onChangeText={v => {
             setModelBase(v);
@@ -425,6 +451,33 @@ export const ToolsMenu: React.FC<ToolsMenuProps> = ({
             );
           })}
         </View>
+
+        {/* CONTEXT (本会话上下文窗口) — 与创建页/Me 默认同一个滑块组件,
+            同一套挡位与 clamp 规则(utils/contextWindow.ts)。改的是这个
+            会话,下一轮 ai.session.create 时下发。 */}
+        <View style={styles.contextHeader}>
+          <Text
+            style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]}>
+            {t('toolsMenu.contextLabel')}
+          </Text>
+          <Text style={[theme.typography.codeSm, { color: accent }]}>
+            {formatContextWindow(contextWindowDraft)}
+          </Text>
+        </View>
+        <ContextWindowSlider
+          value={contextWindowDraft}
+          onChange={value => {
+            setContextWindowDraft(value);
+            setContextWindowTouched(true);
+            setSettingsDirty(true);
+          }}
+          label={t('toolsMenu.contextLabel')}
+          testID="tools-context-slider"
+        />
+        <Text
+          style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>
+          {t('toolsMenu.contextHint')}
+        </Text>
         </> : (
           <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }, styles.readOnlyHint]}>
             Goal 的执行配置在创建时固定，后续任务与重新规划使用同一配置。
@@ -621,6 +674,13 @@ const styles = StyleSheet.create({
   fieldLabel: {
     marginTop: 10,
     marginBottom: 5,
+  },
+  contextHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    marginBottom: 2,
   },
   modelInput: {
     minHeight: 38,
