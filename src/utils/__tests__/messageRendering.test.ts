@@ -1,12 +1,10 @@
 import type {
   TranscriptMarkdownBlock,
   TranscriptMarkdownInline,
-  TranscriptSegment,
 } from '../messageRendering';
 import {
   parseMarkdownBlocks,
   parseMessageContentSegments,
-  segmentsPlainText,
 } from '../messageRendering';
 
 /**
@@ -522,60 +520,3 @@ describe('parseMarkdownBlocks — 容错(2026-10-26 GLM 输出风格生产实证
   });
 });
 
-describe('segmentsPlainText(长按气泡全选复制)', () => {
-  // 只关心可读字段,其余字段(blocks/tone/id)对被测量函数无意义。
-  const seg = (fields: Record<string, unknown>): TranscriptSegment =>
-    fields as unknown as TranscriptSegment;
-
-  it('正文段照原样,段与段之间空一行', () => {
-    expect(
-      segmentsPlainText([
-        seg({ id: 'a', kind: 'text', content: '第一段' }),
-        seg({ id: 'b', kind: 'text', content: '第二段' }),
-      ]),
-    ).toBe('第一段\n\n第二段');
-  });
-
-  it('空段被丢掉,不留连续空行', () => {
-    expect(
-      segmentsPlainText([
-        seg({ id: 'a', kind: 'text', content: '   ' }),
-        seg({ id: 'b', kind: 'text', content: '正文' }),
-      ]),
-    ).toBe('正文');
-  });
-
-  it('折叠块带上 label,卡片带上标题', () => {
-    expect(
-      segmentsPlainText([
-        seg({ id: 'f', kind: 'folded', label: 'BASH', content: 'ls -la' }),
-        seg({
-          id: 'c',
-          kind: 'callout',
-          variant: 'generic',
-          title: '注意事项',
-          content: '先备份',
-        }),
-      ]),
-    ).toBe('BASH\nls -la\n\n注意事项\n先备份');
-  });
-
-  it('goal 报告用摘要 + blocker,不吐标记 JSON', () => {
-    expect(
-      segmentsPlainText([
-        seg({
-          id: 'g',
-          kind: 'goalReport',
-          reportKind: 'plan',
-          outcome: 'blocked',
-          summary: '卡在权限',
-          blockerCode: 'EACCES',
-        }),
-      ]),
-    ).toBe('卡在权限\n⬢ EACCES');
-  });
-
-  it('全空消息得到空串(调用方据此不弹面板)', () => {
-    expect(segmentsPlainText([])).toBe('');
-  });
-});

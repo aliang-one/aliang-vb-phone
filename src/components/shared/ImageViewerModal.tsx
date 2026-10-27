@@ -33,8 +33,12 @@ import { useTheme } from '../../theme/useTheme';
 import { IconBadge } from '../visual/IconBadge';
 
 const MAX_SCALE = 4;
+/** 双击放大到的倍数（也是双击在「已放大」时的回落目标判断线）。 */
+const DOUBLE_TAP_SCALE = 2.5;
 /** 超过这个时长就算「按住」，不算轻点。 */
 const TAP_MS = 260;
+/** 两次轻点间隔小于这个值 = 双击（单击动作延迟到窗口过了再执行）。 */
+const DOUBLE_TAP_MS = 280;
 /** 未放大时下滑多少算关闭手势。 */
 const DISMISS_DISTANCE = 90;
 /** 位移超过这个像素就不再算轻点（避免手抖把「点开大图」变成「关闭」）。 */
@@ -80,9 +84,13 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
     lastY: 0,
     moved: false,
     startedAt: 0,
+    /** 上一次轻点抬手时刻；窗口内再来一次 = 双击。 */
+    lastTapAt: 0,
     boxW: 0,
     boxH: 0,
   });
+  /** 单击动作的延迟执行句柄（等双击窗口过期）。 */
+  const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 回调进 ref，PanResponder 只创建一次（依赖数组空），不因 props 漂移重建。
   const closeRef = useRef(onClose);
@@ -125,9 +133,69 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
     ]).start();
   }, [scale, translateX, translateY]);
 
+  /** 弹簧动画到任意 (scale, x, y) 终态——双击缩放用。 */
+  const animateTo = useCallback(
+    (targetScale: number, targetX: number, targetY: number) => {
+      const g = gesture.current;
+      g.scale = targetScale;
+      g.x = targetX;
+      g.y = targetY;
+      g.pinchStart = 0;
+      const spring = {
+        friction: 9,
+        tension: 90,
+        useNativeDriver: false as const,
+      };
+      Animated.parallel([
+        Animated.spring(scale, { ...spring, toValue: targetScale }),
+        Animated.spring(translateX, { ...spring, toValue: targetX }),
+        Animated.spring(translateY, { ...spring, toValue: targetY }),
+      ]).start();
+    },
+    [scale, translateX, translateY],
+  );
+
+  /**
+   * 双击：没放大 → 放大到 DOUBLE_TAP_SCALE，落点(而非画面中心)固定在原位
+   * ——以视图中心为原点，缩放前后同一点不动要求 t' = (1 - s') * p。
+   * 已放大 → 回 1x 居中。
+   */
+  const handleDoubleTap = useCallback(
+    (pageX: number, pageY: number) => {
+      const g = gesture.current;
+      if (g.scale > 1.01) {
+        animateToRest();
+        return;
+      }
+      const target = Math.min(MAX_SCALE, DOUBLE_TAP_SCALE);
+      const px = pageX - g.boxW / 2;
+      const py = pageY - g.boxH / 2;
+      let tx = (1 - target) * px;
+      let ty = (1 - target) * py;
+      g.x = tx;
+      g.y = ty;
+      g.scale = target;
+      clampTranslate();
+      tx = g.x;
+      ty = g.y;
+      animateTo(target, tx, ty);
+    },
+    [animateTo, animateToRest, clampTranslate],
+  );
+
   // 每次打开都从 1x / 居中开始，否则上一张图的缩放会漏到下一张。
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      if (singleTapTimer.current) {
+        clearTimeout(singleTapTimer.current);
+        singleTapTimer.current = null;
+      }
+      return;
+    }
+    if (singleTapTimer.current) {
+      clearTimeout(singleTapTimer.current);
+      singleTapTimer.current = null;
+    }
     gesture.current = {
       ...gesture.current,
       scale: 1,
@@ -216,17 +284,37 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
           clampTranslate();
           push();
         },
-        onPanResponderRelease: () => {
+        onPanResponderRelease: event => {
           const g = gesture.current;
           const tapped = !g.moved && Date.now() - g.startedAt < TAP_MS;
           if (tapped) {
-            if (g.scale > 1.01) {
-              animateToRest();
-            } else {
-              closeRef.current();
+            const touch = event.nativeEvent.touches[0];
+            const now = Date.now();
+            const isDoubleTap =
+              touch !== undefined &&
+              now - g.lastTapAt < DOUBLE_TAP_MS;
+            if (singleTapTimer.current) {
+              clearTimeout(singleTapTimer.current);
+              singleTapTimer.current = null;
             }
+            if (isDoubleTap && touch !== undefined) {
+              g.lastTapAt = 0;
+              handleDoubleTap(touch.pageX, touch.pageY);
+              return;
+            }
+            // 单击动作推迟到双击窗口过后：窗口内第二指/第二击来了就转双击。
+            g.lastTapAt = now;
+            singleTapTimer.current = setTimeout(() => {
+              singleTapTimer.current = null;
+              if (gesture.current.scale > 1.01) {
+                animateToRest();
+              } else {
+                closeRef.current();
+              }
+            }, DOUBLE_TAP_MS);
             return;
           }
+          g.lastTapAt = 0;
           if (g.scale <= 1.01) {
             if (g.y > DISMISS_DISTANCE) {
               closeRef.current();
@@ -242,7 +330,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
           animateToRest();
         },
       }),
-    [animateToRest, clampTranslate, push],
+    [animateToRest, clampTranslate, handleDoubleTap, push],
   );
 
   const handleLayout = (event: LayoutChangeEvent) => {
