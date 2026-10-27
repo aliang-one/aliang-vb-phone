@@ -1524,38 +1524,3 @@ export const parseMessageContentSegments = (
 
   return segments;
 };
-
-/**
- * 一条消息的全部可读文字（长按气泡「全选复制」用的就是它）。
- *
- * 不用 `message.content` / `contentKey`：那是给 agent 的原始通道，混着
- * `<callout>` 标签、aliang-options 围栏、`ALIANG_GOAL_REPORT:` 标记 JSON——
- * 粘到哪儿都是噪音。这里按渲染层看到的形态拼：正文用 content，折叠块补上
- * label，卡片补上标题，goal 报告用摘要。
- *
- * 段与段之间空一行，跟气泡里的视觉间距一致；空段直接丢掉，不留连续空行。
- */
-export const segmentsPlainText = (segments: TranscriptSegment[]): string =>
-  segments
-    .map(segment => {
-      switch (segment.kind) {
-        case 'text':
-          return segment.content;
-        case 'folded':
-          return [segment.label, segment.content].filter(Boolean).join('\n');
-        case 'callout':
-          return [segment.title, segment.content].filter(Boolean).join('\n');
-        case 'goalReport':
-          return [
-            segment.summary,
-            segment.blockerCode ? `⬢ ${segment.blockerCode}` : '',
-          ]
-            .filter(Boolean)
-            .join('\n');
-        default:
-          return '';
-      }
-    })
-    .map(part => part.trim())
-    .filter(Boolean)
-    .join('\n\n');

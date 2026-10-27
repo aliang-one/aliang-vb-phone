@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -8,8 +8,6 @@ import { GlassPanel } from '../shared/GlassPanel';
 import { StatusChip } from '../shared/StatusChip';
 import { ActivityBlock } from './ActivityBlock';
 import { MessageAttachments } from './MessageAttachments';
-import { MessageTextSheet } from './MessageTextSheet';
-import { segmentsPlainText } from '../../utils/messageRendering';
 import {
   activityEventsRenderSignature,
   relevantActivityDetailsEqual,
@@ -208,21 +206,6 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
   // Render at most one bubble; the owning screen passes a single message.
   const items = message ? [message] : [];
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  // 长按气泡 → 整条消息的全文（「全选 + 复制」）。只有当前这一条，因为是
-  // 一屏一个气泡：存 message.id 只是为了测试/动画 key 稳定。
-  const [textSheet, setTextSheet] = useState<{ id: string; text: string } | null>(
-    null,
-  );
-
-  /**
-   * 气泡里所有 Text 都不再 `selectable`——iOS 上它会把长按吞掉去做文本选择，
-   * 父级 Pressable 的 onLongPress 就永远到不了。全文由这张表提供。
-   */
-  const openTextSheet = (target: DisplayTranscriptMessage) => {
-    const text = segmentsPlainText(target.segments);
-    if (!text.trim()) return;
-    setTextSheet({ id: target.id, text });
-  };
 
   const hasActivity =
     Boolean(activitySessionId) &&
@@ -474,6 +457,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
             </View>
           ) : block.preview ? (
             <Text
+              selectable
               numberOfLines={3}
               style={[
                 theme.typography.codeSm,
@@ -492,6 +476,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
       return (
         <Text
           key={key}
+          selectable
           style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}
         >
           {renderInlineList(block.children, key)}
@@ -503,6 +488,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
       return (
         <Text
           key={key}
+          selectable
           style={[
             block.level <= 2
               ? theme.typography.titleMd
@@ -531,6 +517,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
           ]}
         >
           <Text
+            selectable
             style={[
               theme.typography.bodySm,
               { color: theme.colors.onSurfaceVariant },
@@ -569,6 +556,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                 </Text>
               )}
               <Text
+                selectable
                 style={[
                   theme.typography.bodyMd,
                   styles.markdownListText,
@@ -620,6 +608,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
           {Array.from({ length: colCount }).map((_, ci) => (
             <Text
               key={`cell:${ci}`}
+              selectable
               style={[
                 theme.typography.bodySm,
                 styles.tableCell,
@@ -684,6 +673,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
           </Text>
         ) : null}
         <Text
+          selectable
           style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}
         >
           {block.content}
@@ -833,6 +823,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                 color={theme.colors.onSurfaceVariant}
               />
               <Text
+                selectable
                 numberOfLines={2}
                 style={[
                   theme.typography.codeSm,
@@ -874,6 +865,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
               </TouchableOpacity>
               {resultOpen ? (
                 <Text
+                  selectable
                   style={[
                     theme.typography.codeSm,
                     styles.taskResultBody,
@@ -925,6 +917,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
             </Text>
           </View>
           <Text
+            selectable
             numberOfLines={3}
             style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}
           >
@@ -993,6 +986,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
         </View>
         {segment.summary ? (
           <Text
+            selectable
             style={[
               theme.typography.bodySm,
               { color: theme.colors.onSurface },
@@ -1081,6 +1075,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
         </TouchableOpacity>
         {open ? (
           <Text
+            selectable
             style={[
               theme.typography.codeSm,
               styles.foldedContent,
@@ -1154,11 +1149,8 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                 >
                   {roleLabel[message.role]} {timestamp}
                 </Text>
-                <Pressable
+                <View
                   testID={`message-bubble-${message.id}`}
-                  onLongPress={() => openTextSheet(message)}
-                  delayLongPress={380}
-                  accessibilityHint={t('messageActions.openHint')}
                   style={[
                     styles.messageBubble,
                     styles.userMessageBubble,
@@ -1178,7 +1170,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                     sessionId={sessionId}
                   />
                   {message.segments.map(renderSegment)}
-                </Pressable>
+                </View>
                 {isFailed ? (
                   <View style={styles.failedSendRow}>
                     <Text
@@ -1366,11 +1358,8 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                   ) : null}
                 </>
               ) : (
-                <Pressable
+                <View
                   testID={`message-bubble-${message.id}`}
-                  onLongPress={() => openTextSheet(message)}
-                  delayLongPress={380}
-                  accessibilityHint={t('messageActions.openHint')}
                   style={[
                     styles.messageBubble,
                     {
@@ -1384,7 +1373,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                   ]}
                 >
                   {message.segments.map(renderSegment)}
-                </Pressable>
+                </View>
               )}
               {bubbleEvents.length > 0 ? (
                 <ActivityBlock
@@ -1456,12 +1445,7 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
             );
           })
         : null}
-      <MessageTextSheet
-        visible={textSheet !== null}
-        text={textSheet?.text ?? ''}
-        onClose={() => setTextSheet(null)}
-      />
-    </>
+      </>
   );
 };
 

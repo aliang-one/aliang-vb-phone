@@ -288,18 +288,9 @@
     "scopeBuiltin": "Built-in",
     "empty": "This agent has not reported any available commands or Skills yet."
   },
-  "messageActions": {
-    "sheetTitle": "Select text",
-    "sheetSubtitle": "The whole message is selected — copy it, or long-press to select part of it.",
-    "copyAll": "Copy all",
-    "copied": "Copied",
-    "close": "Close",
-    "empty": "This message has no copyable text.",
-    "openHint": "Long-press a message to select and copy it"
-  },
   "imageViewer": {
     "close": "Close image",
-    "hint": "Pinch to zoom · drag when zoomed · tap to close",
+    "hint": "Pinch or double-tap to zoom · drag when zoomed · tap to close",
     "failed": "Failed to load image"
   },
   "sessionCard": {

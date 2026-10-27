@@ -288,18 +288,9 @@
     "scopeBuiltin": "内置",
     "empty": "该 Agent 暂未上报可用命令或 Skill。"
   },
-  "messageActions": {
-    "sheetTitle": "选择文本",
-    "sheetSubtitle": "已全选这条消息的文字，可直接复制或长按局部选择。",
-    "copyAll": "复制全文",
-    "copied": "已复制",
-    "close": "关闭",
-    "empty": "这条消息没有可复制的文字。",
-    "openHint": "长按消息可全选复制"
-  },
   "imageViewer": {
     "close": "关闭图片",
-    "hint": "双指缩放 · 放大后拖动 · 轻点关闭",
+    "hint": "双指或双击缩放 · 放大后拖动 · 轻点关闭",
     "failed": "图片加载失败"
   },
   "sessionCard": {
