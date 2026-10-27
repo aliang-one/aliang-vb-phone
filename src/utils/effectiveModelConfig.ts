@@ -1,4 +1,4 @@
-import { normalizeProvider, type EffortProvider } from './modelIntensity';
+import type { EffortProvider } from './modelIntensity';
 
 /** 弹窗来源标注:本次手动选择 / Me 页默认 / CLI(或 provider)内置默认。 */
 export type ModelChoiceSource = 'manual' | 'me' | 'cli';
@@ -17,22 +17,22 @@ export interface ResolvedModelChoice {
   effort: string | undefined;
   modelSource: ModelChoiceSource;
   effortSource: ModelChoiceSource;
-  /** Me 偏好(provider 一致性门控后)是否适用。 */
-  meApplies: boolean;
 }
 
 /**
  * 手机端镜像 server 的 resolveEffectiveModelConfig
  * (AliangPhoneServer server/src/modelConfig.ts)。核心规则逐字对齐——
- * 确认弹窗展示什么,server 实际就执行什么。规则:
- *   effective.model  = 手动 || (Me 适用 ? Me.model : 无) || CLI 默认
- *   Me 适用 = Me.provider 未设 或 归一化后与已选 provider 一致
+ * 确认弹窗展示什么,server 实际就执行什么。规则(2026-10-28 用户拍板:
+ * 「每一项都单独作用于全局,用户不设置的时候就采用这些默认值」):
+ *   effective.model  = 手动 || Me.model || CLI 默认
+ *   effective.effort = 手动 || Me.effort || CLI 默认
+ * Me 的 model/effort 是**逐字段的全局默认**,不再做 provider 一致性门控
+ * (旧规则:provider 不一致整组不适用——那就是「一组配置」语义,已废)。
+ * 每项未设置就落到该项自己的内置默认;下发的模型串由用户在弹窗里二次确认。
  *
- * 与 server 的两处刻意偏差(勿"顺手补齐"):
- * 1. server 谓词多一个 `!providerValue` 放行项;手机创建页 provider 恒为
- *    显式实参,该项在本侧不可达。
- * 2. provider 别名复用手机端 normalizeProvider(超集,额外认 'claude-code'
- *    连字符形;server 不认)。server 存储从不出现该形,语义不受影响。
+ * 与 server 的一处刻意偏差(勿"顺手补齐"):
+ * provider 别名复用手机端 normalizeProvider(超集,额外认 'claude-code'
+ * 连字符形;server 不认)。server 存储从不出现该形,语义不受影响。
  */
 export const resolveEffectiveModelChoice = (
   provider: EffortProvider,
@@ -44,10 +44,8 @@ export const resolveEffectiveModelChoice = (
     const s = (v ?? '').trim();
     return s ? s : undefined;
   };
-  const meProvider = normalizeProvider(meDefault?.provider ?? undefined);
-  const meApplies = !meProvider || meProvider === provider;
-  const meModel = meApplies ? clean(meDefault?.model) : undefined;
-  const meEffort = meApplies ? clean(meDefault?.effort) : undefined;
+  const meModel = clean(meDefault?.model);
+  const meEffort = clean(meDefault?.effort);
   const model = clean(manualModel);
   const effort = clean(manualEffort);
   return {
@@ -56,6 +54,5 @@ export const resolveEffectiveModelChoice = (
     effort: effort ?? meEffort,
     modelSource: model ? 'manual' : meModel ? 'me' : 'cli',
     effortSource: effort ? 'manual' : meEffort ? 'me' : 'cli',
-    meApplies,
   };
 };

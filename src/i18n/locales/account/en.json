@@ -45,12 +45,6 @@
     "upToDate": "Up to date",
     "failureStatusPrefix": "Save failed"
   },
-  "contextCard": {
-    "title": "Default context",
-    "subtitle": "User-level · context window for new sessions; still adjustable per session at creation",
-    "hint": "100k – 1M. Claude receives it as the auto-compact threshold (--autocompact); the AliangCode kernel auto-compacts to this window, and manual /compact works too.",
-    "savedStatus": "Default context window saved."
-  },
   "deviceDefault": {
     "title": "Device defaults",
     "subtitle": "Set a model per device; leave blank = inherit server default",

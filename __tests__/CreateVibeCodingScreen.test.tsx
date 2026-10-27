@@ -398,15 +398,16 @@ describe('CreateVibeCodingScreen model confirm sheet', () => {
     expect(mockReplace).toHaveBeenCalledTimes(1);
   });
 
-  it('跨 provider:Me 默认(claude)对所选 codex 不适用 → 走 Me 空按钮组', async () => {
+  it('跨 provider:Me 默认(claude)对 codex 照常逐字段生效(2026-10-28 起不再门控)', async () => {
     // claude 在本设备不可用 → 预填不切 provider(见下方缺陷 B 用例),维持 codex;
-    // Me 的 claude 默认对 codex 不适用 → CLI 默认 + 去设置按钮组。
+    // Me 的 claude 默认不再绑定 provider,glm-5.2/high 直接作为 codex 会话的
+    // 解析结果展示 → Me 来源按钮组(确认/返回),无「去设置」引导。
     mockDevices[0].tools = [{ id: 'codex', available: true }, { id: 'claude_code', available: false }];
     Object.assign(mockUserDefault, { provider: 'claude_code', model: 'glm-5.2', effort: 'high' });
     root = await wrap(<CreateVibeCodingScreen />);
     pressStart(root);
-    expect(touchByTestID(root.root, 'sheet-btn-go-me')).toBeTruthy();
-    expect(touchByTestID(root.root, 'sheet-btn-confirm')).toBeUndefined();
+    expect(touchByTestID(root.root, 'sheet-btn-go-me')).toBeUndefined();
+    expect(touchByTestID(root.root, 'sheet-btn-confirm')).toBeTruthy();
   });
 
   it('缺陷B:Me 默认 provider 可用时预填 provider 芯片', async () => {

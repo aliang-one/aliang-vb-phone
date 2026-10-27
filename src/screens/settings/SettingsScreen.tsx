@@ -39,7 +39,6 @@ import { useToastStore } from '../../store/toastStore';
 import { ratioPercent, daysUntil, formatDate } from '../../utils/format';
 import type { AccountSubscription } from '../../api/account';
 import { UserModelDefaultCard } from '../../components/account/UserModelDefaultCard';
-import { UserContextWindowCard } from '../../components/account/UserContextWindowCard';
 import {
   displayNotification,
   getNotificationPermissionStatus,
@@ -535,9 +534,6 @@ export const SettingsScreen: React.FC = () => {
 
             {renderSectionTitle(t('sections.modelConfig'))}
             <UserModelDefaultCard />
-
-            {renderSectionTitle(t('sections.context'))}
-            <UserContextWindowCard />
 
             {renderSectionTitle(t('sections.platformService'))}
 
