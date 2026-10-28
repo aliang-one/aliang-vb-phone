@@ -134,6 +134,34 @@ jest.mock('react-native-view-shot', () => ({
   releaseCapture: jest.fn(),
 }));
 
+// react-native-video v7 beta 是 Nitro/Fabric 视图,jest 下没有原生实现,整包 stub。
+// useVideoPlayer 返回共享 mockPlayer;测试经 global.__rnvVideoMock 拿到它并 emit 事件。
+jest.mock('react-native-video', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  const listeners = new Map();
+  const mockPlayer = {
+    addEventListener: jest.fn((event, cb) => {
+      if (!listeners.has(event)) listeners.set(event, new Set());
+      listeners.get(event).add(cb);
+      return { remove: () => { const s = listeners.get(event); if (s) s.delete(cb); } };
+    }),
+    __emit(event, payload) {
+      const set = listeners.get(event);
+      if (set) for (const cb of Array.from(set)) cb(payload);
+    },
+  };
+  global.__rnvVideoMock = { mockPlayer, listeners, renderedProps: [] };
+  return {
+    __esModule: true,
+    useVideoPlayer: jest.fn(() => mockPlayer),
+    VideoView: React.forwardRef((props, ref) => {
+      global.__rnvVideoMock.renderedProps.push(props);
+      return React.createElement(View, { ...props, ref });
+    }),
+  };
+});
+
 // Render in Chinese during tests. The app is Chinese-first historically and most
 // component tests assert Chinese strings; pinning the i18n locale to 'zh' means
 // migrating a screen to useTranslation() does NOT break its Chinese-asserting tests

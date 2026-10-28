@@ -2013,6 +2013,29 @@ PODS:
     - React-utils (= 0.85.3)
     - ReactNativeDependencies
   - ReactNativeDependencies (0.85.3)
+  - ReactNativeVideo (7.0.0-beta.12):
+    - hermes-engine
+    - NitroModules
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - RNCClipboard (1.16.3):
     - hermes-engine
     - RCTRequired
@@ -2495,6 +2518,7 @@ DEPENDENCIES:
   - ReactCodegen (from `build/generated/ios/ReactCodegen`)
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
   - ReactNativeDependencies (from `../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec`)
+  - ReactNativeVideo (from `../node_modules/react-native-video`)
   - "RNCClipboard (from `../node_modules/@react-native-clipboard/clipboard`)"
   - RNGestureHandler (from `../node_modules/react-native-gesture-handler`)
   - RNKeychain (from `../node_modules/react-native-keychain`)
@@ -2672,6 +2696,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon"
   ReactNativeDependencies:
     :podspec: "../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec"
+  ReactNativeVideo:
+    :path: "../node_modules/react-native-video"
   RNCClipboard:
     :path: "../node_modules/@react-native-clipboard/clipboard"
   RNGestureHandler:
@@ -2700,7 +2726,7 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   AsyncStorage: 0d33446825169a2d78299ccc8e074e1536ae0fe6
   FBLazyVector: 24e62c765683b8d89006a88a2c8f5cf019f0074d
-  hermes-engine: 2e7b9bb7b16d57a7f2e5168cb3c3815089d85cbc
+  hermes-engine: 310a3ebb0f1cdf72629b45d246829e1b30d92183
   NitroImage: 2f592086cbdecbbaa1c10dd97e0cdd43b1bb0817
   NitroModules: 16bc17a076b12304d608f7c915b9d321f56dfc19
   RCTDeprecation: a4c521821fab57cbb125b36effe84d897d0dfa12
@@ -2711,7 +2737,7 @@ SPEC CHECKSUMS:
   React: e2dc35338068bbd299c66f043ae0d7f25de8499e
   React-callinvoker: 28b25d21b124c26cebaea713ba7d801b9351dc48
   React-Core: 02ed7d2ffb70437bdf2aba074a13078a7b0b9ff0
-  React-Core-prebuilt: 874e54e9cd91238ec817df71feb959ca68947fac
+  React-Core-prebuilt: ecb52e61523d00b51d6ce8fe1a27ecf0c77fc5c5
   React-CoreModules: b3a5a42dadcde3b5d47b325bd912eb2ced89e146
   React-cxxreact: fe8f88dda044e5905e99a00f41b7a874c3908716
   React-debug: 92944dc4d89f56d640e75498266cbde557a48189
@@ -2778,7 +2804,8 @@ SPEC CHECKSUMS:
   ReactAppDependencyProvider: 25c9c516839be2c5e3d3344f95dc7da5f7e63fc2
   ReactCodegen: c8f81e6c6f762dcf442a6203a1fb58f7dafc8014
   ReactCommon: 7dfc3250793bf36cf221096ff59e1179e13eef7f
-  ReactNativeDependencies: 02bac4ec75f7de777f6792820121fbd7da67addf
+  ReactNativeDependencies: 88b4b9bc147cabdcffad0fe8d55d6658465462ef
+  ReactNativeVideo: f0a80c24c40793db5438b37d334bbf400d8ade11
   RNCClipboard: 715fa7c6c8366f17d00f05a439ee7488f390fa5f
   RNGestureHandler: 2ff61eac036eaf89f6818bf4ed9c39771a17d134
   RNKeychain: 6778b35b5bd067c322f8479526ac09b1d61f31d0
