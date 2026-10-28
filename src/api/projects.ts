@@ -328,11 +328,13 @@ export const fetchProjectFileContent = (
   projectId: string,
   path: string,
   maxBytes = 128 * 1024,
+  opts?: { encoding?: 'utf8' | 'base64' },
 ): Promise<ServerProjectFileContent> =>
   apiGet<ServerProjectFileContent>(
     `/api/projects/${encodeURIComponent(projectId)}/files/content${queryString({
       path,
       max_bytes: maxBytes,
+      ...(opts?.encoding ? { encoding: opts.encoding } : {}),
     })}`,
   );
 

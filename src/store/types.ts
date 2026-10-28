@@ -286,7 +286,7 @@ export interface ProjectFileEntry {
   truncated?: boolean;
   error?: string;
   etag?: string;
-  previewBlocked?: { reason: 'too_large' | 'binary'; sizeBytes?: number };
+  previewBlocked?: { reason: 'too_large' | 'binary' | 'video'; sizeBytes?: number };
 }
 
 export interface UnifiedEvent {

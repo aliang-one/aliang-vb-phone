@@ -13,12 +13,16 @@ const LARGE_FILE_BYTES = 1 * 1024 * 1024; // 1 MB
 
 const BINARY_EXTS = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp', 'svgz',
-  'mp4', 'mov', 'avi', 'mkv', 'webm', 'mp3', 'wav', 'flac', 'ogg', 'aac',
+  'avi', 'mkv', 'webm', 'wmv', 'flv', 'mp3', 'wav', 'flac', 'ogg', 'aac',
   'zip', 'tar', 'gz', 'tgz', 'bz2', 'rar', '7z',
   'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
   'woff', 'woff2', 'ttf', 'otf',
   'exe', 'dll', 'so', 'dylib', 'class', 'jar', 'wasm', 'o', 'pdb', 'db', 'sqlite',
 ]);
+
+// 首版探针白名单:双端播放器交集里最稳的容器(mp4 H.264/AAC 家族)。
+// avi/mkv/webm 仍在 BINARY_EXTS(iOS AVPlayer 拒载),等 ffmpeg 转码档再放行。
+const VIDEO_EXTS = new Set(['mp4', 'mov', 'm4v']);
 
 export interface FileCacheTransport {
   loadProjectFiles(
@@ -40,7 +44,7 @@ export interface ReadMeta {
 }
 
 export type ReadOutcome =
-  | { kind: 'blocked'; reason: 'too_large' | 'binary'; sizeBytes?: number }
+  | { kind: 'blocked'; reason: 'too_large' | 'binary' | 'video'; sizeBytes?: number }
   | { kind: 'cache_hit' }
   | { kind: 'fetched'; content: PlatformProjectFileContentSnapshot };
 
@@ -68,6 +72,8 @@ export const extOf = (name: string): string => {
 
 export const isBinaryByName = (name: string): boolean => BINARY_EXTS.has(extOf(name));
 
+export const isVideoByName = (name: string): boolean => VIDEO_EXTS.has(extOf(name));
+
 /**
  * Pure block decision, shared by `readFile` (open time) and the store's
  * list-merge (refresh time). Centralizing it lets a refresh re-evaluate whether
@@ -75,11 +81,16 @@ export const isBinaryByName = (name: string): boolean => BINARY_EXTS.has(extOf(n
  * below LARGE_FILE_BYTES recovers (returns undefined); a binary file stays
  * blocked because its extension is authoritative. Returns the block descriptor
  * the store writes into `previewBlocked`, or undefined when previewable.
+ *
+ * 视频扩展名(mp4/mov/m4v)返回 reason:'video'——不走文本读,由屏幕层
+ * 触发 64KB 头探针判真假;其余视频容器(avi/mkv/webm…)留在 BINARY_EXTS
+ * 按 binary 拦截,等转码档再放行。
  */
 export const shouldBlockPreview = (
   name: string,
   sizeBytes?: number,
-): { reason: 'too_large' | 'binary'; sizeBytes?: number } | undefined => {
+): { reason: 'too_large' | 'binary' | 'video'; sizeBytes?: number } | undefined => {
+  if (isVideoByName(name)) return { reason: 'video', sizeBytes };
   if (isBinaryByName(name)) return { reason: 'binary', sizeBytes };
   if (sizeBytes !== undefined && sizeBytes > LARGE_FILE_BYTES) {
     return { reason: 'too_large', sizeBytes };

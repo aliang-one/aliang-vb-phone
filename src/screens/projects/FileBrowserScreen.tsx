@@ -39,6 +39,7 @@ import { FileTransferSheet } from '../../components/projects/FileTransferSheet';
 import { CodeHighlight } from '../../components/shared/CodeHighlight';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { describeDeviceError } from '../../utils/deviceError';
+import { peekVideoVerdict, probeProjectVideo } from '../../services/videoProbe';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
@@ -201,6 +202,8 @@ export const FileBrowserScreen: React.FC = () => {
   // hand-off slot the download sheet (Task 16) consumes to start the download.
   const [menuFile, setMenuFile] = useState<ProjectFileEntry | null>(null);
   const [downloadFile, setDownloadFile] = useState<ProjectFileEntry | null>(null);
+  // 正在做 64KB 视频头探针的文件路径('' = 空闲);结论存 videoProbe 模块缓存。
+  const [videoProbePath, setVideoProbePath] = useState('');
   // Device-transfer sheet hand-off (long-press → 同步到别的设备). Same shape
   // as downloadFile: the sheet is mounted while a run is live regardless.
   const [transferFile, setTransferFile] = useState<ProjectFileEntry | null>(null);
@@ -477,6 +480,16 @@ export const FileBrowserScreen: React.FC = () => {
 
     if (file.previewBlocked) {
       setSelectedPath(file.path);
+      // 视频:先 64KB 头探针判真假——假视频就地拦截,不发起 COS 全量下载。
+      // 判真/降级不清 store 拦截位,视频卡按 peekVideoVerdict 决策。
+      if (file.previewBlocked.reason === 'video' && videoProbePath !== file.path) {
+        setVideoProbePath(file.path);
+        try {
+          await probeProjectVideo(project.id, file.path);
+        } finally {
+          setVideoProbePath('');
+        }
+      }
       return;
     }
     setSelectedPath(file.path);
@@ -610,6 +623,109 @@ export const FileBrowserScreen: React.FC = () => {
             ]}>
             {t('fileBrowser.readingFile')}
           </Text>
+        </View>
+      );
+    }
+    // 视频扩展名(mp4/mov/m4v):64KB 头探针状态机,先于通用拦截卡。
+    // probing → spinner;not_video → 假视频拦截卡(省下 COS 全量上传);
+    // video/unknown → 视频卡 + 下载 CTA(unknown = 探针故障,降级放行)。
+    if (file.previewBlocked?.reason === 'video') {
+      const verdict = peekVideoVerdict(project.id, file.path);
+      if (!verdict || videoProbePath === file.path) {
+        return (
+          <View style={styles.sheetLoading}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text
+              style={[
+                theme.typography.bodySm,
+                { color: theme.colors.onSurfaceVariant, marginTop: 10 },
+              ]}>
+              {t('fileBrowser.video.probing')}
+            </Text>
+          </View>
+        );
+      }
+      if (verdict.kind === 'not_video') {
+        return (
+          <View style={styles.sheetBlocked}>
+            <IconBadge name="warning" tone="error" size={40} iconSize={20} />
+            <Text
+              style={[
+                theme.typography.titleMd,
+                { color: theme.colors.onSurface, textAlign: 'center', marginTop: 10 },
+              ]}>
+              {t('fileBrowser.video.fakeTitle')}
+            </Text>
+            <Text
+              style={[
+                theme.typography.bodySm,
+                { color: theme.colors.onSurfaceVariant, textAlign: 'center', marginTop: 6 },
+              ]}>
+              {t('fileBrowser.video.fakeDetail')}
+            </Text>
+            <GlowButton
+              title={t('fileBrowser.openInTerminal')}
+              onPress={() =>
+                device &&
+                navigation.navigate('DeviceTerminal', {
+                  deviceId: device.id,
+                  directory: parentPathOf(file.path),
+                  terminalId: activeTerminalId,
+                })
+              }
+              disabled={!device}
+              variant="primary"
+              style={styles.sheetBlockedAction}
+            />
+          </View>
+        );
+      }
+      return (
+        <View style={styles.sheetBlocked}>
+          <IconBadge
+            name="play"
+            tone={verdict.kind === 'unknown' ? 'tertiary' : 'primary'}
+            size={40}
+            iconSize={20}
+          />
+          <Text
+            style={[
+              theme.typography.titleMd,
+              { color: theme.colors.onSurface, textAlign: 'center', marginTop: 10 },
+            ]}>
+            {t('fileBrowser.video.cardTitle')}
+          </Text>
+          <Text
+            style={[
+              theme.typography.bodySm,
+              { color: theme.colors.onSurfaceVariant, textAlign: 'center', marginTop: 6 },
+            ]}>
+            {verdict.kind === 'unknown'
+              ? t('fileBrowser.video.unknownDetail')
+              : t('fileBrowser.video.cardDetail', { size: file.size })}
+          </Text>
+          {downloadEnabled ? (
+            <GlowButton
+              title={t('fileBrowser.video.downloadCta')}
+              onPress={() => setDownloadFile(file)}
+              variant="primary"
+              style={styles.sheetBlockedAction}
+            />
+          ) : null}
+          <GlowButton
+            title={t('fileBrowser.openInTerminal')}
+            onPress={() =>
+              device &&
+              navigation.navigate('DeviceTerminal', {
+                deviceId: device.id,
+                directory: parentPathOf(file.path),
+                terminalId: activeTerminalId,
+              })
+            }
+            disabled={!device}
+            variant="outline"
+            style={styles.sheetBlockedAction}
+          />
         </View>
       );
     }

@@ -21,6 +21,15 @@
     "binaryBlockedDetail": "This file is binary and not suitable for preview on mobile.",
     "tooLargeBlockedDetail": "This file exceeds 1 MB; preview would be truncated and consume a lot of memory.",
     "openInTerminal": "Open in terminal",
+    "video": {
+      "probing": "Checking video…",
+      "fakeTitle": "Not a video file",
+      "fakeDetail": "Header check failed — this is not a valid video. Download stopped to save bandwidth.",
+      "cardTitle": "Video file",
+      "cardDetail": "Header verified ({{size}}). Download to watch with the system player.",
+      "unknownDetail": "Header check didn't complete (network or device issue). You can still download.",
+      "downloadCta": "Download to watch"
+    },
     "loadMoreFiles": "LOAD MORE FILES",
     "emptyFolder": "Empty folder",
     "reload": "Loading",

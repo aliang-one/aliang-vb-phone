@@ -455,8 +455,14 @@ class PlatformTransport {
     return fetchProjectFiles(projectId, path, maxEntries);
   }
 
-  loadProjectFileContent(projectId: string, path: string): Promise<PlatformProjectFileContentSnapshot> {
-    return fetchProjectFileContent(projectId, path);
+  loadProjectFileContent(
+    projectId: string,
+    path: string,
+    opts?: { maxBytes?: number; encoding?: 'utf8' | 'base64' },
+  ): Promise<PlatformProjectFileContentSnapshot> {
+    return fetchProjectFileContent(projectId, path, opts?.maxBytes ?? 128 * 1024, {
+      encoding: opts?.encoding,
+    });
   }
 
   createAiSession(input: Parameters<typeof apiCreateAiSession>[0]): Promise<PlatformAiSessionSnapshot> {
