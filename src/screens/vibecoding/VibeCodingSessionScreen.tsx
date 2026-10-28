@@ -131,6 +131,10 @@ import {
   supportedEffortsFor,
 } from '../../utils/modelIntensity';
 import { createId } from '../../store/internals';
+import {
+  acquireDraftRequestId,
+  confirmDraftRequestId,
+} from './draftRequestRegistry';
 import { useUiNoticeStore } from '../../store/uiNoticeStore';
 import { useSessionDetailLoader } from './useSessionDetailLoader';
 import { useSessionCatchUp } from './useSessionCatchUp';
@@ -1398,11 +1402,30 @@ export const VibeCodingSessionScreen: React.FC = () => {
       // actual server payload so changing composer mode cannot create a second
       // conversation for the same first message.
       const requestFingerprint = normalizedContent;
+      // 服务端 create 载荷指纹:requestId 复用的两级来源——① 同 draft 的
+      // navigation params(pendingRequestId);② 跨导航/跨卸载的登记表
+      // (draftRequestRegistry,TTL 10min)。2026-10-28 实锤(7-24 重复卡):
+      // params 丢失后重试换 requestId,服务端幂等键含 requestId,同内容也会
+      // 建出第二条会话。登记表兜住「失败后离开页面再回来重试」这条缝。
+      const draftCreatePayload = {
+        deviceId: draftConfig.deviceId,
+        projectId: draftConfig.projectId ?? '',
+        directory: draftConfig.directory,
+        provider: draftConfig.provider,
+        objective: normalizedContent,
+        model: draftConfig.model,
+        effort: draftConfig.effort,
+        contextWindow: draftConfig.contextWindow,
+        approvalScheme: draftConfig.approvalScheme,
+        canRead: draftConfig.canRead,
+        canModify: draftConfig.canModify,
+        canRun: draftConfig.canRun,
+      };
       const clientRequestId =
         draftConfig.pendingRequestFingerprint === requestFingerprint &&
         draftConfig.pendingRequestId
           ? draftConfig.pendingRequestId
-          : createId('ai-create');
+          : acquireDraftRequestId(draftCreatePayload);
       if (
         draftConfig.pendingRequestId !== clientRequestId ||
         draftConfig.pendingRequestFingerprint !== requestFingerprint
@@ -1447,6 +1470,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
         // this screen and mounts a fresh one — clearing the input, resetting
         // scroll, and re-fetching detail — which the user sees as a jarring
         // "jump to a new same-layout page" right after the first send.
+        confirmDraftRequestId(draftCreatePayload);
         setCreatedSessionId(sessionId);
         navigation.setParams({ sessionId, draftConfig: undefined });
         // 草稿现在允许带素材（入口门控见 draftAttachmentsCapability）：create
