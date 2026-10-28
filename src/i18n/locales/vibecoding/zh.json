@@ -541,7 +541,44 @@
       "refreshLatest": "刷新最新会话"
     },
     "tuiSharedNotice": "该对话与桌面终端(TUI)共用:手机上的对话会自动同步进开着此会话的空闲终端;终端忙时本轮不注入、不补发。",
-    "tuiSharedNoticeDismiss": "知道了"
+    "tuiSharedNoticeDismiss": "知道了",
+    "diagnostics": {
+      "title": "运行诊断",
+      "entryA11y": "打开运行诊断",
+      "closeA11y": "关闭诊断面板",
+      "context": {
+        "title": "上下文",
+        "usedOf": "{{used}} / {{total}}",
+        "used": "已用 tokens",
+        "window": "上下文窗口",
+        "remain": "剩余可用",
+        "lastTurn": "上一回合 输入/输出 (+缓存读)",
+        "compactHint": "上下文接近窗口 3/4 时内核自动压缩历史；压缩后已用值会回落为估算。"
+      },
+      "run": {
+        "title": "运行状态",
+        "phase": "阶段",
+        "turns": "回合数",
+        "elapsed": "已耗时",
+        "filesTouched": "本轮改动的文件",
+        "gitChanged": "git 变更数",
+        "stopReason": "停止原因"
+      },
+      "guards": {
+        "title": "无进展守卫",
+        "dup": "重复工具调用",
+        "err": "连续工具错误",
+        "trunc": "输出截断重试"
+      },
+      "failure": {
+        "title": "失败原因",
+        "lastError": "最近错误",
+        "retry": "上游重试",
+        "none": "本次运行没有失败记录。"
+      },
+      "elapsedSec": "{{sec}} 秒",
+      "elapsedMinSec": "{{min}} 分 {{sec}} 秒"
+    }
   },
   "drawing": {
     "title": "手绘",

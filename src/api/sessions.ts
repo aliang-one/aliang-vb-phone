@@ -268,6 +268,23 @@ export interface ServerAiSession {
   /** git working-tree change count for the project dir during the current/most-recent run. */
   git_changed_count?: number;
   /**
+   * 逐回合诊断快照（agentcore 通道；服务端已归一化为 camelCase，终态含终止
+   * 真因并持久化）。诊断面板实时与重开回放共用。undefined = 旧 agent/非
+   * agentcore 通道。
+   */
+  diagnostics?: {
+    turns: number;
+    contextTokens: number;
+    contextWindow: number;
+    dupStreak?: number;
+    errStreak?: number;
+    truncStreak?: number;
+    stopReason?: string;
+    elapsedMs?: number;
+    terminal?: boolean;
+    reason?: string;
+  };
+  /**
    * Live retry indicator: the agent is retrying an upstream (gateway 5xx)
    * error. Transient on the server (in-memory only); false/absent when not
    * retrying. Powers the phone's "重试 2/10 · 网关 502" indicator so the

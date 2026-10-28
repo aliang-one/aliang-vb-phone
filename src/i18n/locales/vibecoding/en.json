@@ -541,7 +541,44 @@
       "refreshLatest": "Refresh latest conversation"
     },
     "tuiSharedNotice": "Shared with a terminal TUI — messages sent from the phone are automatically synced into an idle terminal running this session. While the terminal is busy, the notice is skipped (not retried).",
-    "tuiSharedNoticeDismiss": "Got it"
+    "tuiSharedNoticeDismiss": "Got it",
+    "diagnostics": {
+      "title": "Run diagnostics",
+      "entryA11y": "Open run diagnostics",
+      "closeA11y": "Close diagnostics panel",
+      "context": {
+        "title": "Context",
+        "usedOf": "{{used}} / {{total}}",
+        "used": "Tokens used",
+        "window": "Context window",
+        "remain": "Remaining",
+        "lastTurn": "Last turn in/out (+cache read)",
+        "compactHint": "History is auto-compacted near 3/4 of the window; used tokens fall back to an estimate afterwards."
+      },
+      "run": {
+        "title": "Run state",
+        "phase": "Phase",
+        "turns": "Turns",
+        "elapsed": "Elapsed",
+        "filesTouched": "Files touched this run",
+        "gitChanged": "Git changes",
+        "stopReason": "Stop reason"
+      },
+      "guards": {
+        "title": "Progress guards",
+        "dup": "Repeated tool calls",
+        "err": "Consecutive tool errors",
+        "trunc": "Output truncation retries"
+      },
+      "failure": {
+        "title": "Failure",
+        "lastError": "Last error",
+        "retry": "Upstream retry",
+        "none": "No failure recorded for this run."
+      },
+      "elapsedSec": "{{sec}}s",
+      "elapsedMinSec": "{{min}}m {{sec}}s"
+    }
   },
   "drawing": {
     "title": "Draw",

@@ -33,6 +33,7 @@ import { GlassPanel } from '../../components/shared/GlassPanel';
 import { GlowButton } from '../../components/shared/GlowButton';
 import { StatusChip } from '../../components/shared/StatusChip';
 import { ToolsMenu } from '../../components/vibecoding/ToolsMenu';
+import { DiagnosticsPanel } from '../../components/vibecoding/DiagnosticsPanel';
 import {
   AttachmentMenuSheet,
   type AttachmentMenuAction,
@@ -620,6 +621,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
 
   const [interruptingTurn, setInterruptingTurn] = useState(false);
   const [toolsMenuVisible, setToolsMenuVisible] = useState(false);
+  // 诊断面板（右侧滑出）：上下文用量 / 回合与守卫状态 / 失败真因。
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const handleToggleDiagnostics = useCallback(() => {
+    setDiagnosticsOpen(value => !value);
+  }, []);
   // Composer 回调稳定化:MessageComposer 已 React.memo,渲染点内联箭头会
   // 每次生成新引用击穿 memo(流式 ≤5Hz 屏幕重渲染时 composer 白陪跑)。
   const handleComposerModeChange = useCallback((nextMode: ComposerMode) => {
@@ -2635,6 +2641,17 @@ export const VibeCodingSessionScreen: React.FC = () => {
               type={isDraft ? 'neutral' : sessionPhaseType[sessionPhase]}
               pulse={!isDraft && sessionPhase === 'running'}
             />
+            {/* 诊断入口：紧挨状态气泡。草稿会话没有 run 数据，不显示。 */}
+            {!isDraft && (
+              <TouchableOpacity
+                onPress={handleToggleDiagnostics}
+                activeOpacity={0.72}
+                hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                accessibilityRole="button"
+                accessibilityLabel={t('session.diagnostics.entryA11y')}>
+                <IconBadge name="fingerprint" tone="neutral" size={28} iconSize={14} />
+              </TouchableOpacity>
+            )}
             <Text
               numberOfLines={1}
               style={[
@@ -3861,6 +3878,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
         onPickRecent={handlePickRecentAttachment}
         onDeleteRecent={handleDeleteRecentAttachment}
         onClearRecent={handleClearRecentAttachments}
+      />
+      {/* 诊断面板：右侧滑出，展示上下文用量 / 回合与守卫状态 / 失败真因。 */}
+      <DiagnosticsPanel
+        open={diagnosticsOpen}
+        onClose={() => setDiagnosticsOpen(false)}
+        run={session}
       />
       <ApprovalQuickPolicySheet
         projectId={session?.projectId ?? ''}

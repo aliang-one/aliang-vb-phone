@@ -320,6 +320,32 @@ export interface GoalSummary {
   criteria?: GoalAcceptanceCriterionSummary[];
 }
 
+/**
+ * 一次 AI run 的逐回合诊断快照（agentcore 内核产出，服务端归一化为 camelCase
+ * 后随 ai.session.updated 快照携带；终态含终止真因并已持久化）。键与服务端
+ * AiRunDiagnostics 一致；缺键按缺省渲染「—」。
+ */
+export interface VibeRunDiagnostics {
+  /** 已开始的回合数（从 1 计）。 */
+  turns: number;
+  /** 最近一次上游报告的本轮输入 token 数（含缓存），压缩后为估算值。 */
+  contextTokens: number;
+  /** 本 run 的有效上下文窗口。 */
+  contextWindow: number;
+  /** 三个无进展守卫的当前连击计数（重复工具/连续工具错误/截断重试）。 */
+  dupStreak?: number;
+  errStreak?: number;
+  truncStreak?: number;
+  /** 最近一个回合的上游停止原因。 */
+  stopReason?: string;
+  /** run 已耗时（毫秒）。 */
+  elapsedMs?: number;
+  /** true = 终态快照。 */
+  terminal?: boolean;
+  /** 终止真因（仅终态快照非空）。 */
+  reason?: string;
+}
+
 export interface VibeCodingRun {
   id: string;
   title: string;
@@ -453,6 +479,12 @@ export interface VibeCodingRun {
   lastErrorType?: string;
   lastRetryAttempt?: number;
   lastRetryMax?: number;
+  /**
+   * 逐回合诊断快照（agentcore 通道经 ai.session.updated 快照携带；终态含终止
+   * 真因，服务端已持久化）。诊断面板实时与重开回放共用。undefined = 旧 agent
+   * 或非 agentcore 通道，面板降级为「无诊断数据」。
+   */
+  diagnostics?: VibeRunDiagnostics;
   lastMessage?: AgentMessage;
   /**
    * Most recent user-role message (the latest thing the user asked), used by the

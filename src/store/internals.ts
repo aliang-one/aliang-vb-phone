@@ -836,6 +836,9 @@ export function serverAiSessionToVibeRun(
     eventCount: session.event_count ?? events.length,
     filesTouchedCount: session.files_touched_count,
     gitChangedCount: session.git_changed_count,
+    // 诊断面板数据源：服务端已归一化，直接透传。undefined 时 merge 层保留存量
+    // （与 lastMessage 同款策略），避免旧快照清掉新快照刚送来的终态诊断。
+    diagnostics: session.diagnostics,
     retryActive: session.retry_active ?? false,
     retryAttempt: session.retry_attempt,
     retryMax: session.retry_max,
@@ -1248,6 +1251,9 @@ export function mergeVibeRunSnapshot(
     // 同理 context_window：列表/重命名/打断等部分快照不带它，裸 spread 会把
     // 用户刚设的窗口抹成 undefined，滑块下次打开跳回默认值。
     contextWindow: incoming.contextWindow ?? existing.contextWindow,
+    // 诊断面板数据源：终态诊断（含失败真因）必须跨快照存活——重命名/列表等
+    // 不带 diagnostics 的部分快照不得把刚收到的终态快照抹掉。
+    diagnostics: incoming.diagnostics ?? existing.diagnostics,
     activeExecutionProfile:
       incoming.activeExecutionProfile ?? existing.activeExecutionProfile,
     lastMessage:
