@@ -81,7 +81,11 @@
       "loadFailed": "Unable to load project files.",
       "readFailed": "Unable to read project file.",
       "folderFailed": "Unable to load folder contents."
-    }
+    },
+    "truncatedNotice": "Large directory — showing first {{count}} entries",
+    "truncatedLoadAll": "Load full directory",
+    "truncatedStill": "Showing first {{count}} entries; the directory has more. Use the terminal to browse all.",
+    "retryRead": "Retry"
   },
   "commandCenter": {
     "title": "Aliang Vibe Coding",

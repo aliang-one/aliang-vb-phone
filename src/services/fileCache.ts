@@ -21,7 +21,11 @@ const BINARY_EXTS = new Set([
 ]);
 
 export interface FileCacheTransport {
-  loadProjectFiles(projectId: string, path?: string): Promise<PlatformProjectFileListSnapshot>;
+  loadProjectFiles(
+    projectId: string,
+    path?: string,
+    maxEntries?: number,
+  ): Promise<PlatformProjectFileListSnapshot>;
   loadProjectFileContent(projectId: string, path: string): Promise<PlatformProjectFileContentSnapshot>;
 }
 
@@ -52,7 +56,9 @@ interface ContentCacheEntry {
   bytes: number;
 }
 
-const listKey = (projectId: string, path: string) => `list:${projectId}:${path}`;
+// maxEntries 进缓存键:200 项与 1000 项是两份不同快照,不能互相命中。
+const listKey = (projectId: string, path: string, maxEntries?: number) =>
+  `list:${projectId}:${path}:${maxEntries ?? 200}`;
 const readKey = (projectId: string, path: string) => `read:${projectId}:${path}`;
 
 export const extOf = (name: string): string => {
@@ -82,7 +88,11 @@ export const shouldBlockPreview = (
 };
 
 export interface FileCache {
-  listFiles(projectId: string, path: string, opts?: { force?: boolean }): Promise<PlatformProjectFileListSnapshot>;
+  listFiles(
+      projectId: string,
+      path: string,
+      opts?: { force?: boolean; maxEntries?: number },
+    ): Promise<PlatformProjectFileListSnapshot>;
   readFile(
     projectId: string,
     path: string,
@@ -104,7 +114,7 @@ export function createFileCache(deps: FileCacheDeps): FileCache {
 
   return {
     async listFiles(projectId, path, opts) {
-      const key = listKey(projectId, path);
+      const key = listKey(projectId, path, opts?.maxEntries);
       const force = opts?.force ?? false;
       const cached = listCache.get(key);
       if (!force && cached && now() - cached.fetchedAt < LIST_TTL_MS) {
@@ -114,7 +124,7 @@ export function createFileCache(deps: FileCacheDeps): FileCache {
       if (existing) return existing as Promise<PlatformProjectFileListSnapshot>;
       const p = (async () => {
         try {
-          const result = await transport.loadProjectFiles(projectId, path);
+          const result = await transport.loadProjectFiles(projectId, path, opts?.maxEntries);
           listCache.set(key, { result, fetchedAt: now() });
           return result;
         } finally {

@@ -10,6 +10,7 @@ jest.mock('../../services/platformTransport', () => ({
 }));
 
 import { useControlCenterStore } from '../controlCenterStore';
+import { fileCache } from '../../services/fileCache';
 import { platformTransport } from '../../services/platformTransport';
 import type { ServerProjectFileList } from '../../api/projects';
 
@@ -105,5 +106,49 @@ describe('loadProjectFiles download capability pipeline', () => {
     expect(useControlCenterStore.getState().fileDownloadCapability).toEqual(
       capability,
     );
+  });
+});
+
+describe('目录级截断标记(审计 #1)', () => {
+  test('truncated=true 落进 projectFileListTruncated;重拉全量后清除', async () => {
+    mockedLoadProjectFiles.mockResolvedValueOnce(
+      makeListSnapshot('trunc-proj', { path: '/work/big', truncated: true }),
+    );
+    await useControlCenterStore.getState().loadProjectFiles('trunc-proj', '/work/big');
+
+    const key = 'trunc-proj:/work/big';
+    expect(useControlCenterStore.getState().projectFileListTruncated[key]).toBe(true);
+
+    // 再拉一次,agent 给了全量 → 标记清除
+    mockedLoadProjectFiles.mockResolvedValueOnce(
+      makeListSnapshot('trunc-proj', { path: '/work/big', truncated: false }),
+    );
+    await useControlCenterStore.getState().loadProjectFiles('trunc-proj', '/work/big', {
+      force: true,
+      maxEntries: 1000,
+    });
+    expect(
+      useControlCenterStore.getState().projectFileListTruncated[key],
+    ).toBeUndefined();
+  });
+
+  test('maxEntries 进 transport 调用(1000 项全量拉取要真的带上参数)', async () => {
+    mockedLoadProjectFiles.mockResolvedValue(makeListSnapshot('me-proj', { truncated: false }));
+    await useControlCenterStore.getState().loadProjectFiles('me-proj', '/work/x', {
+      force: true,
+      maxEntries: 1000,
+    });
+    expect(mockedLoadProjectFiles).toHaveBeenCalledWith('me-proj', '/work/x', 1000);
+  });
+
+  test('不同 maxEntries 的缓存互不命中(fileCache 键隔离)', async () => {
+    mockedLoadProjectFiles.mockResolvedValue(
+      makeListSnapshot('key-proj', { truncated: true }),
+    );
+    fileCache.clear();
+    await fileCache.listFiles('key-proj', '/work/x', { maxEntries: 200 });
+    await fileCache.listFiles('key-proj', '/work/x', { maxEntries: 1000 });
+    expect(mockedLoadProjectFiles).toHaveBeenCalledTimes(2);
+    fileCache.clear();
   });
 });
