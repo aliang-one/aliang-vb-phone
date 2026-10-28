@@ -34,6 +34,8 @@ export interface SessionDetailLoaderInput {
   targetSessionId: string | undefined;
   detailState: DetailState | undefined;
   transcriptLength: number;
+  /** 该会话是否完成过一次真实详情页加载(快照热窗不算,见 computeHasDetail)。 */
+  detailFromPage: boolean | undefined;
   wsConnected: boolean;
   deviceStatus: string | undefined;
   loadAgentSessionDetail: (
@@ -64,6 +66,7 @@ export function useSessionDetailLoader(
     targetSessionId,
     detailState,
     transcriptLength,
+    detailFromPage,
     wsConnected,
     deviceStatus,
     loadAgentSessionDetail,
@@ -83,7 +86,11 @@ export function useSessionDetailLoader(
   const autoFetchRef = useRef(false);
   const prevRecoverableRef = useRef(false);
 
-  const hasDetail = computeHasDetail(detailState, transcriptLength);
+  const hasDetail = computeHasDetail(
+    detailState,
+    transcriptLength,
+    detailFromPage,
+  );
   const detailFetchUnavailable = isDetailFetchUnavailable(detailState);
   const recoverableConversation = isRecoverableConversation({
     wsConnected,

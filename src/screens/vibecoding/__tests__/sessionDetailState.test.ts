@@ -5,24 +5,34 @@ import {
 } from '../sessionDetailState';
 
 describe('computeHasDetail (mount auto-load gate)', () => {
-  it('authoritative ready → true', () => {
-    expect(computeHasDetail({ kind: 'ready' }, 0)).toBe(true);
+  // 2026-10-28 实锤:快照热窗 transcript 不再构成「已加载」——必须先有过一次
+  // 真实详情页加载(detailFromPage),否则权威 ai_messages 页永不被拉,
+  // 失败会话只显示被截断的热窗(「从半截开始」)。
+  it('page-loaded + authoritative ready → true', () => {
+    expect(computeHasDetail({ kind: 'ready' }, 0, true)).toBe(true);
   });
-  it('authoritative empty → true (definitive empty, no re-fetch)', () => {
-    expect(computeHasDetail({ kind: 'empty' }, 0)).toBe(true);
+  it('page-loaded + authoritative empty → true (definitive empty, no re-fetch)', () => {
+    expect(computeHasDetail({ kind: 'empty' }, 0, true)).toBe(true);
   });
-  it('recoverable_empty → false (keep re-attempting)', () => {
-    expect(computeHasDetail({ kind: 'recoverable_empty' }, 0)).toBe(false);
+  it('page-loaded + recoverable_empty → false (keep re-attempting)', () => {
+    expect(computeHasDetail({ kind: 'recoverable_empty' }, 0, true)).toBe(false);
   });
-  it('offline / failed → false', () => {
-    expect(computeHasDetail({ kind: 'offline' }, 0)).toBe(false);
-    expect(computeHasDetail({ kind: 'failed' }, 0)).toBe(false);
+  it('page-loaded + offline / failed(空转录) → false', () => {
+    expect(computeHasDetail({ kind: 'offline' }, 0, true)).toBe(false);
+    expect(computeHasDetail({ kind: 'failed' }, 0, true)).toBe(false);
   });
-  it('undefined detail + hot-window transcript → true', () => {
-    expect(computeHasDetail(undefined, 3)).toBe(true);
+  it('page-loaded + failed 但有缓存页 → true(对过账,有内容即不再自动拉)', () => {
+    expect(computeHasDetail({ kind: 'failed' }, 5, true)).toBe(true);
   });
-  it('undefined detail + empty transcript → false (never fetched)', () => {
-    expect(computeHasDetail(undefined, 0)).toBe(false);
+  it('未页加载:快照 ready 声明 + 热窗 transcript → false(本缺陷修复)', () => {
+    expect(computeHasDetail({ kind: 'ready' }, 3, undefined)).toBe(false);
+    expect(computeHasDetail(undefined, 3, undefined)).toBe(false);
+  });
+  it('未页加载 + 空转录 → false', () => {
+    expect(computeHasDetail(undefined, 0, undefined)).toBe(false);
+  });
+  it('页加载过但确无内容 → false', () => {
+    expect(computeHasDetail(undefined, 0, true)).toBe(false);
   });
 });
 

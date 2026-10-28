@@ -506,6 +506,15 @@ export interface VibeCodingRun {
    * (the summary payload omits it). See ServerAiSession.detail_refresh.
    */
   detailRefreshStatus?: string;
+  /**
+   * 该会话是否完成过**一次真实的详情页加载**(`loadAgentSessionDetail`,任何
+   * 结果都算对过账)。2026-10-28 实锤:WS/列表快照喂的是服务端热窗 transcript
+   * 列(截断 + 空 assistant 锚点),不是权威 ai_messages 页——若快照自身就算
+   * 「已加载」,挂载自动加载被短路,失败会话在手机上永远"从半截开始"。只有
+   * 详情页加载置 true;快照映射不携带该键(merge 的 `...incoming` 不会覆盖),
+   * 单调不可逆。
+   */
+  detailFromPage?: boolean;
   suggestions: string[];
   transcript: AgentMessage[];
   events: AgentEvent[];

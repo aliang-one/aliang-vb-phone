@@ -32,8 +32,9 @@ const renderLoader = (targetSessionId: string | undefined, load: ReturnType<type
       latest = useSessionDetailLoader({
         targetSessionId,
         detailState: undefined,
-        // 非空转录 → hasDetail=true(压掉 mount 自动加载)、recoverable=false,
-        // 隔离出被测的 refreshLatest 一条路径。
+        detailFromPage: true,
+        // 已页加载 + 非空转录 → hasDetail=true(压掉 mount 自动加载)、
+        // recoverable=false,隔离出被测的 refreshLatest 一条路径。
         transcriptLength: 3,
         wsConnected: true,
         deviceStatus: 'online',
@@ -122,7 +123,8 @@ describe('mount auto-load — fresh_empty feedback', () => {
         latest = useSessionDetailLoader({
           targetSessionId: 's1',
           detailState: undefined,
-          // 空转录 + 无 detailState → hasDetail=false,触发挂载自动加载。
+          detailFromPage: undefined,
+          // 空转录 + 未页加载 → hasDetail=false,触发挂载自动加载。
           transcriptLength: 0,
           wsConnected: true,
           deviceStatus: 'online',
@@ -205,6 +207,7 @@ describe('refreshLatest — stale session guard', () => {
           latest = useSessionDetailLoader({
             targetSessionId: 's2',
             detailState: undefined,
+            detailFromPage: true,
             transcriptLength: 3,
             wsConnected: true,
             deviceStatus: 'online',

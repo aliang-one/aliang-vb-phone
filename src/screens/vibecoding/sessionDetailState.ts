@@ -13,16 +13,25 @@ import type { DetailState } from '../../data/platformModels';
 
 /**
  * Whether the screen should treat the session as holding detail (skip the
- * mount auto-load). True when an authoritative detail state resolved (ready has
- * content; empty is a definitive empty conversation) OR a hot window delivered
- * messages. Recoverable/offline/failed states stay false so the auto-load keeps
- * re-attempting instead of freezing on a blank conversation.
+ * mount auto-load).
+ *
+ * 2026-10-28 实锤:此前的 `isAuthoritativeDetail(detailState) || transcriptLength > 0`
+ * 让「快照热窗 transcript 非空」本身就算已加载——而快照喂的是服务端被截断、
+ * 且混入空 assistant 锚点的 transcript 列,不是权威 ai_messages 页。一次实时
+ * 运行结束后打开会话,挂载自动加载被短路,权威页永不被拉,用户看到的是
+ * 「从半截开始」的对话。所以 hasDetail 现在必须以**一次真实的详情页加载**
+ * (`detailFromPage`,任何结果——ready/empty/failed 都算对过账)为前提;
+ * 快照自身不再构成「已加载」。
  */
 export function computeHasDetail(
   detailState: DetailState | undefined,
   transcriptLength: number,
+  detailFromPage: boolean | undefined,
 ): boolean {
-  return isAuthoritativeDetail(detailState) || transcriptLength > 0;
+  return (
+    detailFromPage === true &&
+    (isAuthoritativeDetail(detailState) || transcriptLength > 0)
+  );
 }
 
 /**

@@ -904,6 +904,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     targetSessionId,
     detailState: session?.detailState,
     transcriptLength: session?.transcript.length ?? 0,
+    detailFromPage: session?.detailFromPage,
     wsConnected,
     deviceStatus: device?.status,
     loadAgentSessionDetail,

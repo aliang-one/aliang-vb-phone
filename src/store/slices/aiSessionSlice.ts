@@ -365,6 +365,9 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       const nextRun = {
         ...mapped,
         detailState,
+        // 一次真实详情页加载完成:hasDetail 的前提(见 computeHasDetail)。
+        // 快照映射不携带该键,merge 的 `...incoming` 不会把已有 true 抹回。
+        detailFromPage: true,
       };
       const exists = state.vibeRuns.some(run => run.id === nextRun.id);
       const vibeRuns = evictStaleSessionDetail(
