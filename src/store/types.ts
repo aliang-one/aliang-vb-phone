@@ -482,6 +482,12 @@ export interface ControlCenterState {
   eventHistoryPages: Record<string, HistoryPageState>;
   projectFiles: ProjectFileEntry[];
   /**
+   * 目录级截断标记,键 `${projectId}:${path}`。Agent 对单次 file.list 有
+   * max_entries 上限,超出部分手机端此前完全不可见(2026-10-28 审计 #1)。
+   * true = 本次响应被截断;重新加载到全量时写回 false。
+   */
+  projectFileListTruncated: Record<string, boolean>;
+  /**
    * File-download capability advertised by the server on the last
    * GET /files response (`download` field). Undefined when the server has no
    * download domain or the field is absent. Client-side only; not per-file
@@ -531,7 +537,11 @@ export interface ControlCenterState {
     }>,
   ) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
-  loadProjectFiles: (projectId: string, path?: string, opts?: { force?: boolean }) => Promise<void>;
+  loadProjectFiles: (
+    projectId: string,
+    path?: string,
+    opts?: { force?: boolean; maxEntries?: number },
+  ) => Promise<void>;
   loadProjectFileContent: (projectId: string, path: string, opts?: { force?: boolean }) => Promise<void>;
   dropFileContent: (projectId: string, path: string) => void;
   createTerminalSession: (

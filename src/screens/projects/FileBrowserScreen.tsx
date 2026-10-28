@@ -64,6 +64,12 @@ const parentPathOf = (pathValue: string) => {
 /** Focus-reconcile cooldown for the download status (matches the session screen's silent auto-refresh cadence). */
 const DOWNLOAD_RECONCILE_COOLDOWN_MS = 30_000;
 
+/** 回屏静默刷新当前目录的冷却(审计 #4)。 */
+const FOCUS_REFRESH_COOLDOWN_MS = 30_000;
+
+/** 「加载完整目录」时向 agent 请求的最大条数(agent 端硬上限 1000)。 */
+const FULL_LIST_MAX_ENTRIES = 1000;
+
 /** Everything the ready→save wiring needs from the active download record. */
 export interface AutoSaveTarget {
   projectId: string;
@@ -155,6 +161,9 @@ export const FileBrowserScreen: React.FC = () => {
   const scanResults = useControlCenterStore(state => state.scanResults);
   const loadProjectFiles = useControlCenterStore(state => state.loadProjectFiles);
   const loadProjectFileContent = useControlCenterStore(state => state.loadProjectFileContent);
+  const projectFileListTruncated = useControlCenterStore(
+    state => state.projectFileListTruncated,
+  );
   // Server capability gate (Task 13): the long-press download menu only
   // exists when the server reports file download as configured.
   const downloadEnabled = useControlCenterStore(
@@ -173,7 +182,15 @@ export const FileBrowserScreen: React.FC = () => {
   const [selectedPath, setSelectedPath] = useState('');
   const [loading, setLoading] = useState(false);
   const [readingPath, setReadingPath] = useState('');
+  // 只属于「主目录列表加载」的错误。展开子目录/读取文件内容的失败各自就地
+  // 呈现(toast / sheet 内错误卡)——2026-10-28 审计 #2:此前任何一处失败都会
+  // 把整棵文件树替换成错误卡,预览 sheet 则只剩空白。
   const [error, setError] = useState('');
+  const [sheetError, setSheetError] = useState<{ path: string; message: string } | null>(
+    null,
+  );
+  // 当前目录是否已按最大条数(1000)拉过:决定截断提示行是「加载」还是「到顶了」。
+  const [requestedFullList, setRequestedFullList] = useState(false);
   // Inline folder expansion (tree-style unfold). A folder row still navigates
   // into the folder when tapped; its right-side chevron toggles expansion so
   // the folder's children render indented beneath it without leaving the page.
@@ -276,6 +293,9 @@ export const FileBrowserScreen: React.FC = () => {
     });
     return rows;
   }, [fileList.visibleItems, files, filter, expandedPaths, loadedDirs, route.params.projectId]);
+  // 列表级截断(agent max_entries 上限):尾部提示行据此出现(审计 #1)。
+  const listTruncated =
+    projectFileListTruncated[`${route.params.projectId}:${effectivePath}`] === true;
   const selectedFile = files.find(
     item => item.projectId === route.params.projectId && item.path === selectedPath,
   );
@@ -303,6 +323,8 @@ export const FileBrowserScreen: React.FC = () => {
     setExpandedPaths(new Set());
     setLoadingDirs(new Set());
     setLoadedDirs(new Set());
+    setRequestedFullList(false);
+    setSheetError(null);
   }, [effectivePath]);
 
   useEffect(() => {
@@ -395,6 +417,28 @@ export const FileBrowserScreen: React.FC = () => {
     }, []),
   );
 
+  // Focus refresh (审计 #4):回屏时静默强制刷新当前目录——停在页面期间
+  // agent 可能已改动文件,而主加载 effect 只在 effectivePath 变化时触发。
+  // 30s 冷却防连切页打爆 agent;错误吞掉(屏上已有数据,静默失败可接受)。
+  const lastFocusRefreshAtRef = useRef(0);
+  useFocusEffect(
+    useCallback(() => {
+      const state = useControlCenterStore.getState();
+      const focusProject = state.projects.find(item => item.id === route.params.projectId);
+      const focusDeviceOnline =
+        (focusProject?.deviceId
+          ? state.devices.find(item => item.id === focusProject.deviceId)?.status
+          : undefined) === 'online';
+      const focusPath = currentPath || focusProject?.path || '';
+      if (!focusDeviceOnline || !focusPath || focusPath === '~') return;
+      const now = Date.now();
+      if (now - lastFocusRefreshAtRef.current < FOCUS_REFRESH_COOLDOWN_MS) return;
+      lastFocusRefreshAtRef.current = now;
+      void state.loadProjectFiles(focusProject!.id, focusPath, { force: true }).catch(() => {});
+      // currentPath/projectId 变化本身就会触发主加载 effect,依赖里带上即可。
+    }, [currentPath, route.params.projectId]),
+  );
+
   if (!project) {
     return (
       <SafeAreaWrapper>
@@ -436,19 +480,61 @@ export const FileBrowserScreen: React.FC = () => {
       return;
     }
     setSelectedPath(file.path);
+    setSheetError(null);
     if (file.content !== undefined) return;
     setReadingPath(file.path);
-    setError('');
     try {
       await loadProjectFileContent(project.id, file.path);
+    } catch (nextError) {
+      // 就地呈现在 sheet 里(带重试),不再顶掉背后的整棵文件树。
+      setSheetError({
+        path: file.path,
+        message:
+          nextError instanceof Error
+            ? nextError.message
+            : t('fileBrowser.error.readFailed'),
+      });
+    } finally {
+      setReadingPath('');
+    }
+  };
+
+  const retrySheetRead = async (file: ProjectFileEntry) => {
+    setSheetError(null);
+    setReadingPath(file.path);
+    try {
+      await loadProjectFileContent(project.id, file.path, { force: true });
+    } catch (nextError) {
+      setSheetError({
+        path: file.path,
+        message:
+          nextError instanceof Error
+            ? nextError.message
+            : t('fileBrowser.error.readFailed'),
+      });
+    } finally {
+      setReadingPath('');
+    }
+  };
+
+  const handleLoadFullList = async () => {
+    if (!device || !effectivePath || effectivePath === '~') return;
+    setLoading(true);
+    setError('');
+    try {
+      await loadProjectFiles(project.id, effectivePath, {
+        force: true,
+        maxEntries: FULL_LIST_MAX_ENTRIES,
+      });
+      setRequestedFullList(true);
     } catch (nextError) {
       setError(
         nextError instanceof Error
           ? nextError.message
-          : t('fileBrowser.error.readFailed'),
+          : t('fileBrowser.error.loadFailed'),
       );
     } finally {
-      setReadingPath('');
+      setLoading(false);
     }
   };
 
@@ -483,13 +569,9 @@ export const FileBrowserScreen: React.FC = () => {
         return next;
       });
     } catch (nextError) {
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('fileBrowser.error.folderFailed'),
-      );
-      // Roll back the expansion so a failed fetch doesn't leave a stuck-open
-      // empty branch.
+      // 展开失败就地提示(toast)+ 回滚箭头,不再把全局错误卡顶到整棵树上。
+      const failure = nextError instanceof Error ? nextError : new Error(t('fileBrowser.error.folderFailed'));
+      show(humanizeFileError(failure, t).title, 'error');
       setExpandedPaths(prev => {
         const next = new Set(prev);
         next.delete(dirPath);
@@ -569,6 +651,37 @@ export const FileBrowserScreen: React.FC = () => {
               })
             }
             disabled={!device}
+            variant="primary"
+            style={styles.sheetBlockedAction}
+          />
+        </View>
+      );
+    }
+    if (sheetError?.path === file.path) {
+      const humanized = humanizeFileError(
+        new Error(sheetError.message),
+        t,
+      );
+      return (
+        <View style={styles.sheetBlocked}>
+          <IconBadge name="warning" tone="error" size={40} iconSize={20} />
+          <Text
+            style={[
+              theme.typography.titleMd,
+              { color: theme.colors.onSurface, textAlign: 'center', marginTop: 10 },
+            ]}>
+            {humanized.title}
+          </Text>
+          <Text
+            style={[
+              theme.typography.bodySm,
+              { color: theme.colors.onSurfaceVariant, textAlign: 'center', marginTop: 6 },
+            ]}>
+            {humanized.detail || sheetError.message}
+          </Text>
+          <GlowButton
+            title={t('fileBrowser.retryRead')}
+            onPress={() => retrySheetRead(file)}
             variant="primary"
             style={styles.sheetBlockedAction}
           />
@@ -958,6 +1071,32 @@ export const FileBrowserScreen: React.FC = () => {
                   onPress={fileList.showMore}
                   label={t('fileBrowser.loadMoreFiles')}
                 />
+                {listTruncated && !requestedFullList ? (
+                  <View style={styles.truncatedRow}>
+                    <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+                      {t('fileBrowser.truncatedNotice', {
+                        count: projectFiles.length,
+                      })}
+                    </Text>
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={handleLoadFullList}
+                      disabled={loading}
+                      style={styles.truncatedButton}>
+                      <Text style={[theme.typography.labelCaps, { color: theme.colors.primary }]}>
+                        {t('fileBrowser.truncatedLoadAll')}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : listTruncated && requestedFullList ? (
+                  <View style={styles.truncatedRow}>
+                    <Text style={[theme.typography.codeSm, { color: theme.colors.onSurfaceVariant }]}>
+                      {t('fileBrowser.truncatedStill', {
+                        count: projectFiles.length,
+                      })}
+                    </Text>
+                  </View>
+                ) : null}
               </>
             )}
           </View>
@@ -966,7 +1105,10 @@ export const FileBrowserScreen: React.FC = () => {
         {/* File content — opens in a bottom sheet that slides up from below */}
         <BottomSheet
           open={Boolean(selectedFile)}
-          onClose={() => setSelectedPath('')}
+          onClose={() => {
+            setSelectedPath('');
+            setSheetError(null);
+          }}
           title={sheetFile?.name}
           subtitle={sheetFile?.path}
           badge={
@@ -1213,6 +1355,7 @@ const FileRow: React.FC<FileRowProps> = ({
           activeOpacity={0.5}
           onPress={onToggleExpand}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 6 }}
+          testID={`file-row-chevron-${file.id}`}
           style={styles.chevronButton}>
           {expanding ? (
             <ActivityIndicator size="small" color={theme.colors.primary} />
@@ -1239,6 +1382,7 @@ const FileRow: React.FC<FileRowProps> = ({
       onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={350}
+      testID={`file-row-${file.id}`}
       style={baseStyle}>
       <IconBadge name="code" tone={tone} size={28} iconSize={14} />
       <View style={styles.fileRowCopy}>
@@ -1408,6 +1552,21 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 120,
     paddingHorizontal: 12,
+  },
+  truncatedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  truncatedButton: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(86,156,214,0.5)',
+    borderRadius: 9999,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
   },
   sheetLoading: {
     flex: 1,

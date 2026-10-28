@@ -206,12 +206,15 @@ describe('FileTransferSheet', () => {
     act(() => {
       confirm?.props.onPress();
     });
+    // 组件始终带 targetDir(空串=默认目标);store 里 `trim() || undefined`
+    // 会把空串剥掉,wire 上不出现 —— 此处断言的是 action 入参形态。
     expect(mockStoreState.startTransfer).toHaveBeenCalledWith({
       sourceDeviceId: 'dev-src',
       targetDeviceId: 'dev-dst',
       sourcePath: '/work/docs/notes.md',
       filename: 'notes.md',
       isDirectoryArchive: false,
+      targetDir: '',
     });
   });
 

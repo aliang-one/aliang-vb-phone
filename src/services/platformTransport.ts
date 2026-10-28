@@ -446,8 +446,12 @@ class PlatformTransport {
     return apiScanProjects(deviceId);
   }
 
-  loadProjectFiles(projectId: string, path?: string): Promise<PlatformProjectFileListSnapshot> {
-    return fetchProjectFiles(projectId, path);
+  loadProjectFiles(
+    projectId: string,
+    path?: string,
+    maxEntries?: number,
+  ): Promise<PlatformProjectFileListSnapshot> {
+    return fetchProjectFiles(projectId, path, maxEntries);
   }
 
   loadProjectFileContent(projectId: string, path: string): Promise<PlatformProjectFileContentSnapshot> {

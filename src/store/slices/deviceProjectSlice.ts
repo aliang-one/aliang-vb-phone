@@ -17,7 +17,7 @@ import {
 type DeviceProjectSlice = Pick<
   ControlCenterState,
   | 'devices' | 'projects' | 'projectFiles' | 'scanResults'
-  | 'fileDownloadCapability'
+  | 'fileDownloadCapability' | 'projectFileListTruncated'
   | 'renameDevice' | 'removeDevice' | 'scanDeviceProjects'
   | 'createProject' | 'updateProject' | 'deleteProject'
   | 'loadProjectFiles' | 'loadProjectFileContent' | 'dropFileContent'
@@ -29,6 +29,7 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
   projectFiles: [],
   scanResults: [],
   fileDownloadCapability: undefined,
+  projectFileListTruncated: {},
 
   renameDevice: async (deviceId, name) => {
     const trimmed = name.trim();
@@ -188,7 +189,10 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
     }
 
     try {
-      const result = await fileCache.listFiles(projectId, path ?? '', { force: opts?.force });
+      const result = await fileCache.listFiles(projectId, path ?? '', {
+        force: opts?.force,
+        maxEntries: opts?.maxEntries,
+      });
       const nextEntries = result.entries.map(entry =>
         serverProjectFileToClient(result.project_id, result.path, entry),
       );
@@ -221,7 +225,15 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
           };
         });
 
+        const truncationKey = `${result.project_id}:${result.path}`;
+        const nextTruncated = { ...state.projectFileListTruncated };
+        if (result.truncated) {
+          nextTruncated[truncationKey] = true;
+        } else {
+          delete nextTruncated[truncationKey];
+        }
         return {
+          projectFileListTruncated: nextTruncated,
           projectFiles: [
             ...state.projectFiles.filter(
               item =>
