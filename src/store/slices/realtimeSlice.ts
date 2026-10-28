@@ -51,7 +51,7 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
   stale: false,
   lastConnectError: null,
   // 默认全隐藏：未连平台 / 旧 server（无 features 字段）时保持隐藏。
-  platformFeatures: { accountPortalVisible: false },
+  platformFeatures: { accountPortalVisible: false, attachmentsCapability: undefined },
   eventHistory: [],
   eventHistoryPages: {},
 

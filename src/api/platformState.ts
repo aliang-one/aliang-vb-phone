@@ -6,6 +6,7 @@ import type { ServerNotification } from './notifications';
 import type { ServerProject } from './projects';
 import type { ServerAiSession, ServerTerminalSession } from './sessions';
 import { cursorPageQuery, type ServerCursorPageMeta } from './pagination';
+import type { AttachmentCapability } from './attachments';
 
 export interface ServerPreviewLink {
   id: string;
@@ -58,6 +59,13 @@ export interface MobilePlatformSnapshot {
    */
   features?: {
     account_portal_visible?: boolean;
+    /**
+     * Deployment-level attachment capability (COS configured?). Same shape as a
+     * session's `attachments` block, but available without any session so the
+     * composer can render the "+" entry on a brand-new draft. Missing (old
+     * server) = unknown → treat as disabled, matching the review-safe default.
+     */
+    attachments?: AttachmentCapability;
   };
   summary: {
     devices_online: number;
