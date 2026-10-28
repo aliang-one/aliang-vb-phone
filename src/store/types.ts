@@ -11,7 +11,7 @@ import type {
   PlatformTransferStatus,
   PlatformTransportEvent,
 } from '../services/platformTransport';
-import type { AiAttachmentMeta } from '../api/attachments';
+import type { AiAttachmentMeta, AttachmentCapability } from '../api/attachments';
 import type { EffortProvider } from '../utils/modelIntensity';
 
 // --- Type definitions ---
@@ -435,6 +435,12 @@ interface BindDeviceResult {
 export interface PlatformFeatures {
   /** 「我的」页 Account/Usage 区块展示开关（默认 false 隐藏）。 */
   accountPortalVisible: boolean;
+  /**
+   * 部署级附件能力位（server snapshot features.attachments 下发）。字段缺失
+   * （旧 server / 本地模式 / 未连接）为 undefined → 草稿态按不可用处理。
+   * 与会话级 `attachmentsCapability` 同构，供草稿（尚无会话）直接读取。
+   */
+  attachmentsCapability?: AttachmentCapability;
 }
 
 export interface ControlCenterState {

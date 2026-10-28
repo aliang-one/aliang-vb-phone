@@ -38,6 +38,7 @@ import {
   recoverGoal,
 } from '../../api/goals';
 import { goalStateLabel } from '../../utils/goalStatePresentation';
+import { formatGoalBudgetLine } from '../../utils/goalBudget';
 import type { GoalEventSnapshot } from '../../api/goals';
 
 type GoalDetailRoute = RouteProp<RootStackParamList, 'GoalDetail'>;
@@ -786,7 +787,7 @@ export const GoalDetailScreen: React.FC = () => {
                     <Text key={`${index}:${nonGoal}`} style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>不包含：{nonGoal}</Text>
                   ))}
                   {summary.revision.budget ? (
-                    <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>预算：每项最多 {summary.revision.budget.maxAttemptsPerTask ?? '-'} 次尝试 · 最多 {summary.revision.budget.maxTurns ?? '-'} 个回合{summary.revision.budget.deadlineAt ? ` · 截止 ${displayTimestamp(summary.revision.budget.deadlineAt)}` : ''}</Text>
+                    <Text style={[theme.typography.bodySm, { color: theme.colors.onSurfaceVariant }]}>{formatGoalBudgetLine(summary.revision.budget, summary.turnCount, summary.revision.budget.deadlineAt ? displayTimestamp(summary.revision.budget.deadlineAt) : undefined)}</Text>
                   ) : null}
                 </View>
               ) : null}

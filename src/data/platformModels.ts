@@ -273,6 +273,8 @@ export interface GoalSummary {
   objective?: string;
   state: GoalState;
   stateVersion?: number;
+  /** 已消耗的回合预算(服务端 publicGoal.turn_count,2026-10-28 预算审计补充)。 */
+  turnCount?: number;
   completedTasks?: number;
   totalTasks?: number;
   currentTask?: string;

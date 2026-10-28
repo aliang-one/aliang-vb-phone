@@ -13,6 +13,7 @@ export interface ServerGoalSnapshot {
   objective?: string;
   state: GoalState;
   state_version?: number;
+  turn_count?: number;
   completed_tasks?: number;
   total_tasks?: number;
   current_task?: string;
@@ -165,6 +166,7 @@ export const goalSnapshotToSummary = (snapshot: ServerGoalSnapshot): GoalSummary
   objective: snapshot.objective,
   state: snapshot.state,
   stateVersion: snapshot.state_version,
+  turnCount: snapshot.turn_count,
   completedTasks: snapshot.completed_tasks,
   totalTasks: snapshot.total_tasks,
   currentTask: snapshot.current_task,

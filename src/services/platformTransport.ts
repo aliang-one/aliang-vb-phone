@@ -59,7 +59,7 @@ import {
   type ServerRealtimeEvent,
 } from '../api/platformState';
 import type { ServerCursorPageResponse } from '../api/pagination';
-import type { AiAttachmentMeta } from '../api/attachments';
+import type { AiAttachmentMeta, AttachmentCapability } from '../api/attachments';
 import {
   connectMobileSocket,
   disconnectMobileSocket,
@@ -122,6 +122,7 @@ export interface PlatformSnapshot {
   /** Deployment-level feature flags (server snapshot features.*; missing = defaults). */
   features?: {
     account_portal_visible?: boolean;
+    attachments?: AttachmentCapability;
   };
   loadedAt: string;
   warnings: string[];
