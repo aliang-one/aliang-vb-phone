@@ -41,7 +41,7 @@ import {
   __resetChannelStateForTests,
 } from '../src/config/localService';
 
-const NAT0_BASE_URL = 'https://ws-vb-phone.liangsqrt.com:40557';
+const NAT0_BASE_URL = 'https://ws-vb-phone.aliang.xin:40557';
 const HK_BASE_URL = 'https://ws-vb-phone-hk.nat.aliang.one';
 const PRIOR_STORAGE_KEY = 'nat.channel.prior';
 
@@ -61,7 +61,7 @@ function mockHealthByChannel(spec: {
 }): void {
   fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
     const u = String(input);
-    const channel = u.includes('liangsqrt.com:40557')
+    const channel = u.includes('aliang.xin:40557')
       ? spec.nat0
       : u.includes('ws-vb-phone-hk.nat.aliang.one')
         ? spec.hk

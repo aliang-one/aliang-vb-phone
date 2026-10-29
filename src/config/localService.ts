@@ -52,7 +52,7 @@ export interface PlatformServiceHealth {
 
 // —— 双通道候选(编译期常量;新增节点=加一行)——
 const PRIMARY_BASE_URL = PLATFORM_SERVICE_BASE_URL; // https://ws-vb-phone.aliang.one(HK)
-const NAT0_BASE_URL = normalizeServiceBaseUrl('https://ws-vb-phone.liangsqrt.com:40557');
+const NAT0_BASE_URL = normalizeServiceBaseUrl('https://ws-vb-phone.aliang.xin:40557');
 const HK_BASE_URL = normalizeServiceBaseUrl('https://ws-vb-phone-hk.nat.aliang.one');
 const ENDPOINTS: ReadonlyArray<{ id: EndpointId; baseUrl: string }> = [
   { id: 'primary', baseUrl: PRIMARY_BASE_URL },
