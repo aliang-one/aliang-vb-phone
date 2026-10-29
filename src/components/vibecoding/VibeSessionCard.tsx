@@ -35,6 +35,7 @@ import { useReduceMotion } from '../../hooks/useReduceMotion';
 import { IconBadge, IconGlyph } from '../visual/IconBadge';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { providerLabel } from '../../utils/modelIntensity';
+import { terminalResumeTarget } from '../../utils/sessionOrigin';
 
 const formatBudget = (budget: VibeCodingRun['projectBudget']) =>
   budget
@@ -129,6 +130,15 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
     const generateAgentSessionTitle = useControlCenterStore(
       state => state.generateAgentSessionTitle,
     );
+    const startAgentSession = useControlCenterStore(
+      state => state.startAgentSession,
+    );
+    // 另起续聊（跨端统一 P4-1.3）：终端前缀壳（claude_/codex_）没有本端可直连
+    // 的会话记录，续聊 = 新建托管会话并以剥前缀原生 id 回填 source_session_id，
+    // 首条消息的回合由 agent 按 resume 装回原生历史。运行中的终端回合不提供
+    // （与 TUI 运行中锁同族——CLI 会话文件正在被写，续读有竞态）。
+    const resumeTarget = terminalResumeTarget(session.id);
+    const [resumeCreating, setResumeCreating] = useState(false);
     // Re-render on a shared 30s cadence so the relative "上次激活" label below
     // stays fresh instead of freezing at the value from when activity happened.
     useNowTick();
@@ -217,6 +227,31 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
       if (!uuid) return;
       Clipboard.setString(uuid);
       setNotice(t('sessionCard.copiedId'));
+    };
+
+    // 另起续聊：新建托管会话（空起，不带首条消息）→ 以新会话 id 打开会话页。
+    // 失败不关菜单，用 notice 给出重试入口。
+    const handleResumeCreate = async () => {
+      if (!resumeTarget || resumeCreating) return;
+      setNotice(t('sessionCard.resumeCreating'));
+      setResumeCreating(true);
+      try {
+        const newSessionId = await startAgentSession({
+          deviceId: session.deviceId,
+          projectId: session.projectId,
+          directory: session.directory,
+          provider: resumeTarget.provider,
+          objective: '',
+          sourceSessionId: resumeTarget.nativeSessionId,
+        });
+        setNotice('');
+        setMenuVisible(false);
+        navigation.navigate('VibeCodingSession', { sessionId: newSessionId });
+      } catch {
+        setNotice(t('sessionCard.resumeCreateFailed'));
+      } finally {
+        setResumeCreating(false);
+      }
     };
 
     const handleRenameStart = () => {
@@ -790,6 +825,13 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                 </View>
               ) : (
                 <View style={styles.actionGrid}>
+                  {resumeTarget && session.status !== 'running'
+                    ? renderMenuAction(
+                        t('sessionCard.resumeCreate'),
+                        handleResumeCreate,
+                        'primary',
+                      )
+                    : null}
                   {renderMenuAction(t('sessionCard.rename'), handleRenameStart)}
                   {renderMenuAction(t('sessionCard.delete'), handleDelete, 'danger')}
                 </View>

@@ -319,7 +319,10 @@
     "copy": "Copy",
     "cancel": "Cancel",
     "save": "Save",
-    "delete": "Delete"
+    "delete": "Delete",
+    "resumeCreate": "New continuation",
+    "resumeCreating": "Creating continuation session…",
+    "resumeCreateFailed": "Failed to create the continuation session. Please try again."
   },
   "phaseLabel": {
     "running": "In progress",

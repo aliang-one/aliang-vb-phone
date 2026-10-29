@@ -387,6 +387,13 @@ interface StartAgentInput {
   provider: AgentProvider;
   objective: string;
   /**
+   * 续聊回填（跨端统一 P4）：清单「另起续聊」时携带源会话的原生 CLI 会话 id，
+   * 以 source_session_id 下发（服务端落绑定表，首回合按 resume 装回原生历史）。
+   * 设置时 objective 允许为空——会话先注册为空起，用户在会话页发首条消息才
+   * 起回合（服务端把 message:'' 当真消息派发，故空 objective 不发 message 键）。
+   */
+  sourceSessionId?: string;
+  /**
    * Optional concrete model name forwarded to the agent CLI as `--model`
    * (e.g. "glm-5.2-xhigh"). When omitted/empty the agent's own default model is
    * used — do NOT send a display label like "Claude Code", the gateway would

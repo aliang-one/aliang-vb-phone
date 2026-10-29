@@ -34,6 +34,7 @@ import {
   serverAiSessionToVibeRun,
   trimTranscriptWithWindow,
 } from '../internals';
+import { sameRemotePath } from '../../utils/remotePath';
 import { classifySessionBusyError } from '../../utils/sessionBusyError';
 import { encodeClientAiMessageCursor } from '../../utils/aiMessageCursor';
 import {
@@ -218,25 +219,41 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       try {
         let projectId = input.projectId;
         if (!projectId) {
-          projectId = await get().createProject({
-            deviceId: input.deviceId,
-            path: input.directory,
-            name: fileNameFromPath(input.directory),
-            description: 'Created from mobile VibeCoding.',
-          });
+          // 清单续聊（跨端统一 P4）常以 directory 直呼而不知 projectId：先按
+          // 路径+设备找已注册项目，避免每个入口都 clone 一份同路径项目。
+          const existing = get().projects.find(
+            project =>
+              sameRemotePath(project.path, input.directory) &&
+              project.deviceId === input.deviceId,
+          );
+          projectId =
+            existing?.id ??
+            (await get().createProject({
+              deviceId: input.deviceId,
+              path: input.directory,
+              name: fileNameFromPath(input.directory),
+              description: 'Created from mobile VibeCoding.',
+            }));
         }
         // Send the objective as the FIRST MESSAGE. The server creates the
         // session AND dispatches ai.session.create + ai.message together so the
         // agent starts turn 1 immediately — an empty create (objective as
         // metadata only) would idle forever, since the agent runs a turn only
         // on ai.message, never on ai.session.create.
+        // 例外（跨端统一 P4 清单续聊）：sourceSessionId 在场且 objective 为空
+        // = 「另起续聊」的空起形态——会话先注册（resume 绑定落库），用户在会
+        // 话页发首条消息才起回合。空串 message 会被服务端当真消息派发，故
+        // 空 objective 不发 message 键；普通创建流 objective 恒非空，行为不变。
         const session = await platformTransport.createAiSession({
           device_id: input.deviceId,
           client_request_id: input.clientRequestId,
           project_id: projectId || undefined,
           project_path: input.directory,
           mode: 'vibe',
-          message: input.objective,
+          ...(input.objective.trim() ? { message: input.objective } : {}),
+          ...(input.sourceSessionId?.trim()
+            ? { source_session_id: input.sourceSessionId.trim() }
+            : {}),
           model: sentModel,
           provider,
           tool: provider,

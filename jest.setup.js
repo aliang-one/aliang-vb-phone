@@ -136,6 +136,9 @@ jest.mock('react-native-view-shot', () => ({
 
 // react-native-video v7 beta 是 Nitro/Fabric 视图,jest 下没有原生实现,整包 stub。
 // useVideoPlayer 返回共享 mockPlayer;测试经 global.__rnvVideoMock 拿到它并 emit 事件。
+// virtual: true — worktree 共享主仓 node_modules(符号链接)且未安装该包时,
+// jest.mock 在 setup 阶段就抛 Cannot find module,导致**所有**测试套件都无法
+// 加载。virtual 注册让 mock 在包缺失时也能成立;包在时语义不变(factory 照常生效)。
 jest.mock('react-native-video', () => {
   const React = require('react');
   const { View } = require('react-native');
@@ -160,7 +163,7 @@ jest.mock('react-native-video', () => {
       return React.createElement(View, { ...props, ref });
     }),
   };
-});
+}, { virtual: true });
 
 // Render in Chinese during tests. The app is Chinese-first historically and most
 // component tests assert Chinese strings; pinning the i18n locale to 'zh' means

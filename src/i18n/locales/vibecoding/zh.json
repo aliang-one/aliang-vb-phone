@@ -319,7 +319,10 @@
     "copy": "复制",
     "cancel": "取消",
     "save": "保存",
-    "delete": "删除"
+    "delete": "删除",
+    "resumeCreate": "另起续聊",
+    "resumeCreating": "正在创建续聊会话…",
+    "resumeCreateFailed": "续聊会话创建失败，请重试。"
   },
   "phaseLabel": {
     "running": "进行中",

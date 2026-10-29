@@ -503,6 +503,13 @@ export const createAiSession = (input: {
    * derived from this on the server when not explicitly provided.
    */
   message?: string;
+  /**
+   * 续聊回填（跨端统一阶段 3/4）：从清单「另起续聊」时携带源会话的原生 CLI
+   * 会话 id（服务端 trim+min(1) 校验，空串不发）。落 session.sourceSessionId
+   * → 绑定表 → 首条消息的 run 按 resume 装回原生历史；agent 找不到原生会话
+   * 时发 ai.run.notice{code:'resume_missing'} 后照常空起（不硬失败）。
+   */
+  source_session_id?: string;
   model?: string;
   provider?: AiProviderWire;
   tool?: AiProviderWire;
