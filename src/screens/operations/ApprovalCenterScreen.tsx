@@ -28,6 +28,7 @@ import { newestFirst } from '../../utils/timeSort';
 import { useTranslation } from 'react-i18next';
 import { ApprovalQuickPolicySheet } from '../../components/vibecoding/ApprovalQuickPolicySheet';
 import { ApprovalCustomReply } from '../../components/vibecoding/ApprovalCustomReply';
+import { ApprovalCountdownBadge } from '../../components/vibecoding/ApprovalCountdownBadge';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -424,6 +425,9 @@ const ApprovalCard: React.FC<ApprovalCardProps> = React.memo(
                 : 'error'
             }
           />
+          {/* 作答 SLA 倒计时(跨端统一 P4-2):expiresAt 缺省/已过时组件自渲染 null。
+              文案跨 ns 引 vibecoding(session.approval.countdown*),与审批卡同源。 */}
+          {pending && <ApprovalCountdownBadge expiresAt={item.expiresAt} />}
         </View>
         <Text
           style={[

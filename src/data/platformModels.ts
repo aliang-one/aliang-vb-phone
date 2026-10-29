@@ -506,14 +506,16 @@ export interface VibeCodingRun {
   sourceSessionId?: string;
   /**
    * 会话最近一次对话的发起通道: 'phone' = 手机发起/手机续写, 'tui' = 电脑
-   * 终端(TUI)发起/终端侧续写。自 2026-10-18 起 server 取「最新明确写入」
-   * (手机派发盖章 + 扫盘 wire origin 映射都会翻转落库值), 不再是诞生地——
-   * 卡片来源图标据此跟随最近通道。需要「是否导入会话」这一诞生属性时, 用
-   * 会话 id 的 ai_import_ 前缀判断(见 VibeCodingSessionScreen TUI 共用横幅),
-   * 不要用本字段。由 serverAiSessionToVibeRun 从 wire origin 映射, 老 server
-   * 无该字段时按 ai_import_ 前缀兜底, 因此模型上该字段总被打满。
+   * 终端(TUI)发起/终端侧续写, 'dashboard' = 本机 dashboard 网页发起(跨端统一
+   * 阶段 2/3 起下发), 'managed' = 已绑定外部清单会话(手机不渲染来源角标)。
+   * 自 2026-10-18 起 server 取「最新明确写入」(手机派发盖章 + 扫盘 wire origin
+   * 映射都会翻转落库值), 不再是诞生地——卡片来源角标据此跟随最近通道。需要
+   * 「是否导入会话」这一诞生属性时, 用会话 id 的 ai_import_ 前缀判断(见
+   * VibeCodingSessionScreen TUI 共用横幅), 不要用本字段。由
+   * serverAiSessionToVibeRun 从 wire origin 映射, 老 server 无该字段时按
+   * ai_import_ 前缀兜底, 因此模型上该字段总被打满。
    */
-  origin?: 'phone' | 'tui';
+  origin?: 'phone' | 'tui' | 'dashboard' | 'managed';
   /**
    * Typed detail-loading state for this session — the canonical replacement
    * for the legacy `detailLoadedAt` timestamp. `undefined` = never fetched

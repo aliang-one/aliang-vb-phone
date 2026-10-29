@@ -55,6 +55,8 @@ import { ConversationScrubber } from '../../components/vibecoding/ConversationSc
 import { ResolvedApprovalsGroup } from '../../components/vibecoding/ResolvedApprovalsGroup';
 import { ApprovalQuickPolicySheet } from '../../components/vibecoding/ApprovalQuickPolicySheet';
 import { ApprovalCustomReply } from '../../components/vibecoding/ApprovalCustomReply';
+import { ApprovalCountdownBadge } from '../../components/vibecoding/ApprovalCountdownBadge';
+import { SessionOriginBadge } from '../../components/vibecoding/SessionOriginBadge';
 import { RootStackParamList } from '../../app/navigation/types';
 import {
   useControlCenterStore,
@@ -2333,6 +2335,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
                 : 'error'
             }
           />
+          {/* 作答 SLA 倒计时(跨端统一 P4-2):expiresAt 缺省/已过时组件自渲染 null。 */}
+          {pending && (
+            <ApprovalCountdownBadge expiresAt={approval.expiresAt} />
+          )}
         </View>
         <Text
           style={[
@@ -2641,6 +2647,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
               type={isDraft ? 'neutral' : sessionPhaseType[sessionPhase]}
               pulse={!isDraft && sessionPhase === 'running'}
             />
+            {/* 来源角标(跨端统一 P4-3):managed/空不渲染,组件内自判。 */}
+            {!isDraft && <SessionOriginBadge session={session} variant="chip" />}
             {/* 诊断入口：紧挨状态气泡。草稿会话没有 run 数据，不显示。 */}
             {!isDraft && (
               <TouchableOpacity

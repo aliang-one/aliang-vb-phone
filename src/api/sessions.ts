@@ -147,11 +147,13 @@ export interface ServerAiSession {
   status: 'creating' | 'active' | 'idle' | 'running' | 'paused' | 'closed' | 'error';
   /**
    * 会话发起来源(server origin 列): 'phone' = 手机 REST/WS 建会话,
-   * 'tui' = agent 扫盘导入的终端会话。老 server 不发 → 映射层按
-   * ai_import_ 前缀兜底(见 serverAiSessionToVibeRun)。≠ device_id
-   * (跑在哪台机器), ≠ source_session_id(CLI 原生 --resume id)。
+   * 'tui' = agent 扫盘导入的终端会话, 'dashboard' = 本机 dashboard 网页发起
+   * (跨端统一阶段 2/3 起下发), 'managed' = 已绑定到外部清单会话(手机不渲染
+   * 来源角标)。老 server 不发 → 映射层按 ai_import_ 前缀兜底(见
+   * serverAiSessionToVibeRun)。≠ device_id(跑在哪台机器), ≠
+   * source_session_id(CLI 原生 --resume id)。
    */
-  origin?: 'phone' | 'tui';
+  origin?: 'phone' | 'tui' | 'dashboard' | 'managed';
   /**
    * Server-authoritative display phase (drives the phone's top-level status).
    * Preferred over locally deriving phase from status + a silence window, so

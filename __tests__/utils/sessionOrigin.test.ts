@@ -1,4 +1,5 @@
 import {
+  deriveSessionOriginBadge,
   isTerminalPrefixedSessionId,
   terminalResumeTarget,
 } from '../../src/utils/sessionOrigin';
@@ -40,5 +41,25 @@ describe('terminalResumeTarget', () => {
   it('returns null when the prefix is bare (no native id left)', () => {
     expect(terminalResumeTarget('claude_')).toBeNull();
     expect(terminalResumeTarget('codex_')).toBeNull();
+  });
+});
+
+describe('deriveSessionOriginBadge', () => {
+  it('maps wire origin values to badge kinds', () => {
+    expect(deriveSessionOriginBadge('phone', 'sess_1')).toBe('phone');
+    expect(deriveSessionOriginBadge('dashboard', 'sess_1')).toBe('dashboard');
+    expect(deriveSessionOriginBadge('tui', 'ai_import_1')).toBe('terminal');
+  });
+
+  it('treats terminal-prefixed ids as terminal regardless of origin', () => {
+    expect(deriveSessionOriginBadge(undefined, 'claude_abc')).toBe('terminal');
+    expect(deriveSessionOriginBadge('managed', 'codex_abc')).toBe('terminal');
+  });
+
+  it('renders nothing for managed/empty/unknown origins', () => {
+    expect(deriveSessionOriginBadge('managed', 'sess_1')).toBeNull();
+    expect(deriveSessionOriginBadge(undefined, 'sess_1')).toBeNull();
+    expect(deriveSessionOriginBadge('', 'sess_1')).toBeNull();
+    expect(deriveSessionOriginBadge('external', undefined)).toBe('terminal');
   });
 });

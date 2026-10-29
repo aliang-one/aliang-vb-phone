@@ -32,10 +32,11 @@ import {
 import { formatActivityLabel } from '../../store/internals';
 import { useNowTick } from '../../hooks/useNowTick';
 import { useReduceMotion } from '../../hooks/useReduceMotion';
-import { IconBadge, IconGlyph } from '../visual/IconBadge';
+import { IconBadge } from '../visual/IconBadge';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { providerLabel } from '../../utils/modelIntensity';
 import { terminalResumeTarget } from '../../utils/sessionOrigin';
+import { SessionOriginBadge } from './SessionOriginBadge';
 
 const formatBudget = (budget: VibeCodingRun['projectBudget']) =>
   budget
@@ -57,32 +58,6 @@ interface VibeSessionCardProps {
   /** 设备离线时置灰并禁用点击/长按菜单。 */
   disabled?: boolean;
 }
-
-/**
- * 会话发起来源小图标: phone=智能手机字形 / tui=终端字形, 挂在卡片底部元信息
- * 行(上次激活时间旁)。两端都显示(手机是默认态, 同排弱色不抢焦点); a11y 读
- * originPhone/originTui 文案。数据来自 server 下发的 origin(映射层带
- * ai_import_ 前缀兜底, 模型上总被打满)。
- */
-const SessionOriginIcon: React.FC<{
-  session: VibeCodingRun;
-  color: string;
-}> = ({ session, color }) => {
-  const { t } = useTranslation('vibecoding');
-  const isTui = session.origin === 'tui';
-  return (
-    <View
-      accessibilityRole="image"
-      accessibilityLabel={t(
-        isTui ? 'sessionCard.originTui' : 'sessionCard.originPhone',
-      )}
-      testID="session-origin-icon"
-      style={styles.originIconWrap}
-    >
-      <IconGlyph name={isTui ? 'terminal' : 'phone'} size={13} color={color} />
-    </View>
-  );
-};
 
 export const VibeSessionCard = React.memo<VibeSessionCardProps>(
   ({
@@ -429,7 +404,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                     >
                       {t('sessionCard.lastActive', { label: activityLabel })}
                     </Text>
-                    <SessionOriginIcon session={session} color={theme.colors.onSurfaceVariant} />
+                    <SessionOriginBadge session={session} color={theme.colors.onSurfaceVariant} />
                   </View>
                 ) : (
                   <Text
@@ -608,7 +583,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                   >
                     {activityLabel}
                   </Text>
-                  <SessionOriginIcon session={session} color={theme.colors.onSurfaceVariant} />
+                  <SessionOriginBadge session={session} color={theme.colors.onSurfaceVariant} />
                 </View>
               </>
             )}
@@ -874,12 +849,6 @@ const styles = StyleSheet.create({
   titleBlock: {
     flex: 1,
     gap: 2,
-  },
-  // 来源图标容器: 与 labelSm 文本同排(≈16px 行高), 居中对齐。
-  originIconWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
   },
   lastActiveRow: {
     flexDirection: 'row',

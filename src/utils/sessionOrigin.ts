@@ -41,3 +41,27 @@ export function terminalResumeTarget(
   };
   return strip('claude_') ?? strip('codex_');
 }
+
+/**
+ * 会话来源角标推导（跨端统一 P4-3）。与 dashboard 侧 chatSettings 的
+ * sessionSourceBadge 同源：origin 列优先，其次终端 id 前缀约定。
+ *   'phone'     → 手机发起
+ *   'dashboard' → 本机（dashboard 网页发起）
+ *   'tui'/'external' → 终端（扫盘导入的老编码；服务端新清单发 dashboard/
+ *                       managed，存量为 tui，语义同终端入口）
+ *   id 前缀 claude_/codex_ → 终端（设备壳）
+ *   'managed'/空/未知 → null（不渲染角标）
+ */
+export type SessionOriginBadgeKind = 'phone' | 'dashboard' | 'terminal';
+
+export function deriveSessionOriginBadge(
+  origin: string | undefined,
+  sessionId: string | undefined,
+): SessionOriginBadgeKind | null {
+  if (origin === 'phone') return 'phone';
+  if (origin === 'dashboard') return 'dashboard';
+  if (origin === 'tui' || origin === 'external') return 'terminal';
+  if (isTerminalPrefixedSessionId(sessionId)) return 'terminal';
+  return null;
+}
+
