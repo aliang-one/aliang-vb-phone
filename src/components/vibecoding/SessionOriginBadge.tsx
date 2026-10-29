@@ -7,7 +7,7 @@ import {
   type SessionOriginBadgeKind,
 } from '../../utils/sessionOrigin';
 import { useTheme } from '../../theme/useTheme';
-import { IconGlyph, type IconName } from '../visual/IconBadge';
+import { IconBadge, IconGlyph, type IconName } from '../visual/IconBadge';
 import { StatusChip } from '../shared/StatusChip';
 
 const badgeLabelKey: Record<SessionOriginBadgeKind, string> = {
@@ -29,11 +29,13 @@ const badgeIcon: Record<SessionOriginBadgeKind, IconName> = {
  * variant='inline'：图标+短文本，挂在会话卡片底部元信息行（原
  * SessionOriginIcon 槽位升级——补 dashboard 来源与可见文字）。
  * variant='chip'：StatusChip，用于会话详情页顶栏状态簇。
+ * variant='icon'：纯图标徽标（与诊断指纹入口同款尺寸），挂在会话详情页
+ * 顶栏状态行——宽度敏感场景用图标不用文字（P4 评审后用户拍板）。
  */
 export const SessionOriginBadge: React.FC<{
   session: VibeCodingRun;
   color?: string;
-  variant?: 'inline' | 'chip';
+  variant?: 'inline' | 'chip' | 'icon';
 }> = ({ session, color, variant = 'inline' }) => {
   const { t } = useTranslation('vibecoding');
   const { theme } = useTheme();
@@ -42,6 +44,13 @@ export const SessionOriginBadge: React.FC<{
   const label = t(badgeLabelKey[kind]);
   if (variant === 'chip') {
     return <StatusChip label={label} type="neutral" />;
+  }
+  if (variant === 'icon') {
+    return (
+      <View accessibilityLabel={label} testID="session-origin-badge-icon">
+        <IconBadge name={badgeIcon[kind]} tone="neutral" size={26} iconSize={14} />
+      </View>
+    );
   }
   return (
     <View

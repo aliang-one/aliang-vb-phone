@@ -161,6 +161,7 @@ export const StatusChip: React.FC<StatusChipProps> = ({
         <View style={[styles.dot, { backgroundColor: colors.text }]} />
       )}
       <Text
+        numberOfLines={1}
         style={[
           theme.typography.codeSm,
           { color: colors.text },

@@ -2642,17 +2642,24 @@ export const VibeCodingSessionScreen: React.FC = () => {
         onBack={navigation.goBack}
         rightAction={
           <View style={styles.topStatusCluster}>
-            {/* 状态气泡 + 来源角标 + 诊断入口同一水平线：chip 与指纹图标竖中
-                对齐，不再各占一行（三行堆叠在窄屏上把模型/effort 那行挤掉）。 */}
+            {/* 状态气泡(点击开诊断侧边栏) + 来源角标图标 + 诊断入口同一水平
+                线：文字只留在状态气泡里，来源与诊断都是图标（P4 顶栏改版——
+                三个文字元素挤 196pt 是「In Progress」溢出的根源）。 */}
             <View style={styles.topStatusRow}>
-              <StatusChip
-                label={isDraft ? t('session.phase.notStarted') : phaseLabel(sessionPhase)}
-                type={isDraft ? 'neutral' : sessionPhaseType[sessionPhase]}
-                pulse={!isDraft && sessionPhase === 'running'}
-                style={styles.topStatusChip}
-              />
-              {/* 来源角标(跨端统一 P4-3)：managed/空不渲染，组件内自判。 */}
-              {!isDraft && <SessionOriginBadge session={session} variant="chip" />}
+              <TouchableOpacity
+                onPress={handleToggleDiagnostics}
+                activeOpacity={0.72}
+                accessibilityRole="button"
+                accessibilityLabel={t('session.diagnostics.entryA11y')}>
+                <StatusChip
+                  label={isDraft ? t('session.phase.notStarted') : phaseLabel(sessionPhase)}
+                  type={isDraft ? 'neutral' : sessionPhaseType[sessionPhase]}
+                  pulse={!isDraft && sessionPhase === 'running'}
+                  style={styles.topStatusChip}
+                />
+              </TouchableOpacity>
+              {/* 来源角标：纯图标（手机/本机/终端），managed/空不渲染。 */}
+              {!isDraft && <SessionOriginBadge session={session} variant="icon" />}
               {/* 诊断入口：紧挨状态气泡。草稿会话没有 run 数据，不显示。 */}
               {!isDraft && (
                 <TouchableOpacity
