@@ -338,6 +338,48 @@ export const fetchProjectFileContent = (
     })}`,
   );
 
+// --- 视频在线播放(COS preview 直链,Range 按需拉流) ---
+
+export interface ServerFilePreview {
+  request_id: string;
+  project_id: string;
+  mode: 'download' | 'preview';
+  state: 'uploading' | 'ready' | 'failed' | 'cancelled' | 'completed';
+  uploaded_bytes?: number;
+  total_bytes?: number;
+  reason?: string;
+  url?: string;
+  expires_at?: string;
+}
+
+/** 发起 preview 编排(202):agent 把文件直传 COS,手机轮询 GET 取直链。 */
+export const startProjectFilePreview = (
+  projectId: string,
+  path: string,
+): Promise<ServerFilePreview> =>
+  apiPost<ServerFilePreview>(
+    `/api/projects/${encodeURIComponent(projectId)}/files/preview`,
+    { path },
+  );
+
+/** 查询 preview 状态;ready 态响应带无 disposition 的 COS 直链(inline 语义)。 */
+export const fetchProjectFilePreview = (
+  projectId: string,
+  requestId: string,
+): Promise<ServerFilePreview> =>
+  apiGet<ServerFilePreview>(
+    `/api/projects/${encodeURIComponent(projectId)}/files/preview/${encodeURIComponent(requestId)}`,
+  );
+
+/** 取消 preview(撤销 agent 上传 + best-effort 删对象)。 */
+export const cancelProjectFilePreview = (
+  projectId: string,
+  requestId: string,
+): Promise<ServerFilePreview> =>
+  apiDelete<ServerFilePreview>(
+    `/api/projects/${encodeURIComponent(projectId)}/files/preview/${encodeURIComponent(requestId)}`,
+  );
+
 export const scanDeviceProjects = (deviceId: string): Promise<{ status: string; device_id: string }> =>
   apiPost(`/api/devices/${deviceId}/scan`);
 

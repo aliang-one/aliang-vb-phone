@@ -40,6 +40,8 @@ import { CodeHighlight } from '../../components/shared/CodeHighlight';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { describeDeviceError } from '../../utils/deviceError';
 import { peekVideoVerdict, probeProjectVideo } from '../../services/videoProbe';
+import { createPreviewSession, PreviewCancelledError } from '../../services/videoPreview';
+import { RemoteVideoPlayer } from '../../components/video/RemoteVideoPlayer';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
@@ -204,6 +206,57 @@ export const FileBrowserScreen: React.FC = () => {
   const [downloadFile, setDownloadFile] = useState<ProjectFileEntry | null>(null);
   // 正在做 64KB 视频头探针的文件路径('' = 空闲);结论存 videoProbe 模块缓存。
   const [videoProbePath, setVideoProbePath] = useState('');
+  // 在线播放会话:正在准备(probe 后 COS 推送)的文件与进度文案。
+  const [previewPreparing, setPreviewPreparing] = useState<{ path: string; label: string } | null>(null);
+  // 已就绪、正在播放 COS 直链的文件路径与直链本体('' = 未在播放)。
+  const [previewPlayingPath, setPreviewPlayingPath] = useState('');
+  const [previewUrl, setPreviewUrl] = useState('');
+  const previewSessionRef = useRef<ReturnType<typeof createPreviewSession> | null>(null);
+
+  /** 在线播放:probe 判真后经 preview 编排拿 COS 直链,交给 RemoteVideoPlayer。 */
+  const handlePlayVideo = async (file: ProjectFileEntry) => {
+    if (!project || previewPreparing || previewPlayingPath) return;
+    const session = createPreviewSession();
+    previewSessionRef.current = session;
+    setPreviewPreparing({ path: file.path, label: t('fileBrowser.video.starting') });
+    try {
+      const phase = await session.start(project.id, file.path, next => {
+        setPreviewPreparing({
+          path: file.path,
+          label:
+            next.kind === 'uploading'
+              ? t('fileBrowser.video.uploadProgress', { percent: next.percent })
+              : t('fileBrowser.video.starting'),
+        });
+      });
+      if (phase.kind !== 'ready') return;
+      setPreviewPreparing(null);
+      setPreviewUrl(phase.url);
+      setPreviewPlayingPath(file.path);
+    } catch (error) {
+      setPreviewPreparing(null);
+      if (!(error instanceof PreviewCancelledError)) {
+        show(t('fileBrowser.video.playFailedToast'));
+      }
+      // 停在视频卡:保留「下载观看」兜底
+    } finally {
+      previewSessionRef.current = null;
+    }
+  };
+
+  const cancelPreviewSession = () => {
+    previewSessionRef.current?.cancel();
+    previewSessionRef.current = null;
+    setPreviewPreparing(null);
+  };
+
+  // 关 sheet / 换文件:撤掉在飞的 preview 上传(播放中不打断——直链已到手)。
+  useEffect(() => {
+    if (previewPreparing && selectedPath !== previewPreparing.path) {
+      cancelPreviewSession();
+    }
+  }, [selectedPath, previewPreparing]);
+  useEffect(() => () => previewSessionRef.current?.cancel(), []);
   // Device-transfer sheet hand-off (long-press → 同步到别的设备). Same shape
   // as downloadFile: the sheet is mounted while a run is live regardless.
   const [transferFile, setTransferFile] = useState<ProjectFileEntry | null>(null);
@@ -680,6 +733,53 @@ export const FileBrowserScreen: React.FC = () => {
           </View>
         );
       }
+      // 已就绪:COS 直链交给播放器(内嵌 sheet,Range 按需拉流)。
+      if (previewPlayingPath === file.path && previewUrl) {
+        return (
+          <View style={styles.sheetBlocked}>
+            <View style={styles.videoPlayerBox}>
+              <RemoteVideoPlayer
+                uri={previewUrl}
+                onError={() => {
+                  show(t('fileBrowser.video.playFailedToast'));
+                  setPreviewPlayingPath('');
+                  setPreviewUrl('');
+                }}
+              />
+            </View>
+            <GlowButton
+              title={t('fileBrowser.video.closePlayer')}
+              onPress={() => {
+                setPreviewPlayingPath('');
+                setPreviewUrl('');
+              }}
+              variant="outline"
+              style={styles.sheetBlockedAction}
+            />
+          </View>
+        );
+      }
+      // 准备中:COS 推送进度(取消 = 撤 agent 上传 + 删对象)。
+      if (previewPreparing?.path === file.path) {
+        return (
+          <View style={styles.sheetLoading}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text
+              style={[
+                theme.typography.bodySm,
+                { color: theme.colors.onSurfaceVariant, marginTop: 10 },
+              ]}>
+              {previewPreparing.label}
+            </Text>
+            <GlowButton
+              title={t('fileBrowser.video.cancelPrepare')}
+              onPress={cancelPreviewSession}
+              variant="outline"
+              style={styles.sheetBlockedAction}
+            />
+          </View>
+        );
+      }
       return (
         <View style={styles.sheetBlocked}>
           <IconBadge
@@ -706,9 +806,17 @@ export const FileBrowserScreen: React.FC = () => {
           </Text>
           {downloadEnabled ? (
             <GlowButton
+              title={t('fileBrowser.video.playCta')}
+              onPress={() => handlePlayVideo(file)}
+              variant="primary"
+              style={styles.sheetBlockedAction}
+            />
+          ) : null}
+          {downloadEnabled ? (
+            <GlowButton
               title={t('fileBrowser.video.downloadCta')}
               onPress={() => setDownloadFile(file)}
-              variant="primary"
+              variant="secondary"
               style={styles.sheetBlockedAction}
             />
           ) : null}
@@ -1222,6 +1330,9 @@ export const FileBrowserScreen: React.FC = () => {
         <BottomSheet
           open={Boolean(selectedFile)}
           onClose={() => {
+            cancelPreviewSession();
+            setPreviewPlayingPath('');
+            setPreviewUrl('');
             setSelectedPath('');
             setSheetError(null);
           }}
@@ -1689,6 +1800,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
+  },
+  videoPlayerBox: {
+    width: '100%',
+    height: 260,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(0,0,0,0.35)',
   },
   sheetBlocked: {
     flex: 1,
