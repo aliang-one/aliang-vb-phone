@@ -524,6 +524,10 @@
         "mcpApplyFailed": "保存 MCP 自动放行规则失败,请重试。"
       }
     },
+    "notice": {
+      "resumeMissing": "原生会话不存在，已按新会话继续",
+      "historyRestoreFailed": "历史恢复失败，已按空会话继续"
+    },
     "offline": {
       "title": "设备离线 · 只读模式",
       "detail": "该设备不可达，发送 / 审批 / 控制已暂停，仍可查看历史。"

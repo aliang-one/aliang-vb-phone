@@ -524,6 +524,10 @@
         "mcpApplyFailed": "Couldn't save the MCP auto-approve rule. Try again."
       }
     },
+    "notice": {
+      "resumeMissing": "Native session not found; continuing as a new conversation",
+      "historyRestoreFailed": "Failed to restore history; continuing with an empty conversation"
+    },
     "offline": {
       "title": "Device offline · read-only",
       "detail": "This device is unreachable. Send / approve / control are paused, but you can still browse history."

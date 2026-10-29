@@ -3,6 +3,10 @@ import { shallow, useShallow } from 'zustand/shallow';
 import type { PreviewLink, VibeCodingRun, VibeStatus } from '../data/platformModels';
 import i18n from '../i18n';
 import { classifySessionBusyError } from '../utils/sessionBusyError';
+import {
+  aiRunNoticeText,
+  mapAiRunNotice,
+} from '../utils/aiRunNotice';
 import { routeTerminalOutputToEmulator } from '../services/terminalOutputRegistry';
 import {
   forgetTerminalGeometryFollow,
@@ -45,6 +49,7 @@ import {
   line,
   MAX_RUN_EVENTS,
   MAX_TERMINAL_LINES,
+  MAX_TRANSCRIPT_LENGTH,
   MAX_VIBE_RUNS,
   mergeIds,
   mergeVibeRunSnapshot,
@@ -834,6 +839,57 @@ export const useControlCenterStore = create<ControlCenterState>()(
                       ].slice(0, 120),
                 };
               });
+              return;
+            }
+
+            case 'ai.run.notice': {
+              // 续聊降级提示（跨端统一 P4-4）：resume_missing /
+              // history_restore_failed 落为该会话时间线里的一条 system 灰条
+              // （既有系统条渲染链，不占用户气泡）。未知 code 整条丢弃——
+              // agent 新增 code 时旧 App 不弹野文案（前向兼容）。会话不在
+              // 本地（未打开/已清出）则无处可挂，静默跳过，不造 stub。
+              const notice = mapAiRunNotice(
+                transportEvent.code,
+                transportEvent.detail,
+              );
+              if (!notice) return;
+              // 幂等键：agent 帧自带 message_id（回合锚定，同一回合的重放同
+              // 键去重）；老帧无 message_id 退化为会话+code（每会话至多一条）。
+              const dedupeKey =
+                typeof transportEvent.raw.message_id === 'string' &&
+                transportEvent.raw.message_id.trim()
+                  ? transportEvent.raw.message_id.trim()
+                  : 'once';
+              const noticeId = `run-notice-${transportEvent.sessionId}-${notice.code}-${dedupeKey}`;
+              const noticeText = aiRunNoticeText(
+                i18n.t(`vibecoding:${notice.textKey}`),
+                notice.detail,
+              );
+              set(state => ({
+                vibeRuns: state.vibeRuns.map(run => {
+                  if (run.id !== transportEvent.sessionId) return run;
+                  if (run.transcript.some(item => item.id === noticeId)) {
+                    return run;
+                  }
+                  return {
+                    ...run,
+                    // 热窗上限照守(与 serverAiSessionToVibeRun 的 caps 同源):
+                    // tail 恒 ≤ MAX_TRANSCRIPT_LENGTH,已在上限时挤掉最老一条。
+                    transcript: tail(
+                      [
+                        ...run.transcript,
+                        {
+                          id: noticeId,
+                          role: 'system' as const,
+                          content: noticeText,
+                          timestamp: nowTime(),
+                        },
+                      ],
+                      MAX_TRANSCRIPT_LENGTH,
+                    ),
+                  };
+                }),
+              }));
               return;
             }
 

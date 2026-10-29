@@ -194,6 +194,7 @@ export type PlatformTransportEvent =
   | { type: 'ai.done'; sessionId: string; detail: string; raw: Record<string, unknown> }
   | { type: 'ai.status'; sessionId: string; status: string; raw: Record<string, unknown> }
   | { type: 'ai.error'; sessionId: string; error: string; raw: Record<string, unknown> }
+  | { type: 'ai.run.notice'; sessionId: string; code: string; detail?: string; raw: Record<string, unknown> }
   | { type: 'ai.steer.ack'; sessionId: string; messageId: string; result: string; error?: string; code?: string; raw: Record<string, unknown> }
   | { type: 'ai.command'; sessionId: string; messageId: string; itemId: string; status: string; command?: string; cwd?: string; exitCode?: number | null; eventId: string; raw: Record<string, unknown> }
   | { type: 'ai.file_change'; sessionId: string; messageId: string; itemId: string; path?: string; kind?: string; added?: number; removed?: number; renamedFrom?: string; eventId: string; raw: Record<string, unknown> }
@@ -654,6 +655,19 @@ class PlatformTransport {
         type: 'ai.error',
         sessionId: String(message.session_id ?? ''),
         error: String(message.error ?? message.detail ?? 'AI session failed'),
+        raw: message,
+      };
+    }
+
+    // 续聊降级提示（跨端统一 P4-4）：agent 在 resume 找不到原生会话
+    // （resume_missing）或 journal 历史读回失败（history_restore_failed）时发
+    // 的信息性帧，回合照常继续。snake_case 直透，未知 code 交给 store 丢弃。
+    if (type === 'ai.run.notice') {
+      return {
+        type: 'ai.run.notice',
+        sessionId: String(message.session_id ?? ''),
+        code: String(message.code ?? ''),
+        detail: asString(message.detail),
         raw: message,
       };
     }
