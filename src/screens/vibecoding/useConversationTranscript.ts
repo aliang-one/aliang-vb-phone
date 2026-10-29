@@ -12,7 +12,10 @@ import type {
   StructuredActivityEvent,
   VibeCodingRun,
 } from '../../data/platformModels';
-import { buildDisplayTranscript } from '../../utils/agentTranscript';
+import {
+  applyStreamingTailWindow,
+  buildDisplayTranscript,
+} from '../../utils/agentTranscript';
 import { buildConversationTurns, type ConversationTurn } from '../../utils/conversationTurns';
 import { buildGoalFolds, type GoalFoldGroup } from '../../utils/goalFolds';
 import { isDeviceLinkReleaseNotice } from '../../utils/conversationTimeline';
@@ -78,8 +81,13 @@ export function useConversationTranscript(
   );
 
   const transcript = useMemo(
-    () => buildDisplayTranscript(visibleDisplaySource),
-    [visibleDisplaySource],
+    () => {
+      const built = buildDisplayTranscript(visibleDisplaySource);
+      // 流式尾窗:会话活跃时把尾 assistant 气泡的解析钉死到末尾窗口,
+      // 吐字(含积压排空突进)成本恒定;settle 后 0ms 门立即换回全量。
+      return isSessionLive ? applyStreamingTailWindow(built) : built;
+    },
+    [visibleDisplaySource, isSessionLive],
   );
 
   const activityEventsByMessageId = useMemo(() => {
