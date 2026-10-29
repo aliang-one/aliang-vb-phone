@@ -57,6 +57,8 @@ export interface SessionDetailLoader {
   detailFetchUnavailable: boolean;
   recoverableConversation: boolean;
   refreshLatest: () => Promise<void>;
+  /** 清错误 + 复位自动加载闸,让 mount auto-load 重新发起(重试按钮入口)。 */
+  retryDetailLoad: () => void;
 }
 
 export function useSessionDetailLoader(
@@ -269,6 +271,15 @@ export function useSessionDetailLoader(
     }
   }, [loadAgentSessionDetail, t, targetSessionId, setDetailError]);
 
+  // 重试入口(RCA 2026-10-29 症状一):一次失败把 detailError 置位后,总闸
+  // (!id || hasDetail || detailError || detailFetchUnavailable)关死,且
+  // autoFetchRef 已置 true——单纯清错误 effect 会在 autoFetchRef 处提前返回,
+  // 页面永远停在失败骨架上。这里同时复位两道闸,clear→effect 重跑即重新拉取。
+  const retryDetailLoad = useCallback(() => {
+    autoFetchRef.current = false;
+    setDetailError('');
+  }, [setDetailError]);
+
   return {
     loadingDetail,
     refreshingLatest,
@@ -276,5 +287,6 @@ export function useSessionDetailLoader(
     detailFetchUnavailable,
     recoverableConversation,
     refreshLatest,
+    retryDetailLoad,
   };
 }

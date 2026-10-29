@@ -442,7 +442,8 @@
       "refreshStaleFailed": "Refresh failed — the device didn't respond. Showing the last synced copy.",
       "refreshOffline": "Device is offline — latest history is unreachable right now.",
       "refreshEmpty": "This session has no displayable messages (the agent only has command records).",
-      "loadEarlierFailed": "Failed to load earlier messages."
+      "loadEarlierFailed": "Failed to load earlier messages.",
+      "retryDetail": "Retry"
     },
     "title": {
       "collapse": "Collapse title",

@@ -141,6 +141,7 @@ import {
 import { useUiNoticeStore } from '../../store/uiNoticeStore';
 import { useSessionDetailLoader } from './useSessionDetailLoader';
 import { useSessionCatchUp } from './useSessionCatchUp';
+import { useTranscriptCacheHydration } from './useTranscriptCacheHydration';
 import { fetchAiSession } from '../../api/sessions';
 import { useConversationScrollController } from './useConversationScrollController';
 import { useConversationTranscript } from './useConversationTranscript';
@@ -912,6 +913,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     loadingDetail,
     refreshingLatest,
     refreshLatest,
+    retryDetailLoad,
   } = useSessionDetailLoader({
     targetSessionId,
     detailState: session?.detailState,
@@ -925,6 +927,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
     detailError,
     setDetailError,
   });
+
+  // AsyncStorage 缓存水合:内存 transcript 为空时先回填上次聊到的内容再等
+  // 网络(见 useTranscriptCacheHydration;不污染 detail 权威语义)。
+  useTranscriptCacheHydration(targetSessionId, session?.transcript.length);
 
 
 
@@ -2513,6 +2519,28 @@ export const VibeCodingSessionScreen: React.FC = () => {
           >
             {detailError || t('session.loading.loadingSession')}
           </Text>
+          {/* 重试入口(RCA 2026-10-29 症状一):此前失败骨架只有错误文本,清
+              错误后 auto-load 闸(autoFetchRef)不会自己复位,用户唯一出路是
+              退出重进。给出显式重试,清错误并复位闸重新拉取。 */}
+          {detailError && !loadingDetail ? (
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={retryDetailLoad}
+              style={[
+                styles.detailRetryButton,
+                { borderColor: theme.colors.primary, marginTop: 12 },
+              ]}
+            >
+              <Text
+                style={[
+                  theme.typography.codeSm,
+                  { color: theme.colors.primary },
+                ]}
+              >
+                {t('session.loading.retryDetail')}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </SafeAreaWrapper>
     );

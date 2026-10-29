@@ -182,6 +182,55 @@ describe('refreshLatest — deadline', () => {
   });
 });
 
+describe('retryDetailLoad — 失败后复位自动加载闸(RCA 2026-10-29 症状一)', () => {
+  test('失败一次后 retry 清错误 + 复位闸,mount auto-load 重新发起', async () => {
+    let detailErrorValue = '';
+    const setErr = (message: string) => {
+      detailErrorValue = message;
+      detailErrors.push(message);
+    };
+    const load = makeLoad();
+    load
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({ detailRefreshStatus: 'fresh' });
+    const renderAt = () =>
+      React.createElement(() => {
+        latest = useSessionDetailLoader({
+          targetSessionId: 's1',
+          detailState: undefined,
+          detailFromPage: undefined,
+          transcriptLength: 0,
+          wsConnected: true,
+          deviceStatus: 'online',
+          loadAgentSessionDetail: load,
+          t,
+          refreshing: false,
+          setDetailError: setErr,
+          detailError: detailErrorValue,
+        });
+        return null;
+      });
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(renderAt());
+    });
+    await drain();
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(detailErrors).toContain('boom');
+    // 单纯清错误不重渲染时闸不会自己开(autoFetchRef 已置 true);retry 同时
+    // 复位两道闸,再随 setDetailError 引发的重渲染重新拉取。
+    await act(async () => {
+      latest.retryDetailLoad();
+    });
+    await act(async () => {
+      renderer.update(renderAt());
+    });
+    await drain();
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(detailErrors[detailErrors.length - 1]).toBe('');
+  });
+});
+
 describe('refreshLatest — stale session guard', () => {
   test('刷新中途切换会话 → 失败文案不画到新会话', async () => {
     let resolveLoad!: (value: { detailRefreshStatus?: string }) => void;
