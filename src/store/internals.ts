@@ -1393,6 +1393,11 @@ export function serverApprovalToClient(
     interactionId: sa.interaction_id,
     toolInput: sa.tool_input,
     expiresAt: sa.expires_at,
+    // v2 协议字段:snake→camel 显式映射。options 已整体透传(previews 随行)。
+    multi: sa.multi === true ? true : undefined,
+    allowCustom: sa.allow_custom === true ? true : undefined,
+    header: sa.header,
+    version: sa.v,
   };
 }
 
@@ -1675,11 +1680,13 @@ export function realtimeApprovalSnapshot(
     const optionId = payloadString(option, 'id');
     const label = payloadString(option, 'label');
     if (!optionId || !label) return;
+    const previews = payloadStringArray(option, 'previews');
     options.push({
       id: optionId,
       label,
       description: payloadString(option, 'description'),
       response: payloadString(option, 'response'),
+      ...(previews ? { previews } : {}),
     });
   });
 
@@ -1705,6 +1712,11 @@ export function realtimeApprovalSnapshot(
     status: approvalStatus(payloadString(approval, 'status')),
     created_at: payloadString(approval, 'created_at') ?? message.created_at,
     resolved_at: payloadString(approval, 'resolved_at'),
+    // v2 协议字段:events 派生路必须显式补(白名单映射,缺了 REST 路也救不回)
+    multi: approval.multi === true ? true : undefined,
+    allow_custom: approval.allow_custom === true ? true : undefined,
+    header: payloadString(approval, 'header'),
+    v: typeof approval.v === 'number' ? approval.v : undefined,
   };
 }
 

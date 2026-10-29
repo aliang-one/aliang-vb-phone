@@ -508,7 +508,8 @@ const ApprovalCard: React.FC<ApprovalCardProps> = React.memo(
               return (
                 <GlowButton
                   key={option.id}
-                  title={option.label.toUpperCase()}
+                  // AI 生成的 label 原样渲染(禁 toUpperCase:ω→Ω 等颜文字变形)
+                  title={option.label}
                   onPress={() =>
                     onResolve(item.id, decision, {
                       selectedOptionId: option.id,
