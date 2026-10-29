@@ -2642,24 +2642,29 @@ export const VibeCodingSessionScreen: React.FC = () => {
         onBack={navigation.goBack}
         rightAction={
           <View style={styles.topStatusCluster}>
-            <StatusChip
-              label={isDraft ? t('session.phase.notStarted') : phaseLabel(sessionPhase)}
-              type={isDraft ? 'neutral' : sessionPhaseType[sessionPhase]}
-              pulse={!isDraft && sessionPhase === 'running'}
-            />
-            {/* 来源角标(跨端统一 P4-3):managed/空不渲染,组件内自判。 */}
-            {!isDraft && <SessionOriginBadge session={session} variant="chip" />}
-            {/* 诊断入口：紧挨状态气泡。草稿会话没有 run 数据，不显示。 */}
-            {!isDraft && (
-              <TouchableOpacity
-                onPress={handleToggleDiagnostics}
-                activeOpacity={0.72}
-                hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                accessibilityRole="button"
-                accessibilityLabel={t('session.diagnostics.entryA11y')}>
-                <IconBadge name="fingerprint" tone="neutral" size={28} iconSize={14} />
-              </TouchableOpacity>
-            )}
+            {/* 状态气泡 + 来源角标 + 诊断入口同一水平线：chip 与指纹图标竖中
+                对齐，不再各占一行（三行堆叠在窄屏上把模型/effort 那行挤掉）。 */}
+            <View style={styles.topStatusRow}>
+              <StatusChip
+                label={isDraft ? t('session.phase.notStarted') : phaseLabel(sessionPhase)}
+                type={isDraft ? 'neutral' : sessionPhaseType[sessionPhase]}
+                pulse={!isDraft && sessionPhase === 'running'}
+                style={styles.topStatusChip}
+              />
+              {/* 来源角标(跨端统一 P4-3)：managed/空不渲染，组件内自判。 */}
+              {!isDraft && <SessionOriginBadge session={session} variant="chip" />}
+              {/* 诊断入口：紧挨状态气泡。草稿会话没有 run 数据，不显示。 */}
+              {!isDraft && (
+                <TouchableOpacity
+                  onPress={handleToggleDiagnostics}
+                  activeOpacity={0.72}
+                  hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('session.diagnostics.entryA11y')}>
+                  <IconBadge name="fingerprint" tone="neutral" size={26} iconSize={14} />
+                </TouchableOpacity>
+              )}
+            </View>
             <Text
               numberOfLines={1}
               style={[
@@ -3964,8 +3969,22 @@ const styles = StyleSheet.create({
   },
   topStatusCluster: {
     alignItems: 'flex-end',
-    maxWidth: 156,
+    // 156 是「状态气泡单行」时代的宽度；现在同一行还要放诊断入口（26 + 6），
+    // 窄了英文 "Awaiting approval" 会被迫折行。
+    maxWidth: 196,
     gap: 4,
+  },
+  // 状态气泡与诊断入口同一水平线：竖中对齐，间距 6。chip 自带
+  // alignSelf:'flex-start'（左下角卡片场景要顶格），这里在行内改回居中，
+  // 否则 chip 会贴着行的上沿、和指纹图标错开半个身位。
+  topStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  topStatusChip: {
+    alignSelf: 'center',
+    flexShrink: 1,
   },
   topStatusMeta: {
     textAlign: 'right',
