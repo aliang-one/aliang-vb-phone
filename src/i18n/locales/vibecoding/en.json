@@ -562,6 +562,7 @@
       "context": {
         "title": "Context",
         "usedOf": "{{used}} / {{total}}",
+        "noUsage": "No usage data yet",
         "used": "Tokens used",
         "window": "Context window",
         "remain": "Remaining",

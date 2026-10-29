@@ -562,6 +562,7 @@
       "context": {
         "title": "上下文",
         "usedOf": "{{used}} / {{total}}",
+        "noUsage": "暂无用量数据",
         "used": "已用 tokens",
         "window": "上下文窗口",
         "remain": "剩余可用",
