@@ -251,6 +251,7 @@ export function demoteRunDetail(run: VibeCodingRun): VibeCodingRun {
     structuredEvents: [],
     eventDetailCache: undefined,
     detailState: undefined,
+    transcriptSource: undefined,
   };
 }
 
@@ -1214,6 +1215,11 @@ export function mergeVibeRunSnapshot(
     updatedAt: formatActivityLabel(lastActivityMs),
     transcript,
     events,
+    // 缓存来源标记(transcriptCache 水合):`...incoming` 的裸 spread 会把它
+    // 抹成 undefined——这里显式声明语义:服务器一旦带来内容,缓存标记即失效;
+    // 空的列表/状态快照不携带内容,保留标记(此时 transcript 仍是缓存那批)。
+    transcriptSource:
+      incoming.transcript.length > 0 ? undefined : existing.transcriptSource,
     // structuredEvents 守卫(2026-10-18 审计 C0):serverAiSessionToVibeRun 恒置该
     // 键,不带 structured_events 的载荷(列表/全局快照/重命名/打断响应)会映射成
     // [],裸 spread 整表覆写即把常驻活动墙清空。transcript/events 各有守卫,这里

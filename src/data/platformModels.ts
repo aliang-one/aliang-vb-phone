@@ -551,6 +551,13 @@ export interface VibeCodingRun {
    * 单调不可逆。
    */
   detailFromPage?: boolean;
+  /**
+   * 内部标记:当前 transcript 来自 AsyncStorage 缓存水合
+   * (hydrateRunTranscriptFromCache)而非服务器权威数据。仅诊断/测试用——
+   * 「缓存渲染」与「详情已加载」(detailState/detailFromPage)严格分离,本
+   * 标记不参与任何 detail 判定;服务器内容一经 merge 即被清除。
+   */
+  transcriptSource?: 'cache';
   suggestions: string[];
   transcript: AgentMessage[];
   events: AgentEvent[];

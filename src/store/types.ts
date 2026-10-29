@@ -624,6 +624,16 @@ export interface ControlCenterState {
     options?: { refresh?: boolean },
   ) => Promise<{ detailRefreshStatus?: string } | undefined>;
   /**
+   * 把 AsyncStorage 缓存的 transcript 注入空内存 run(transcriptCache 水合,
+   * 修复「重启/降级/驱逐后进对话空白」)。缓存**不是权威详情**:不碰
+   * detailState/detailFromPage,auto-load 照常发起;服务器内容一经 merge 本
+   * 标记即清除。仅当 run 存在、内存 transcript 为空且 detail 未对过账时生效。
+   */
+  hydrateRunTranscriptFromCache: (
+    sessionId: string,
+    messages: VibeCodingRun['transcript'],
+  ) => void;
+  /**
    * Incremental catch-up: compare the authoritative server transcript count
    * against the locally materialized messages and pull ONLY the missing tail
    * (after-cursor) when behind. Zero network I/O when fresh. Falls back to a

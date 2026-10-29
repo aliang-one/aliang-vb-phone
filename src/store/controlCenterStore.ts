@@ -75,6 +75,7 @@ import { createDeviceProjectSlice } from './slices/deviceProjectSlice';
 import { createFileDownloadSlice } from './slices/fileDownloadSlice';
 import { createTransferSlice } from './slices/transferSlice';
 import { reconcileStructured } from './slices/structuredSlice';
+import { attachTranscriptCache } from './transcriptCache';
 
 const EMPTY_SESSION_APPROVALS: ControlCenterState['approvals'] = [];
 
@@ -1860,3 +1861,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
     };
   },
 );
+
+// 会话 transcript 写穿(AsyncStorage 持久化,见 ./transcriptCache):降级/
+// 驱逐/重启后由 useTranscriptCacheHydration 从磁盘回填,进对话不再空白。
+attachTranscriptCache(useControlCenterStore);

@@ -46,6 +46,7 @@ import {
 import {
   shouldEscalateEmptyDetailToRefresh,
   resolveDetailState,
+  isAuthoritativeDetail,
 } from '../sessionDetail';
 import { reconcileStructured } from './structuredSlice';
 import {
@@ -57,7 +58,7 @@ import {
 type AiSessionSlice = Pick<
   ControlCenterState,
   | 'vibeRuns' | 'aiSessionHistory' | 'aiSessionHistoryPage' | 'previewLinks' | 'sessionCommands'
-  | 'startAgentSession' | 'loadAgentSessionDetail' | 'catchUpAgentMessages' | 'cancelAiSessionCatchUp' | 'pauseAgentSession'
+  | 'startAgentSession' | 'loadAgentSessionDetail' | 'hydrateRunTranscriptFromCache' | 'catchUpAgentMessages' | 'cancelAiSessionCatchUp' | 'pauseAgentSession'
   | 'interruptAgentSession' | 'resumeAgentSession' | 'terminateAgentSession' | 'updateAgentSession'
   | 'generateAgentSessionTitle'
   | 'deleteAgentSession' | 'appendAgentMessage' | 'loadEarlierAgentMessages'
@@ -414,6 +415,21 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       };
     });
     return { detailRefreshStatus };
+  },
+
+  hydrateRunTranscriptFromCache: (sessionId, messages) => {
+    if (!sessionId || messages.length === 0) return;
+    set(state => ({
+      vibeRuns: state.vibeRuns.map(run => {
+        if (run.id !== sessionId) return run;
+        // 缓存只补空:权威页/实时流已落的 transcript 不被覆盖(服务器数据与
+        // 缓存读取竞态时本 action 让位)。已对过账的权威空(empty)也不注入
+        // ——「agent 确实没有可渲染消息」的裁决不被磁盘旧数据翻案。
+        if (run.transcript.length > 0) return run;
+        if (isAuthoritativeDetail(run.detailState)) return run;
+        return { ...run, transcript: messages, transcriptSource: 'cache' };
+      }),
+    }));
   },
 
   cancelAiSessionCatchUp: sessionId => {
