@@ -40,7 +40,7 @@ import { CodeHighlight } from '../../components/shared/CodeHighlight';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { describeDeviceError } from '../../utils/deviceError';
 import { peekVideoVerdict, probeProjectVideo } from '../../services/videoProbe';
-import { createPreviewSession, PreviewCancelledError } from '../../services/videoPreview';
+import { subscribeVideoPreview, type VideoPreviewHandle } from '../../services/videoPreviewManager';
 import { RemoteVideoPlayer } from '../../components/video/RemoteVideoPlayer';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -194,10 +194,19 @@ export const FileBrowserScreen: React.FC = () => {
   );
   // 当前目录是否已按最大条数(1000)拉过:决定截断提示行是「加载」还是「到顶了」。
   const [requestedFullList, setRequestedFullList] = useState(false);
+  // requestedFullList 的 ref 镜像:回屏静默刷新跑在 useFocusEffect 的闭包里,
+  // 不加依赖重挂——刷新必须沿用已请求的条数,否则完整列表被静默打回 200 条。
+  const requestedFullListRef = useRef(false);
   // Inline folder expansion (tree-style unfold). A folder row still navigates
   // into the folder when tapped; its right-side chevron toggles expansion so
   // the folder's children render indented beneath it without leaving the page.
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  // expandedPaths 的 ref 镜像:回屏静默刷新的 useFocusEffect 闭包不随 state
+  // 重挂,用它读取当前展开集,刷新时联动重拉已展开子目录。
+  const expandedPathsRef = useRef<Set<string>>(expandedPaths);
+  useEffect(() => {
+    expandedPathsRef.current = expandedPaths;
+  }, [expandedPaths]);
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
   const [loadedDirs, setLoadedDirs] = useState<Set<string>>(new Set());
   // Long-press menu on file rows → download flow. `downloadFile` is the
@@ -211,16 +220,25 @@ export const FileBrowserScreen: React.FC = () => {
   // 已就绪、正在播放 COS 直链的文件路径与直链本体('' = 未在播放)。
   const [previewPlayingPath, setPreviewPlayingPath] = useState('');
   const [previewUrl, setPreviewUrl] = useState('');
-  const previewSessionRef = useRef<ReturnType<typeof createPreviewSession> | null>(null);
+  const previewHandleRef = useRef<VideoPreviewHandle | null>(null);
 
-  /** 在线播放:probe 判真后经 preview 编排拿 COS 直链,交给 RemoteVideoPlayer。 */
+  /**
+   * 在线播放:经模块级 preview 管理器拿 COS 直链,交给 RemoteVideoPlayer。
+   * 管理器按 (project,path) 复用会话——返回重进同一视频直接回放最新进度或
+   * 秒附已就绪直链;屏幕卸载/关 sheet 只 detach,绝不撤在飞上传。
+   */
   const handlePlayVideo = async (file: ProjectFileEntry) => {
     if (!project || previewPreparing || previewPlayingPath) return;
-    const session = createPreviewSession();
-    previewSessionRef.current = session;
+    previewHandleRef.current?.detach(); // 换文件重订阅前摘掉旧监听
     setPreviewPreparing({ path: file.path, label: t('fileBrowser.video.starting') });
-    try {
-      const phase = await session.start(project.id, file.path, next => {
+    previewHandleRef.current = subscribeVideoPreview(project.id, file.path, {
+      onPhase: next => {
+        if (next.kind === 'ready') {
+          setPreviewPreparing(null);
+          setPreviewUrl(next.url);
+          setPreviewPlayingPath(file.path);
+          return;
+        }
         setPreviewPreparing({
           path: file.path,
           label:
@@ -228,35 +246,30 @@ export const FileBrowserScreen: React.FC = () => {
               ? t('fileBrowser.video.uploadProgress', { percent: next.percent })
               : t('fileBrowser.video.starting'),
         });
-      });
-      if (phase.kind !== 'ready') return;
-      setPreviewPreparing(null);
-      setPreviewUrl(phase.url);
-      setPreviewPlayingPath(file.path);
-    } catch (error) {
-      setPreviewPreparing(null);
-      if (!(error instanceof PreviewCancelledError)) {
+      },
+      onError: () => {
+        setPreviewPreparing(null);
         show(t('fileBrowser.video.playFailedToast'));
-      }
-      // 停在视频卡:保留「下载观看」兜底
-    } finally {
-      previewSessionRef.current = null;
-    }
+        // 停在视频卡:保留「下载观看」兜底
+      },
+    });
   };
 
   const cancelPreviewSession = () => {
-    previewSessionRef.current?.cancel();
-    previewSessionRef.current = null;
+    previewHandleRef.current?.cancel();
+    previewHandleRef.current = null;
     setPreviewPreparing(null);
   };
 
-  // 关 sheet / 换文件:撤掉在飞的 preview 上传(播放中不打断——直链已到手)。
-  useEffect(() => {
-    if (previewPreparing && selectedPath !== previewPreparing.path) {
-      cancelPreviewSession();
-    }
-  }, [selectedPath, previewPreparing]);
-  useEffect(() => () => previewSessionRef.current?.cancel(), []);
+  // 卸载只 detach:在飞上传后台继续,返回重进由管理器秒附(server 幂等兜底)。
+  // 旧版此处 cancel(撤上传删对象)是「二次下载」体验的一半病灶,已删。
+  useEffect(
+    () => () => {
+      previewHandleRef.current?.detach();
+      previewHandleRef.current = null;
+    },
+    [],
+  );
   // Device-transfer sheet hand-off (long-press → 同步到别的设备). Same shape
   // as downloadFile: the sheet is mounted while a run is live regardless.
   const [transferFile, setTransferFile] = useState<ProjectFileEntry | null>(null);
@@ -380,6 +393,7 @@ export const FileBrowserScreen: React.FC = () => {
     setLoadingDirs(new Set());
     setLoadedDirs(new Set());
     setRequestedFullList(false);
+    requestedFullListRef.current = false;
     setSheetError(null);
   }, [effectivePath]);
 
@@ -476,6 +490,8 @@ export const FileBrowserScreen: React.FC = () => {
   // Focus refresh (审计 #4):回屏时静默强制刷新当前目录——停在页面期间
   // agent 可能已改动文件,而主加载 effect 只在 effectivePath 变化时触发。
   // 30s 冷却防连切页打爆 agent;错误吞掉(屏上已有数据,静默失败可接受)。
+  // 沿用已请求条数(完整列表不被静默打回 200)+联动重拉已展开子目录
+  // (子目录此前永不刷新——展开集里删掉的文件一直是幽灵)。
   const lastFocusRefreshAtRef = useRef(0);
   useFocusEffect(
     useCallback(() => {
@@ -490,7 +506,20 @@ export const FileBrowserScreen: React.FC = () => {
       const now = Date.now();
       if (now - lastFocusRefreshAtRef.current < FOCUS_REFRESH_COOLDOWN_MS) return;
       lastFocusRefreshAtRef.current = now;
-      void state.loadProjectFiles(focusProject!.id, focusPath, { force: true }).catch(() => {});
+      const maxEntries = requestedFullListRef.current ? FULL_LIST_MAX_ENTRIES : undefined;
+      const expanded = [...expandedPathsRef.current];
+      void (async () => {
+        try {
+          await state.loadProjectFiles(focusProject!.id, focusPath, { force: true, maxEntries });
+          await Promise.allSettled(
+            expanded.map(dirPath =>
+              state.loadProjectFiles(focusProject!.id, dirPath, { force: true }),
+            ),
+          );
+        } catch {
+          // 静默失败:屏上已有数据。
+        }
+      })();
       // currentPath/projectId 变化本身就会触发主加载 effect,依赖里带上即可。
     }, [currentPath, route.params.projectId]),
   );
@@ -512,7 +541,17 @@ export const FileBrowserScreen: React.FC = () => {
     setLoading(true);
     setError('');
     try {
-      await loadProjectFiles(project.id, effectivePath, { force: true });
+      // 沿用已请求条数:完整目录加载后,普通刷新不得静默打回 200 条。
+      await loadProjectFiles(project.id, effectivePath, {
+        force: true,
+        maxEntries: requestedFullListRef.current ? FULL_LIST_MAX_ENTRIES : undefined,
+      });
+      // 已展开子目录联动重拉(allSettled:子目录失败静默,不顶掉主列表)。
+      await Promise.allSettled(
+        [...expandedPaths].map(dirPath =>
+          loadProjectFiles(project.id, dirPath, { force: true }),
+        ),
+      );
     } catch (nextError) {
       setError(
         nextError instanceof Error
@@ -593,6 +632,7 @@ export const FileBrowserScreen: React.FC = () => {
         maxEntries: FULL_LIST_MAX_ENTRIES,
       });
       setRequestedFullList(true);
+      requestedFullListRef.current = true;
     } catch (nextError) {
       setError(
         nextError instanceof Error
@@ -1330,9 +1370,12 @@ export const FileBrowserScreen: React.FC = () => {
         <BottomSheet
           open={Boolean(selectedFile)}
           onClose={() => {
-            cancelPreviewSession();
+            // 只 detach 不取消:在飞上传后台继续(server 幂等),返回重进秒附。
+            previewHandleRef.current?.detach();
+            previewHandleRef.current = null;
             setPreviewPlayingPath('');
             setPreviewUrl('');
+            setPreviewPreparing(null);
             setSelectedPath('');
             setSheetError(null);
           }}
