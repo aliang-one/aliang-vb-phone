@@ -85,7 +85,7 @@ function device(overrides: Partial<Device> = {}): Device {
     lastSeen: 'now',
     remoteTerminalEnabled: true,
     aiControlEnabled: true,
-    capabilities: ['http_tunnel_v1', 'websocket_tunnel_v1'],
+    peerExecEnabled: false,    capabilities: ['http_tunnel_v1', 'websocket_tunnel_v1'],
     tunnelAvailable: true,
     tools: [],
     history: [],

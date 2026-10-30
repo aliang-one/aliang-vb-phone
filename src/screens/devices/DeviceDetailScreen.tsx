@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -522,6 +522,11 @@ export const DeviceDetailScreen: React.FC = () => {
             value={device.capabilities.length ? device.capabilities.join(' / ') : '-'}
           />
           <Fact label="CREATED" value={device.createdAt ?? '-'} />
+          {/*
+            设备互访(peer-link)开关:目标机允许同账号其他设备执行一次性命令。
+            服务端默认关,云端另有 peer ACL + 全量审计;rebind 换属主强制回落。
+          */}
+          <PeerExecToggleRow deviceId={device.id} enabled={device.peerExecEnabled} />
         </CollapsiblePanel>
 
         <CollapsiblePanel
@@ -788,6 +793,51 @@ const Fact: React.FC<{ label: string; value: string }> = ({ label, value }) => {
   );
 };
 
+// 设备互访(peer-link)开关行:目标机侧的总闸(默认关)。切换走
+// setDevicePeerExec(PATCH settings),store 以服务端回包整体替换该设备。
+const PeerExecToggleRow: React.FC<{ deviceId: string; enabled: boolean }> = ({
+  deviceId,
+  enabled,
+}) => {
+  const { theme, isDark } = useTheme();
+  const setDevicePeerExec = useControlCenterStore(state => state.setDevicePeerExec);
+  const [saving, setSaving] = useState(false);
+
+  const handleToggle = async (value: boolean) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await setDevicePeerExec(deviceId, value);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <View
+      style={[
+        styles.peerRow,
+        lowPanelStyle(isDark, theme.colors.surfaceContainerLow),
+      ]}>
+      <View style={styles.peerText}>
+        <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
+          PEER EXEC
+        </Text>
+        <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
+          Allow other devices on this account to run one-shot commands here
+        </Text>
+      </View>
+      <Switch
+        value={enabled}
+        onValueChange={handleToggle}
+        disabled={saving}
+        trackColor={{ false: theme.colors.surfaceContainerHighest, true: theme.colors.primary }}
+        thumbColor={theme.colors.onPrimary}
+      />
+    </View>
+  );
+};
+
 interface EmptyPanelProps {
   title: string;
   body: string;
@@ -910,6 +960,19 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 8,
+    gap: 4,
+  },
+  peerRow: {
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  peerText: {
+    flex: 1,
     gap: 4,
   },
   listPanel: {

@@ -107,7 +107,7 @@ const seedStore = () => {
         lastSeen: 'now',
         remoteTerminalEnabled: true,
         aiControlEnabled: true,
-        capabilities: ['terminal'],
+        peerExecEnabled: false,        capabilities: ['terminal'],
         tools: [],
         history: [],
       },

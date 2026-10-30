@@ -46,7 +46,7 @@ const makeDevice = (id = 'd1'): Device =>
     lastSeen: 'now',
     remoteTerminalEnabled: true,
     aiControlEnabled: true,
-    capabilities: [],
+    peerExecEnabled: false,    capabilities: [],
     tools: [],
   }) as unknown as Device;
 

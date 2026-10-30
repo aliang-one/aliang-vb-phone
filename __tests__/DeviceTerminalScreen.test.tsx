@@ -189,7 +189,7 @@ describe('DeviceTerminalScreen mobile terminal input', () => {
           lastSeen: 'now',
           remoteTerminalEnabled: true,
           aiControlEnabled: true,
-          capabilities: ['terminal'],
+          peerExecEnabled: false,          capabilities: ['terminal'],
           tools: [],
           history: [],
         },

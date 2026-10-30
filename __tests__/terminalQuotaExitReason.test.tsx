@@ -436,7 +436,7 @@ describe('DeviceTerminalScreen quota exit-reason banner', () => {
           lastSeen: 'now',
           remoteTerminalEnabled: true,
           aiControlEnabled: true,
-          capabilities: ['terminal'],
+          peerExecEnabled: false,          capabilities: ['terminal'],
           tools: [],
           history: [],
         },

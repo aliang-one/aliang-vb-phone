@@ -17,7 +17,7 @@ const snapshot = (
     history: [],
     remoteTerminalEnabled: true,
     aiControlEnabled: true,
-    activePorts: [],
+    peerExecEnabled: false,    activePorts: [],
     authorizedDirectories: [],
     projectIds: [],
     raw: {} as PlatformDeviceSnapshot['raw'],
