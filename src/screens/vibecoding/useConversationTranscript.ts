@@ -6,17 +6,18 @@
  * Extracted from VibeCodingSessionScreen to reduce the screen's useMemo sprawl.
  * All derivations are pure projections of session data — no side effects.
  */
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import type {
   AgentMessage,
   StructuredActivityEvent,
   VibeCodingRun,
 } from '../../data/platformModels';
 import {
-  applyStreamingTailWindow,
+  applyStreamingPlainTail,
   buildDisplayTranscript,
 } from '../../utils/agentTranscript';
 import { buildConversationTurns, type ConversationTurn } from '../../utils/conversationTurns';
+import { reuseStablePrefix } from '../../utils/arrayReuse';
 import { buildGoalFolds, type GoalFoldGroup } from '../../utils/goalFolds';
 import { isDeviceLinkReleaseNotice } from '../../utils/conversationTimeline';
 import { hasEarlierForRun } from '../../store/internals';
@@ -62,6 +63,21 @@ export function useConversationTranscript(
 ): ConversationTranscript {
   const { session, targetSessionId, isSessionLive } = input;
 
+  // 流式身份保留(C2)的上一轮缓存:转录条目/回合里除尾条外每轮逐字段
+  // 相同,reuseStablePrefix 让稳定前缀沿用旧对象引用,下游 memo/依赖链
+  // 不再随每 200ms 的重建连锁失效(长会话 O(n) 分配+重渲染底噪的根源)。
+  const reuseRef = useRef<{
+    transcript: ReturnType<typeof buildDisplayTranscript>;
+    turns: ConversationTurn[];
+    transcriptMapSig: string;
+    sourceToDisplayMessageId: Map<string, string>;
+  }>({
+    transcript: [],
+    turns: [],
+    transcriptMapSig: '',
+    sourceToDisplayMessageId: new Map<string, string>(),
+  });
+
   const displayTranscriptSource = useThrottledValue(
     session?.transcript ?? EMPTY_TRANSCRIPT,
     isSessionLive ? LIVE_TRANSCRIPT_RENDER_MS : 0,
@@ -83,9 +99,20 @@ export function useConversationTranscript(
   const transcript = useMemo(
     () => {
       const built = buildDisplayTranscript(visibleDisplaySource);
-      // 流式尾窗:会话活跃时把尾 assistant 气泡的解析钉死到末尾窗口,
-      // 吐字(含积压排空突进)成本恒定;settle 后 0ms 门立即换回全量。
-      return isSessionLive ? applyStreamingTailWindow(built) : built;
+      // 流式纯文本降级:会话活跃时尾 assistant 气泡改走手工纯文本块
+      // (零 markdown 解析),吐字(含积压排空突进)渲染成本 O(1);
+      // settle 后 0ms 门立即换回全量 markdown。再叠稳定前缀复用:
+      // 除尾条外条目沿用上一轮对象引用。
+      const withTail = isSessionLive ? applyStreamingPlainTail(built) : built;
+      // key 必须含哨兵原样参与:流式中哨兵+全文 vs settle 后纯全文,
+      // 两者 key 必须不同,否则 settle 会被前缀复用拦下、气泡停在纯文本。
+      const reused = reuseStablePrefix(
+        reuseRef.current.transcript,
+        withTail,
+        entry => `${entry.id}\u0000${entry.contentKey ?? ''}`,
+      );
+      reuseRef.current.transcript = reused;
+      return reused;
     },
     [visibleDisplaySource, isSessionLive],
   );
@@ -113,6 +140,15 @@ export function useConversationTranscript(
   }, [activityEventsByMessageId]);
 
   const sourceToDisplayMessageId = useMemo(() => {
+    // 签名守卫:该映射只由条目 id/role/sourceMessageIds 决定,尾泡内容增长
+    // 不改映射——签名(长度+首尾 id)不变时复用上一轮 Map,下游
+    // activityEventsByDisplayMessageId 链随之在纯文本流式期间保持稳定。
+    const sig = `${transcript.length}:${transcript[0]?.id ?? ''}:${
+      transcript[transcript.length - 1]?.id ?? ''
+    }`;
+    if (reuseRef.current.transcriptMapSig === sig) {
+      return reuseRef.current.sourceToDisplayMessageId;
+    }
     const bySourceId = new Map<string, string>();
     for (const message of transcript) {
       if (message.role !== 'assistant') continue;
@@ -120,6 +156,8 @@ export function useConversationTranscript(
         bySourceId.set(sourceId, message.id);
       }
     }
+    reuseRef.current.transcriptMapSig = sig;
+    reuseRef.current.sourceToDisplayMessageId = bySourceId;
     return bySourceId;
   }, [transcript]);
 
@@ -136,7 +174,22 @@ export function useConversationTranscript(
   }, [activityEventsByMessageId, sourceToDisplayMessageId]);
 
   const conversationTurns = useMemo(
-    () => buildConversationTurns(transcript),
+    () => {
+      const built = buildConversationTurns(transcript);
+      // 回合身份保留:回合 key = id + 消息数 + 尾消息 contentKey,只有尾
+      // 回合随流式变化,历史回合整对象复用(其 messages 内的转录条目已被
+      // 上一步复用,引用链全稳定)。
+      const reused = reuseStablePrefix(
+        reuseRef.current.turns,
+        built,
+        turn =>
+          `${turn.id}\u0000${turn.messages.length}\u0000${
+            turn.messages[turn.messages.length - 1]?.contentKey ?? ''
+          }`,
+      );
+      reuseRef.current.turns = reused;
+      return reused;
+    },
     [transcript],
   );
 

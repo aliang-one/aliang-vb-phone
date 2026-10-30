@@ -177,49 +177,69 @@ const appendSegments = (
   target.contentKey = `${target.contentKey ?? ''}${message.content ?? ''}`;
 };
 
-// —— 流式尾窗(吐字卡死修复,2026-10-29)——
+// —— 流式纯文本降级(吐字卡死修复 C1-2,2026-10-30)——
 // 流式期间 store 每 100ms flush 换一次尾消息对象 → segmentCache(WeakMap 按
 // 对象身份)必然 miss → 每 200ms 对整段增长后的全文重 parse + 整棵 markdown
-// 树重渲染,成本随消息长度无界;服务端积压排空时一次突进几十 KB 更是把 JS
-// 线程打满(吐字过程"卡死")。会话活跃时把尾气泡的解析钉死到末尾窗口:
-// 成本 O(window) 恒定,settle 后(useConversationTranscript 关掉尾窗)全量换回。
-export const LIVE_TAIL_ENGAGE_CHARS = 6000;
+// 树重渲染,成本随消息长度无界。首版「尾窗 markdown」只兜住 >12KB 的消息,
+// 典型 2-6KB 回答仍每帧全量重排。现改为:会话活跃时尾 assistant 气泡直接
+// 降级纯文本——手工构造 paragraph 块(按 '\n\n' 切段,零解析、零 inline
+// 树),成本 O(1) 构造 + 单层 Text 布局;settle 后 0ms 发布门换回完整
+// markdown。超窗仍折叠到末尾窗口(纯文本下折叠无附加视觉损失,还省掉
+// 巨长单 Text 的整帧布局)。
+export const LIVE_PLAIN_ENGAGE_CHARS = 800;
 export const LIVE_TAIL_WINDOW_CHARS = 12000;
-// 尾窗条目的 contentKey 哨兵前缀:气泡 React.memo 比较器只认 contentKey 变化,
-// 不打哨兵的话 settle 全量解析(contentKey 回到原文)会被判等拦下,
-// 气泡永远停在尾窗。
+// 纯文本条目的 contentKey 哨兵前缀:气泡 React.memo 比较器只认 contentKey
+// 变化,不打哨兵的话 settle 全量解析(contentKey 回到原文)会被判等拦下,
+// 气泡永远停在纯文本降级态。
 export const STREAMING_TAIL_CONTENTKEY_PREFIX = '\u0000tail-window\u0000';
-const STREAMING_TAIL_MARKER = '*……前文已折叠(流式中)*';
+const STREAMING_TAIL_MARKER = '……前文已折叠(流式中)';
+
+/** 手工构造纯文本 paragraph 块(按空行切段,无任何 markdown 解析)。 */
+const plainParagraphBlocks = (
+  content: string,
+): TranscriptTextSegment['blocks'] =>
+  content
+    .split(/\n{2,}/)
+    .map(paragraph => paragraph.trim())
+    .filter(Boolean)
+    .map(paragraph => ({
+      kind: 'paragraph' as const,
+      children: [{ kind: 'text' as const, content: paragraph }],
+    }));
 
 /**
- * 会话活跃期间,把末尾 assistant 气泡的解析收敛到内容末尾
- * {@link LIVE_TAIL_WINDOW_CHARS} 字符窗口(非 assistant 尾条、内容不足、或
- * 窗口起点落在段首——即折叠只会丢内容的情形——原引用返回,零开销)。
+ * 会话活跃期间,把末尾 assistant 气泡降级为纯文本渲染(≤
+ * {@link LIVE_TAIL_WINDOW_CHARS} 全文直出;超出折叠到末尾窗口并带
+ * {@link STREAMING_TAIL_MARKER} 提示;≤{@link LIVE_PLAIN_ENGAGE_CHARS} 的
+ * 短气泡与非 assistant 尾条原引用返回,零开销)。
  *
  * 返回新数组:被替换的只有尾条目,历史条目引用原样保留;尾条目的
  * id/sourceMessageIds/timestamp 不变(scrubber/活动事件挂载不受影响),
- * 仅 segments 换成尾窗解析结果、contentKey 打上
+ * 仅 segments 换成纯文本块、contentKey 打上
  * {@link STREAMING_TAIL_CONTENTKEY_PREFIX} 哨兵。
  */
-export const applyStreamingTailWindow = (
+export const applyStreamingPlainTail = (
   transcript: DisplayTranscriptMessage[],
   windowChars: number = LIVE_TAIL_WINDOW_CHARS,
-  engageChars: number = LIVE_TAIL_ENGAGE_CHARS,
+  engageChars: number = LIVE_PLAIN_ENGAGE_CHARS,
 ): DisplayTranscriptMessage[] => {
   const index = transcript.length - 1;
   const last = transcript[index];
   if (!last || last.role !== 'assistant') return transcript;
   const content = last.contentKey ?? '';
-  // 实际生效阈值 ≈ window:窗口起点为 0 时折叠只会丢开头,不值得。
   if (content.length <= engageChars) return transcript;
-  const windowStart = content.length - windowChars;
-  if (windowStart <= 0) return transcript;
 
-  // 切点:从窗口起点向后找第一个段落边界('\n\n'),找不到(单一长代码块
-  // 等无空行内容)才原地硬切。尾窗从完整段落开头开始,不切半个词。
-  const boundary = content.indexOf('\n\n', windowStart);
-  const tailBody =
-    boundary === -1 ? content.slice(windowStart) : content.slice(boundary + 2);
+  // 超窗:从窗口起点向后找第一个段落边界('\n\n')切尾窗,从完整段落开头
+  // 开始,不切半个词;无边界(单一长代码块等)才原地硬切。
+  let tailBody = content;
+  const windowStart = content.length - windowChars;
+  if (windowStart > 0) {
+    const boundary = content.indexOf('\n\n', windowStart);
+    tailBody =
+      boundary === -1
+        ? content.slice(windowStart)
+        : content.slice(boundary + 2);
+  }
 
   // 与前文段 id 去重:被替换条目自己的段除外(同名段让位加 :dup,防 React
   // key 撞——同消息双副本/折叠气泡持有同 id 段的场景)。
@@ -228,15 +248,27 @@ export const applyStreamingTailWindow = (
     for (const segment of entry.segments) usedSegmentIds.add(segment.id);
   }
 
-  // 折叠提示独立解析(id 用 :tailmark 命名空间),与尾窗正文各自成段,
-  // 互不合并、也不占用正文段 id。
-  const segments = uniquifySegments(
-    [
-      ...parseMessageContentSegments(`${last.id}:tailmark`, STREAMING_TAIL_MARKER),
-      ...parseMessageContentSegments(last.id, tailBody),
-    ],
-    usedSegmentIds,
-  );
+  const plainSegment: TranscriptTextSegment = {
+    id: `${last.id}:plaintail`,
+    kind: 'text',
+    content: tailBody,
+    blocks: plainParagraphBlocks(tailBody),
+  };
+  const segments: TranscriptSegment[] =
+    windowStart > 0
+      ? uniquifySegments(
+          [
+            {
+              id: `${last.id}:tailmark`,
+              kind: 'text',
+              content: STREAMING_TAIL_MARKER,
+              blocks: plainParagraphBlocks(STREAMING_TAIL_MARKER),
+            },
+            plainSegment,
+          ],
+          usedSegmentIds,
+        )
+      : uniquifySegments([plainSegment], usedSegmentIds);
 
   const replaced: DisplayTranscriptMessage = {
     ...last,
