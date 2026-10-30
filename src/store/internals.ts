@@ -17,7 +17,12 @@ import { sameRemotePath } from '../utils/remotePath';
 import { normalizeFileStatus } from '../utils/fileStatus';
 import { isClaudeCodeMetaUserContent } from '../utils/agentTranscript';
 import { countServerConfirmedMessages } from '../utils/sessionCatchUp';
-import { isApprovalLikeLegacyStatus } from '../utils/sessionPhase';
+import {
+  isActiveDisplayPhase,
+  isApprovalLikeLegacyStatus,
+  runDisplayPhase,
+  userMessageTimestampMs,
+} from '../utils/sessionPhase';
 import { decodeTerminalData } from '../utils/terminalOutput';
 import {
   platformTransport,
@@ -1183,21 +1188,57 @@ export function mergeVibeRunSnapshot(
         existing.goalSummary.state === incoming.goalSummary.state
         ? existing.goalSummary
         : incoming.goalSummary;
+  // 合并后的权威相位字段(status / phase / runState / version)只推一遍:下面的
+  // 排序锚点必须和最终留下来的相位一致,若在 return 里再推第二次,两边 reject
+  // 判据一旦漂移,锚点就会在陈旧快照到来时被错误清空/改写。
+  const mergedStatus = rejectIncomingState ? existing.status : incoming.status;
+  const mergedPhase = rejectIncomingState ? existing.phase : incoming.phase;
+  const mergedRunState = rejectIncomingState
+    ? existing.runState
+    : incoming.runState;
+  const mergedRunStateVersion = rejectIncomingState
+    ? existing.runStateVersion
+    : incoming.runStateVersion;
+  const mergedLastUserMessage = lastUserMessageOf(
+    transcript,
+    incoming.lastUserMessage ?? existing.lastUserMessage,
+  );
+  // 回合起点锚(纯排序用,见 platformModels.turnStartedAtMs / sessionPhase
+  // stableSessionSortMs)。三级取值:
+  //  1. 真实提问时刻 —— 权威,新回合的提问会直接改写它;
+  //  2. 已冻结的旧锚点 —— 回合内保持不变,于是 AI 每吐一跳都推不动排序键;
+  //  3. 该回合活动时间 —— 首次观测就落在回合中间时(冷启动 / TUI 发起的会话,
+  //     列表快照不带 transcript、last_message 已是 AI 回复)的近似起点。
+  // 回合结束(非置顶区)一律清空,下一回合重新盖章 —— 否则一个已结算会话
+  // 再次被激活时会继承上一回合的陈旧锚点。
+  const mergedIsActive = isActiveDisplayPhase(
+    runDisplayPhase(
+      mergedStatus,
+      mergedPhase,
+      mergedRunStateVersion,
+      mergedRunState,
+    ),
+  );
+  const turnStartedAtMs =
+    userMessageTimestampMs(mergedLastUserMessage) ??
+    (mergedIsActive
+      ? existing.turnStartedAtMs ??
+        (lastActivityMs > 0 ? lastActivityMs : undefined)
+      : undefined);
   return {
     ...existing,
     ...incoming,
-    status: rejectIncomingState ? existing.status : incoming.status,
+    status: mergedStatus,
     // Apply the SAME stale guard to the server-authoritative phase: when we
     // reject a snapshot's status demotion/reactivation as stale, also reject
     // its phase (a stale 'completed' must not leak onto a session we know is
     // running, and vice versa). A fresh snapshot's phase always wins.
-    phase: rejectIncomingState ? existing.phase : incoming.phase,
+    phase: mergedPhase,
     activeRunId: rejectIncomingState ? existing.activeRunId : incoming.activeRunId,
     latestRunId: rejectIncomingState ? existing.latestRunId : incoming.latestRunId,
-    runState: rejectIncomingState ? existing.runState : incoming.runState,
-    runStateVersion: rejectIncomingState
-      ? existing.runStateVersion
-      : incoming.runStateVersion,
+    runState: mergedRunState,
+    runStateVersion: mergedRunStateVersion,
+    turnStartedAtMs,
     // executor 是老 server 不认识的字段：老服务端/部分载荷不带它时保留已知值，
     // 否则一次列表快照就能把「这是 TUI 运行」抹掉，composer 又会误开插话。
     // 新 server 每次运行开始都会显式下发 'tui'|'spawn'，切换执行器时照常覆盖。
@@ -1271,10 +1312,7 @@ export function mergeVibeRunSnapshot(
     // Re-derive from the merged transcript so a freshly-loaded history (or a
     // just-appended user turn) updates the "最新提问" preview; otherwise keep the
     // last known value so a transcript-less list snapshot doesn't blank it.
-    lastUserMessage: lastUserMessageOf(
-      transcript,
-      incoming.lastUserMessage ?? existing.lastUserMessage,
-    ),
+    lastUserMessage: mergedLastUserMessage,
     // Preserve the bound CLI session id (Claude uuid) across merges: a
     // transcript-less list snapshot omits it, so keep the last known value
     // rather than letting the spread wipe it.

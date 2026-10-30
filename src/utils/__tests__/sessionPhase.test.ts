@@ -228,6 +228,114 @@ describe('compareSessionsByStableActivity (并发心跳不重排列表)', () => 
   });
 });
 
+describe('stableSessionSortMs — 进行中按「用户提问时刻」排(2026-10-30 手机端用户要求)', () => {
+  const activeRun = (over: Partial<VibeCodingRun>) =>
+    ({
+      id: 'x',
+      status: 'running',
+      phase: 'running',
+      runState: 'running',
+      runStateVersion: 1,
+      transcript: [],
+      events: [],
+      structuredEvents: [],
+      lastActivityMs: 0,
+      ...over,
+    }) as VibeCodingRun;
+
+  const userMessage = (timestamp: string): VibeCodingRun['lastMessage'] => ({
+    id: `u-${timestamp}`,
+    role: 'user',
+    content: '提问',
+    timestamp,
+  });
+
+  it('AI 回复继续推进(lastActivityMs / lastMessage 前进)也不动进行中会话的排序键', () => {
+    const run = activeRun({
+      lastActivityMs: 9_000,
+      lastMessage: {
+        id: 'a1',
+        role: 'assistant',
+        content: '回答',
+        timestamp: '2026-07-12T03:00:00.000Z',
+      },
+      turnStartedAtMs: Date.parse('2026-07-12T01:00:00.000Z'),
+    });
+    expect(stableSessionSortMs(run)).toBe(Date.parse('2026-07-12T01:00:00.000Z'));
+
+    // 再吐一跳:delta flush 把活动时间和最后一条消息都推到更晚
+    const afterAnswer = activeRun({
+      ...run,
+      lastActivityMs: 99_000,
+      lastMessage: {
+        id: 'a2',
+        role: 'assistant',
+        content: '继续回答',
+        timestamp: '2026-07-12T03:30:00.000Z',
+      },
+    });
+    expect(stableSessionSortMs(afterAnswer)).toBe(stableSessionSortMs(run));
+  });
+
+  it('没有真实提问时**不**回退到 AI 的 lastMessage 时间(旧实现的漂移根源)', () => {
+    const run = activeRun({
+      lastActivityMs: 5_000,
+      lastMessage: {
+        id: 'a1',
+        role: 'assistant',
+        content: '回答',
+        timestamp: '2026-07-12T03:00:00.000Z',
+      },
+    });
+    // 取不到提问时刻 → 用活动时间兜底,绝不用 AI 消息时间
+    expect(stableSessionSortMs(run)).toBe(5_000);
+  });
+
+  it('真实提问时刻优先于冻结锚点:新提问立刻改写排序键', () => {
+    const run = activeRun({
+      lastActivityMs: 9_000,
+      turnStartedAtMs: Date.parse('2026-07-12T01:00:00.000Z'),
+      lastUserMessage: userMessage('2026-07-12T05:00:00.000Z'),
+    });
+    expect(stableSessionSortMs(run)).toBe(Date.parse('2026-07-12T05:00:00.000Z'));
+  });
+
+  it('提问早但 AI 答案新的进行中会话,仍排在提问晚的后面', () => {
+    const askedEarlier = activeRun({
+      id: 'earlier',
+      lastActivityMs: 99_000, // AI 刚刚才回答
+      lastUserMessage: userMessage('2026-07-12T01:00:00.000Z'),
+    });
+    const askedLater = activeRun({
+      id: 'later',
+      lastActivityMs: 1_000, // AI 很久没动静
+      lastUserMessage: userMessage('2026-07-12T02:00:00.000Z'),
+    });
+    expect(
+      [askedEarlier, askedLater].sort(compareSessionsByStableActivity).map(r => r.id),
+    ).toEqual(['later', 'earlier']);
+
+    // AI 又答了 earlier 一轮,顺序不许变
+    const earlierAnsweredAgain = { ...askedEarlier, lastActivityMs: 123_456 };
+    expect(
+      [earlierAnsweredAgain, askedLater].sort(compareSessionsByStableActivity).map(r => r.id),
+    ).toEqual(['later', 'earlier']);
+  });
+
+  it('已结算会话不受锚点影响,仍按真实活动时间排(最近聊过的在前)', () => {
+    const completed = activeRun({
+      id: 'done',
+      status: 'completed',
+      phase: 'completed',
+      runState: 'completed',
+      lastActivityMs: 7_000,
+      turnStartedAtMs: 1_000,
+      lastUserMessage: userMessage('2026-07-12T01:00:00.000Z'),
+    });
+    expect(stableSessionSortMs(completed)).toBe(7_000);
+  });
+});
+
 describe('liveAssistantMessageId (live 回合信号)', () => {
   const transcript = [
     { id: 'u1', role: 'user' },

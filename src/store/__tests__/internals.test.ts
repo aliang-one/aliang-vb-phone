@@ -922,6 +922,67 @@ describe('mergeVibeRunSnapshot — snapshot 的 detailRefreshStatus 重 resolve 
   });
 });
 
+describe('mergeVibeRunSnapshot — 回合起点锚 turnStartedAtMs(列表排序不随 AI 消息重排)', () => {
+  it('进行中但拿不到真实提问 → 以该回合已知活动时间为锚(不凭空造 now())', () => {
+    const existing = makeRun({ id: 's', status: 'running', lastActivityMs: 1_000 });
+    const snap = makeRun({ id: 's', status: 'running', lastActivityMs: 2_000 });
+    expect(mergeVibeRunSnapshot(existing, snap).turnStartedAtMs).toBe(2_000);
+  });
+
+  it('回合内 AI 活动继续推进 → 锚点冻结不变(AI 消息推不动排序键)', () => {
+    const existing = makeRun({
+      id: 's',
+      status: 'running',
+      lastActivityMs: 1_000,
+      turnStartedAtMs: 1_000,
+    });
+    const snap = makeRun({ id: 's', status: 'running', lastActivityMs: 5_000 });
+    expect(mergeVibeRunSnapshot(existing, snap).turnStartedAtMs).toBe(1_000);
+  });
+
+  it('新用户提问 → 锚点改写为提问时刻', () => {
+    const existing = makeRun({
+      id: 's',
+      status: 'running',
+      lastActivityMs: 1_000,
+      turnStartedAtMs: 1_000,
+    });
+    const snap = makeRun({
+      id: 's',
+      status: 'running',
+      lastActivityMs: 9_000,
+      lastUserMessage: {
+        id: 'u2',
+        role: 'user',
+        content: '新问题',
+        timestamp: '2026-07-12T05:00:00.000Z',
+      },
+    });
+    expect(mergeVibeRunSnapshot(existing, snap).turnStartedAtMs).toBe(
+      Date.parse('2026-07-12T05:00:00.000Z'),
+    );
+  });
+
+  it('回合结算(completed)→ 清空锚点,下一回合重新盖章', () => {
+    const existing = makeRun({
+      id: 's',
+      status: 'running',
+      runState: 'running',
+      runStateVersion: 1,
+      lastActivityMs: 1_000,
+      turnStartedAtMs: 1_000,
+    });
+    const snap = makeRun({
+      id: 's',
+      status: 'completed',
+      runState: 'completed',
+      runStateVersion: 2,
+      lastActivityMs: 9_000,
+    });
+    expect(mergeVibeRunSnapshot(existing, snap).turnStartedAtMs).toBeUndefined();
+  });
+});
+
 describe('serverAiSessionToVibeRun — 最新提问跳过 CC meta 行', () => {
   const makeSnapshot = (transcript: unknown[]) =>
     ({
