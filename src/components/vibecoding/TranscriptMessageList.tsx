@@ -697,7 +697,8 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
     // 片：盾形徽标 + i18n 标题 + 待处理徽章（单选/多选区分），不再是通用
     // 警示框。其余 callout 保持原样。
     if (segment.variant === 'approval') {
-      const multi = segment.multi === true;
+      const card = segment.optionCard;
+      const multi = card ? card.multi : segment.multi === true;
       return (
         <View
           key={segment.id}
@@ -740,9 +741,151 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
               style={styles.approvalStatusChip}
             />
           </View>
-          <View style={styles.calloutContent}>
-            {renderMarkdownBlocks(segment.blocks, segment.id)}
-          </View>
+          {card ? (
+            <>
+              {card.header ? (
+                <Text
+                  selectable
+                  style={[
+                    theme.typography.labelCaps,
+                    styles.approvalEyebrow,
+                    { color: theme.colors.primary },
+                  ]}
+                >
+                  {card.header}
+                </Text>
+              ) : null}
+              <Text
+                selectable
+                style={[
+                  theme.typography.titleMd,
+                  styles.approvalCardTitle,
+                  { color: theme.colors.onSurface },
+                ]}
+              >
+                {card.title}
+              </Text>
+              {card.summary ? (
+                <Text
+                  selectable
+                  style={[
+                    theme.typography.bodySm,
+                    styles.approvalSummary,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {card.summary}
+                </Text>
+              ) : null}
+              <View style={styles.approvalOptionList}>
+                {card.options.map((option, index) => {
+                  const previewKey = `${segment.id}:pv:${index}`;
+                  const previewsOpen = Boolean(expanded[previewKey]);
+                  return (
+                    <View
+                      key={option.id || index}
+                      style={[
+                        styles.approvalOptionRow,
+                        {
+                          backgroundColor: isDark
+                            ? 'rgba(255,255,255,0.04)'
+                            : theme.colors.surfaceContainerLow,
+                          borderColor: isDark
+                            ? 'rgba(255,255,255,0.08)'
+                            : theme.colors.outlineVariant,
+                        },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.approvalOptionGlyph,
+                          {
+                            borderColor: theme.colors.onSurfaceVariant,
+                          },
+                        ]}
+                      />
+                      <View style={styles.approvalOptionBody}>
+                        <Text
+                          selectable
+                          style={[
+                            theme.typography.bodyMd,
+                            { color: theme.colors.onSurface },
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                        {option.description ? (
+                          <Text
+                            selectable
+                            style={[
+                              theme.typography.bodySm,
+                              styles.approvalOptionDesc,
+                              { color: theme.colors.onSurfaceVariant },
+                            ]}
+                          >
+                            {option.description}
+                          </Text>
+                        ) : null}
+                        {option.previews?.length ? (
+                          <>
+                            <TouchableOpacity
+                              accessibilityRole="button"
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              onPress={() => toggleSegment(previewKey)}
+                              style={styles.approvalPreviewToggle}
+                            >
+                              <Text
+                                style={[
+                                  theme.typography.labelSm,
+                                  { color: theme.colors.onSurfaceVariant },
+                                ]}
+                              >
+                                {previewsOpen
+                                  ? t('transcript.approvalPreviewsHide')
+                                  : t('transcript.approvalPreviewsShow', {
+                                      total: option.previews.length,
+                                    })}
+                              </Text>
+                            </TouchableOpacity>
+                            {previewsOpen ? (
+                              <View
+                                style={[
+                                  styles.approvalPreviewBlock,
+                                  {
+                                    backgroundColor: isDark
+                                      ? 'rgba(0,0,0,0.35)'
+                                      : theme.colors.surface,
+                                  },
+                                ]}
+                              >
+                                {option.previews.map((line, lineIndex) => (
+                                  <Text
+                                    key={lineIndex}
+                                    selectable
+                                    style={[
+                                      theme.typography.codeSm,
+                                      styles.approvalPreviewLine,
+                                      { color: theme.colors.onSurface },
+                                    ]}
+                                  >
+                                    {line}
+                                  </Text>
+                                ))}
+                              </View>
+                            ) : null}
+                          </>
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            </>
+          ) : (
+            <View style={styles.calloutContent}>
+              {renderMarkdownBlocks(segment.blocks, segment.id)}
+            </View>
+          )}
         </View>
       );
     }
@@ -1838,6 +1981,58 @@ const styles = StyleSheet.create({
   },
   approvalStatusChip: {
     marginLeft: 'auto',
+  },
+  // v2 结构化选项卡(optionCard 直通渲染;label 原样,不过 markdown 管线)
+  approvalEyebrow: {
+    marginBottom: 2,
+  },
+  approvalCardTitle: {
+    marginBottom: 4,
+  },
+  approvalSummary: {
+    marginBottom: 8,
+  },
+  approvalOptionList: {
+    gap: 8,
+  },
+  approvalOptionRow: {
+    minHeight: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  approvalOptionGlyph: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    marginTop: 3,
+  },
+  approvalOptionBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  approvalOptionDesc: {
+    marginTop: 2,
+  },
+  approvalPreviewToggle: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    minHeight: 28,
+    justifyContent: 'center',
+  },
+  approvalPreviewBlock: {
+    marginTop: 6,
+    borderRadius: 4,
+    padding: 8,
+    gap: 2,
+  },
+  approvalPreviewLine: {
+    // 逐行原样渲染;numberOfLines 不设,折叠槽自身承担展开/收起
   },
   taskCard: {
     borderRadius: 10,

@@ -228,6 +228,8 @@ export interface ApprovalOption {
   label: string;
   description?: string;
   response?: string;
+  // v2:每选项预览行(≤8×200,server 已钳制);仅展示,不进作答。
+  previews?: string[];
 }
 
 export interface ApprovalRequest {
@@ -251,6 +253,12 @@ export interface ApprovalRequest {
   interactionId?: string;
   toolInput?: Record<string, unknown>;
   expiresAt?: number;
+  // v2 aliang-options 协议字段(server 透传;v1 块缺省)。multi=true 的卡
+  // 走勾选多选 + selectedOptionIds 数组作答;header 为卡片眉题。
+  multi?: boolean;
+  allowCustom?: boolean;
+  header?: string;
+  version?: number;
 }
 
 export interface PushNotificationItem {
@@ -740,7 +748,12 @@ export interface ControlCenterState {
   resolveApproval: (
     approvalId: string,
     decision: 'approved' | 'denied',
-    options?: { selectedOptionId?: string; message?: string },
+    options?: {
+      selectedOptionId?: string;
+      /** v2 多选:multi 卡传 id 数组(按选项声明顺序)。 */
+      selectedOptionIds?: string[];
+      message?: string;
+    },
   ) => Promise<void>;
   loadApprovalHistory: (options?: { reset?: boolean }) => Promise<void>;
   loadNotificationHistory: (options?: { reset?: boolean }) => Promise<void>;

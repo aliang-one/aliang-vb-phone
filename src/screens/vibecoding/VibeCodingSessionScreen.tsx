@@ -17,6 +17,7 @@ import {
   Alert,
   ScrollView,
   TouchableOpacity,
+  Pressable,
 
 
 } from 'react-native';
@@ -796,6 +797,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
     id: string;
     decision: 'approved' | 'denied';
   } | null>(null);
+  // v2 选择卡两步制本地态:approvalId → 已勾选项 id(点击序;提交时按选项
+  // 声明顺序重排)。单选/多选同一张表。提交后清空;失败保留重试(graft ④)。
+  const [approvalSelections, setApprovalSelections] = useState<
+    Record<string, string[]>
+  >({});
+  // 选项行 previews 折叠槽 + summary 折叠(graft ①),同一张开关表。
+  const [approvalExpansions, setApprovalExpansions] = useState<
+    Record<string, boolean>
+  >({});
   // Quick approval-policy sheet ("更多" on a pending approval card). Holds the
   // approval id that should be auto-approved alongside the policy switch, plus
   // the raw tool name (so the sheet can show MCP namespace tiers when relevant).
@@ -1823,15 +1833,31 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const handleResolveApproval = (
     approvalId: string,
     decision: 'approved' | 'denied',
-    options?: { selectedOptionId?: string; message?: string },
+    options?: {
+      selectedOptionId?: string;
+      selectedOptionIds?: string[];
+      message?: string;
+    },
   ) => {
     if (deviceOffline || resolvingApproval) return;
     setResolvingApproval({ id: approvalId, decision });
     void resolveApproval(approvalId, decision, options)
       .catch(error => {
         console.warn('[vibecoding] failed to resolve approval', error);
+        // 提交失败:保留本地选中态,用户零成本重试(graft ④)。
+        return;
       })
-      .finally(() => setResolvingApproval(null));
+      .finally(() => {
+        setResolvingApproval(null);
+        if (decision === 'approved') {
+          setApprovalSelections(current => {
+            if (!current[approvalId]) return current;
+            const next = { ...current };
+            delete next[approvalId];
+            return next;
+          });
+        }
+      });
   };
 
   // Hooks that USED to sit after the `if (!session)` early return below. That
@@ -2332,7 +2358,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
             </Text>
           </View>
           <StatusChip
-            label={approval.status.toUpperCase()}
+            label={
+              pending
+                ? t('session.approval.statusPending')
+                : approval.status === 'approved'
+                ? t('session.approval.statusApproved')
+                : t('session.approval.statusDenied')
+            }
             type={
               pending
                 ? 'warning'
@@ -2346,14 +2378,27 @@ export const VibeCodingSessionScreen: React.FC = () => {
             <ApprovalCountdownBadge expiresAt={approval.expiresAt} />
           )}
         </View>
-        <Text
-          style={[
-            theme.typography.bodySm,
-            { color: theme.colors.onSurfaceVariant },
-          ]}
-        >
-          {approval.summary}
-        </Text>
+        {/* summary 折叠(graft ①):默认 4 行,点按展开/收起——治「长 summary
+            把操作区推到折叠屏外」;Text 保持 selectable,长按选择不受影响。 */}
+        <Pressable onPress={() =>
+          setApprovalExpansions(current => ({
+            ...current,
+            [`${approval.id}:summary`]: !current[`${approval.id}:summary`],
+          }))
+        }>
+          <Text
+            selectable
+            numberOfLines={
+              approvalExpansions[`${approval.id}:summary`] ? undefined : 4
+            }
+            style={[
+              theme.typography.bodySm,
+              { color: theme.colors.onSurfaceVariant },
+            ]}
+          >
+            {approval.summary}
+          </Text>
+        </Pressable>
         {approval.command ? (
           <Text
             selectable
@@ -2388,65 +2433,241 @@ export const VibeCodingSessionScreen: React.FC = () => {
             {t('session.approval.pendingSyncHint')}
           </Text>
         ) : pending && optionChoices.length ? (
-          <View style={styles.approvalOptionActions}>
-            {optionChoices.map(option => {
-              const optionDecision =
-                option.id === 'deny' ? 'denied' : 'approved';
-              return (
-                <GlowButton
-                  key={option.id}
-                  title={option.label.toUpperCase()}
-                  onPress={() =>
-                    handleResolveApproval(approval.id, optionDecision, {
-                      selectedOptionId: option.id,
-                      message: option.response,
-                    })
-                  }
-                  variant={optionDecision === 'denied' ? 'outline' : 'primary'}
-                  loading={resolving}
-                  disabled={deviceOffline || Boolean(
-                    resolvingApproval && resolvingApproval.id !== approval.id,
-                  )}
-                  style={
-                    optionDecision === 'denied'
-                      ? styles.approvalOptionAction
-                      : styles.approvalOptionActionApprove
-                  }
-                />
-              );
-            })}
-            <View style={styles.approvalMoreRow}>
-              <TouchableOpacity
-                accessibilityRole="button"
-                disabled={deviceOffline || Boolean(resolvingApproval)}
-                onPress={() => setQuickPolicyFor({ approvalId: approval.id, toolName: approval.toolName })}
-                style={styles.approvalMoreLink}
-              >
-                <Text
-                  style={[
-                    theme.typography.labelCaps,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}
-                >
-                  {t('session.approval.moreActions')} ⋯
-                </Text>
-              </TouchableOpacity>
-            </View>
-            {(approval.kind === 'client_response' || approval.kind === 'tool_ask') && (
-              <ApprovalCustomReply
-                approvalId={approval.id}
-                triggerLabel={t('session.approval.customReply')}
-                placeholder={t('session.approval.customReplyPlaceholder')}
-                sendLabel={t('session.approval.customReplySend')}
-                disabled={deviceOffline || Boolean(resolvingApproval)}
-                sessionId={session?.id}
-                projectPath={session?.directory}
-                onSend={msg =>
-                  handleResolveApproval(approval.id, 'approved', { message: msg })
-                }
-              />
-            )}
-          </View>
+          (() => {
+            // v2 两步制:点行=本地选中(不发请求),底部操作条=提交。修掉
+            // 「单点即发」误触;label 原样渲染(禁 toUpperCase/markdown)。
+            const multi = approval.multi === true;
+            const selectedIds = approvalSelections[approval.id] ?? [];
+            const orderedSelection = optionChoices
+              .filter(option => selectedIds.includes(option.id))
+              .map(option => option.id);
+            const selectionDecision =
+              !multi &&
+              optionChoices.find(option => option.id === orderedSelection[0])
+                ?.id === 'deny'
+                ? 'denied'
+                : 'approved';
+            const busy =
+              deviceOffline ||
+              Boolean(resolvingApproval && resolvingApproval.id !== approval.id);
+            return (
+              <View style={styles.approvalOptionActions}>
+                <View style={styles.approvalOptionList}>
+                  {optionChoices.map(option => {
+                    const isDeny = option.id === 'deny';
+                    const selected = selectedIds.includes(option.id);
+                    const accent = isDeny ? theme.colors.error : theme.colors.primary;
+                    const previewKey = `${approval.id}:pv:${option.id}`;
+                    const previewsOpen = Boolean(approvalExpansions[previewKey]);
+                    return (
+                      <TouchableOpacity
+                        key={option.id}
+                        accessibilityRole={multi ? 'checkbox' : 'radio'}
+                        accessibilityState={{ selected }}
+                        disabled={busy}
+                        activeOpacity={0.8}
+                        style={[
+                          styles.approvalOptionRow,
+                          {
+                            backgroundColor: selected
+                              ? isDeny
+                                ? 'rgba(241, 76, 76, 0.10)'
+                                : isDark
+                                ? 'rgba(86, 156, 214, 0.14)'
+                                : 'rgba(0, 81, 174, 0.08)'
+                              : isDark
+                              ? 'rgba(255, 255, 255, 0.04)'
+                              : theme.colors.surfaceContainerLow,
+                            borderColor: selected
+                              ? accent
+                              : isDark
+                              ? 'rgba(255, 255, 255, 0.08)'
+                              : theme.colors.outlineVariant,
+                          },
+                        ]}
+                        onPress={() => {
+                          setApprovalSelections(current => {
+                            const currentIds = current[approval.id] ?? [];
+                            if (multi) {
+                              return {
+                                ...current,
+                                [approval.id]: selected
+                                  ? currentIds.filter(id => id !== option.id)
+                                  : [...currentIds, option.id],
+                              };
+                            }
+                            // 单选:独占选中;再点同一行不取消(防误丢已选)。
+                            return { ...current, [approval.id]: [option.id] };
+                          });
+                        }}
+                      >
+                        <View
+                          style={[
+                            multi
+                              ? styles.approvalOptionCheck
+                              : styles.approvalOptionRadio,
+                            { borderColor: selected ? accent : theme.colors.onSurfaceVariant },
+                          ]}
+                        >
+                          {selected ? (
+                            <View
+                              style={[
+                                styles.approvalOptionGlyphDot,
+                                { backgroundColor: accent },
+                              ]}
+                            />
+                          ) : null}
+                        </View>
+                        <View style={styles.approvalOptionBody}>
+                          <Text
+                            selectable
+                            style={[
+                              theme.typography.bodyMd,
+                              { color: selected ? accent : theme.colors.onSurface },
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                          {option.description ? (
+                            <Text
+                              selectable
+                              style={[
+                                theme.typography.bodySm,
+                                styles.approvalOptionDesc,
+                                { color: theme.colors.onSurfaceVariant },
+                              ]}
+                            >
+                              {option.description}
+                            </Text>
+                          ) : null}
+                          {option.previews?.length ? (
+                            <>
+                              <TouchableOpacity
+                                accessibilityRole="button"
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                disabled={busy}
+                                style={styles.approvalPreviewToggle}
+                                onPress={() =>
+                                  setApprovalExpansions(current => ({
+                                    ...current,
+                                    [previewKey]: !current[previewKey],
+                                  }))
+                                }
+                              >
+                                <Text
+                                  style={[
+                                    theme.typography.labelSm,
+                                    { color: theme.colors.onSurfaceVariant },
+                                  ]}
+                                >
+                                  {previewsOpen
+                                    ? t('transcript.approvalPreviewsHide')
+                                    : t('transcript.approvalPreviewsShow', {
+                                        total: option.previews.length,
+                                      })}
+                                </Text>
+                              </TouchableOpacity>
+                              {previewsOpen ? (
+                                <View
+                                  style={[
+                                    styles.approvalPreviewBlock,
+                                    {
+                                      backgroundColor: isDark
+                                        ? 'rgba(0, 0, 0, 0.35)'
+                                        : theme.colors.surface,
+                                    },
+                                  ]}
+                                >
+                                  {option.previews.map((line, lineIndex) => (
+                                    <Text
+                                      key={lineIndex}
+                                      selectable
+                                      style={[
+                                        theme.typography.codeSm,
+                                        { color: theme.colors.onSurface },
+                                      ]}
+                                    >
+                                      {line}
+                                    </Text>
+                                  ))}
+                                </View>
+                              ) : null}
+                            </>
+                          ) : null}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <View style={styles.approvalFooterRow}>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={t('session.approval.moreActions')}
+                    disabled={deviceOffline || Boolean(resolvingApproval)}
+                    onPress={() => setQuickPolicyFor({ approvalId: approval.id, toolName: approval.toolName })}
+                    style={styles.approvalMoreLink}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Text
+                      style={[
+                        theme.typography.labelCaps,
+                        { color: theme.colors.onSurfaceVariant },
+                      ]}
+                    >
+                      ⋯
+                    </Text>
+                  </TouchableOpacity>
+                  {multi && orderedSelection.length > 0 ? (
+                    <Text
+                      style={[
+                        theme.typography.labelSm,
+                        { color: theme.colors.primary },
+                      ]}
+                    >
+                      {t('session.approval.selectedCount', {
+                        total: orderedSelection.length,
+                      })}
+                    </Text>
+                  ) : null}
+                  <GlowButton
+                    title={
+                      multi && orderedSelection.length > 0
+                        ? t('session.approval.submitChoice', {
+                            total: orderedSelection.length,
+                          })
+                        : t('session.approval.confirmChoice')
+                    }
+                    onPress={() => {
+                      if (!orderedSelection.length) return;
+                      handleResolveApproval(approval.id, selectionDecision, {
+                        selectedOptionIds: orderedSelection,
+                      });
+                    }}
+                    variant="primary"
+                    loading={resolving}
+                    disabled={busy || orderedSelection.length === 0}
+                    style={styles.approvalSubmitAction}
+                  />
+                </View>
+                {(approval.kind === 'client_response' ||
+                  approval.kind === 'tool_ask' ||
+                  approval.allowCustom) && (
+                  <ApprovalCustomReply
+                    approvalId={approval.id}
+                    triggerLabel={t('session.approval.customReply')}
+                    placeholder={t('session.approval.customReplyPlaceholder')}
+                    sendLabel={t('session.approval.customReplySend')}
+                    disabled={deviceOffline || Boolean(resolvingApproval)}
+                    sessionId={session?.id}
+                    projectPath={session?.directory}
+                    onSend={msg =>
+                      handleResolveApproval(approval.id, 'approved', { message: msg })
+                    }
+                  />
+                )}
+              </View>
+            );
+          })()
         ) : pending ? (
           <View style={styles.approvalActions}>
             <GlowButton
@@ -4251,6 +4472,72 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     marginTop: 8,
+  },
+  // v2 选项行(两步制):行内嵌面板 + radio/checkbox 纯 View glyph,命中 ≥44
+  approvalOptionList: {
+    gap: 8,
+  },
+  approvalOptionRow: {
+    minHeight: 48,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  approvalOptionRadio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    marginTop: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  approvalOptionCheck: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    marginTop: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  approvalOptionGlyphDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  approvalOptionBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  approvalOptionDesc: {
+    marginTop: 2,
+  },
+  approvalPreviewToggle: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    minHeight: 28,
+    justifyContent: 'center',
+  },
+  approvalPreviewBlock: {
+    marginTop: 6,
+    borderRadius: 4,
+    padding: 8,
+    gap: 2,
+  },
+  approvalFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 4,
+  },
+  approvalSubmitAction: {
+    flex: 1,
+    minHeight: 44,
   },
   approvalMoreLink: {
     paddingVertical: 6,

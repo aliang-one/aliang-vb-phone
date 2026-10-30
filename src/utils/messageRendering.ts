@@ -13,6 +13,32 @@ export interface TranscriptTaskMeta {
   result?: string;
 }
 
+/** v2 结构化选项卡的选项行。label 原样渲染（颜文字/emoji 逐字符保真），
+ * 永不过 inline markdown 管线（inline 阶段会吞配对的星号、下划线、反引号
+ * 与双波浪线——见 parseInlineMarkdown 的 emphasis/code 分支）。 */
+export interface TranscriptOptionCardOption {
+  id: string;
+  label: string;
+  description?: string;
+  previews?: string[];
+}
+
+/**
+ * v2 结构化选项卡——aliang-options 围栏的机读旁路，照 TranscriptTaskMeta
+ * 先例：`<card-json>` 子标签承载 JSON，createCalloutSegment 拆出进 segment。
+ * 正文仍保留 markdown 圆点文本，作 v1 降级渲染与长按复制来源。与 server 侧
+ * approval/parsing.ts 的 optionBlockFromRaw 是镜像词表，加字段两处同批。
+ */
+export interface TranscriptOptionCard {
+  version?: number;
+  header?: string;
+  title: string;
+  summary?: string;
+  multi: boolean;
+  allowCustom: boolean;
+  options: TranscriptOptionCardOption[];
+}
+
 /**
  * Callout 展示家族。`approval`（`<approval-request>` 标签 / aliang-options
  * 围栏与丢围栏兜底转换而来）在渲染层有专属卡片样式（盾形图标 + 待处理徽章 +
@@ -35,6 +61,11 @@ export interface TranscriptCalloutSegment {
    * 正文里，这是它抵达渲染层的唯一通道。
    */
   multi?: boolean;
+  /**
+   * 仅 variant==='approval' 有意义：v2 结构化选项卡（存在时渲染层走原生
+   * 选项行，绕开 markdown 往返）。缺省 = v1 块/坏 JSON，走 markdown 圆点降级。
+   */
+  optionCard?: TranscriptOptionCard;
   /** 仅 variant==='task' 有意义：状态/输出文件/任务输出三件套。 */
   meta?: TranscriptTaskMeta;
   title: string;
@@ -330,14 +361,25 @@ const objectRecords = (value: unknown): Record<string, unknown>[] =>
       )
     : [];
 
+/** previews 钳制：≤8 项、每项 ≤200 字符（防模型倒整段 diff 进卡）。 */
+const previewsFromRaw = (value: unknown): string[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const items = value
+    .filter((item): item is string => typeof item === 'string')
+    .map(item => item.slice(0, 200))
+    .slice(0, 8);
+  return items.length > 0 ? items : undefined;
+};
+
 /**
- * 把 aliang-options JSON 正文化为 approval 卡片正文。布尔返回值是 multi 标志
- * 的数据通道：调用方（fenced/bare 两条路径）拿它决定给开标签写不写 `multi`
- * attr——attr 是 multi 穿过 tokenizer 抵达渲染层的唯一通道，不能折进正文。
+ * 把 aliang-options JSON 正文化为 approval 卡片正文。multi 走返回值（fenced/
+ * bare 两路写开标签 attr）；card 是 v2 结构化旁路——调用方把它包成
+ * `<card-json>` 子标签随正文进 tokenizer，createCalloutSegment 拆回。
+ * content 永远产出（markdown 圆点），作 v1 渲染与长按复制来源。
  */
 const formatAliangOptionsFence = (
   body: string,
-): { content: string; multi: boolean } => {
+): { content: string; multi: boolean; card?: TranscriptOptionCard } => {
   const fallback = (): { content: string; multi: boolean } => ({
     content: cleanText(body) || 'The assistant is waiting for your approval.',
     multi: false,
@@ -349,14 +391,38 @@ const formatAliangOptionsFence = (
       textValue(raw.description) ||
       textValue(raw.summary) ||
       'The assistant is waiting for your choice.';
-    const options = objectRecords(raw.options)
+    const structured = objectRecords(raw.options)
       .map((option, index) => {
+        const id = textValue(option.id) || textValue(option.label) || `option-${index + 1}`;
         const label =
           textValue(option.label) || textValue(option.id) || `Option ${index + 1}`;
         const description = textValue(option.description);
-        return description ? `- ${label}: ${description}` : `- ${label}`;
+        const previews = previewsFromRaw(option.previews);
+        return {
+          id,
+          label,
+          ...(description ? { description } : {}),
+          ...(previews ? { previews } : {}),
+        };
       })
-      .filter(Boolean);
+      .filter(option => option.label)
+      .slice(0, 8);
+    const card: TranscriptOptionCard | undefined = structured.length
+      ? {
+          ...(typeof raw.v === 'number' ? { version: raw.v } : {}),
+          ...(textValue(raw.header) ? { header: textValue(raw.header) } : {}),
+          title,
+          summary,
+          multi: raw.multi === true,
+          allowCustom: raw.allow_custom === true,
+          options: structured,
+        }
+      : undefined;
+    const options = structured.map(option =>
+      option.description
+        ? `- ${option.label}: ${option.description}`
+        : `- ${option.label}`,
+    );
     return {
       content: [
         title,
@@ -367,6 +433,7 @@ const formatAliangOptionsFence = (
         .filter(Boolean)
         .join('\n'),
       multi: raw.multi === true,
+      card,
     };
   } catch {
     return fallback();
@@ -453,15 +520,24 @@ const formatHarnessEnvelopes = (content: string) =>
     replaceBareTaskNotificationCluster(replaceTaskNotificationEnvelope(content)),
   );
 
+/** v2 结构化卡随正文走 `<card-json>` 子标签（照 task-status 先例），
+ * createCalloutSegment 拆进 segment.optionCard。 */
+const approvalRequestTag = (formatted: {
+  content: string;
+  multi: boolean;
+  card?: TranscriptOptionCard;
+}) =>
+  `\n<approval-request${formatted.multi ? ' multi' : ''}>${
+    formatted.card
+      ? `<card-json>${JSON.stringify(formatted.card)}</card-json>`
+      : ''
+  }${formatted.content}</approval-request>\n`;
+
 const replaceAliangOptionsFences = (rawContent: string) => {
   const content = rawContent.replace(
     /```aliang-options\s*([\s\S]*?)```/gi,
-    (_match, body) => {
-      const { content: formatted, multi } = formatAliangOptionsFence(
-        String(body ?? ''),
-      );
-      return `\n<approval-request${multi ? ' multi' : ''}>${formatted}</approval-request>\n`;
-    },
+    (_match, body) =>
+      approvalRequestTag(formatAliangOptionsFence(String(body ?? ''))),
   );
   return replaceBareOptionJson(content);
 };
@@ -557,11 +633,21 @@ const replaceBareOptionJson = (content: string) => {
   const objectSpans = collectBalancedObjectSpans(content);
   if (objectSpans.length === 0) return content;
   const fences = collectOptionFenceSpans(content);
+  // v2:<card-json> 子标签里的结构化卡自带 "options": 锚点,会被下面的
+  // 裸 JSON 扫描误捕获再包一层 approval-request(嵌套标签把 tokenizer
+  // 截断)。card-json 区间整体排除。
+  const cardJsonSpans: Array<[number, number]> = [];
+  const cardJsonRe = /<card-json>[\s\S]*?<\/card-json>/gi;
+  let cardSpan: RegExpExecArray | null;
+  while ((cardSpan = cardJsonRe.exec(content))) {
+    cardJsonSpans.push([cardSpan.index, cardSpan.index + cardSpan[0].length]);
+  }
   const replacements: Array<{
     start: number;
     end: number;
     body: string;
     multi: boolean;
+    card?: TranscriptOptionCard;
   }> = [];
   OPTION_JSON_MARKER.lastIndex = 0;
   let marker: RegExpExecArray | null;
@@ -575,6 +661,11 @@ const replaceBareOptionJson = (content: string) => {
       }
     }
     if (!best) continue;
+    if (
+      cardJsonSpans.some(([start, end]) => best![0] >= start && best![1] <= end)
+    ) {
+      continue; // 结构化卡的 JSON 已在 <card-json> 里,不重复转卡。
+    }
     if (
       replacements.some(
         existing => existing.start < best![1] && best![0] < existing.end,
@@ -598,12 +689,13 @@ const replaceBareOptionJson = (content: string) => {
     // <approval-request> 标签留在 ``` 围栏里，被 markdown 当成代码块。
     const start = fence ? fence.start : best[0];
     const end = fence ? fence.end : best[1];
-    const { content: optionBody, multi } = formatAliangOptionsFence(json);
+    const { content: optionBody, multi, card } = formatAliangOptionsFence(json);
     replacements.push({
       start,
       end,
       body: optionBody,
       multi,
+      card,
     });
   }
   if (replacements.length === 0) return content;
@@ -612,7 +704,11 @@ const replaceBareOptionJson = (content: string) => {
   for (const replacement of replacements) {
     result +=
       content.slice(cursor, replacement.start) +
-      `\n<approval-request${replacement.multi ? ' multi' : ''}>${replacement.body}</approval-request>\n`;
+      approvalRequestTag({
+        content: replacement.body,
+        multi: replacement.multi,
+        card: replacement.card,
+      });
     cursor = replacement.end;
   }
   return result + content.slice(cursor);
@@ -1393,6 +1489,32 @@ const createCalloutSegment = (
   // 机器字段标签拆进 meta——它们不该再出现在人读文本里。
   let displayBody = body;
   let meta: TranscriptTaskMeta | undefined;
+  // approval 卡：v2 结构化选项卡从 <card-json> 子标签拆进 optionCard
+  // （机读旁路；正文 markdown 圆点保留作 v1 降级）。坏 JSON/半截流式静默
+  // 走 v1 降级——子标签行无论如何都要从正文剥掉，不能把 JSON 晒给用户。
+  let optionCard: TranscriptOptionCard | undefined;
+  if ((config.variant ?? 'generic') === 'approval') {
+    const cardMatch = /<card-json>\s*([\s\S]*?)\s*<\/card-json>/i.exec(body);
+    if (cardMatch) {
+      displayBody = displayBody.replace(
+        /<card-json>[\s\S]*?<\/card-json>/gi,
+        '',
+      );
+      try {
+        const parsed = JSON.parse(cardMatch[1]) as TranscriptOptionCard;
+        if (
+          parsed &&
+          typeof parsed.title === 'string' &&
+          Array.isArray(parsed.options) &&
+          parsed.options.length > 0
+        ) {
+          optionCard = parsed;
+        }
+      } catch {
+        // 半截流式/坏 JSON：留 v1 markdown 降级
+      }
+    }
+  }
   if ((config.variant ?? 'generic') === 'task') {
     const status = harnessField(body, 'task-status');
     const outputFile = harnessField(body, 'task-output-file');
@@ -1416,6 +1538,7 @@ const createCalloutSegment = (
     kind: 'callout',
     variant: config.variant ?? 'generic',
     multi: attrs?.multi != null ? true : undefined,
+    optionCard,
     meta,
     title: config.title,
     content,

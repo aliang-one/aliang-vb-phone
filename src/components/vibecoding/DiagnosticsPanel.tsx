@@ -187,12 +187,17 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({
                 </Text>
               </View>
               <Text style={[theme.typography.titleLg, { color: theme.colors.onSurface }]}>
-                {windowTokens
-                  ? t('session.diagnostics.context.usedOf', {
-                      used: usedTokens.toLocaleString(),
-                      total: formatContextWindow(windowTokens),
-                    })
-                  : '—'}
+                {!windowTokens
+                  ? '—'
+                  : usedTokens > 0
+                    ? t('session.diagnostics.context.usedOf', {
+                        used: usedTokens.toLocaleString(),
+                        total: formatContextWindow(windowTokens),
+                      })
+                    // 上游没报过用量（旧内核 / 该通道无 usage 上报）时给「暂无
+                    // 用量数据」而不是「0 / 1M」——「还没用」和「没有数据」是
+                    // 两回事，2026-10-29 诊断面板长期为空的 RCA 收口。
+                    : t('session.diagnostics.context.noUsage')}
               </Text>
               <ProgressBar progress={usageFraction} style={styles.contextBar} />
               <View style={styles.rowGroup}>

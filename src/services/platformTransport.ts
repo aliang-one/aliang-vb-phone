@@ -532,7 +532,12 @@ class PlatformTransport {
   respondApproval(
     approvalId: string,
     decision: 'approved' | 'denied',
-    options?: { selectedOptionId?: string; message?: string },
+    options?: {
+      selectedOptionId?: string;
+      /** v2 多选:multi 卡传 id 数组(按选项声明顺序)。 */
+      selectedOptionIds?: string[];
+      message?: string;
+    },
   ): Promise<PlatformApprovalSnapshot> {
     return apiRespondApproval(approvalId, decision, options);
   }
