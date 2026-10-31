@@ -76,6 +76,26 @@ export function latestServerConfirmedMessageId(
 }
 
 /**
+ * 尾条保鲜锚点:本地尾部倒数第二条 server 确认消息的 id。after 语义取
+ * 「严格之后」,把锚点放在倒数第二位才会把尾条的**当前内容**重新下发——
+ * 行数水位对「同 id 内容更新」(流式半截尾条、他端编辑)天然失明,这是
+ * 唯一能让增量拉取刷回尾条内容的锚位。确认消息不足两条时返回 undefined
+ * (没有更早的锚位,保鲜无从进行;内容由重进 detail 全量兜底)。
+ */
+export function penultimateServerConfirmedMessageId(
+  run: VibeCodingRun,
+): string | undefined {
+  let confirmedSeen = 0;
+  for (let i = run.transcript.length - 1; i >= 0; i -= 1) {
+    const message = run.transcript[i];
+    if (!isServerConfirmedMessage(message)) continue;
+    confirmedSeen += 1;
+    if (confirmedSeen === 2) return message.id;
+  }
+  return undefined;
+}
+
+/**
  * before 游标锚点:窗口头部第一条 server 确认消息。头部可能是客户端私有的
  * failed/pending 气泡(离线首条失败后,历史经 WS/补齐合并到它后面)——这类
  * id 没有服务端对应行,拿去当 before 游标必然锚点丢失。全窗口无确认消息

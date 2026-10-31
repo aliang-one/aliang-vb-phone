@@ -45,7 +45,15 @@ export type RefreshOutcome = { ok: true } | { ok: false; error: string };
 
 /** Outcome of a catch-up attempt (see catchUpAgentMessages). */
 export type SessionCatchUpResult =
-  | { mode: 'skipped'; reason: 'in_flight' | 'no_run' | 'fresh' }
+  | {
+      mode: 'skipped';
+      reason:
+        | 'in_flight'
+        | 'no_run'
+        | 'fresh'
+        | 'no_anchor'
+        | 'offline';
+    }
   | { mode: 'full' }
   | {
       mode: 'after';
@@ -58,6 +66,18 @@ export type SessionCatchUpResult =
        * Already-fetched batches stay committed, but the caller must NOT treat
        * this as a finished drain: no continuation scheduling, no budget reset. */
       cancelled?: boolean;
+    }
+  | {
+      /** 尾条保鲜(见 refreshTailAgentMessages):重拉锚点之后的窗口,把
+       * 「同 id 内容更新」刷回来——行数水位对这类更新天然失明。 */
+      mode: 'tail';
+      fetched: number;
+      /** true = transcript 确实变了并写回 store;false = 与本地一致,零写入
+       * (数组身份保留,缓存写穿/memo 渲染都被短路)。 */
+      changed: boolean;
+      /** true = 响应揭示服务端还有更多新消息;水位已随 total_count 推进,
+       * 排水交给既有 catch-up 触发器,保鲜自身不串排水。 */
+      hasMore: boolean;
     };
 
 export interface HistoryPageState {
@@ -658,6 +678,19 @@ export interface ControlCenterState {
    * but the watermark is never claimed by a cancelled run.
    */
   cancelAiSessionCatchUp: (sessionId: string) => void;
+  /**
+   * Tail freshness (尾条保鲜): re-fetch the window strictly AFTER the
+   * penultimate server-confirmed message so same-id content updates (a
+   * streaming tail that lost its final delta, or an edit from another
+   * surface) get refreshed — the row-count watermark is blind to these.
+   * Ledger-only single query; never drains a count gap (bumps the watermark
+   * to total_count instead and lets catchUpAgentMessages take over).
+   * Skips (never throws) when offline / no anchor — the periodic trigger
+   * must tolerate disconnection.
+   */
+  refreshTailAgentMessages: (
+    sessionId: string,
+  ) => Promise<SessionCatchUpResult>;
   /**
    * 触发1 自愈(useSessionCatchUp):把轻量元数据(fetchedAiSession)携带的
    * 服务端 transcript_page 位置感知合并进会话(见 acceptServerTranscriptPage

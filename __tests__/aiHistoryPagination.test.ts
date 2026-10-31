@@ -522,3 +522,136 @@ describe('trimTranscript 分页失效修复(审计问题6,端到端)', () => {
     });
   });
 });
+
+describe('refreshTailAgentMessages(尾条保鲜:同id内容更新增量刷新)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const seedTail = (transcriptCount = 3) => {
+    useControlCenterStore.setState({
+      serverMode: true,
+      vibeRuns: [{ ...run(range(0, 2)), transcriptCount }],
+      devices: [],
+      projects: [],
+    });
+  };
+
+  it('锚点取倒数第二条确认消息;返回页里同 id 的新内容覆盖尾条', async () => {
+    seedTail();
+    mockedLoadMessages.mockResolvedValueOnce({
+      ...wirePage(2, 2, { total_count: 3, anchor_found: true }),
+      messages: [
+        {
+          id: 'm2',
+          role: 'assistant',
+          content: 'c-m2-final',
+          timestamp: '2026-10-01T00:00:00.000Z',
+          index: 2,
+        },
+      ],
+    });
+
+    await useControlCenterStore.getState().refreshTailAgentMessages('s1');
+
+    expect(mockedLoadMessages).toHaveBeenCalledWith('s1', {
+      limit: 10,
+      after: 'm1',
+    });
+    expect(currentRun().transcript.at(-1)?.content).toBe('c-m2-final');
+  });
+
+  it('内容无变化 → transcript 引用不变(不触发缓存写穿/重渲染)', async () => {
+    seedTail();
+    mockedLoadMessages.mockResolvedValueOnce(
+      wirePage(2, 2, { total_count: 3, anchor_found: true }),
+    );
+    const before = currentRun().transcript;
+
+    const result = await useControlCenterStore
+      .getState()
+      .refreshTailAgentMessages('s1');
+
+    expect(result).toMatchObject({ mode: 'tail', changed: false });
+    expect(currentRun().transcript).toBe(before);
+  });
+
+  it('has_more=true → 水位推进到 total_count,排水交给既有触发器(不在保鲜里串排水)', async () => {
+    seedTail();
+    mockedLoadMessages.mockResolvedValueOnce(
+      wirePage(2, 2, {
+        total_count: 8,
+        has_more: true,
+        next_after_cursor: 'cur-m3',
+        anchor_found: true,
+      }),
+    );
+
+    const result = await useControlCenterStore
+      .getState()
+      .refreshTailAgentMessages('s1');
+
+    expect(result).toMatchObject({ mode: 'tail', hasMore: true });
+    expect(mockedLoadMessages).toHaveBeenCalledTimes(1);
+    expect(currentRun().transcriptCount).toBe(8);
+  });
+
+  it('确认消息不足两条 → skipped no_anchor,零网络', async () => {
+    useControlCenterStore.setState({
+      serverMode: true,
+      vibeRuns: [{ ...run(range(0, 0)), transcriptCount: 1 }],
+      devices: [],
+      projects: [],
+    });
+
+    const result = await useControlCenterStore
+      .getState()
+      .refreshTailAgentMessages('s1');
+
+    expect(result).toMatchObject({ mode: 'skipped', reason: 'no_anchor' });
+    expect(mockedLoadMessages).not.toHaveBeenCalled();
+  });
+
+  it('catch-up 在途 → skipped in_flight,不与排水并发同会话拉取', async () => {
+    seedTail();
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    mockedLoadMessages.mockImplementationOnce(() =>
+      gate.then(() => wirePage(3, 719, { total_count: 720, anchor_found: true })),
+    );
+    const pending = useControlCenterStore.getState().catchUpAgentMessages('s1', 720);
+    await Promise.resolve();
+
+    const result = await useControlCenterStore
+      .getState()
+      .refreshTailAgentMessages('s1');
+
+    expect(result).toMatchObject({ mode: 'skipped', reason: 'in_flight' });
+    expect(mockedLoadMessages).toHaveBeenCalledTimes(1);
+    release();
+    await pending;
+  });
+
+  it('离线(!serverMode) → skipped offline 不抛(周期触发器容忍断连)', async () => {
+    seedTail();
+    useControlCenterStore.setState({ serverMode: false });
+
+    const result = await useControlCenterStore
+      .getState()
+      .refreshTailAgentMessages('s1');
+
+    expect(result).toMatchObject({ mode: 'skipped', reason: 'offline' });
+    expect(mockedLoadMessages).not.toHaveBeenCalled();
+  });
+
+  it('transport 失败 → 抛错交调用方冷却,不吞网络故障', async () => {
+    seedTail();
+    mockedLoadMessages.mockRejectedValueOnce(new Error('boom'));
+
+    await expect(
+      useControlCenterStore.getState().refreshTailAgentMessages('s1'),
+    ).rejects.toThrow('boom');
+  });
+});

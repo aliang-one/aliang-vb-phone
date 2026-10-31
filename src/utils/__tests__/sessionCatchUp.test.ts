@@ -4,6 +4,7 @@ import {
   isSessionBehindTranscript,
   latestServerConfirmedMessageId,
   materializedServerMessageCount,
+  penultimateServerConfirmedMessageId,
 } from '../sessionCatchUp';
 
 // 会话消息水位与增量锚点的纯函数契约(服务端 transcript_count 对账):
@@ -124,5 +125,35 @@ describe('latestServerConfirmedMessageId', () => {
   it('全部不可用时返回 undefined(触发全量兜底)', () => {
     const run = makeRun([msg('msg-1727769600000-ab12x', undefined, { pending: true })]);
     expect(latestServerConfirmedMessageId(run)).toBeUndefined();
+  });
+});
+
+describe('penultimateServerConfirmedMessageId', () => {
+  it('返回尾部倒数第二条 server 确认消息 id(尾条保鲜的 after 锚点)', () => {
+    const run = makeRun([msg('msg_a', 0), msg('msg_b', 1), msg('msg_c', 2)]);
+    expect(penultimateServerConfirmedMessageId(run)).toBe('msg_b');
+  });
+
+  it('尾部 pending/failed/客户端 id 不占位:倒数第二取确认序列的倒数第二', () => {
+    const run = makeRun([
+      msg('msg_a', 0),
+      msg('msg_b', 1),
+      msg('msg_c', 2),
+      msg('msg-1727769600000-ab12x', undefined, { pending: true }),
+      msg('msg-1727769600000-cd34y', undefined, { failed: true }),
+    ]);
+    expect(penultimateServerConfirmedMessageId(run)).toBe('msg_b');
+  });
+
+  it('确认消息不足两条时返回 undefined(尾条保鲜无从锚定)', () => {
+    expect(penultimateServerConfirmedMessageId(makeRun([]))).toBeUndefined();
+    expect(
+      penultimateServerConfirmedMessageId(makeRun([msg('msg_a', 0)])),
+    ).toBeUndefined();
+    expect(
+      penultimateServerConfirmedMessageId(
+        makeRun([msg('msg-1727769600000-ab12x', undefined, { pending: true })]),
+      ),
+    ).toBeUndefined();
   });
 });
