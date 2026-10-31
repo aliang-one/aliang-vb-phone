@@ -64,11 +64,14 @@ import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import { useRefreshWithFeedback } from '../../hooks/useRefreshWithFeedback';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
-import { compareSessionsByStableActivity } from '../../utils/sessionPhase';
 import {
+  compareSessionsByStableActivity,
+  isRunDisplayActive,
+} from '../../utils/sessionPhase';
+import {
+  activeFirstOfflineLastComparator,
   buildDeviceStatusIndex,
   isDeviceStatusOffline,
-  offlineLastComparator,
 } from '../../utils/deviceStatus';
 import { isActiveTerminalSessionStatus } from '../../utils/terminalInteraction';
 
@@ -519,10 +522,14 @@ export const VibeCodingListScreen: React.FC = () => {
           const matchesFilter = filter === 'all' || session.status === filter;
           return sessionMatchesQuery && matchesFilter;
         })
-        // 用户要求(2026-10-03):在线设备的会话按时间排在前,离线设备的
-        // 沉到底部;设备状态只决定分组位置,组内仍按活跃度排序。
+        // 用户要求(2026-10-30):**正在进行中的对话永远排在最上面**,组内按
+        // 「用户提问时刻」倒序(不是 AI 回答的更新时刻)——新消息进来时列表
+        // 不再重排。设备在线状态退居第二位:先分出「进行中」组(离线设备上的
+        // 进行中会话照样置顶),组内再让离线设备沉底,最后按稳定活动序。
+        // (2026-10-03 的「在线设备优先」要求保留,但只在同组内生效。)
         .sort(
-          offlineLastComparator(
+          activeFirstOfflineLastComparator(
+            isRunDisplayActive,
             deviceStatusIndex,
             session => session.deviceId,
             compareSessionsByStableActivity,

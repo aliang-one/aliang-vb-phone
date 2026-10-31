@@ -499,6 +499,18 @@ export interface VibeCodingRun {
    */
   lastUserMessage?: AgentMessage;
   /**
+   * 当前回合「用户提问时刻」的排序锚点(epoch millis),**纯客户端盖章**:
+   * 由 `mergeVibeRunSnapshot` 在该回合首次被观测到在跑时写下,回合内不再变动,
+   * 只在新回合(新的真实提问)或回合结束时改写/清空。
+   *
+   * 存在的理由:列表快照不带 transcript、`last_message` 往往已是 AI 回复,
+   * 此时跑着的会话拿不到 `lastUserMessage` —— 排序键只能退到 AI 活动时间,
+   * 于是每来一条新消息列表就重排。有了这个冻结锚点,进行中会话的排序键在
+   * 整个回合里恒等于「提问时刻」,AI 消息推不动它。见 sessionPhase
+   * `stableSessionSortMs`。undefined = 老数据 / 尚未合并过,消费者自行兜底。
+   */
+  turnStartedAtMs?: number;
+  /**
    * The CLI session id (Claude's uuid / codex id) this run is bound to — what
    * you'd pass to `claude --resume <id>`. Present for agent-discovered (imported)
    * sessions; for phone-created Claude sessions it's bound once Phase 2 persists

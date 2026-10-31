@@ -118,24 +118,68 @@ export function isAuthoritativeRunLive(
 }
 
 /**
- * Return a sort timestamp that does not move on liveness-only heartbeats.
- * Concurrent runs otherwise swap positions whenever their staggered
- * `ai.run.progress` events refresh `lastActivityMs`.
+ * 该会话是否属于列表「置顶区」——回合正在跑 / 卡在审批。
+ *
+ * 列表排序、置顶分组、设备离线沉底分组都共用这一份判据,避免各处各推导一遍
+ * 相位(历史教训:`runDisplayPhase` 的消费点已经散到 6 个屏幕,再复制相位判定
+ * 一定会漂移)。
+ */
+export function isRunDisplayActive(run: VibeCodingRun): boolean {
+  return isActiveDisplayPhase(
+    runDisplayPhase(run.status, run.phase, run.runStateVersion, run.runState),
+  );
+}
+
+/** 「置顶区」相位的单点定义:进行中 + 待审批。非相位推导的消费点不要用本函数
+ *  (见 `runDisplayPhase` 上方的 lifecycle 收敛纪律)。 */
+export function isActiveDisplayPhase(phase: SessionPhase): boolean {
+  return phase === 'running' || phase === 'waiting_approval';
+}
+
+/**
+ * 一条消息的时间戳 → epoch millis,解析不出 → undefined。
+ */
+export function userMessageTimestampMs(
+  message: VibeCodingRun['lastMessage'] | undefined,
+): number | undefined {
+  const ms = Date.parse(message?.timestamp ?? '');
+  return Number.isFinite(ms) && ms > 0 ? ms : undefined;
+}
+
+/**
+ * 用户**真实提问**的时刻(回合起点),解析不出 → undefined。
+ *
+ * `lastUserMessage` 由 internals 的 `lastUserMessageOf` 产出:跳过 CC 注入行
+ * (skill 全文 / 命令回显),没有真实提问时就是 undefined —— 这里如实返回
+ * undefined,**绝不用 AI 回复时间冒充**(那是排序漂移的根源,见下方
+ * `stableSessionSortMs` 的注释)。
+ */
+export function userQuestionMs(run: VibeCodingRun): number | undefined {
+  return userMessageTimestampMs(run.lastUserMessage);
+}
+
+/**
+ * 排序键。**进行中会话一律按「用户提问时刻」排,而不是 AI 回答的更新时刻**
+ * (用户 2026-10-30 明确要求的手机端展示顺序);非进行中会话继续按真实活动时间
+ * 排(最近聊过的在前)。
+ *
+ * 为什么必须冻结在提问时刻:AI 每吐一跳都会刷新 `lastActivityMs` /
+ * `lastMessage`,若排序键跟着它们走,列表就会「每来一条新消息就重排一遍」——
+ * 正是用户反馈的现象。
+ *
+ * 三个取值来源,优先级从高到低:
+ *  1. `lastUserMessage.timestamp` —— 权威的真实提问时刻;
+ *  2. `turnStartedAtMs` —— store 在该回合**首次**被观测到在跑时盖下的锚点
+ *     (internals.ts `mergeVibeRunSnapshot`),用于列表快照不带 transcript、
+ *     `last_message` 已经是 AI 回复的会话(冷启动 / TUI 发起的会话)。回合内
+ *     不再变动,故 AI 消息不会推动它;
+ *  3. `lastActivityMs` —— 兜底(老数据没有锚点),至少是稳定的静态值;
+ *     **不回退 `lastMessage`**:那是 AI 消息时间。
  */
 export function stableSessionSortMs(run: VibeCodingRun): number {
-  const displayPhase = runDisplayPhase(
-    run.status,
-    run.phase,
-    run.runStateVersion,
-    run.runState,
-  );
-  const liveOrWaiting =
-    displayPhase === 'running' || displayPhase === 'waiting_approval';
-  if (liveOrWaiting) {
-    const turnStartedAt = Date.parse(
-      run.lastUserMessage?.timestamp ?? run.lastMessage?.timestamp ?? '',
-    );
-    if (Number.isFinite(turnStartedAt)) return turnStartedAt;
+  if (isRunDisplayActive(run)) {
+    const turnAnchorMs = userQuestionMs(run) ?? run.turnStartedAtMs;
+    if (turnAnchorMs !== undefined && turnAnchorMs > 0) return turnAnchorMs;
   }
   return run.lastActivityMs ?? 0;
 }
@@ -145,22 +189,8 @@ export function compareSessionsByStableActivity(
   left: VibeCodingRun,
   right: VibeCodingRun,
 ): number {
-  const leftPhase = runDisplayPhase(
-    left.status,
-    left.phase,
-    left.runStateVersion,
-    left.runState,
-  );
-  const rightPhase = runDisplayPhase(
-    right.status,
-    right.phase,
-    right.runStateVersion,
-    right.runState,
-  );
-  const leftActive =
-    leftPhase === 'running' || leftPhase === 'waiting_approval';
-  const rightActive =
-    rightPhase === 'running' || rightPhase === 'waiting_approval';
+  const leftActive = isRunDisplayActive(left);
+  const rightActive = isRunDisplayActive(right);
   if (leftActive !== rightActive) return leftActive ? -1 : 1;
   return stableSessionSortMs(right) - stableSessionSortMs(left);
 }
