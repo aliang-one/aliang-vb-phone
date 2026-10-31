@@ -97,6 +97,8 @@ export interface Device {
   agentVersion?: string;
   remoteTerminalEnabled: boolean;
   aiControlEnabled: boolean;
+  /** 设备互访(peer-link):允许其他设备在本机执行一次性命令。默认关。 */
+  peerExecEnabled: boolean;
   capabilities: string[];
   /** Whether the server-side tunnel is configured and port forwarding is available for this device. */
   tunnelAvailable?: boolean;

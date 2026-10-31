@@ -53,6 +53,7 @@ describe('DeviceDetailScreen', () => {
           lastSeen: 'now',
           remoteTerminalEnabled: true,
           aiControlEnabled: true,
+          peerExecEnabled: false,
           capabilities: ['terminal'],
           tools: [],
           history: [],

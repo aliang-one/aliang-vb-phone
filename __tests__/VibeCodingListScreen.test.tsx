@@ -494,7 +494,7 @@ function device(id: string, name: string, status: Device['status']): Device {
     lastSeen: 'now',
     remoteTerminalEnabled: true,
     aiControlEnabled: true,
-    capabilities: ['terminal'],
+    peerExecEnabled: false,    capabilities: ['terminal'],
     tools: [],
     history: [],
   };

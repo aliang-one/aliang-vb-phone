@@ -57,7 +57,7 @@ describe('ApprovalCenterScreen', () => {
           lastSeen: 'now',
           remoteTerminalEnabled: true,
           aiControlEnabled: true,
-          capabilities: [],
+          peerExecEnabled: false,          capabilities: [],
           tools: [],
           history: [],
         },

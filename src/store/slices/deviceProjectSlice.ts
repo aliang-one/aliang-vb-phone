@@ -18,7 +18,7 @@ type DeviceProjectSlice = Pick<
   ControlCenterState,
   | 'devices' | 'projects' | 'projectFiles' | 'scanResults'
   | 'fileDownloadCapability' | 'projectFileListTruncated'
-  | 'renameDevice' | 'removeDevice' | 'scanDeviceProjects'
+  | 'renameDevice' | 'setDevicePeerExec' | 'removeDevice' | 'scanDeviceProjects'
   | 'createProject' | 'updateProject' | 'deleteProject'
   | 'loadProjectFiles' | 'loadProjectFileContent' | 'dropFileContent'
 >;
@@ -64,6 +64,40 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
       ),
       events: [
         event('device.bound', 'Device renamed', updated.name, 'done', { deviceId }),
+        ...state.events,
+      ].slice(0, 120),
+    }));
+
+    return { ok: true, deviceId };
+  },
+
+  // 设备互访(peer-link)开关:目标机允许其他设备在本机执行一次性命令。
+  // 服务端默认关;rebind 换属主会被强制回落 false,这里只负责展示与切换。
+  setDevicePeerExec: async (deviceId, enabled) => {
+    if (!get().serverMode) {
+      return {
+        ok: false,
+        error: 'Platform connection is required before changing device settings.',
+      };
+    }
+
+    const updated = platformDeviceToClient(
+      await platformTransport.updateDeviceSettings(deviceId, { peer_exec_enabled: enabled }),
+    );
+    set(state => ({
+      devices: attachDeviceRelations(
+        state.devices.map(device => device.id === deviceId ? updated : device),
+        state.projects,
+        state.vibeRuns,
+      ),
+      events: [
+        event(
+          'device.bound',
+          enabled ? 'Peer exec enabled' : 'Peer exec disabled',
+          updated.name,
+          'done',
+          { deviceId },
+        ),
         ...state.events,
       ].slice(0, 120),
     }));

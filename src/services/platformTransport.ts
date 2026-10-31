@@ -83,6 +83,8 @@ export interface PlatformDeviceSnapshot {
   lastSeenAt?: string;
   remoteTerminalEnabled: boolean;
   aiControlEnabled: boolean;
+  /** 设备互访(peer-link):允许其他设备在本机执行一次性命令。默认关。 */
+  peerExecEnabled: boolean;
   createdAt?: string;
   pairedAt?: string;
   boundAt?: string;
@@ -282,6 +284,7 @@ export function normalizeServerDevice(device: ServerDevice): PlatformDeviceSnaps
     lastSeenAt: device.last_seen_at,
     remoteTerminalEnabled: Boolean(device.remote_terminal_enabled),
     aiControlEnabled: Boolean(device.ai_control_enabled),
+    peerExecEnabled: Boolean(device.peer_exec_enabled),
     createdAt: device.created_at,
     pairedAt: device.paired_at,
     boundAt: device.bound_at,

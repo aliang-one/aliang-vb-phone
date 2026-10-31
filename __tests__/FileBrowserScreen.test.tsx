@@ -106,7 +106,7 @@ const device = (): Device => ({
   lastSeen: 'now',
   remoteTerminalEnabled: true,
   aiControlEnabled: true,
-  capabilities: ['terminal'],
+  peerExecEnabled: false,  capabilities: ['terminal'],
   tools: [],
   history: [],
 });

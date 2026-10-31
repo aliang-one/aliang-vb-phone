@@ -51,6 +51,8 @@ export interface ServerDevice {
   last_seen_at?: string;
   remote_terminal_enabled: boolean;
   ai_control_enabled: boolean;
+  /** 设备互访(peer-link):允许其他设备在本机执行一次性命令。默认关。 */
+  peer_exec_enabled: boolean;
   created_at: string;
   paired_at?: string;
   bound_at?: string;
@@ -98,6 +100,7 @@ export const updateDeviceSettings = (
     name?: string;
     remote_terminal_enabled?: boolean;
     ai_control_enabled?: boolean;
+    peer_exec_enabled?: boolean;
     approval_policy?: {
       scheme?: ApprovalScheme;
       custom_rule_overrides?: Record<string, ApprovalDecision>;

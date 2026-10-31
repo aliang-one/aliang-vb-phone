@@ -568,6 +568,7 @@ export function platformDeviceToClient(sd: PlatformDeviceSnapshot): Device {
     agentVersion: sd.agentVersion,
     remoteTerminalEnabled: sd.remoteTerminalEnabled,
     aiControlEnabled: sd.aiControlEnabled,
+    peerExecEnabled: sd.peerExecEnabled,
     capabilities: sd.capabilities,
     tunnelAvailable: sd.tunnelAvailable,
     tools: sd.tools.map(tool => ({
