@@ -99,6 +99,8 @@ export interface Device {
   aiControlEnabled: boolean;
   /** 设备互访(peer-link):允许其他设备在本机执行一次性命令。默认关。 */
   peerExecEnabled: boolean;
+  /** 设备互访(peer-link):允许其他设备从本机拉取文件。默认关。 */
+  peerFetchEnabled: boolean;
   capabilities: string[];
   /** Whether the server-side tunnel is configured and port forwarding is available for this device. */
   tunnelAvailable?: boolean;

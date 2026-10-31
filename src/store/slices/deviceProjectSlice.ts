@@ -18,7 +18,7 @@ type DeviceProjectSlice = Pick<
   ControlCenterState,
   | 'devices' | 'projects' | 'projectFiles' | 'scanResults'
   | 'fileDownloadCapability' | 'projectFileListTruncated'
-  | 'renameDevice' | 'setDevicePeerExec' | 'removeDevice' | 'scanDeviceProjects'
+  | 'renameDevice' | 'setDevicePeerExec' | 'setDevicePeerFetch' | 'removeDevice' | 'scanDeviceProjects'
   | 'createProject' | 'updateProject' | 'deleteProject'
   | 'loadProjectFiles' | 'loadProjectFileContent' | 'dropFileContent'
 >;
@@ -94,6 +94,41 @@ export const createDeviceProjectSlice: StateCreator<ControlCenterState, [], [], 
         event(
           'device.bound',
           enabled ? 'Peer exec enabled' : 'Peer exec disabled',
+          updated.name,
+          'done',
+          { deviceId },
+        ),
+        ...state.events,
+      ].slice(0, 120),
+    }));
+
+    return { ok: true, deviceId };
+  },
+
+  // 设备互访(peer-link)源机开关:允许其他设备经 peer.fetch_file 从本机拉取
+  // 文件。服务端默认关;只门禁设备(LLM)路径,手机人工互传不受影响;rebind
+  // 换属主会被强制回落 false,这里只负责展示与切换。
+  setDevicePeerFetch: async (deviceId, enabled) => {
+    if (!get().serverMode) {
+      return {
+        ok: false,
+        error: 'Platform connection is required before changing device settings.',
+      };
+    }
+
+    const updated = platformDeviceToClient(
+      await platformTransport.updateDeviceSettings(deviceId, { peer_fetch_enabled: enabled }),
+    );
+    set(state => ({
+      devices: attachDeviceRelations(
+        state.devices.map(device => device.id === deviceId ? updated : device),
+        state.projects,
+        state.vibeRuns,
+      ),
+      events: [
+        event(
+          'device.bound',
+          enabled ? 'Peer fetch enabled' : 'Peer fetch disabled',
           updated.name,
           'done',
           { deviceId },
