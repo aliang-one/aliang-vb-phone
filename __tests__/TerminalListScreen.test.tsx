@@ -133,7 +133,8 @@ function device(id: string, name: string, status: Device['status']): Device {
     lastSeen: 'now',
     remoteTerminalEnabled: true,
     aiControlEnabled: true,
-    peerExecEnabled: false,    capabilities: ['terminal'],
+        peerExecEnabled: false,
+    peerFetchEnabled: false,    capabilities: ['terminal'],
     tools: [],
     history: [],
   } as Device;

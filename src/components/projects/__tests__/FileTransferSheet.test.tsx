@@ -99,7 +99,8 @@ const makeDevice = (
   lastSeen: '2026-10-25T00:00:00Z',
   remoteTerminalEnabled: true,
   aiControlEnabled: true,
-  peerExecEnabled: false,  capabilities: ['file_transfer_v1'],
+    peerExecEnabled: false,
+  peerFetchEnabled: false,  capabilities: ['file_transfer_v1'],
   tools: [],
   history: [],
 });

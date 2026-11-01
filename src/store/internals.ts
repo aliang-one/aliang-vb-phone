@@ -574,6 +574,7 @@ export function platformDeviceToClient(sd: PlatformDeviceSnapshot): Device {
     remoteTerminalEnabled: sd.remoteTerminalEnabled,
     aiControlEnabled: sd.aiControlEnabled,
     peerExecEnabled: sd.peerExecEnabled,
+    peerFetchEnabled: sd.peerFetchEnabled,
     capabilities: sd.capabilities,
     tunnelAvailable: sd.tunnelAvailable,
     tools: sd.tools.map(tool => ({
@@ -1414,6 +1415,55 @@ export const enteredWaitingApproval = (
   prev: VibeStatus | undefined,
   next: VibeStatus,
 ): boolean => !isWaitingApprovalStatus(prev) && isWaitingApprovalStatus(next);
+
+/**
+ * Approval reconcile merge (会话级对账). The server's session list is upserted
+ * verbatim — the ghost fix works through this upsert alone: once the store
+ * holds the server's authoritative resolved record, the session screen's
+ * byId guard stops the event-fallback resurrection (the ghost itself is a
+ * screen-memo artifact, never a store row, so nothing needs deleting here).
+ * Local-only entries are kept: a reconcile response cannot repudiate an
+ * approval it never carried (e.g. a request that raced the snapshot); a truly
+ * dead local pending self-heals via its 404/409 on respond. Extra rule: while
+ * the server reports a pending approval, any local same-ask pending is demoted
+ * to denied (server supersede semantics — superseded duplicates) so the old
+ * card can't be resurrected by fallbacks either.
+ */
+export function mergeApprovalReconcile(
+  existing: ApprovalRequest[],
+  incoming: ApprovalRequest[],
+): ApprovalRequest[] {
+  const byId = new Map(existing.map(item => [item.id, item]));
+  for (const approval of incoming) {
+    byId.set(approval.id, approval);
+    if (approval.status !== 'pending') continue;
+    for (const [id, local] of byId) {
+      if (
+        id !== approval.id &&
+        local.status === 'pending' &&
+        sameAskApproval(local, approval)
+      ) {
+        byId.set(id, { ...local, status: 'denied' });
+      }
+    }
+  }
+  return Array.from(byId.values());
+}
+
+/** Loose same-question check mirroring server's supersede semantics (session +
+ *  kind + title + summary + command)。对账期同题顶替判定用。 */
+function sameAskApproval(
+  left: ApprovalRequest,
+  right: ApprovalRequest,
+): boolean {
+  return (
+    left.sessionId === right.sessionId &&
+    left.kind === right.kind &&
+    left.title === right.title &&
+    (left.summary ?? '') === (right.summary ?? '') &&
+    (left.command ?? '') === (right.command ?? '')
+  );
+}
 
 export function serverApprovalToClient(
   sa: PlatformApprovalSnapshot,

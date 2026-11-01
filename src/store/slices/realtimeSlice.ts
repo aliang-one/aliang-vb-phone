@@ -16,6 +16,73 @@ import { emptyHistoryPage, historyPageFromServer } from '../historyPaging';
 
 const SNAPSHOT_SYNC_TIMEOUT_MS = 30_000;
 
+// 会话级审批对账的节流窗口:focus 与每次快照替换后都会触发,同一会话在该
+// 窗口内只放行一次请求(幂等防抖,防止重连风暴下打爆 /api/approvals)。
+const APPROVAL_RECONCILE_THROTTLE_MS = 5_000;
+
+const approvalReconcileInFlight = new Set<string>();
+const approvalReconcileLastAt = new Map<string, number>();
+
+/**
+ * Pull the server's session-scoped approval truth (GET /api/approvals?session_id=
+ * — pending + resolved) and upsert it over local state. Ghost-pending fix: the
+ * snapshot only carries pending approvals, so every snapshot replace drops
+ * resolved records and event fallbacks resurrect them as pending cards above
+ * the composer. Reconciling inside the same state-replace path closes the loop
+ * immediately instead of waiting for the next focus. Fire-and-forget: failures
+ * are logged, never thrown into the snapshot replace flow, and the next
+ * focus/refresh reconciles again.
+ */
+function reconcileViewedSessionApprovals(get: () => ControlCenterState) {
+  const state = get();
+  const sessionId = state.currentlyViewedSessionId;
+  if (!sessionId || !state.serverMode) return;
+  const now = Date.now();
+  if (
+    approvalReconcileInFlight.has(sessionId) ||
+    now - (approvalReconcileLastAt.get(sessionId) ?? 0) <
+      APPROVAL_RECONCILE_THROTTLE_MS
+  ) {
+    return;
+  }
+  approvalReconcileInFlight.add(sessionId);
+  approvalReconcileLastAt.set(sessionId, now);
+  state
+    .reconcileSessionApprovals(sessionId)
+    .catch(error => {
+      console.warn('[store] approval reconcile failed:', error);
+    })
+    .finally(() => {
+      approvalReconcileInFlight.delete(sessionId);
+    });
+}
+
+// 全局近期审批拉取的单飞闸:启动与恢复各触发一次,同一时刻只放行一个请求。
+let recentApprovalsInFlight = false;
+
+/**
+ * Pull the newest page of approvals (GET /api/approvals?limit=100 — pending 卡
+ * 几乎总在最新页) and upsert into the store. This is the durable catch-up for
+ * `approval.requested` WS events the phone missed while backgrounded: the
+ * server's reconnect replay ring only retains minutes under load, so without
+ * this pull a missed event means the card is invisible forever (and its
+ * conversation never shows an approval state). Fire-and-forget: failures are
+ * logged, the next init/refresh retries.
+ */
+function refreshRecentApprovalsOnce(get: () => ControlCenterState) {
+  const state = get();
+  if (!state.serverMode || recentApprovalsInFlight) return;
+  recentApprovalsInFlight = true;
+  state
+    .refreshRecentApprovals()
+    .catch(error => {
+      console.warn('[store] recent approvals refresh failed:', error);
+    })
+    .finally(() => {
+      recentApprovalsInFlight = false;
+    });
+}
+
 type RealtimeSlice = Pick<
   ControlCenterState,
   | 'wsConnected' | 'serverMode' | 'lastSyncedAt' | 'stale' | 'lastConnectError'
@@ -139,6 +206,13 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
 
       console.log(`[store] Initialized from server: ${nextState.devices.length} devices, ${nextState.projects.length} projects, ${nextState.vibeRuns.length} AI sessions, ${nextState.terminalSessions.length} terminals, ${nextState.approvals.length} approvals`);
 
+      // 快照替换会丢弃 resolved 审批(服务端快照只带 pending),立即拉服务端
+      // 全量真值对账,不给事件兜底复活幽灵 pending 的窗口。
+      reconcileViewedSessionApprovals(get);
+      // 全局近期审批拉取:补上 WS 错过的 approval.requested(重放缓存只有
+      // 分钟级窗口,错过即永久不可见——2026-11-01 审批卡不可见事故的根因)。
+      refreshRecentApprovalsOnce(get);
+
       platformTransport.connect(transportEvent => {
         get().handleTransportEvent(transportEvent);
       }, token);
@@ -200,6 +274,10 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
           stale: false,
           lastConnectError: null,
         }));
+        // 同上:快照替换后立刻对账,清掉被快照丢弃的 resolved 权威记录。
+        reconcileViewedSessionApprovals(get);
+        // 恢复路径必经此处(refreshFromServer),同步补拉全局近期审批。
+        refreshRecentApprovalsOnce(get);
         return { ok: true };
       } catch (error) {
         console.warn('[store] Failed to refresh from server:', error);

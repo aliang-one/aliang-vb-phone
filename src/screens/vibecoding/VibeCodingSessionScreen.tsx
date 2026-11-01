@@ -521,6 +521,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
       // Never let a foreground hiccup break rendering.
     }
   });
+  const reconcileSessionApprovals = useControlCenterStore(
+    state => state.reconcileSessionApprovals,
+  );
   useFocusEffect(
     useCallback(() => {
       // Draft mode has no session id yet — nothing to mark as viewed.
@@ -570,11 +573,16 @@ export const VibeCodingSessionScreen: React.FC = () => {
       } catch {
         // Never let a refresh hiccup break the focus marking below.
       }
+      // 会话级审批对账:拉服务端 pending+resolved 全量真值,清掉快照刷新/
+      // 事件兜底复活出的幽灵 pending(输入框上方气泡与时间线共用这份合成
+      // 数据)。节流由 store 侧统一防抖,静默失败由下一轮 focus/refresh 兜住。
+      void reconcileSessionApprovals(focusedSessionId);
+
       markSessionViewed(focusedSessionId);
       return () => {
         clearCurrentlyViewedSession(focusedSessionId);
       };
-    }, [focusedSessionId, markSessionViewed, clearCurrentlyViewedSession, sessionCatchUp]),
+    }, [focusedSessionId, markSessionViewed, clearCurrentlyViewedSession, reconcileSessionApprovals, sessionCatchUp]),
   );
   const updateAgentSession = useControlCenterStore(
     state => state.updateAgentSession,

@@ -43,6 +43,14 @@ export interface ServerApproval {
 export const fetchApprovals = (): Promise<ServerApproval[]> =>
   apiGet<ServerApproval[]>('/api/approvals');
 
+// 会话级对账数据源:服务端返回该会话 pending+resolved 的全量真值(注释明写
+// 「手机端会话级审批对账」),不带分页时直接返回数组。手机端用它整体替换
+// 本地该会话的审批,清掉快照刷新/事件兜底复活出来的幽灵 pending。
+export const fetchSessionApprovals = (sessionId: string): Promise<ServerApproval[]> =>
+  apiGet<ServerApproval[]>(
+    `/api/approvals?session_id=${encodeURIComponent(sessionId)}`,
+  );
+
 export const fetchApprovalsPage = (options?: {
   limit?: number;
   before?: string;

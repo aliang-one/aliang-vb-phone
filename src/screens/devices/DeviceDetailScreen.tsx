@@ -88,6 +88,8 @@ export const DeviceDetailScreen: React.FC = () => {
   const navigation = useNavigation<Navigation>();
   const route = useRoute<DeviceRoute>();
   const devices = useControlCenterStore(state => state.devices);
+  const setDevicePeerExec = useControlCenterStore(state => state.setDevicePeerExec);
+  const setDevicePeerFetch = useControlCenterStore(state => state.setDevicePeerFetch);
   const projectsStore = useControlCenterStore(state => state.projects);
   const vibeRuns = useConversationRuns();
   const events = useControlCenterStore(state => state.events);
@@ -523,10 +525,22 @@ export const DeviceDetailScreen: React.FC = () => {
           />
           <Fact label="CREATED" value={device.createdAt ?? '-'} />
           {/*
-            设备互访(peer-link)开关:目标机允许同账号其他设备执行一次性命令。
-            服务端默认关,云端另有 peer ACL + 全量审计;rebind 换属主强制回落。
+            设备互访(peer-link)开关:目标机允许同账号其他设备执行一次性命令;
+            源机开关放行其他设备从本机拉文件(只门禁设备/LLM 路径,人工互传
+            不受影响)。服务端默认关,rebind 换属主强制回落。
           */}
-          <PeerExecToggleRow deviceId={device.id} enabled={device.peerExecEnabled} />
+          <PeerLinkToggleRow
+            label="PEER EXEC"
+            subtitle="Allow other devices on this account to run one-shot commands here"
+            enabled={device.peerExecEnabled}
+            onToggle={value => setDevicePeerExec(device.id, value)}
+          />
+          <PeerLinkToggleRow
+            label="PEER FETCH"
+            subtitle="Allow other devices on this account to fetch files from here (agent-initiated transfers)"
+            enabled={device.peerFetchEnabled}
+            onToggle={value => setDevicePeerFetch(device.id, value)}
+          />
         </CollapsiblePanel>
 
         <CollapsiblePanel
@@ -793,21 +807,23 @@ const Fact: React.FC<{ label: string; value: string }> = ({ label, value }) => {
   );
 };
 
-// 设备互访(peer-link)开关行:目标机侧的总闸(默认关)。切换走
-// setDevicePeerExec(PATCH settings),store 以服务端回包整体替换该设备。
-const PeerExecToggleRow: React.FC<{ deviceId: string; enabled: boolean }> = ({
-  deviceId,
-  enabled,
-}) => {
+// 设备互访(peer-link)开关行(exec=目标机命令总闸;fetch=源机文件拉取开关,
+// 默认关)。切换走 setDevicePeerExec/setDevicePeerFetch(PATCH settings),
+// store 以服务端回包整体替换该设备。
+const PeerLinkToggleRow: React.FC<{
+  label: string;
+  subtitle: string;
+  enabled: boolean;
+  onToggle: (value: boolean) => Promise<unknown>;
+}> = ({ label, subtitle, enabled, onToggle }) => {
   const { theme, isDark } = useTheme();
-  const setDevicePeerExec = useControlCenterStore(state => state.setDevicePeerExec);
   const [saving, setSaving] = useState(false);
 
   const handleToggle = async (value: boolean) => {
     if (saving) return;
     setSaving(true);
     try {
-      await setDevicePeerExec(deviceId, value);
+      await onToggle(value);
     } finally {
       setSaving(false);
     }
@@ -821,10 +837,10 @@ const PeerExecToggleRow: React.FC<{ deviceId: string; enabled: boolean }> = ({
       ]}>
       <View style={styles.peerText}>
         <Text style={[theme.typography.labelCaps, { color: theme.colors.onSurfaceVariant }]}>
-          PEER EXEC
+          {label}
         </Text>
         <Text style={[theme.typography.codeSm, { color: theme.colors.onSurface }]}>
-          Allow other devices on this account to run one-shot commands here
+          {subtitle}
         </Text>
       </View>
       <Switch

@@ -90,7 +90,8 @@ const DEVICE = {
   lastSeen: 'now',
   remoteTerminalEnabled: true,
   aiControlEnabled: true,
-  peerExecEnabled: false,  capabilities: ['terminal', 'terminal_replay'],
+    peerExecEnabled: false,
+  peerFetchEnabled: false,  capabilities: ['terminal', 'terminal_replay'],
   tools: [],
   history: [],
 };
