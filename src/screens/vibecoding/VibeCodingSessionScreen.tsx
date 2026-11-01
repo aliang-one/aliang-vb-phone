@@ -142,6 +142,7 @@ import {
 import { useUiNoticeStore } from '../../store/uiNoticeStore';
 import { useSessionDetailLoader } from './useSessionDetailLoader';
 import { useSessionCatchUp } from './useSessionCatchUp';
+import { useForegroundReconciliation } from '../../hooks/useForegroundReconciliation';
 import { useTranscriptCacheHydration } from './useTranscriptCacheHydration';
 import { fetchAiSession } from '../../api/sessions';
 import { useConversationScrollController } from './useConversationScrollController';
@@ -502,6 +503,18 @@ export const VibeCodingSessionScreen: React.FC = () => {
       state => state.mergeServerTranscriptPage,
     ),
     fetchServerSessionMeta: fetchAiSession,
+  });
+  // 前台恢复对账(2026-11-01 RCA):锁屏解锁/后台切回时人停在会话屏,
+  // navigation focus 不重触发——WS 离线期间错过的内容(回答/审批卡)没有
+  // 任何一次元数据对账去补,页面静默停在旧状态。AppState 边沿触发同一
+  // 入口:轻量对账自带水位不等 early-return 与失败冷却,重复触发零成本。
+  useForegroundReconciliation(() => {
+    if (!focusedSessionId) return;
+    try {
+      sessionCatchUp.refreshLatestCount();
+    } catch {
+      // Never let a foreground hiccup break rendering.
+    }
   });
   useFocusEffect(
     useCallback(() => {
@@ -1049,6 +1062,18 @@ export const VibeCodingSessionScreen: React.FC = () => {
       ),
     });
     if (action === 'load-earlier') {
+      // 下拉手势的另一半职责(2026-11-01 RCA):长会话上 load-earlier 几乎
+      // 恒定接管下拉,而它走的是本地揭示(no network)——用户以为在"刷新",
+      // 实际永远翻的是过去,refresh=true 的新正文路径(refresh-latest 分支)
+      // 在长会话上不可达,TUI 路由的新回答因此永远拉不到。附带一次轻量
+      // 水位对账(fire-and-forget:自带水位不等 early-return 与 10s 失败
+      // 冷却,重复触发零成本),让下拉在翻旧的同时也有机会发现"服务端
+      // 有新动静";若真有缺口,catch-up 在后台补齐,不打断揭示动画。
+      try {
+        sessionCatchUp.refreshLatestCount();
+      } catch {
+        // 对账失败不干扰揭示主路径。
+      }
       // 转轮由 handleLoadEarlierMessages 持有(覆盖揭示期,且与 hold 同一生
       // 命周期)——这里不再自带 setRefreshing,否则按钮路径顶掉揭示时旧
       // finally 会把新一轮的转轮熄灭。
@@ -1067,6 +1092,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     refreshLatest,
     hasServerEarlierMessages,
     session?.transcript,
+    sessionCatchUp,
     targetSessionId,
     turnList,
   ]);
