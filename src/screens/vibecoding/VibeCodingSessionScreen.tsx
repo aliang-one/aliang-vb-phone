@@ -509,6 +509,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
     isSessionLive: session ? isSessionTurnActive(session.status) : false,
     refreshTail: useControlCenterStore(state => state.refreshTailAgentMessages),
   });
+  const reconcileSessionApprovals = useControlCenterStore(
+    state => state.reconcileSessionApprovals,
+  );
   // 前台恢复对账(2026-11-01 RCA):锁屏解锁/后台切回时人停在会话屏,
   // navigation focus 不重触发——WS 离线期间错过的内容(回答/审批卡)没有
   // 任何一次元数据对账去补,页面静默停在旧状态。AppState 边沿触发同一
@@ -521,9 +524,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
       // Never let a foreground hiccup break rendering.
     }
   });
-  const reconcileSessionApprovals = useControlCenterStore(
-    state => state.reconcileSessionApprovals,
-  );
   useFocusEffect(
     useCallback(() => {
       // Draft mode has no session id yet — nothing to mark as viewed.
