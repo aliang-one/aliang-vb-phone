@@ -109,6 +109,7 @@ import {
 import {
   LIVE_TURN_WINDOW_MS,
   isAuthoritativeRunLive,
+  isSessionTurnActive,
   isWaitingApprovalStatus,
   liveAssistantMessageId,
   phaseLabel,
@@ -503,6 +504,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
       state => state.mergeServerTranscriptPage,
     ),
     fetchServerSessionMeta: fetchAiSession,
+    // 触发3 尾条保鲜:活跃回合周期刷同 id 内容更新(流式半截尾条/他端编辑
+    // 不改 transcript_count,水位闸看不见)。非活跃回合零周期网络。
+    isSessionLive: session ? isSessionTurnActive(session.status) : false,
+    refreshTail: useControlCenterStore(state => state.refreshTailAgentMessages),
   });
   // 前台恢复对账(2026-11-01 RCA):锁屏解锁/后台切回时人停在会话屏,
   // navigation focus 不重触发——WS 离线期间错过的内容(回答/审批卡)没有

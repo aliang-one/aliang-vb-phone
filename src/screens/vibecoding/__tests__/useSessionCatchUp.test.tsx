@@ -516,3 +516,176 @@ describe('useSessionCatchUp', () => {
     renderer.unmount();
   });
 });
+
+describe('useSessionCatchUp 尾条保鲜(活跃会话周期刷新)', () => {
+  const makeLiveDeps = () => ({
+    ...makeDeps(),
+    refreshTail: jest
+      .fn<Promise<SessionCatchUpResult>, [string]>()
+      .mockResolvedValue({
+        mode: 'tail',
+        fetched: 1,
+        changed: false,
+        hasMore: false,
+      }),
+  });
+
+  type LiveDeps = ReturnType<typeof makeLiveDeps>;
+
+  /** 卸载必须包 act:TestRenderer 的 passive destroy 排队到下一 act 才跑
+   * (仓库已备案坑),裸 unmount 后推进定时器会冤枉实现。 */
+  const unmountInAct = (harness: { renderer: TestRenderer.ReactTestRenderer }) =>
+    act(async () => {
+      harness.renderer.unmount();
+    });
+
+  const renderLive = (
+    deps: LiveDeps,
+    opts: { live: boolean; sessionId?: string },
+  ) => {
+    const Screen = () => {
+      useSessionCatchUp({
+        sessionId: opts.sessionId,
+        transcriptCount: undefined,
+        catchUpAgentMessages: deps.catchUp,
+        fetchServerSessionMeta: deps.fetchMeta,
+        mergeServerTranscriptPage: deps.mergePage,
+        cancelCatchUp: deps.cancelCatchUp,
+        isSessionLive: opts.live,
+        refreshTail: deps.refreshTail,
+      });
+      return null;
+    };
+    const renderer = TestRenderer.create(React.createElement(Screen));
+    return {
+      renderer,
+      rerender: (next: { live: boolean; sessionId?: string }) =>
+        renderer.update(
+          React.createElement(() => {
+            useSessionCatchUp({
+              sessionId: next.sessionId,
+              transcriptCount: undefined,
+              catchUpAgentMessages: deps.catchUp,
+              fetchServerSessionMeta: deps.fetchMeta,
+              mergeServerTranscriptPage: deps.mergePage,
+              cancelCatchUp: deps.cancelCatchUp,
+              isSessionLive: next.live,
+              refreshTail: deps.refreshTail,
+            });
+            return null;
+          }),
+        ),
+    };
+  };
+
+  it('活跃会话:挂载立即保鲜一次 + 每 5s 周期保鲜', async () => {
+    const deps = makeLiveDeps();
+    const harness = renderLive(deps, { live: true, sessionId: 's1' });
+    await act(async () => {
+      await drain();
+    });
+    expect(deps.refreshTail).toHaveBeenCalledTimes(1);
+    expect(deps.refreshTail).toHaveBeenCalledWith('s1');
+
+    await act(async () => {
+      jest.advanceTimersByTime(5000);
+      await drain();
+    });
+    expect(deps.refreshTail).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      jest.advanceTimersByTime(5000);
+      await drain();
+    });
+    expect(deps.refreshTail).toHaveBeenCalledTimes(3);
+    await unmountInAct(harness);
+  });
+
+  it('非活跃会话零保鲜(时间推进也不出网)', async () => {
+    const deps = makeLiveDeps();
+    const harness = renderLive(deps, { live: false, sessionId: 's1' });
+    await act(async () => {
+      await drain();
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(15000);
+      await drain();
+    });
+    expect(deps.refreshTail).not.toHaveBeenCalled();
+    await unmountInAct(harness);
+  });
+
+  it('由非活跃转活跃 → 立即保鲜一次(回合开始的兜底)', async () => {
+    const deps = makeLiveDeps();
+    const harness = renderLive(deps, { live: false, sessionId: 's1' });
+    await act(async () => {
+      await drain();
+    });
+    expect(deps.refreshTail).not.toHaveBeenCalled();
+
+    await act(async () => {
+      harness.rerender({ live: true, sessionId: 's1' });
+      await drain();
+    });
+    expect(deps.refreshTail).toHaveBeenCalledTimes(1);
+    await unmountInAct(harness);
+  });
+
+  it('卸载后周期停止,不出网', async () => {
+    const deps = makeLiveDeps();
+    const harness = renderLive(deps, { live: true, sessionId: 's1' });
+    await act(async () => {
+      await drain();
+    });
+    expect(deps.refreshTail).toHaveBeenCalledTimes(1);
+    await unmountInAct(harness);
+
+    await act(async () => {
+      jest.advanceTimersByTime(15000);
+      await drain();
+    });
+    expect(deps.refreshTail).toHaveBeenCalledTimes(1);
+  });
+
+  it('保鲜失败不打断周期(下一拍继续)', async () => {
+    const deps = makeLiveDeps();
+    deps.refreshTail.mockRejectedValueOnce(new Error('boom'));
+    const harness = renderLive(deps, { live: true, sessionId: 's1' });
+    await act(async () => {
+      await drain();
+    });
+    expect(deps.refreshTail).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      jest.advanceTimersByTime(5000);
+      await drain();
+    });
+    expect(deps.refreshTail).toHaveBeenCalledTimes(2);
+    await unmountInAct(harness);
+  });
+
+  it('refreshTail 未注入(旧调用方)时不保鲜也不炸', async () => {
+    const deps = makeDeps();
+    const renderer = TestRenderer.create(
+      React.createElement(() => {
+        useSessionCatchUp({
+          sessionId: 's1',
+          transcriptCount: undefined,
+          catchUpAgentMessages: deps.catchUp,
+          fetchServerSessionMeta: deps.fetchMeta,
+          mergeServerTranscriptPage: deps.mergePage,
+          cancelCatchUp: deps.cancelCatchUp,
+          isSessionLive: true,
+        });
+        return null;
+      }),
+    );
+    await act(async () => {
+      jest.advanceTimersByTime(15000);
+      await drain();
+    });
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+});

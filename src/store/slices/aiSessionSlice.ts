@@ -42,6 +42,7 @@ import {
   firstServerConfirmedMessage,
   isSessionBehindTranscript,
   latestServerConfirmedMessageId,
+  penultimateServerConfirmedMessageId,
 } from '../../utils/sessionCatchUp';
 import {
   shouldEscalateEmptyDetailToRefresh,
@@ -59,6 +60,7 @@ type AiSessionSlice = Pick<
   ControlCenterState,
   | 'vibeRuns' | 'aiSessionHistory' | 'aiSessionHistoryPage' | 'previewLinks' | 'sessionCommands'
   | 'startAgentSession' | 'loadAgentSessionDetail' | 'hydrateRunTranscriptFromCache' | 'catchUpAgentMessages' | 'cancelAiSessionCatchUp' | 'pauseAgentSession'
+  | 'refreshTailAgentMessages'
   | 'interruptAgentSession' | 'resumeAgentSession' | 'terminateAgentSession' | 'updateAgentSession'
   | 'generateAgentSessionTitle'
   | 'deleteAgentSession' | 'appendAgentMessage' | 'loadEarlierAgentMessages'
@@ -71,6 +73,32 @@ type AiSessionSlice = Pick<
 >;
 
 const pendingMessageSends = new Set<string>();
+// 尾条保鲜在途去重:活跃会话周期触发器 + 手动刷新可能重叠,同会话单飞。
+const tailRefreshesInFlight = new Set<string>();
+/** 尾条保鲜页上限:锚点之后通常只有尾条一行,10 条余量吸收并发新增。 */
+const TAIL_REFRESH_PAGE_LIMIT = 10;
+
+/**
+ * 尾条保鲜的零写入判定:合并结果与既有 transcript 逐位等价(id/角色/内容/
+ * 时间/序号一致)时不写 store——保持数组对象身份,下游的缓存写穿订阅与
+ * memo 渲染都靠身份短路。只比较保鲜关心的可渲染字段,足够判定「有没有变」。
+ */
+const tailTranscriptUnchanged = (
+  previous: VibeCodingRun['transcript'],
+  next: VibeCodingRun['transcript'],
+): boolean =>
+  previous.length === next.length &&
+  next.every((message, index) => {
+    const old = previous[index];
+    return (
+      old !== undefined &&
+      message.id === old.id &&
+      message.role === old.role &&
+      message.content === old.content &&
+      message.timestamp === old.timestamp &&
+      message.index === old.index
+    );
+  });
 // In-flight catch-up dedup: a snapshot burst can trigger several attempts for
 // the same session; only the first hits the network.
 const catchUpsInFlight = new Set<string>();
@@ -434,6 +462,83 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
 
   cancelAiSessionCatchUp: sessionId => {
     cancelledCatchUps.add(sessionId);
+  },
+
+  refreshTailAgentMessages: async sessionId => {
+    // 尾条保鲜:水位按行数对账,看不见「同 id 内容更新」——流式半截的尾条、
+    // 他端编辑同一条消息,都不改变 transcript_count,水位闸永远判 fresh。
+    // 这里把锚点放在倒数第二条确认消息上,after 语义(严格之后)会把尾条的
+    // 当前内容重新下发,id 并集合并即完成刷新。纯服务端账本单行查询,离线
+    // 也可用。绝不在这里串排水:has_more 只推进水位,缺口交给既有触发器。
+    // 周期触发器必须容忍一切失败,所以离线/无锚点走 skipped 而非抛错。
+    if (!get().serverMode) {
+      return { mode: 'skipped' as const, reason: 'offline' as const };
+    }
+    if (
+      catchUpsInFlight.has(sessionId) ||
+      tailRefreshesInFlight.has(sessionId)
+    ) {
+      return { mode: 'skipped' as const, reason: 'in_flight' as const };
+    }
+    const current = get().vibeRuns.find(run => run.id === sessionId);
+    if (!current) {
+      return { mode: 'skipped' as const, reason: 'no_run' as const };
+    }
+    const anchor = penultimateServerConfirmedMessageId(current);
+    if (!anchor) {
+      return { mode: 'skipped' as const, reason: 'no_anchor' as const };
+    }
+    tailRefreshesInFlight.add(sessionId);
+    try {
+      const response = await platformTransport.loadAiSessionMessages(
+        sessionId,
+        { limit: TAIL_REFRESH_PAGE_LIMIT, after: anchor },
+      );
+      const incoming = response.messages.map(serverAiMessageToAgent);
+      let changed = false;
+      set(state => {
+        const vibeRuns = state.vibeRuns.map(run => {
+          if (run.id !== sessionId) return run;
+          const merged = trimTranscriptWithWindow(
+            mergeAgentMessages(run.transcript, incoming),
+            run.transcriptPage,
+          );
+          // 零写入判定:内容与本地一致时保持 transcript 引用身份,下游的
+          // 缓存写穿订阅与 memo 渲染都靠身份短路(周期触发的成本模型)。
+          const contentChanged =
+            merged.transcript !== run.transcript &&
+            !tailTranscriptUnchanged(run.transcript, merged.transcript);
+          // 响应揭示服务端总数领先 → 推进水位,下一次触发器接管排水。
+          const nextCount = Math.max(
+            response.page.total_count ?? 0,
+            run.transcriptCount ?? 0,
+          );
+          if (!contentChanged && nextCount === run.transcriptCount) return run;
+          if (contentChanged) changed = true;
+          return {
+            ...run,
+            transcript: contentChanged ? merged.transcript : run.transcript,
+            transcriptPage:
+              contentChanged && merged.pageDelta && run.transcriptPage
+                ? { ...run.transcriptPage, ...merged.pageDelta }
+                : run.transcriptPage,
+            transcriptCount: nextCount,
+          };
+        });
+        return {
+          vibeRuns,
+          devices: attachDeviceRelations(state.devices, state.projects, vibeRuns),
+        };
+      });
+      return {
+        mode: 'tail' as const,
+        fetched: incoming.length,
+        changed,
+        hasMore: Boolean(response.page.has_more),
+      };
+    } finally {
+      tailRefreshesInFlight.delete(sessionId);
+    }
   },
 
   catchUpAgentMessages: async (sessionId, serverCount) => {

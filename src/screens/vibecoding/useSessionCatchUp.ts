@@ -31,6 +31,9 @@ export const CONTINUATION_DELAY_MS = 250;
 // 超出即停(手动刷新兜底)——预算在追平(moreRemaining=false)时归零,
 // 新的大缺口拿到全新预算。
 export const MAX_CATCH_UP_ROUNDS = 50;
+// 尾条保鲜节拍:活跃会话每 5s 重拉一次「锚点之后的尾窗」(纯账本单行查询)。
+// 只在回合活跃期间开周期;非活跃会话零周期网络。
+export const TAIL_REFRESH_INTERVAL_MS = 5_000;
 
 export interface SessionCatchUpInput {
   sessionId: string | undefined;
@@ -60,6 +63,14 @@ export interface SessionCatchUpInput {
     sessionId: string,
     page: AgentTranscriptPage | undefined,
   ) => void;
+  /**
+   * 尾条保鲜注入点(可选):活跃会话周期重拉「锚点之后的尾窗」,刷回
+   * 同 id 内容更新(流式半截尾条/他端编辑——行数水位对这类更新失明)。
+   * 未注入(旧调用方)时本 hook 不做周期保鲜,行为与历史版本一致。
+   */
+  refreshTail?: (sessionId: string) => Promise<SessionCatchUpResult>;
+  /** 会话回合是否活跃(running)。仅活跃会话开保鲜周期;非活跃零周期网络。 */
+  isSessionLive?: boolean;
 }
 
 export interface SessionCatchUpController {
@@ -77,6 +88,8 @@ export function useSessionCatchUp(
     cancelCatchUp,
     fetchServerSessionMeta,
     mergeServerTranscriptPage,
+    refreshTail,
+    isSessionLive,
   } = input;
 
   // Per-session failure cooldown survives session switches within this screen
@@ -197,6 +210,26 @@ export function useSessionCatchUp(
   useEffect(() => {
     void attempt(transcriptCount);
   }, [attempt, transcriptCount]);
+
+  // 触发 3(尾条保鲜):活跃会话挂载立即刷一次 + 每 5s 周期刷新。行数水位
+  // 看不见「同 id 内容更新」——流式半截尾条、他端编辑不改变 transcript_count,
+  // 触发 1/2 的水位闸永远判 fresh。保鲜是纯账本单行查询,内容一致时零写入
+  // (动作层身份短路),所以活跃期的固定节拍成本可控。失败静默:动作层
+  // in-flight 去重 + 下一拍重试;切会话/卸载由 effect 清理断链。
+  useEffect(() => {
+    if (!isSessionLive || !sessionId || !refreshTail) return undefined;
+    let alive = true;
+    const tick = () => {
+      if (!alive) return;
+      void refreshTail(sessionId).catch(() => {});
+    };
+    tick();
+    const timer = setInterval(tick, TAIL_REFRESH_INTERVAL_MS);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [isSessionLive, refreshTail, sessionId]);
 
   // Memoized: the session screen threads this controller into its
   // useFocusEffect's useCallback deps — a fresh object per render would
