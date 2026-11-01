@@ -758,6 +758,25 @@ export interface ControlCenterState {
     },
   ) => Promise<void>;
   loadApprovalHistory: (options?: { reset?: boolean }) => Promise<void>;
+  /**
+   * Session-level approval reconcile (会话级对账): pull the server's full
+   * pending+resolved truth for one session via GET /api/approvals?session_id=
+   * and REPLACE the local approvals of that session. Runs after focus and after
+   * every snapshot replace — the two moments local truth gets clobbered (the
+   * snapshot only carries pending approvals, so resolved records vanish and
+   * event fallbacks resurrect them as ghost pending cards above the composer).
+   * Failure is silent-by-design: live WS events + the next reconcile retry.
+   */
+  reconcileSessionApprovals: (sessionId: string) => Promise<void>;
+  /**
+   * Global recent-approvals pull (真相通道): fetch the newest page of
+   * approvals (pending 卡几乎总在最新页) after init/refresh and upsert them by
+   * id. Covers the approval.requested WS events a phone missed while
+   * backgrounded — the server's reconnect replay ring only retains minutes
+   * under load, so a missed event is otherwise permanently invisible.
+   * Failure is silent-by-design: the next init/refresh retries.
+   */
+  refreshRecentApprovals: () => Promise<void>;
   loadNotificationHistory: (options?: { reset?: boolean }) => Promise<void>;
   loadEventHistory: (options?: {
     reset?: boolean;

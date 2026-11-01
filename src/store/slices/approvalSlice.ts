@@ -5,6 +5,7 @@ import type { ControlCenterState } from '../types';
 import {
   formatActivityLabel,
   MAX_RUN_EVENTS,
+  mergeApprovalReconcile,
   serverApprovalToClient,
   serverNotificationToClient,
   tail,
@@ -24,9 +25,8 @@ import {
  *    error, not an ApiResponseError; "server gone" from the phone's view), OR
  *  - the approval no longer exists server-side (404/410) or was already resolved
  *    (409) — nothing left for the user to act on.
- * Keep + propagate for retryable server errors (5xx etc.) so the user can retry.
- * A reconnect/foreground refresh re-syncs `approvals` from the server's truth, so
- * a dropped approval reappears if it still exists server-side.
+ * Keep + propagate for retryable server errors (5xx etc.) — the next
+ * reconcileSessionApprovals pass re-syncs from the server's truth.
  */
 function shouldDropPendingApproval(error: unknown): boolean {
   if (error instanceof ApiResponseError) {
@@ -41,6 +41,8 @@ type ApprovalSlice = Pick<
   | 'notifications' | 'notificationHistory' | 'notificationHistoryPage'
   | 'unreadNotificationsTotal' | 'resolveApproval'
   | 'loadApprovalHistory' | 'loadNotificationHistory'
+  | 'reconcileSessionApprovals'
+  | 'refreshRecentApprovals'
   | 'markNotificationRead' | 'markAllNotificationsRead'
 >;
 
@@ -119,6 +121,62 @@ export const createApprovalSlice: StateCreator<ControlCenterState, [], [], Appro
       }));
       throw error;
     }
+  },
+
+  // Session-level approval reconcile (会话级对账闭环). GET
+  // /api/approvals?session_id= returns the server's FULL pending+resolved list
+  // for this session (the endpoint was built for exactly this — its comment
+  // says 手机端靠它对账自愈 — but the phone never called it). Upserting the
+  // server records dissolves ghost pends: once the store holds the server's
+  // authoritative resolved record, the session screen's byId guard stops the
+  // event-fallback resurrection (the ghost itself is a screen-memo artifact,
+  // never a store row, so nothing needs deleting here). Cursor-loaded history
+  // archive stays in sync; other sessions' approvals are untouched. Failure is
+  // swallowed: live WS events remain the first line, and the next
+  // focus/refresh reconciles again — the loop always closes, one cycle later.
+  reconcileSessionApprovals: async sessionId => {
+    if (!get().serverMode) return;
+    const incoming = (
+      await platformTransport.loadSessionApprovals(sessionId)
+    ).map(serverApprovalToClient);
+    set(state => {
+      const pendingCount = (items: { status: string }[]) =>
+        items.filter(item => item.status === 'pending').length;
+      return {
+        approvals: mergeApprovalReconcile(state.approvals, incoming),
+        approvalHistory: mergeHistoryById(
+          incoming.filter(item => item.status !== 'pending'),
+          state.approvalHistory,
+        ),
+        // 未读口径同步:对账前本会话本地 pending 与服务端真值的差值(幽灵
+        // 多算→下调;漏算→上调),不触碰其他会话的计数。
+        unreadNotificationsTotal: Math.max(
+          0,
+          state.unreadNotificationsTotal +
+            pendingCount(incoming) -
+            state.approvals.filter(
+              item =>
+                item.sessionId === sessionId && item.status === 'pending',
+            ).length,
+        ),
+      };
+    });
+  },
+
+  // 全局近期审批拉取(真相通道另一半)。派生 client_response 卡按设计幸存
+  // run 终态,但它的到达通道只有 WS 实时事件——事件在服务端重放缓存里只活
+  // 分钟级(500 条环形),App 恰好不在前台的那几分钟 = 卡片对手机永久不可见
+  // (2026-11-01 审批卡不可见事故)。启动/恢复时用分页接口拉最新一批
+  // (pending 卡几乎总在最新页)按 id upsert,堵死这条缺口。与
+  // reconcileSessionApprovals 同用 mergeApprovalReconcile(同题顶替规则一致);
+  // 失败静默,由下一次 init/refresh 重试。
+  refreshRecentApprovals: async () => {
+    if (!get().serverMode) return;
+    const page = await platformTransport.loadApprovalsPage({ limit: 100 });
+    const incoming = page.items.map(serverApprovalToClient);
+    set(state => ({
+      approvals: mergeApprovalReconcile(state.approvals, incoming),
+    }));
   },
 
   resolveApproval: async (approvalId, decision, options) => {

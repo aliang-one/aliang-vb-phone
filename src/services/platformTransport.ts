@@ -44,6 +44,7 @@ import {
 import {
   respondApproval as apiRespondApproval,
   fetchApprovalsPage,
+  fetchSessionApprovals,
   type ServerApproval,
 } from '../api/approvals';
 import {
@@ -372,6 +373,10 @@ class PlatformTransport {
 
   loadApprovalsPage(options?: { limit?: number; before?: string }) {
     return fetchApprovalsPage(options);
+  }
+
+  loadSessionApprovals(sessionId: string) {
+    return fetchSessionApprovals(sessionId);
   }
 
   loadNotificationsPage(options?: { limit?: number; before?: string }) {
