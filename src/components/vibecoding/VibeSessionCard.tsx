@@ -28,6 +28,7 @@ import {
   useControlCenterStore,
   useDevice,
   useProject,
+  useSessionHasPendingChoice,
 } from '../../store/controlCenterStore';
 import { formatActivityLabel } from '../../store/internals';
 import { useNowTick } from '../../hooks/useNowTick';
@@ -79,6 +80,8 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
     const deviceFromStore = useDevice(session.deviceId);
     const project = projectProp ?? projectFromStore;
     const device = deviceProp ?? deviceFromStore;
+    // 三合一状态机:终态 run + 活的派生卡 → 「待你选择」相位(等用户作答)。
+    const hasPendingChoice = useSessionHasPendingChoice(session.id);
     // Default press opens this session's conversation. Parents no longer pass
     // an inline onPress closure (also a fresh reference each render → memo
     // defeat); `onPress` is kept as an optional override.
@@ -143,6 +146,7 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
       session.phase,
       session.runStateVersion,
       session.runState,
+      hasPendingChoice,
     );
     // 相位强调色:进行中=主蓝、完成=蓝灰(primaryMuted,同族降饱和)、待批准=黄、
     // 失败=红。进行中不再用绿(全仓 success=绿=完成语义,与运行中冲突)。驱动左侧

@@ -29,6 +29,7 @@ import {
   type TerminalOutputBatchItem,
 } from './terminalBatching';
 import type {
+  ApprovalRequest,
   ControlCenterState,
   PushNotificationItem,
   TerminalSessionStatus,
@@ -297,6 +298,36 @@ export const useApproval = (approvalId: string | undefined) =>
  *  status, …) change. Used to answer "is this approval still resolvable?". */
 export const useApprovalIds = () =>
   useControlCenterStore(useShallow(state => state.approvals.map(item => item.id)));
+
+// 三合一状态机(2026-11-01):派生 client_response 卡幸存 run 终态、真等用户
+// 作答——这类「活卡」把所属会话顶进「待你选择」显示相位/置顶区。goal ask_user
+// (appr_askuser_ 前缀)有自己的规划循环契约,不算。
+const isPendingChoiceApproval = (item: ApprovalRequest): boolean =>
+  item.status === 'pending' &&
+  item.kind === 'client_response' &&
+  !item.id.startsWith('appr_askuser_') &&
+  !!item.sessionId;
+
+/** 该会话是否存在活的派生选择卡(布尔 selector,仅真值翻转时重渲染)。 */
+export const useSessionHasPendingChoice = (sessionId: string | undefined) =>
+  useControlCenterStore(state =>
+    sessionId
+      ? state.approvals.some(
+          item =>
+            item.sessionId === sessionId && isPendingChoiceApproval(item),
+        )
+      : false,
+  );
+
+/** 有活的派生选择卡的会话 id 列表(shallow 稳定;列表屏用它构建置顶/排序集合)。 */
+export const usePendingChoiceSessionIds = (): readonly string[] =>
+  useControlCenterStore(
+    useShallow(state =>
+      state.approvals
+        .filter(isPendingChoiceApproval)
+        .map(item => item.sessionId as string),
+    ),
+  );
 
 /** Subscribe to `approval.requested` events relevant to one session (its own
  *  events, plus events tied to a focused approval id). Referentially stable via

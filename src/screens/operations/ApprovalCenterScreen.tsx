@@ -89,6 +89,17 @@ export const ApprovalCenterScreen: React.FC = () => {
       navigation.navigate('VibeCodingSession', { sessionId }),
     [navigation],
   );
+  // 带卡跳转:会话屏按 approvalId 聚焦到这张卡(route.params.approvalId)。
+  const handleOpenSessionApproval = useCallback(
+    (item: ApprovalRequest) => {
+      if (!item.sessionId) return;
+      navigation.navigate('VibeCodingSession', {
+        sessionId: item.sessionId,
+        approvalId: item.id,
+      });
+    },
+    [navigation],
+  );
   const [filter, setFilter] = useState<ApprovalFilter>('pending');
 
   useEffect(() => {
@@ -206,6 +217,7 @@ export const ApprovalCenterScreen: React.FC = () => {
                   : undefined
               }
               onOpenSession={handleOpenSession}
+              onOpenSessionApproval={handleOpenSessionApproval}
             />
           );
         }}
@@ -360,6 +372,8 @@ interface ApprovalCardProps {
   ) => void;
   onOpenPolicy?: () => void;
   onOpenSession: (sessionId: string) => void;
+  /** 带卡跳转:进入所属会话并聚焦这张审批卡(approvalId 路由参数)。 */
+  onOpenSessionApproval?: (item: ApprovalRequest) => void;
 }
 
 const ApprovalCard: React.FC<ApprovalCardProps> = React.memo(
@@ -372,6 +386,7 @@ const ApprovalCard: React.FC<ApprovalCardProps> = React.memo(
     onResolve,
     onOpenPolicy,
     onOpenSession,
+    onOpenSessionApproval,
   }) => {
     const { theme } = useTheme();
     const { t } = useTranslation('operations');
@@ -589,7 +604,11 @@ const ApprovalCard: React.FC<ApprovalCardProps> = React.memo(
         ) : item.sessionId ? (
           <TouchableOpacity
             activeOpacity={0.75}
-            onPress={() => onOpenSession(item.sessionId ?? '')}
+            onPress={() =>
+              onOpenSessionApproval
+                ? onOpenSessionApproval(item)
+                : onOpenSession(item.sessionId ?? '')
+            }
             style={[
               styles.openButton,
               {
