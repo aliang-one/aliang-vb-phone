@@ -56,6 +56,7 @@ import type { Device, VibeStatus } from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
 import {
   useControlCenterStore,
+  usePendingChoiceSessionIds,
   useSessionListRuns,
 } from '../../store/controlCenterStore';
 import { useDevicePinStore } from '../../store/devicePinStore';
@@ -239,6 +240,12 @@ export const VibeCodingListScreen: React.FC = () => {
   const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0;
   const devices = useControlCenterStore(state => state.devices);
   const projects = useControlCenterStore(state => state.projects);
+  // 三合一状态机:有活的派生卡等作答的会话 → 「待你选择」相位,进置顶区。
+  const pendingChoiceIds = usePendingChoiceSessionIds();
+  const pendingChoiceSet = useMemo(
+    () => new Set(pendingChoiceIds),
+    [pendingChoiceIds],
+  );
   const vibeRuns = useSessionListRuns();
   const historyPage = useControlCenterStore(state => state.aiSessionHistoryPage);
   const loadAiSessionHistory = useControlCenterStore(state => state.loadAiSessionHistory);
@@ -529,10 +536,11 @@ export const VibeCodingListScreen: React.FC = () => {
         // (2026-10-03 的「在线设备优先」要求保留,但只在同组内生效。)
         .sort(
           activeFirstOfflineLastComparator(
-            isRunDisplayActive,
+            run => isRunDisplayActive(run, pendingChoiceSet.has(run.id)),
             deviceStatusIndex,
             session => session.deviceId,
-            compareSessionsByStableActivity,
+            (left, right) =>
+              compareSessionsByStableActivity(left, right, pendingChoiceSet),
           ),
         ),
     [
@@ -544,6 +552,7 @@ export const VibeCodingListScreen: React.FC = () => {
       deviceSearchIndex,
       deviceStatusIndex,
       deviceFilter,
+      pendingChoiceSet,
     ],
   );
   const sessionList = useIncrementalList(filtered, {

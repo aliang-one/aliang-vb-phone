@@ -332,6 +332,7 @@
   "phaseLabel": {
     "running": "进行中",
     "waiting_approval": "待审批",
+    "waiting_choice": "待你选择",
     "completed": "已完成",
     "failed": "失败"
   },
