@@ -32,6 +32,12 @@ const HEARTBEAT_INTERVAL_MS = 25000;
 // Native never surfaces as onclose. One tolerated miss avoids false positives
 // from a momentarily-delayed pong; two silent beats (~50s) => dead => reconnect.
 const HEARTBEAT_MAX_MISSES = 1;
+// 连接超时(2026-11-03 通道逃逸修复):upgrade 经公网中继链(与 sttSocket 同链)
+// 可能挂死——RN WebSocket 停在 CONNECTING 且不触发 onopen/onclose/onerror,既有
+// 重连/翻通道逻辑全部依赖 onclose,挂死即永久僵尸连接,send() 静默 false
+// (2026-11-02 下午「消息发不出去」事故形态之一)。sttSocket.ts 因同一链路早有
+// 6s 帽,主 WS 此前没有。超时拆链并计入通道故障,让挂死也能驱动重连与通道翻转。
+const CONNECT_TIMEOUT_MS = 6_000;
 
 export class MobileWebSocket {
   private ws: WebSocket | null = null;
@@ -112,7 +118,27 @@ export class MobileWebSocket {
     const url = `${toWebSocketUrl(baseUrl)}/ws/mobile${tokenQuery}`;
     const ws = new WebSocket(url);
 
+    // 连接超时哨兵:超时仍未 open 即拆链、计入通道故障并排程重连。置位
+    // connectTimedOut 后,迟到的 onclose 走早退分支,避免与哨兵重复
+    // reportChannelFailure/重复排程。
+    let connectTimedOut = false;
+    const connectTimer = setTimeout(() => {
+      if (this.ws !== ws) return;
+      connectTimedOut = true;
+      try {
+        ws.close();
+      } catch {
+        // ignore — the socket may already be dead
+      }
+      this.onStateChange?.('disconnected');
+      if (!this.intentionalClose && !this.authRejected) {
+        reportChannelFailure();
+        this.scheduleReconnect();
+      }
+    }, CONNECT_TIMEOUT_MS);
+
     ws.onopen = () => {
+      clearTimeout(connectTimer);
       // Guard against a stale socket firing after forceReconnect() replaced it.
       if (this.ws !== ws) return;
       this._connected = true;
@@ -151,9 +177,12 @@ export class MobileWebSocket {
     };
 
     ws.onclose = (event: WebSocketCloseEvent) => {
+      clearTimeout(connectTimer);
       // A newer socket already replaced this one (forceReconnect) — ignore the
       // abandoned socket's late close so it can't clobber the fresh connection.
       if (this.ws !== ws) return;
+      // 超时哨兵已接管(拆链+计数+排程):迟到的 close 不重复处理。
+      if (connectTimedOut) return;
       this._connected = false;
       this.stopHeartbeat();
       this.onStateChange?.('disconnected');

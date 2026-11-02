@@ -13,6 +13,7 @@ jest.mock('../../config/localService', () => ({
   isPlatformServiceReachable: jest.fn(() => false),
   markPlatformServiceUnreachable: jest.fn(),
   rememberPlatformServiceBaseUrl: jest.fn(),
+  reportChannelFailure: jest.fn(),
 }));
 
 jest.mock('../sessionAuth', () => ({
@@ -25,6 +26,7 @@ import { apiGet, ApiTimeoutError } from '../client';
 import {
   discoverReachableBaseUrl,
   markPlatformServiceUnreachable,
+  reportChannelFailure,
 } from '../../config/localService';
 
 const fetchMock = jest.fn();
@@ -61,8 +63,11 @@ describe('apiFetch 超时语义(C3)', () => {
     ).rejects.toBeInstanceOf(ApiTimeoutError);
     // 单次请求:没有把非幂等 refresh GET 盲重发。
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    // 超时 ≠ 主机死:不许 mark。
+    // 超时 ≠ 主机死:不许 mark(免探针税)。
     expect(markPlatformServiceUnreachable).not.toHaveBeenCalled();
+    // 但超时必须计入通道故障(2026-11-03 通道逃逸修复):坏中继上的超时是
+    // 主要失败形态,不计则坏通道永远凑不齐翻转阈值。
+    expect(reportChannelFailure).toHaveBeenCalledTimes(1);
     // discover 只发生一次(初始 resolveBaseUrl),没有超时后的二次发现。
     expect(discoverReachableBaseUrl).toHaveBeenCalledTimes(1);
   });

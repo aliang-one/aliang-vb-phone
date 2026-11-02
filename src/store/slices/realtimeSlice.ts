@@ -218,7 +218,6 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
       }, token);
     } catch (error) {
       console.warn('[store] Failed to initialize from server:', error);
-      platformTransport.disconnect();
       cancelAiStreamBatch();
       cancelRefreshDebounce();
       set({
@@ -226,6 +225,22 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
         serverMode: false,
         lastConnectError: error instanceof Error ? error.message : String(error),
       });
+      // 快照失败 ≠ WS 不许起(2026-11-03 通道逃逸修复):快照是重 HTTP 大包,
+      // 在坏通道上会反复失败;WS 是轻链路,且其失败会驱动通道翻转、通道翻对
+      // 后事件流立即接上。此前快照失败即 disconnect,快照门把 WS 全天卡死
+      // (2026-11-02 下午事故:快照在 nat0 数据面上反复失败 → /ws/mobile 全天
+      // 零发起)。serverMode 仍为 false:数据未就绪的事实不变,发送闸与重连
+      // 态展示照旧,恢复路径(前台 reinitialize)不变。
+      try {
+        platformTransport.connect(transportEvent => {
+          get().handleTransportEvent(transportEvent);
+        }, token);
+      } catch (connectError) {
+        console.warn(
+          '[store] Failed to start transport after snapshot failure:',
+          connectError,
+        );
+      }
       throw error instanceof Error
         ? error
         : new Error('Unable to connect to the local platform.');

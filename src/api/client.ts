@@ -4,6 +4,7 @@ import {
   isPlatformServiceReachable,
   markPlatformServiceUnreachable,
   rememberPlatformServiceBaseUrl,
+  reportChannelFailure,
 } from '../config/localService';
 import {
   isSessionInvalidError,
@@ -206,12 +207,14 @@ export async function apiFetch<T = unknown>(
       await rememberPlatformServiceBaseUrl(baseUrl);
       return payload;
     } catch (error) {
-      // 超时 ≠ 主机死(C3):不 mark,避免把"server 慢"误判成"平台不可达"
-      // 让后续所有请求先付 /health 探测税。只有网络层错误才 mark。
-      if (
-        !(error instanceof ApiResponseError) &&
-        !(error instanceof ApiTimeoutError)
-      ) {
+      if (error instanceof ApiTimeoutError) {
+        // 超时 ≠ 主机死(C3):不 mark(免探针税)、不盲重发。但超时是坏通道
+        // 的主要失败形态(中继数据面挂死,2026-11-02 nat0 钉死事故),必须
+        // 计入通道故障计数,否则坏通道永远凑不齐翻转阈值——通道逃逸缺口之一。
+        reportChannelFailure();
+      } else if (!(error instanceof ApiResponseError)) {
+        // 超时 ≠ 主机死(C3):网络层错误才 mark,让下一请求重新发现,
+        // 避免把"server 慢"误判成"平台不可达"。
         markPlatformServiceUnreachable();
       }
       throw error;

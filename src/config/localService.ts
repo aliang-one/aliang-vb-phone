@@ -72,6 +72,15 @@ const REPROBE_INTERVAL_MS = 10 * 60 * 1000;
 
 const DEFAULT_CHECK_TIMEOUT_MS = 5000;
 
+// 数据面逐出(2026-11-03 通道逃逸修复):/health 探针只证「边缘应答小帧」,
+// 不证「数据面扛得住真实请求」——nat0 中继边缘自答 200 即可在滞回带内连任,
+// 而真实 POST 全挂(2026-11-02 下午「探针全绿但发送全死」事故的结构洞)。
+// 连败翻通道时,被逃离通道在 DATA_PLANE_EVICTION_MS 内禁止在选举中连任
+// (防横跳锁只有 5 分钟,挡不住重探把坏通道选回来);到期自动回归候选池,
+// 若数据面仍坏会再次连败再次逐出。
+const DATA_PLANE_EVICTION_MS = REPROBE_INTERVAL_MS;
+const dataPlaneEvictedUntil: Record<EndpointId, number> = { primary: 0, nat0: 0, hk: 0 };
+
 /** Race a promise against a timeout. Clears the timer when either side
  * settles (promise wins OR timeout wins) so Jest doesn't report an open
  * handle. */
@@ -179,6 +188,11 @@ export function reportChannelFailure(): void {
     // 流量),故障恢复后的回切只能由后台重探/锁过期驱动,禁止立即横跳。
     lockedAgainst = activeId;
     lockUntil = Date.now() + FLIP_LOCK_MS;
+    // 数据面逐出(2026-11-03):防横跳锁只挡 5 分钟,锁过期后重探仍会因
+    // 「/health 更快」把坏通道选回来,而它的数据面未必恢复(2026-11-02 nat0
+    // 钉死事故:探针全绿、POST 全挂,循环钉死一整天)。逐出到期后回归候选池,
+    // 若数据面仍坏会再次累计连败再次逐出。
+    dataPlaneEvictedUntil[activeId] = Date.now() + DATA_PLANE_EVICTION_MS;
     // 循环切到下一通道(primary→nat0→hk→primary);被逃离通道由防横跳锁锁定
     const idx = ENDPOINTS.findIndex(e => e.id === activeId);
     activeId = ENDPOINTS[(idx + 1) % ENDPOINTS.length].id;
@@ -252,8 +266,14 @@ export async function discoverReachableBaseUrl(): Promise<string> {
   manualModeActive = false;
 
   const prior = await loadPrior();
+  // 选举池过滤(2026-11-03 通道逃逸修复):数据面连败被逐出的通道不参与本轮
+  // 探测/当选——探针假赢不能复活数据面已证的坏通道。全员被逐则全量兜底
+  // (逃逸口,绝不出现「无通道可选」)。到期通道自动回归候选池。
+  const nowMs = Date.now();
+  const electionPool = ENDPOINTS.filter(e => nowMs >= dataPlaneEvictedUntil[e.id]);
+  const pool = electionPool.length ? electionPool : ENDPOINTS;
   const probes = await Promise.all(
-    ENDPOINTS.map(async e => ({ id: e.id, ttfbMs: await probeTtfb(e.baseUrl) })),
+    pool.map(async e => ({ id: e.id, ttfbMs: await probeTtfb(e.baseUrl) })),
   );
   const winner = pickChannel(probes, prior);
   // 防横跳锁(spec §5.2):锁定期内被逃离通道即使探测更快也不得切回;
@@ -266,7 +286,11 @@ export async function discoverReachableBaseUrl(): Promise<string> {
     lockedAgainst = null;
   }
   activeId = effective;
-  consecutiveFailures = 0;
+  // 失败计数不在 discover 清零(2026-11-03 通道逃逸修复):此前每次 discover
+  // 无条件清零,而失败请求的冷路径与重试路径都会先/再跑 discover,HTTP 失败
+  // 计数永远在 0↔1 振荡、够不到翻转阈值 3——通道故障切换对 HTTP 数据面是
+  // 死代码(2026-11-02 nat0 钉死事故的逃逸缺口)。成功清零已由
+  // rememberPlatformServiceBaseUrl 承担,语义不重复。
   await AsyncStorage.setItem(PRIOR_STORAGE_KEY, effective).catch(() => {});
   scheduleBackgroundReprobe();
   if (probes.find(p => p.id === effective)?.ttfbMs == null) {
@@ -303,6 +327,9 @@ export function __resetChannelStateForTests(): void {
   lockedAgainst = null;
   lockUntil = 0;
   platformServiceReachable = false;
+  (Object.keys(dataPlaneEvictedUntil) as EndpointId[]).forEach(id => {
+    dataPlaneEvictedUntil[id] = 0;
+  });
 }
 
 async function probePlatformService(

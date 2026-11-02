@@ -102,6 +102,21 @@ describe('refreshFromServer outcome', () => {
     expect(result.error).toMatch(/snapshot boom/);
   });
 
+  test('快照失败仍保持 WS 运输层存活(快照门不再卡死 WS,2026-11-03)', async () => {
+    (platformTransport.connect as jest.Mock).mockClear();
+
+    await expect(
+      useControlCenterStore.getState().initializeFromServer('token'),
+    ).rejects.toThrow();
+
+    // 快照失败:serverMode 仍为 false(数据未就绪),但 transport 必须 connect,
+    // 让 WS 失败驱动通道翻转、通道翻对后事件流立即接上(2026-11-02 下午事故:
+    // 快照在坏通道上反复失败 → /ws/mobile 全天零发起)。
+    expect(platformTransport.connect).toHaveBeenCalled();
+    expect(useControlCenterStore.getState().serverMode).toBe(false);
+    expect(useControlCenterStore.getState().lastConnectError).toBeTruthy();
+  });
+
   test('returns {ok:false} with a connection error when not connected (noop)', async () => {
     useControlCenterStore.setState({ serverMode: false });
     mockedGetAuthToken.mockReturnValue(null);
