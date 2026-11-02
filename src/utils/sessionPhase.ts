@@ -22,7 +22,12 @@ import i18n from '../i18n';
  * 与 L2/L3 的区分:`LIVE_TURN_WINDOW_MS`(8s)只用于定位「当前正在流式的助手气泡」
  * (liveAssistantMessageId / 底部脉冲),不参与 L1 相位——L1 只认事件驱动的 status。
  */
-export type SessionPhase = 'running' | 'waiting_approval' | 'completed' | 'failed';
+export type SessionPhase =
+  | 'running'
+  | 'waiting_approval'
+  | 'waiting_choice'
+  | 'completed'
+  | 'failed';
 
 export function deriveSessionPhase(
   status: VibeStatus,
@@ -31,11 +36,14 @@ export function deriveSessionPhase(
 ): SessionPhase {
   if (status === 'failed') return 'failed';
   if (isLive) return 'running';
-  // `completed` means the session was genuinely closed — trust it over a
-  // likely-stale pending approval. (isLive above already wins, so a snapshot
-  // that falsely reports closed/completed while the agent is still thinking
-  // still shows 进行中.)
-  if (status === 'completed') return 'completed';
+  // `completed` + pending 派生卡 → 「待你选择」(三合一状态机,2026-11-01):派生卡
+  // 按设计幸存 run 终态、真等用户作答(服务端真相通道已保证卡不是陈旧幽灵——
+  // 旧规则「completed 压过 pending 防陈旧审批」的真值前提已由
+  // reconcileSessionApprovals/refreshRecentApprovals 闭合)。isLive 仍最优先:
+  // 活跑窗口内的陈旧卡不会打断「进行中」。
+  if (status === 'completed') {
+    return hasPendingApproval ? 'waiting_choice' : 'completed';
+  }
   if (hasPendingApproval) return 'waiting_approval';
   // No life signs (status not running) + nothing pending + not failed/closed ⇒
   // the turn settled (agent answered, ball back with the user). Show 已完成.
@@ -84,10 +92,14 @@ export function runDisplayPhase(
   phase: SessionPhase | undefined,
   runStateVersion?: number,
   runState?: VibeCodingRun['runState'],
+  hasPendingChoice = false,
 ): SessionPhase {
   if (runStateVersion !== undefined) {
     if (runState === 'failed' || runState === 'timed_out') return 'failed';
-    if (runState === 'completed' || runState === 'cancelled') return 'completed';
+    if (runState === 'completed' || runState === 'cancelled') {
+      // 终态 + 活的派生卡 → 「待你选择」(卡片幸存 run 终态,真等用户作答)。
+      return hasPendingChoice ? 'waiting_choice' : 'completed';
+    }
     if (runState === 'waiting_approval') return 'waiting_approval';
     if (
       runState === 'queued' ||
@@ -101,7 +113,7 @@ export function runDisplayPhase(
   if (status === 'failed') return 'failed';
   if (status === 'running') return 'running';
   if (phase) return phase;
-  return deriveSessionPhase(status, false, false);
+  return deriveSessionPhase(status, hasPendingChoice, false);
 }
 
 export function isAuthoritativeRunLive(
@@ -124,16 +136,30 @@ export function isAuthoritativeRunLive(
  * 相位(历史教训:`runDisplayPhase` 的消费点已经散到 6 个屏幕,再复制相位判定
  * 一定会漂移)。
  */
-export function isRunDisplayActive(run: VibeCodingRun): boolean {
+export function isRunDisplayActive(
+  run: VibeCodingRun,
+  hasPendingChoice = false,
+): boolean {
   return isActiveDisplayPhase(
-    runDisplayPhase(run.status, run.phase, run.runStateVersion, run.runState),
+    runDisplayPhase(
+      run.status,
+      run.phase,
+      run.runStateVersion,
+      run.runState,
+      hasPendingChoice,
+    ),
   );
 }
 
-/** 「置顶区」相位的单点定义:进行中 + 待审批。非相位推导的消费点不要用本函数
- *  (见 `runDisplayPhase` 上方的 lifecycle 收敛纪律)。 */
+/** 「置顶区」相位的单点定义:进行中 + 待审批 + 待你选择(派生卡等作答)。
+ *  非相位推导的消费点不要用本函数(见 `runDisplayPhase` 上方的 lifecycle 收敛
+ *  纪律)。 */
 export function isActiveDisplayPhase(phase: SessionPhase): boolean {
-  return phase === 'running' || phase === 'waiting_approval';
+  return (
+    phase === 'running' ||
+    phase === 'waiting_approval' ||
+    phase === 'waiting_choice'
+  );
 }
 
 /**
@@ -176,23 +202,38 @@ export function userQuestionMs(run: VibeCodingRun): number | undefined {
  *  3. `lastActivityMs` —— 兜底(老数据没有锚点),至少是稳定的静态值;
  *     **不回退 `lastMessage`**:那是 AI 消息时间。
  */
-export function stableSessionSortMs(run: VibeCodingRun): number {
-  if (isRunDisplayActive(run)) {
+export function stableSessionSortMs(
+  run: VibeCodingRun,
+  hasPendingChoice = false,
+): number {
+  if (isRunDisplayActive(run, hasPendingChoice)) {
     const turnAnchorMs = userQuestionMs(run) ?? run.turnStartedAtMs;
     if (turnAnchorMs !== undefined && turnAnchorMs > 0) return turnAnchorMs;
   }
   return run.lastActivityMs ?? 0;
 }
 
-/** Active/waiting sessions first, then stable newest-first ordering. */
+/** Active/waiting sessions first, then stable newest-first ordering.
+ *  `pendingChoiceSessionIds`(可选):有活的派生卡等作答的会话集合——这些会话
+ *  视作置顶区(三合一状态机),组内按用户提问时刻排。 */
 export function compareSessionsByStableActivity(
   left: VibeCodingRun,
   right: VibeCodingRun,
+  pendingChoiceSessionIds?: ReadonlySet<string>,
 ): number {
-  const leftActive = isRunDisplayActive(left);
-  const rightActive = isRunDisplayActive(right);
+  const leftActive = isRunDisplayActive(
+    left,
+    pendingChoiceSessionIds?.has(left.id) ?? false,
+  );
+  const rightActive = isRunDisplayActive(
+    right,
+    pendingChoiceSessionIds?.has(right.id) ?? false,
+  );
   if (leftActive !== rightActive) return leftActive ? -1 : 1;
-  return stableSessionSortMs(right) - stableSessionSortMs(left);
+  return (
+    stableSessionSortMs(right, pendingChoiceSessionIds?.has(right.id) ?? false) -
+    stableSessionSortMs(left, pendingChoiceSessionIds?.has(left.id) ?? false)
+  );
 }
 
 /**
@@ -211,6 +252,7 @@ export const sessionPhaseType: Record<
 > = {
   running: 'info',
   waiting_approval: 'warning',
+  waiting_choice: 'warning',
   completed: 'neutral',
   failed: 'error',
 };
@@ -242,6 +284,7 @@ export function phaseAccentColor(
     case 'running':
       return colors.primary;
     case 'waiting_approval':
+    case 'waiting_choice':
       return colors.warning;
     case 'failed':
       return colors.error;
@@ -262,6 +305,7 @@ export function phaseGlow(
     case 'running':
       return 'primary';
     case 'waiting_approval':
+    case 'waiting_choice':
       return 'warning';
     case 'failed':
       return 'error';

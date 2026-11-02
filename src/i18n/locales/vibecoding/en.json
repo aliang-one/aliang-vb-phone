@@ -332,6 +332,7 @@
   "phaseLabel": {
     "running": "In progress",
     "waiting_approval": "Awaiting approval",
+    "waiting_choice": "Your choice needed",
     "completed": "Completed",
     "failed": "Failed"
   },

@@ -49,6 +49,7 @@ export function useSessionHeader(input: SessionHeaderInput): SessionHeader {
           session.phase,
           session.runStateVersion,
           session.runState,
+          pendingApprovalCount > 0,
         );
       } else if (session?.status === 'failed') {
         phase = 'failed';

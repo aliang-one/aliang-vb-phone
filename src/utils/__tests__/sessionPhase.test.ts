@@ -43,9 +43,11 @@ describe('deriveSessionPhase (L1 整体相位)', () => {
     expect(deriveSessionPhase('completed', false, false)).toBe('completed');
   });
 
-  it('completed 表示上一轮已完成,即使有 pending approval 也优先展示完成态', () => {
-    // completed 只是上一轮完成,会话线程仍可继续;陈旧审批不应该把顶部顶成待审批。
-    expect(deriveSessionPhase('completed', true)).toBe('completed');
+  it('completed + 有活卡 → 待你选择(三合一状态机:派生卡幸存终态真等作答)', () => {
+    // 旧规则「completed 压过 pending 防陈旧审批」的真值前提已由服务端真相
+    // 通道(reconcile/refreshRecent)闭合:completed + pending 现在是真实的
+    // 「派生卡等用户作答」,不再是陈旧幽灵。
+    expect(deriveSessionPhase('completed', true)).toBe('waiting_choice');
   });
 
   it('有 pending approval → 待审批', () => {
@@ -65,9 +67,10 @@ describe('deriveSessionPhase (L1 整体相位)', () => {
     expect(deriveSessionPhase('preview_ready', false)).toBe('completed');
   });
 
-  it('4 个相位都有中文 label', () => {
+  it('5 个相位都有中文 label', () => {
     expect(phaseLabel('running')).toBe('进行中');
     expect(phaseLabel('waiting_approval')).toBe('待审批');
+    expect(phaseLabel('waiting_choice')).toBe('待你选择');
     expect(phaseLabel('completed')).toBe('已完成');
     expect(phaseLabel('failed')).toBe('失败');
   });

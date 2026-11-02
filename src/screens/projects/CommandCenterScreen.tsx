@@ -27,7 +27,7 @@ import { IconBadge, IconName } from '../../components/visual/IconBadge';
 import { ProjectWorkspaceCard } from '../../components/cards/ProjectWorkspaceCard';
 import { Project, VibeCodingRun } from '../../data/platformModels';
 import { RootStackParamList } from '../../app/navigation/types';
-import { useControlCenterStore, useStableVibeRuns } from '../../store/controlCenterStore';
+import { useControlCenterStore, usePendingChoiceSessionIds, useStableVibeRuns } from '../../store/controlCenterStore';
 import { useShallow } from 'zustand/shallow';
 import { findRecentActiveTerminalSession } from '../../utils/terminalInteraction';
 import { useRefreshWithFeedback } from '../../hooks/useRefreshWithFeedback';
@@ -180,6 +180,11 @@ export const CommandCenterScreen: React.FC = () => {
     () => buildDeviceStatusIndex(devices),
     [devices],
   );
+  const pendingChoiceIds = usePendingChoiceSessionIds();
+  const pendingChoiceSet = useMemo(
+    () => new Set(pendingChoiceIds),
+    [pendingChoiceIds],
+  );
   const activeAgentRuns = useMemo(
     () => {
       const nowMs = Date.now();
@@ -187,9 +192,12 @@ export const CommandCenterScreen: React.FC = () => {
         .filter(session =>
           isSessionActiveWithin(session, ACTIVE_AGENT_WINDOW_MS, nowMs),
         )
-        .sort(compareSessionsByStableActivity);
+        .sort(
+          (left, right) =>
+            compareSessionsByStableActivity(left, right, pendingChoiceSet),
+        );
     },
-    [vibeRuns],
+    [vibeRuns, pendingChoiceSet],
   );
   const recentAgentRuns = useMemo(
     () => {
@@ -197,11 +205,12 @@ export const CommandCenterScreen: React.FC = () => {
         offlineLastComparator(
           deviceStatusIndex,
           session => session.deviceId,
-          compareSessionsByStableActivity,
+          (left, right) =>
+            compareSessionsByStableActivity(left, right, pendingChoiceSet),
         ),
       );
     },
-    [vibeRuns, deviceStatusIndex],
+    [vibeRuns, deviceStatusIndex, pendingChoiceSet],
   );
   const activeProjects = useMemo(() => {
     const nowMs = Date.now();
