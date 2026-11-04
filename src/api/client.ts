@@ -17,12 +17,19 @@ const REQUEST_TIMEOUT_MS = 8000;
 export class ApiResponseError extends Error {
   status: number;
   code?: string;
+  /**
+   * agent 错误帧的结构化细分码(file.write 的 conflict/too_large 等),随
+   * 服务端 ApiError body 透传;缺省=服务端未携带(管道字段,供编辑器层
+   * 按码做人话映射,不改变 code 槽语义)。
+   */
+  agentErrorCode?: string;
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(message: string, status: number, code?: string, agentErrorCode?: string) {
     super(message);
     this.name = 'ApiResponseError';
     this.status = status;
     this.code = code;
+    this.agentErrorCode = agentErrorCode;
   }
 }
 
@@ -125,6 +132,7 @@ async function requestJson<T>(
   if (!response.ok) {
     let errorMessage = `Request failed with HTTP ${response.status}`;
     let errorCode: string | undefined;
+    let agentErrorCode: string | undefined;
     try {
       const payload = (await response.json()) as Record<string, unknown> | null;
       if (typeof payload?.error === 'string') {
@@ -133,10 +141,13 @@ async function requestJson<T>(
       } else if (typeof payload?.message === 'string') {
         errorMessage = payload.message;
       }
+      if (typeof payload?.agentErrorCode === 'string') {
+        agentErrorCode = payload.agentErrorCode;
+      }
     } catch {
       // Ignore non-JSON responses.
     }
-    throw new ApiResponseError(errorMessage, response.status, errorCode);
+    throw new ApiResponseError(errorMessage, response.status, errorCode, agentErrorCode);
   }
 
   if (response.status === 204) {

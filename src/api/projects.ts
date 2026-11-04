@@ -1,4 +1,4 @@
-import { apiFetch, apiGet, apiPost, apiPatch, apiDelete } from './client';
+import { apiFetch, apiGet, apiPost, apiPut, apiPatch, apiDelete } from './client';
 import type { ServerAiSession } from './sessions';
 import type { AgentCommandInfo } from '../data/platformModels';
 import type { ProjectProviderModelConfig } from './modelConfig';
@@ -170,6 +170,8 @@ export interface ServerProjectFileContent {
   size_bytes?: number;
   modified_at?: string;
   truncated: boolean;
+  /** agent 报告的完整文件 sha256(≤8MiB 才有);编辑器乐观锁原料,缺省=无锁写入 */
+  sha256?: string;
 }
 
 const queryString = (params: Record<string, string | number | undefined>) => {
@@ -336,6 +338,24 @@ export const fetchProjectFileContent = (
       max_bytes: maxBytes,
       ...(opts?.encoding ? { encoding: opts.encoding } : {}),
     })}`,
+  );
+
+// 手机端原生远程编辑(spec 2026-11-02 §D3):保存走服务端 PUT files/content,
+// expected_sha256 乐观锁——不符时服务端 agent 回 conflict,由编辑器层做人话映射。
+export const writeProjectFileContent = (
+  projectId: string,
+  path: string,
+  content: string,
+  opts?: { encoding?: 'utf8' | 'base64'; expectedSha256?: string },
+): Promise<{ ok: boolean; path: string; size_bytes?: number; sha256?: string }> =>
+  apiPut<{ ok: boolean; path: string; size_bytes?: number; sha256?: string }>(
+    `/api/projects/${encodeURIComponent(projectId)}/files/content`,
+    {
+      path,
+      content,
+      ...(opts?.encoding ? { encoding: opts.encoding } : {}),
+      ...(opts?.expectedSha256 ? { expected_sha256: opts.expectedSha256 } : {}),
+    },
   );
 
 // --- 视频在线播放(COS preview 直链,Range 按需拉流) ---
