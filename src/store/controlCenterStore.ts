@@ -234,10 +234,17 @@ export function useStableVibeRuns(): VibeCodingRun[] {
 
 /** 对话入口专用的稳定 vibe runs：排除 Goal 会话(对话/任务分离，Goal 走
  *  Tasks 入口)。任何"会话列表"形态的屏幕都应使用本 hook 而非裸
- *  useStableVibeRuns，避免 goal 会话混入对话列表。 */
+ *  useStableVibeRuns，避免 goal 会话混入对话列表。
+ *  历史层并集(2026-11-04)：与 useSessionListRuns 同构合并 aiSessionHistory
+ *  ——本 hook 原样传空数组是 10-03 的陈旧形态(早于游标分页历史层落地)，
+ *  AgentSessionsScreen/DeviceDetailScreen 因此只看得见活跃层，凡不在
+ *  realtime 层的会话(手机重启后、跨端会话、已关闭会话)全部隐身。Goal 过滤
+ *  由 mergeSessionListRuns 两臂自带，历史并入不改变对话/任务分离语义。 */
 export function useConversationRuns(): VibeCodingRun[] {
   return useControlCenterStore(
-    useShallow(state => mergeSessionListRuns(state.vibeRuns, [])),
+    useShallow(state =>
+      mergeSessionListRuns(state.vibeRuns, state.aiSessionHistory),
+    ),
   );
 }
 
