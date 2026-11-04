@@ -41,6 +41,10 @@ export type RootStackParamList = {
   ProjectPorts: { projectId: string; deviceId?: string };
   ProjectSettings: { projectId: string; deviceId?: string };
   FileBrowser: { projectId: string; deviceId?: string; sessionId?: string };
+  // 文件编辑器(手机端原生远程编辑):读走 GET files/content(≤512KiB),存走
+  // PUT files/content(expected_sha256 乐观锁)。fileName 只用于顶栏展示,
+  // 真实定位用 path。
+  FileEditor: { projectId: string; path: string; fileName: string };
   ChangeReview: { projectId: string; deviceId?: string };
   CreateVibeCoding: { deviceId?: string; projectId?: string };
   // VibeCodingSession doubles as the "new conversation" screen: when opened

@@ -48,6 +48,9 @@
     "taskNoDeviceHint": "请返回设备页，先绑定设备并为该项目选择设备。",
     "agentOfflineHint": "Agent 未保持连接，请确认 Agent 在线后用上方工具条刷新，或打开终端 / 扫描设备。",
     "noFilesHint": "点击上方工具条的 REFRESH 可向桌面 Agent 请求文件列表。",
+    "edit": {
+      "menuItem": "编辑"
+    },
     "download": {
       "menuItem": "下载",
       "confirmAction": "确认下载",
@@ -101,6 +104,27 @@
     "truncatedLoadAll": "加载完整目录",
     "truncatedStill": "已显示前 {{count}} 项，目录仍更大；请用终端查看全部",
     "retryRead": "重试读取"
+  },
+  "fileEditor": {
+    "title": "编辑文件",
+    "save": "保存",
+    "saved": "已保存",
+    "saving": "保存中…",
+    "binaryNotEditable": "二进制文件不支持编辑",
+    "tooLargeReadOnly": "文件超过 512KiB 写入上限",
+    "readonlyBanner": "文件超过 512KiB，仅支持查看",
+    "conflictTitle": "文件已被其他端修改",
+    "conflictMessage": "打开后该文件已被其他端修改。重新加载获取最新版本（丢弃本地修改），或继续编辑。",
+    "reload": "重新加载（丢弃本地）",
+    "keepEditing": "继续编辑",
+    "pathForbidden": "路径不被允许写入",
+    "serverTooOld": "服务端版本过旧，不支持在线编辑，请升级服务端。",
+    "saveFailed": "保存失败",
+    "unsavedTitle": "有未保存的修改",
+    "unsavedMessage": "离开将丢失当前修改，要先保存吗？",
+    "saveAndLeave": "保存并离开",
+    "discard": "放弃修改",
+    "cancel": "取消"
   },
   "commandCenter": {
     "title": "Aliang Vibe Coding",

@@ -34,6 +34,8 @@ import { saveDownloadedFile } from '../../services/fileDownloadSave';
 import { LoadMoreRow } from '../../components/shared/LoadMoreRow';
 import { BottomSheet } from '../../components/shared/BottomSheet';
 import { FileLongPressMenu } from '../../components/projects/FileLongPressMenu';
+// 跨屏只借纯逻辑(allowlist 谓词),不形成屏→屏导航依赖(编辑器由导航注册)。
+import { isTextEditableFile } from './FileEditorScreen';
 import { FileDownloadSheet } from '../../components/projects/FileDownloadSheet';
 import { FileTransferSheet } from '../../components/projects/FileTransferSheet';
 import { CodeHighlight } from '../../components/shared/CodeHighlight';
@@ -379,6 +381,10 @@ export const FileBrowserScreen: React.FC = () => {
   const sheetFile = selectedFile ?? lastFileRef.current;
   const canReadDevice = Boolean(device && device.status === 'online');
   const inSubfolder = effectivePath !== terminalDirectory;
+  // 长按菜单的存在条件之一:当前长按的文件可进编辑器(文本扩展名且非目录)。
+  // 编辑不依赖 download 能力位/设备在线(设备侧错误在保存时人话兜底),
+  // 没有这一项,离线或无下载能力的会话长按文本文件会连菜单都不出现。
+  const menuEditableFile = menuFile ? isTextEditableFile(menuFile) : false;
 
   useEffect(() => {
     if (!currentPath && terminalDirectory !== '~') {
@@ -1392,20 +1398,41 @@ export const FileBrowserScreen: React.FC = () => {
           {renderSheetBody()}
         </BottomSheet>
 
-        {/* File-row long-press menu + the download / device-transfer sheets.
-            The menu exists when either surface is available: downloads need
-            the server capability flag; transfers need the source device
-            online (capability mismatches surface as a 409 via the sheet's
-            failure body). A close attempt mid-run is a dead gesture (the
+        {/* File-row long-press menu + the download / device-transfer sheets
+            (+ the editor entry). The menu exists when any surface is
+            available: downloads need the server capability flag; transfers
+            need the source device online (capability mismatches surface as
+            a 409 via the sheet's failure body); the edit entry only needs a
+            text-editable file (device-side failures surface as human toasts
+            at save time). A close attempt mid-run is a dead gesture (the
             sheet stays mounted while a run is live); Cancel is the only way
             out of a running task. */}
-        {(downloadEnabled || (deviceOnline && !!device)) && (
+        {(downloadEnabled || (deviceOnline && !!device) || menuEditableFile) && (
           <>
             <FileLongPressMenu
               visible={!!menuFile}
               fileName={menuFile?.name ?? ''}
               onClose={() => setMenuFile(null)}
               actions={[
+                ...(menuFile && isTextEditableFile(menuFile)
+                  ? [
+                      {
+                        label: t('fileBrowser.edit.menuItem'),
+                        tone: 'default' as const,
+                        onPress: () => {
+                          const file = menuFile;
+                          setMenuFile(null);
+                          if (file) {
+                            navigation.navigate('FileEditor', {
+                              projectId: route.params.projectId,
+                              path: file.path,
+                              fileName: file.name,
+                            });
+                          }
+                        },
+                      },
+                    ]
+                  : []),
                 ...(downloadEnabled
                   ? [
                       {

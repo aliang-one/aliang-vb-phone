@@ -48,6 +48,9 @@
     "taskNoDeviceHint": "Go back to the devices page, bind a device, and assign it to this project.",
     "agentOfflineHint": "The Agent is not connected. Confirm it is online, then refresh from the toolbar above, or open the terminal / scan the device.",
     "noFilesHint": "Tap REFRESH in the toolbar above to request the file list from the desktop Agent.",
+    "edit": {
+      "menuItem": "Edit"
+    },
     "download": {
       "menuItem": "Download",
       "confirmAction": "Download",
@@ -101,6 +104,27 @@
     "truncatedLoadAll": "Load full directory",
     "truncatedStill": "Showing first {{count}} entries; the directory has more. Use the terminal to browse all.",
     "retryRead": "Retry"
+  },
+  "fileEditor": {
+    "title": "Edit file",
+    "save": "Save",
+    "saved": "Saved",
+    "saving": "Saving…",
+    "binaryNotEditable": "Binary file — editing is not supported",
+    "tooLargeReadOnly": "File exceeds the 512 KiB write limit",
+    "readonlyBanner": "File exceeds 512 KiB — read-only preview",
+    "conflictTitle": "File changed elsewhere",
+    "conflictMessage": "This file was modified by another client since you opened it. Reload to get the latest version (discarding your edits), or keep editing.",
+    "reload": "Reload (discard my edits)",
+    "keepEditing": "Keep editing",
+    "pathForbidden": "This path is not allowed to be written",
+    "serverTooOld": "The server version is too old for online editing. Please upgrade the server.",
+    "saveFailed": "Save failed",
+    "unsavedTitle": "Unsaved changes",
+    "unsavedMessage": "Leaving now will discard your edits. Save them first?",
+    "saveAndLeave": "Save & leave",
+    "discard": "Discard",
+    "cancel": "Cancel"
   },
   "commandCenter": {
     "title": "Aliang Vibe Coding",

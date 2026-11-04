@@ -17,6 +17,7 @@ import { ProjectDetailScreen } from '../../screens/projects/ProjectDetailScreen'
 import { ProjectPortsScreen } from '../../screens/projects/ProjectPortsScreen';
 import { ProjectSettingsScreen } from '../../screens/projects/ProjectSettingsScreen';
 import { FileBrowserScreen } from '../../screens/projects/FileBrowserScreen';
+import { FileEditorScreen } from '../../screens/projects/FileEditorScreen';
 import { ChangeReviewScreen } from '../../screens/projects/ChangeReviewScreen';
 import { CreateVibeCodingScreen } from '../../screens/vibecoding/CreateVibeCodingScreen';
 import { AgentSessionsScreen } from '../../screens/vibecoding/AgentSessionsScreen';
@@ -264,6 +265,7 @@ export const RootNavigator = ({ debugDeviceTerminal }: RootNavigatorProps) => {
           <Stack.Screen name="ProjectPorts" component={ProjectPortsScreen} />
           <Stack.Screen name="ProjectSettings" component={ProjectSettingsScreen} />
           <Stack.Screen name="FileBrowser" component={FileBrowserScreen} />
+          <Stack.Screen name="FileEditor" component={FileEditorScreen} />
           <Stack.Screen name="ChangeReview" component={ChangeReviewScreen} />
           <Stack.Screen name="CreateVibeCoding" component={CreateVibeCodingScreen} />
           <Stack.Screen name="AgentSessions" component={AgentSessionsScreen} />
