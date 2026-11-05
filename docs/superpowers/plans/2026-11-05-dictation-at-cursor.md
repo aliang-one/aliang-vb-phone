@@ -99,6 +99,9 @@ describe('applyDictationLive（在途片段滑动替换）', () => {
 
 describe('commitDictationText / revertDictation', () => {
   const session: DictationSession = { active: true, cursor: 2, segLen: 3 };
+  it('IDLE_DICTATION：哨兵会话（Task 6 复位用）', () => {
+    expect(IDLE_DICTATION).toEqual({ active: false, cursor: 0, segLen: 0 });
+  });
   it('commit：用权威 final 全文替换在途段并回报落点光标', () => {
     // 在途段显示 "你好呀"(3)，服务端归一化后 full_text = "你好，呀。"
     expect(commitDictationText(session, 'AB你好呀CD', '你好，呀。')).toEqual({
