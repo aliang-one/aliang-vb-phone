@@ -556,11 +556,18 @@ props 接口加：
           if (dictationHolding) return;
           onModeChange(targetMode);
         }}
-        onLongPress={() => {
-          if (composerDisabled || !onDictationPressIn) return;
-          setDictationHolding(true);
-          onDictationPressIn();
-        }}
+        onLongPress={
+          // 仅文本模式挂载（spec §2 手势表只定义文本模式；语音模式交互
+          // 原样不动——RN Touchable 在有 onLongPress 时会吞慢按的 onPress，
+          // 语音模式挂载会造成慢按幽灵听写）。In/Out 须成对才挂载。
+          mode === 'text' && onDictationPressIn && onDictationPressOut
+            ? () => {
+                if (composerDisabled) return;
+                setDictationHolding(true);
+                onDictationPressIn();
+              }
+            : undefined
+        }
         onPressOut={() => {
           if (!dictationHolding) return;
           setDictationHolding(false);
