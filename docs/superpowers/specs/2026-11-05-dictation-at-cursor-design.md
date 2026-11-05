@@ -94,7 +94,8 @@ stt.error / 空结果 ──▶ screen: revertSegment()（还原原文）+ 提�
   liveCaption 置空（还会带上从未渲染过的 pending 值），未门控的 watcher 会在
   commit/revert 之后收到尾随空更新，把已定稿片段抹掉。
 - revert：与 commit 同一助手函数（`replaceSegment(input, cursor, segLen, '')`
-  还原原文）。
+  还原原文）；**revert 同样清 `active`/`segLen`**——§6.3 的"pressOut 无活动
+  会话不触 stop"测试正是依赖这一点。
 - 失败路径（错误感知机制）：屏幕 watch `voiceStt.status`——`dictationRef.active`
   期间 status 变为 `'error'` 即 revert 原文 + 置屏幕层 notice（见 3.6.3）。
   hook 的 `failWith`（如 `noSpeechDetected`、captureSilent、micSilent）不会
@@ -155,7 +156,8 @@ RN 受控 TextInput 程序化改值后光标默认跳到全文末尾；听写多
      语义 = 屏幕层定时器（4s）自动清除，或下一次 pressIn / 模式切换提前清除**
      ——两者都由屏幕实现，不依赖 hook。
    - Composer 渲染条件：`dictationNotice != null && mode === 'text'`（新 prop
-     `dictationNotice` 下发）。
+     `dictationNotice` 下发）；`kind: 'live'` 时的波形微动复用 composer 现成
+     `Waveform` 组件（`calm` 态）。
    - i18n：新增 key 进现有 composer 命名空间（i18n jest 锁 zh，key 齐进 zh
      与 en）。
 4. 只读守卫沿用 `composerDisabled`：只读态长按不启动。
