@@ -17,7 +17,7 @@
 - 本计划在 worktree `/Users/mac/MyProgram/AiProgram/vibe_on_phone/AliangVibeCodingPhone-dictation`（分支 `dictation-at-cursor`）执行，`node_modules` 已软链到主树，jest 直接可用。
 - 所有命令在 worktree 根目录执行。
 - **Commit message 用中文**，结尾加 `Co-Authored-By: Claude Code <noreply@anthropic.com>`。
-- **VibeCodingSessionScreen 有 hooks 不变量结构测试**（`__tests__/vibecoding/VibeCodingSessionScreen.hooksInvariant.test.ts`）：`if (!session)` 早退守卫（约 2764 行）之后、主 JSX return 之前**禁止新增任何 hook 调用**。放置分区：状态/refs（Step 2）与 watch effects（Step 7）放 `voiceStt` 声明附近（约 600 行一带）；**听写回调（Step 3-6）必须放在 `composerReadOnlyReason` 声明（约 2092 行）之后、守卫之前**——它们的依赖数组引用了 `composerReadOnlyReason` / `shouldDisableComposerForProvider`（约 1292 行），放早了是 use-before-declaration 编译错误。
+- **VibeCodingSessionScreen 有 hooks 不变量结构测试**（`__tests__/vibecoding/VibeCodingSessionScreen.hooksInvariant.test.ts`）：`if (!session)` 早退守卫（约 2764 行）之后、主 JSX return 之前**禁止新增任何 hook 调用**。放置分区：状态/refs（Step 2）、notice 助手（Step 3）、watch effects（Step 7）与卸载清理（Step 8 的 effect）放 `voiceStt` 声明附近（约 600 行一带）——它们只依赖 Step 2 的 refs/state，依赖数组为空或仅含早期声明符号；**唯独 Step 5 的 `handleDictationPressIn` 必须放在 `composerReadOnlyReason` 声明（约 2092 行）之后、守卫之前**——其依赖数组引用了 `composerReadOnlyReason` / `shouldDisableComposerForProvider`（约 1292 行），放早了是 use-before-declaration（TDZ）编译错误。同理：**任何 placement 都要沿依赖图自底向上**，先声明被依赖的 helper 再声明引用方，勿把声明顺序倒置。
 - jest 基线（worktree 已验证）：`MessageComposer.memo.test.tsx` + `useVoiceStt.test.tsx` 全绿（17 tests）。全量 suite 有已知的顺序污染红（agentTranscript/aboutScreen/localService），**不要跑全量 suite 判回归**，按本计划指定的文件跑。
 - 文件行号为 2026-11-05 快照，实施时以符号名定位为准。
 
@@ -374,6 +374,8 @@ props 内加（可选）：
   onComposerSelectionChange?: (selection: { start: number; end: number }) => void;
 ```
 
+**记得把新 props 加进组件的 props 解构**（`MessageComposerBase` 顶部，约 301 行起）。
+
 3b. 组件改 forwardRef（`MessageComposerBase` 签名改为接受 ref）：
 
 ```tsx
@@ -521,6 +523,8 @@ props 接口加：
   onDictationPressOut?: () => void;
 ```
 
+（同样记得加进组件 props 解构；`dictationNotice` 在 Task 5 引入时也一样。）
+
 组件 refs/state 区加：
 
 ```tsx
@@ -611,7 +615,17 @@ describe('MessageComposer 听写提示行', () => {
       />,
     );
     const row = tree.root.find(node => node.props.testID === 'composer-dictation-notice');
-    expect(JSON.stringify(row.props)).toContain('正在听写…松手结束');
+    // 提示文本在行内 Text 子元素的 children 上，不在 View 的 props 里。
+    expect(
+      row.find(node =>
+        typeof node.props.children === 'string'
+          ? node.props.children.includes('正在听写…松手结束')
+          : Array.isArray(node.props.children) &&
+            node.props.children.some(
+              c => typeof c === 'string' && c.includes('正在听写…松手结束'),
+            ),
+      ),
+    ).toBeTruthy();
   });
 
   it('text 模式 + error notice：显示错误文案', () => {
@@ -620,9 +634,17 @@ describe('MessageComposer 听写提示行', () => {
         {...buildProps({ dictationNotice: { kind: 'error', text: '未检测到语音' } })}
       />,
     );
-    expect(() =>
-      tree.root.find(node => node.props.testID === 'composer-dictation-notice'),
-    ).not.toThrow();
+    const row = tree.root.find(node => node.props.testID === 'composer-dictation-notice');
+    expect(
+      row.find(node =>
+        typeof node.props.children === 'string'
+          ? node.props.children.includes('未检测到语音')
+          : Array.isArray(node.props.children) &&
+            node.props.children.some(
+              c => typeof c === 'string' && c.includes('未检测到语音'),
+            ),
+      ),
+    ).toBeTruthy();
   });
 
   it('voice 模式不显示提示行', () => {
@@ -758,7 +780,10 @@ import type { MessageComposerHandle } from '../../components/vibecoding/MessageC
   const dictationNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 ```
 
-- [ ] **Step 3: notice 定时器助手**（放在 handleVoiceCapture 一带回调区，约 1670 行之前）
+- [ ] **Step 3: notice 定时器助手**（紧跟 Step 2，放在 `voiceStt` 声明附近——
+  两者只依赖 Step 2 的 refs/state、依赖数组为空；⚠️ 勿放到 2092 行以后，
+  否则 ~600 行的 watch effect 和 661 行的 `handleComposerModeChange` 引用它们
+  时 TDZ 崩溃）
 
 ```tsx
   const clearDictationNotice = useCallback(() => {
@@ -931,8 +956,10 @@ input。`noSpeechDetected` 在 **common** 命名空间（`common/zh.json:73`，h
 - 现有 `voiceStt.stop()` 的三个调用点不必为听写改动（听写与语音共用互斥状态，
   `enterGoalDraft` 约 1337 行 / `handleVoiceCaptureEnd` 约 1709 行 /
   `handleInterruptTurn` 约 2166 行的 stop 在听写激活时同样适用，无需额外收口）。
-- 现有 `handleComposerModeChange`（`onModeChange={handleComposerModeChange}` 的
-  实现）体内加：`clearDictationNotice();`（模式切换提前清除错误提示）。
+- 现有 `handleComposerModeChange`（约 661 行，`onModeChange={handleComposerModeChange}`
+  的实现）体内加：`clearDictationNotice();`（模式切换提前清除错误提示），并把
+  `clearDictationNotice` 加进其依赖数组（Step 3 已把助手放到 600 行一带，此处
+  引用无 TDZ 风险）。
 - 确认上述所有新增 hook 都在 `if (!session)` 守卫（约 2764 行）之前。
 
 - [ ] **Step 9: 渲染点接线**（`<MessageComposer` 约 4141 行）
