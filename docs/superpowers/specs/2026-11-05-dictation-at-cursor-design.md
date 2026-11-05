@@ -78,8 +78,9 @@ stt.error / 空结果 ──▶ screen: revertSegment()（还原原文）+ 提�
 
 - `handleDictationPressIn`：守卫（只读态/离线/已有录制进行中）→ 置 `active`、
   锚定 cursor、`voiceStt.start({ ..., onComplete: commitDictation })`。
-- `handleDictationPressOut`：`voiceStt.stop()`（最短录音/超时兜底等既有韧性
-  逻辑全部复用，不另起炉灶）。
+- `handleDictationPressOut`：以 `dictationRef.current.active` 门控——无活动
+  听写会话时直接返回，绝不对 idle hook 调 `voiceStt.stop()`。门控通过则
+  `voiceStt.stop()`（最短录音/超时兜底等既有韧性逻辑全部复用，不另起炉灶）。
 - `commitDictation(text)`：**必须**用 `replaceSegment(input, cursor, segLen,
   text)` 把在途段整体替换为权威 final 全文（`text` 为 hook onComplete 交付的
   `full_text`/partial），再做清理。绝不能假设"片段已在位、liveCaption 已收敛"：
@@ -94,10 +95,11 @@ stt.error / 空结果 ──▶ screen: revertSegment()（还原原文）+ 提�
   commit/revert 之后收到尾随空更新，把已定稿片段抹掉。
 - revert：与 commit 同一助手函数（`replaceSegment(input, cursor, segLen, '')`
   还原原文）。
-- 失败路径：`failWith`（如 `noSpeechDetected`、captureSilent）不会触发
-  onComplete → active 状态下收到 error 即 revert 原文，提示行显示
-  `voiceStt.errorMessage`（下一次交互或超时消失）。`stt.error` 携带部分文本时
-  hook 已走 `finishWith(partial)` → 正常 commit。
+- 失败路径（错误感知机制）：屏幕 watch `voiceStt.status`——`dictationRef.active`
+  期间 status 变为 `'error'` 即 revert 原文 + 置屏幕层 notice（见 3.6.3）。
+  hook 的 `failWith`（如 `noSpeechDetected`、captureSilent、micSilent）不会
+  触发 onComplete，只能走这条 watch 通道。`stt.error` 携带部分文本时 hook 已
+  走 `finishWith(partial)` → 正常 commit，无需报错。
 
 ### 3.3 插入纯函数（可单测）
 
@@ -143,9 +145,19 @@ RN 受控 TextInput 程序化改值后光标默认跳到全文末尾；听写多
    与本改动无关。可选 prop 是为未来复用留的安全垫，本期无其他回归面。
 2. `TextInput` 增加 `onSelectionChange`，经新 prop `onComposerSelectionChange`
    上报屏幕（屏幕存 ref，不进 state）。
-3. 听写提示条：`status ∈ {connecting, recording, stopping}` 且 `mode === 'text'`
-   时显示（"正在听写…松手结束" / errorMessage），复用现有 i18n 命名空间新增
-   key（i18n jest 锁 zh，key 齐进 zh 与 en）。
+3. 听写提示条由**屏幕层 notice 状态驱动**，不用 hook status 做显示条件
+   （hook status `'error'` 在文本模式下今天什么都不渲染，且会一直挂到下一次
+   `start()`——直接用它必然出现静默失败，违反"异常必须有状态返回"硬规则）：
+   - 屏幕新增 `dictationNotice` state：`{ kind: 'live' | 'error', text } | null`。
+   - `kind: 'live'`：听写 active 期间显示"正在听写…松手结束"；pressIn 置上，
+     commit/revert 清除。
+   - `kind: 'error'`：失败路径（见 3.2）置入 `voiceStt.errorMessage`；**消失
+     语义 = 屏幕层定时器（4s）自动清除，或下一次 pressIn / 模式切换提前清除**
+     ——两者都由屏幕实现，不依赖 hook。
+   - Composer 渲染条件：`dictationNotice != null && mode === 'text'`（新 prop
+     `dictationNotice` 下发）。
+   - i18n：新增 key 进现有 composer 命名空间（i18n jest 锁 zh，key 齐进 zh
+     与 en）。
 4. 只读守卫沿用 `composerDisabled`：只读态长按不启动。
 
 ### 3.7 录音持久化字段
@@ -179,6 +191,7 @@ stt_records 浏览与回放口径不变。
    时长按无操作（守住可选契约）。
 3. 屏幕级听写状态机测试（可抽纯逻辑）：liveCaption 更新替换在途段；
    `commitDictation` splice 权威文本 + 落光标；尾随 liveCaption 空更新不抹
-   已定稿片段（watcher 门控）；错误 revert。
+   已定稿片段（watcher 门控）；错误 revert + notice 置入 + 4s 自动清除（fake
+   timers）；pressOut 无活动会话不触 stop。
 4. 既有 jest 基线保持绿（`MessageComposer.memo/attachments/steer`、
    `VoiceTextInput`、`useVoiceStt` 系列不回归）。
