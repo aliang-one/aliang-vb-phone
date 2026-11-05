@@ -105,6 +105,9 @@ export interface MessageComposerProps {
   onDictationPressIn?: () => void;
   /** 听写：松手结束（屏幕 stop STT）。与 onDictationPressIn 配对。 */
   onDictationPressOut?: () => void;
+  /** 听写提示行（屏幕层 notice 状态驱动，见 spec §3.6.3）：
+   * live=听写中提示；error=失败文案。null/undefined 不渲染。 */
+  dictationNotice?: { kind: 'live' | 'error'; text: string } | null;
 }
 
 export interface MessageComposerHandle {
@@ -352,6 +355,7 @@ const MessageComposerBase = (
     onComposerSelectionChange,
     onDictationPressIn,
     onDictationPressOut,
+    dictationNotice,
   } = props;
   const { theme, isDark } = useTheme();
   const { t } = useTranslation('vibecoding');
@@ -881,6 +885,33 @@ const MessageComposerBase = (
                 ) : null}
               </TouchableOpacity>
               </View>
+            </View>
+          ) : null}
+          {dictationNotice && mode === 'text' ? (
+            <View
+              testID="composer-dictation-notice"
+              style={[styles.inlineRow, { marginBottom: 6 }]}
+            >
+              <Waveform
+                active={dictationNotice.kind === 'live'}
+                calm
+                color={dictationNotice.kind === 'error' ? theme.colors.error : theme.colors.primary}
+              />
+              <Text
+                style={[
+                  theme.typography.labelMd,
+                  {
+                    color:
+                      dictationNotice.kind === 'error'
+                        ? theme.colors.error
+                        : theme.colors.onSurfaceVariant,
+                    flexShrink: 1,
+                  },
+                ]}
+                numberOfLines={2}
+              >
+                {dictationNotice.text}
+              </Text>
             </View>
           ) : null}
           <View

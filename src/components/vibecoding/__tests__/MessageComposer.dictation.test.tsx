@@ -226,3 +226,93 @@ describe('MessageComposer toggle 长按手势', () => {
     });
   });
 });
+
+describe('MessageComposer 听写提示行', () => {
+  it('text 模式 + live notice：显示提示行', () => {
+    let tree: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(
+        <MessageComposer
+          {...buildProps({
+            dictationNotice: { kind: 'live', text: '正在听写…松手结束' },
+          })}
+        />,
+      );
+    });
+    const row = tree!.root.find(node => node.props.testID === 'composer-dictation-notice');
+    // 提示文本在行内 Text 子元素的 children 上，不在 View 的 props 里。
+    expect(
+      row.find(node =>
+        typeof node.props.children === 'string'
+          ? node.props.children.includes('正在听写…松手结束')
+          : Array.isArray(node.props.children) &&
+            node.props.children.some(
+              c => typeof c === 'string' && c.includes('正在听写…松手结束'),
+            ),
+      ),
+    ).toBeTruthy();
+    act(() => {
+      tree!.unmount();
+    });
+  });
+
+  it('text 模式 + error notice：显示错误文案', () => {
+    let tree: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(
+        <MessageComposer
+          {...buildProps({ dictationNotice: { kind: 'error', text: '未检测到语音' } })}
+        />,
+      );
+    });
+    const row = tree!.root.find(node => node.props.testID === 'composer-dictation-notice');
+    expect(
+      row.find(node =>
+        typeof node.props.children === 'string'
+          ? node.props.children.includes('未检测到语音')
+          : Array.isArray(node.props.children) &&
+            node.props.children.some(
+              c => typeof c === 'string' && c.includes('未检测到语音'),
+            ),
+      ),
+    ).toBeTruthy();
+    act(() => {
+      tree!.unmount();
+    });
+  });
+
+  it('voice 模式不显示提示行', () => {
+    let tree: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(
+        <MessageComposer
+          {...buildProps({
+            mode: 'voice',
+            dictationNotice: { kind: 'live', text: '正在听写…松手结束' },
+          })}
+        />,
+      );
+    });
+    const found = tree!.root.findAll(
+      node => node.props.testID === 'composer-dictation-notice',
+    );
+    expect(found).toHaveLength(0);
+    act(() => {
+      tree!.unmount();
+    });
+  });
+
+  it('不传 dictationNotice 不显示', () => {
+    let tree: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(<MessageComposer {...buildProps()} />);
+    });
+    const found = tree!.root.findAll(
+      node => node.props.testID === 'composer-dictation-notice',
+    );
+    expect(found).toHaveLength(0);
+    act(() => {
+      tree!.unmount();
+    });
+  });
+});
