@@ -99,6 +99,11 @@ export interface MessageComposerProps {
   onEditVoice: () => void;
   /** 听写：TextInput 选区变化上报（屏幕存 ref 不进 state）。 */
   onComposerSelectionChange?: (selection: { start: number; end: number }) => void;
+  /** 听写：文本模式下长按 toggle 进入 hold-to-talk 听写（屏幕启动 STT）。
+   * 未传时长按为无操作（保守可选 prop，现无其他消费方）。 */
+  onDictationPressIn?: () => void;
+  /** 听写：松手结束（屏幕 stop STT）。与 onDictationPressIn 配对。 */
+  onDictationPressOut?: () => void;
 }
 
 export interface MessageComposerHandle {
@@ -344,6 +349,8 @@ const MessageComposerBase = (
     onInterruptTurn,
     onEditVoice,
     onComposerSelectionChange,
+    onDictationPressIn,
+    onDictationPressOut,
   } = props;
   const { theme, isDark } = useTheme();
   const { t } = useTranslation('vibecoding');
@@ -414,6 +421,11 @@ const MessageComposerBase = (
     [],
   );
 
+  // 听写按住态：长按开始 → 松手结束。作用有二：a) 期间豁免 toggle 的
+  // isVoiceActive 禁用（否则 status→recording 置 disabled 后松手的
+  // onPressOut 被吞，录音停不下来）；b) 普通点按的 onPressOut 不误触 stop。
+  const [dictationHolding, setDictationHolding] = useState(false);
+
   useEffect(() => {
     contentOpacity.setValue(0);
     contentSlide.setValue(6);
@@ -479,13 +491,28 @@ const MessageComposerBase = (
     const iconName: ComposerIconName = mode === 'text' ? 'mic' : 'keyboard';
     // 只读态不禁用切换：用户若困在语音视图（如草稿录到一半回合被锁），
     // 必须能切回文本视图看到只读原因行（G6，2026-10-24）。
-    const disabled = isVoiceActive;
+    const disabled = isVoiceActive && !dictationHolding;
     return (
       <TouchableOpacity
         accessibilityRole="button"
         accessibilityLabel={mode === 'text' ? t('composer.switchToVoice') : t('composer.switchToText')}
         disabled={disabled}
-        onPress={() => onModeChange(targetMode)}
+        onPress={() => {
+          // 按住听写期间（含另一根手指误触）不切模式——「按住期间禁用防误触
+          // 切模式」的等价守卫（禁用被按住态豁免了）。
+          if (dictationHolding) return;
+          onModeChange(targetMode);
+        }}
+        onLongPress={() => {
+          if (composerDisabled || !onDictationPressIn) return;
+          setDictationHolding(true);
+          onDictationPressIn();
+        }}
+        onPressOut={() => {
+          if (!dictationHolding) return;
+          setDictationHolding(false);
+          onDictationPressOut?.();
+        }}
         testID="composer-toggle"
         style={[styles.ctrlBtn, { borderRadius: theme.borderRadius.full }, ctrlBg]}
       >
