@@ -47,6 +47,7 @@ import { firstServerConfirmedMessage } from '../../utils/sessionCatchUp';
 import {
   MessageComposer,
   type ComposerMode,
+  type MessageComposerHandle,
 } from '../../components/vibecoding/MessageComposer';
 import { GoalDraftBar, GoalStatusBar } from '../../components/vibecoding/GoalStatusBar';
 import { GoalDeletedFold } from '../../components/vibecoding/GoalDeletedFold';
@@ -121,6 +122,14 @@ import { isSessionSnapshotStale } from '../../utils/sessionSnapshotStale';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { formatContextWindow } from '../../utils/contextWindow';
 import { isGoalCommand, parseGoalCommand } from '../../utils/goalComposer';
+import {
+  applyDictationLive,
+  commitDictationText,
+  IDLE_DICTATION,
+  resolveDictationAnchor,
+  revertDictation,
+  type DictationSession,
+} from '../../utils/dictation';
 import { GOAL_UI_ENABLED } from '../../config/featureFlags';
 import { sessionBusyErrorText } from '../../utils/sessionBusyError';
 import { useNowTick } from '../../hooks/useNowTick';
@@ -599,6 +608,82 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // manual mode toggles don't auto-focus.
   const [autoFocusText, setAutoFocusText] = useState(false);
   const voiceStt = useVoiceStt();
+
+  // ----- 长按听写（光标处实时插入，spec 2026-11-05）-----
+  const composerRef = useRef<MessageComposerHandle | null>(null);
+  // TextInput 最新选区（ref 不进 state：每次按键都会变，进 state 会多一帧渲染）。
+  const composerSelectionRef = useRef<{ start: number; end: number } | null>(null);
+  // 听写会话（ref：partial 逐条更新，进 state 会拖累流式渲染）。
+  const dictationRef = useRef<DictationSession>({ ...IDLE_DICTATION });
+  const [dictationNotice, setDictationNotice] = useState<{
+    kind: 'live' | 'error';
+    text: string;
+  } | null>(null);
+  const dictationNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearDictationNotice = useCallback(() => {
+    if (dictationNoticeTimerRef.current) {
+      clearTimeout(dictationNoticeTimerRef.current);
+      dictationNoticeTimerRef.current = null;
+    }
+    setDictationNotice(null);
+  }, []);
+
+  // 错误提示 4s 自动清除（屏幕拥有定时器；hook error 态会挂到下一次 start）。
+  const armDictationErrorNotice = useCallback(
+    (text: string) => {
+      if (dictationNoticeTimerRef.current) clearTimeout(dictationNoticeTimerRef.current);
+      setDictationNotice({ kind: 'error', text });
+      dictationNoticeTimerRef.current = setTimeout(() => {
+        dictationNoticeTimerRef.current = null;
+        setDictationNotice(null);
+      }, 4000);
+    },
+    [],
+  );
+
+  const handleComposerSelectionChange = useCallback(
+    (selection: { start: number; end: number }) => {
+      composerSelectionRef.current = selection;
+    },
+    [],
+  );
+
+  // stt.partial 驱动：liveCaption 变化 → 在途片段滑动替换。session ref 门控：
+  // finishWith 在 onComplete 前把 liveCaption 置空，此 effect 若在 commit 之后
+  // 运行会拿到 inactive → applyDictationLive 恒等返回（dictation.test 固化）。
+  useEffect(() => {
+    const dictation = dictationRef.current;
+    if (!dictation.active) return;
+    const next = applyDictationLive(dictation, input, voiceStt.liveCaption);
+    if (next.input === input && next.segLen === dictation.segLen) return;
+    dictation.segLen = next.segLen;
+    setInput(next.input);
+  }, [input, voiceStt.liveCaption]);
+
+  // 失败感知（failWith 不触发 onComplete，只能走 status watch）：
+  // revert 原文 + 错误提示 4s。异常必须有状态返回（硬规则）。
+  useEffect(() => {
+    const dictation = dictationRef.current;
+    if (!dictation.active) return;
+    if (voiceStt.status !== 'error') return;
+    dictationRef.current = { ...IDLE_DICTATION };
+    setInput(prev => revertDictation(dictation, prev));
+    armDictationErrorNotice(
+      voiceStt.errorMessage || t('vibecoding:composer.voiceError'),
+    );
+  }, [voiceStt.status, voiceStt.errorMessage, armDictationErrorNotice, t]);
+
+  // 卸载：清提示定时器 + 复位听写会话（mic/socket 由 useVoiceStt 自身清理；
+  // 按住中卸载的最后一次 pressOut 不会到达，STOP_SAFETY 是最后兜底）。
+  useEffect(
+    () => () => {
+      if (dictationNoticeTimerRef.current) clearTimeout(dictationNoticeTimerRef.current);
+      dictationRef.current = { ...IDLE_DICTATION };
+    },
+    [],
+  );
+
   const { providerCatalog } = useModelOptions();
   const [detailError, setDetailError] = useState('');
   // Drives the ScrollView's RefreshControl. Pull-to-refresh forces a server
@@ -660,7 +745,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // 每次生成新引用击穿 memo(流式 ≤5Hz 屏幕重渲染时 composer 白陪跑)。
   const handleComposerModeChange = useCallback((nextMode: ComposerMode) => {
     setMode(nextMode);
-  }, []);
+    clearDictationNotice();
+  }, [clearDictationNotice]);
   const handleToggleTools = useCallback(() => {
     setToolsMenuVisible(value => !value);
   }, []);
@@ -2103,6 +2189,72 @@ export const VibeCodingSessionScreen: React.FC = () => {
         : session?.purpose !== 'goal' && shouldDisableComposerForProvider
           ? t('session.composer.claudeRunning')
           : undefined;
+
+  // stt.completed / STOP_SAFETY 兜底 / stt.error 携带部分文本 都会走这里。
+  // 必须以权威 final 全文 splice 替换在途段（spec §3.2：liveCaption 120ms
+  // 节流 + finishWith 丢弃 pending + 服务端标点归一化，"已在位"假设不成立）。
+  const handleDictationComplete = useCallback(
+    (text: string) => {
+      const dictation = dictationRef.current;
+      dictationRef.current = { ...IDLE_DICTATION };
+      if (!text.trim()) {
+        setInput(prev => revertDictation(dictation, prev));
+        armDictationErrorNotice(t('common:voice.noSpeechDetected'));
+        return;
+      }
+      setInput(prev => commitDictationText(dictation, prev, text).input);
+      const cursor = dictation.cursor + text.length;
+      // 值经 React 提交后再落光标；rAF 一拍足够。
+      requestAnimationFrame(() => {
+        composerRef.current?.setSelection(cursor, cursor);
+      });
+      setDictationNotice(null);
+    },
+    [armDictationErrorNotice, t],
+  );
+
+  const handleDictationPressIn = useCallback(() => {
+    if (dictationRef.current.active) return;
+    if (
+      voiceStt.status === 'recording' ||
+      voiceStt.status === 'connecting' ||
+      voiceStt.status === 'stopping'
+    ) {
+      return;
+    }
+    // 只读/离线守卫与语音路径同源（composerDisabled 同口径）。
+    if (session?.purpose !== 'goal' && (deviceOffline || shouldDisableComposerForProvider)) {
+      return;
+    }
+    if (composerReadOnlyReason) return;
+    const anchor = resolveDictationAnchor(composerSelectionRef.current, input.length);
+    dictationRef.current = { active: true, cursor: anchor.cursor, segLen: anchor.segLen };
+    if (dictationNoticeTimerRef.current) {
+      clearTimeout(dictationNoticeTimerRef.current);
+      dictationNoticeTimerRef.current = null;
+    }
+    setDictationNotice({ kind: 'live', text: t('vibecoding:composer.dictationHint') });
+    void voiceStt
+      .start({
+        sessionId: session?.id,
+        projectPath: session?.directory ?? project?.path,
+        onComplete: handleDictationComplete,
+      })
+      .then(started => {
+        if (!started) {
+          // start 被拒（如上一段录音仍在 stopping）：撤销锚点，还原提示。
+          dictationRef.current = { ...IDLE_DICTATION };
+          setDictationNotice(null);
+        }
+      });
+  }, [input, voiceStt, session, project, deviceOffline, shouldDisableComposerForProvider, composerReadOnlyReason, t, handleDictationComplete]);
+
+  // 无活动听写会话时绝不调 voiceStt.stop()（普通点按 toggle 的松手会走到这）。
+  const handleDictationPressOut = useCallback(() => {
+    if (!dictationRef.current.active) return;
+    void voiceStt.stop();
+  }, [voiceStt]);
+
   // TUI 共享提示(低成本方案):仅对「终端里发起」的导入会话展示——它们与
   // 桌面终端共用同一份会话文件,手机上发送的内容不会出现在已打开的 TUI
   // 界面里,TUI 端需重启 resume 才能同步。可手动关闭。
@@ -4134,6 +4286,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
             disabled={sendingMessage}
           />
           <MessageComposer
+            ref={composerRef}
             mode={mode}
             onModeChange={handleComposerModeChange}
             input={input}
@@ -4175,6 +4328,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
             onEditVoice={handleEditVoice}
             attachmentsEnabled={attachmentsEnabled}
             onOpenAttachments={handleOpenAttachments}
+            onComposerSelectionChange={handleComposerSelectionChange}
+            onDictationPressIn={handleDictationPressIn}
+            onDictationPressOut={handleDictationPressOut}
+            dictationNotice={dictationNotice}
           />
         </View>
       </KeyboardAvoidingView>
