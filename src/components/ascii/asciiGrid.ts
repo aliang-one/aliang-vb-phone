@@ -24,32 +24,10 @@ export interface AsciiGrid {
 export const EMPTY_CELL = ' ';
 
 /**
- * 工具条可选的制表符/箭头字符集。等宽字体下制表符必须占一格宽
- * （真机验证项，见 plan Task 23 Step 2）；万一某平台错位，回退到 -|+。
+ * 快捷字符：只保留 4 个方向符号做「文字工具」的快捷落笔字符（可选，不选也
+ * 能画——线形由绘制工具自动生成）。其余字符走自定义输入。
  */
-export const ASCII_CHARSET = [
-  '─',
-  '│',
-  '╱',
-  '╲',
-  '┌',
-  '┐',
-  '└',
-  '┘',
-  '├',
-  '┤',
-  '┬',
-  '┴',
-  '┼',
-  '→',
-  '←',
-  '↑',
-  '↓',
-  '▶',
-  '◀',
-  '▲',
-  '▼',
-] as const;
+export const ASCII_PRESET_CHARS = ['─', '│', '╱', '╲'] as const;
 
 export const DEFAULT_GRID_COLS = 60;
 export const DEFAULT_GRID_ROWS = 30;
@@ -61,32 +39,12 @@ export interface Cell {
 }
 
 /**
- * 工具条语义。'auto'、'text' 与 'eraser' 是**自由手绘**（沿拖动轨迹连续
- * 落笔），其余是**形状工具**（每次 move 都从起笔快照重算，拖动时是实时预览）。
+ * 工具条语义。'freehand'、'text' 与 'eraser' 是**自由手绘**（沿拖动轨迹连续
+ * 落笔），'rect' 是形状工具（每次 move 都从起笔快照重算，拖动时是实时预览）。
  */
-export type AsciiTool =
-  | 'auto'
-  | 'hline'
-  | 'vline'
-  | 'diag'
-  | 'rect'
-  | 'arrow'
-  | 'text'
-  | 'eraser';
+export type AsciiTool = 'freehand' | 'rect' | 'text' | 'eraser';
 
-export const ASCII_TOOLS: AsciiTool[] = [
-  'auto',
-  'hline',
-  'vline',
-  'diag',
-  'rect',
-  'arrow',
-  'text',
-  'eraser',
-];
-
-const isFreehandTool = (tool: AsciiTool): boolean =>
-  tool === 'auto' || tool === 'text' || tool === 'eraser';
+export const ASCII_TOOLS: AsciiTool[] = ['freehand', 'rect', 'text', 'eraser'];
 
 export function createGrid(
   cols: number = DEFAULT_GRID_COLS,
@@ -130,8 +88,11 @@ export function setCell(
   return { ...g, cells };
 }
 
-/** Bresenham 直线，包含两端点。 */
-export function drawLine(
+/**
+ * Bresenham 轨迹填充（含两端点）。供橡皮 / 文字工具沿拖动轨迹连续落笔——
+ * 形状类线段不再走字符直填，改由连通模型统一生成。
+ */
+function drawCells(
   g: AsciiGrid,
   x0: number,
   y0: number,
@@ -161,58 +122,6 @@ export function drawLine(
     if (e2 <= dx) {
       err += dx;
       y += sy;
-    }
-  }
-  return grid;
-}
-
-/** 矩形：四角用 ┌┐└┘，四边用 ─│。端点顺序随意。 */
-export function drawRect(
-  g: AsciiGrid,
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-): AsciiGrid {
-  const left = Math.min(x0, x1);
-  const right = Math.max(x0, x1);
-  const top = Math.min(y0, y1);
-  const bottom = Math.max(y0, y1);
-
-  let grid = g;
-  for (let x = left + 1; x < right; x++) {
-    grid = setCell(grid, x, top, '─');
-    grid = setCell(grid, x, bottom, '─');
-  }
-  for (let y = top + 1; y < bottom; y++) {
-    grid = setCell(grid, left, y, '│');
-    grid = setCell(grid, right, y, '│');
-  }
-  // 角最后写，保证细长矩形（宽/高为 1）时角字符胜出。
-  grid = setCell(grid, left, top, '┌');
-  grid = setCell(grid, right, top, '┐');
-  grid = setCell(grid, left, bottom, '└');
-  grid = setCell(grid, right, bottom, '┘');
-  return grid;
-}
-
-/** 橡皮：把矩形区域（含端点）清成空格。 */
-export function erase(
-  g: AsciiGrid,
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-): AsciiGrid {
-  const left = Math.max(0, Math.min(x0, x1));
-  const right = Math.min(g.cols - 1, Math.max(x0, x1));
-  const top = Math.max(0, Math.min(y0, y1));
-  const bottom = Math.min(g.rows - 1, Math.max(y0, y1));
-
-  let grid = g;
-  for (let y = top; y <= bottom; y++) {
-    for (let x = left; x <= right; x++) {
-      grid = setCell(grid, x, y, EMPTY_CELL);
     }
   }
   return grid;
@@ -293,29 +202,8 @@ export function isBlank(g: AsciiGrid): boolean {
   return g.cells.every(row => row.every(cell => cell === EMPTY_CELL));
 }
 
-/** 箭头：主轴方向画线，终点换成箭头字符。 */
-export function drawArrow(
-  g: AsciiGrid,
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-): AsciiGrid {
-  const dx = x1 - x0;
-  const dy = y1 - y0;
-  let grid = g;
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    grid = drawLine(grid, x0, y0, x1, y1, '─');
-    grid = setCell(grid, x1, y1, dx >= 0 ? '→' : '←');
-  } else {
-    grid = drawLine(grid, x0, y0, x1, y1, '│');
-    grid = setCell(grid, x1, y1, dy >= 0 ? '↓' : '↑');
-  }
-  return grid;
-}
-
 /**
- * 'auto' 工具的连通模型：每格记录「与哪些相邻格有连线」，按掩码选字符。
+ * 连通模型：每格记录「与哪些相邻格有连线」，按掩码选字符。
  * 用户随手画，转角自动变 ┌┐└┘、T 型变 ┬┴├┤、交叉变 ┼——不需要手动
  * 挑字符。斜线（╱╲）单独成系；斜线格混入正交连线时以正交为准。
  */
@@ -328,6 +216,23 @@ export const CONN_NW = 32;
 
 const ORTHO_MASK = CONN_U | CONN_D | CONN_L | CONN_R;
 const DIAG_MASK = CONN_NE | CONN_NW;
+
+/** 相反方向的连线位（连线两端各记一半）。 */
+function oppositeBit(bit: number): number {
+  switch (bit) {
+    case CONN_U:
+      return CONN_D;
+    case CONN_D:
+      return CONN_U;
+    case CONN_L:
+      return CONN_R;
+    case CONN_R:
+      return CONN_L;
+    // 对角连线两端形状一致（╱ 或 ╲）。
+    default:
+      return bit;
+  }
+}
 
 /** 制表符 ↔ 连通掩码对照。 */
 const CHAR_TO_MASK: Record<string, number> = {
@@ -365,26 +270,9 @@ export function lineCharFor(mask: number): string {
   return '·';
 }
 
-/** 从结果字符重建掩码（非 auto 工具的产物不参与增量连通合并）。 */
+/** 从结果字符重建掩码（橡皮/文字等直填字符的工具不参与连通合并）。 */
 function rebuildMasksFromChars(g: AsciiGrid): number[][] {
   return g.cells.map(row => row.map(c => CHAR_TO_MASK[c] ?? 0));
-}
-
-/** 相邻两格之间的连线位（进 cur 的方向；prev 取反向位）。 */
-function stepBits(prev: Cell, cur: Cell): { prevBits: number; curBits: number } {
-  const dx = cur.x - prev.x;
-  const dy = cur.y - prev.y;
-  if (dy === 0) {
-    const bit = dx > 0 ? CONN_R : CONN_L;
-    return { prevBits: bit, curBits: dx > 0 ? CONN_L : CONN_R };
-  }
-  if (dx === 0) {
-    const bit = dy > 0 ? CONN_D : CONN_U;
-    return { prevBits: bit, curBits: dy > 0 ? CONN_U : CONN_D };
-  }
-  // 对角步进（|dx|=|dy|=1 或 Bresenham 的合成步）：字面形状与行进方向无关。
-  const diag = dx > 0 === dy > 0 ? CONN_NW : CONN_NE;
-  return { prevBits: diag, curBits: diag };
 }
 
 /**
@@ -405,57 +293,152 @@ export function createDraft(cols: number, rows: number): AsciiDraft {
   };
 }
 
-/** 给草稿的一格并上连通位，字符按合并结果重选（纯函数，返回新草稿）。 */
-function unionCell(draft: AsciiDraft, x: number, y: number, bits: number): AsciiDraft {
-  if (x < 0 || y < 0 || x >= draft.grid.cols || y >= draft.grid.rows) return draft;
-  const masks = draft.masks.map((row, ry) =>
-    ry === y ? row.slice() : row,
-  );
-  masks[y][x] = (masks[y][x] | bits) & (ORTHO_MASK | DIAG_MASK);
-  const grid = setCell(draft.grid, x, y, lineCharFor(masks[y][x]));
-  return { grid, masks };
+/**
+ * 一笔 freehand 的待生成记录：本笔轨迹覆盖的格子集合（y × cols + x 编码）
+ * + 起笔快照（与既有线交叉处要长出 ┬/┼，必须知道画到这笔之前的样子）。
+ */
+export interface PendingStroke {
+  cells: Set<number>;
+  baseMasks: number[][];
 }
 
 /**
- * 'auto' 工具：沿 Bresenham 步进逐格**并上**连线位。转角自动长成
- * ┌┐└┘，与既有线交叉处自动长成 ┬├┼。同格一笔画圆点（无连通）。
+ * 从「待生成格子集合」计算每个格子的连通掩码：
+ *   - 集合内部相邻（含对角）的格子对按方向互相补位——
+ *     正交格对补正交位，对角格对补斜线位；
+ *   - 与起笔时的既有掩码（baseMasks）求并——跨笔交叉自动长出 ┬/┼。
+ *
+ * 集合里孤立的格子（无任何相邻）不补任何位，落在基掩码上；空画布上单击
+ * 一格即掩码 0，lineCharFor 回落圆点 `·`——与旧「同格一笔画圆点」一致。
  */
-export function applyAutoTool(draft: AsciiDraft, from: Cell, to: Cell): AsciiDraft {
-  if (from.x === to.x && from.y === to.y) {
-    return { ...draft, grid: setCell(draft.grid, from.x, from.y, '·') };
+function computeMasksFromStrokes(
+  cols: number,
+  rows: number,
+  base: number[][],
+  cells: Set<number>,
+): number[][] {
+  const masks = base.map(row => row.slice());
+  const key = (x: number, y: number) => y * cols + x;
+
+  const connect = (ax: number, ay: number, bx: number, by: number) => {
+    const dx = bx - ax;
+    const dy = by - ay;
+    let bit: number;
+    if (dy === 0 && dx === 1) bit = CONN_R;
+    else if (dy === 0 && dx === -1) bit = CONN_L;
+    else if (dx === 0 && dy === 1) bit = CONN_D;
+    else if (dx === 0 && dy === -1) bit = CONN_U;
+    // 对角：符号同向（↘↖）落 ╲（NW 边界），符号反向（↗↙）落 ╱（NE 边界）。
+    else if (dx > 0 === dy > 0) bit = CONN_NW;
+    else bit = CONN_NE;
+    masks[ay][ax] |= bit;
+    masks[by][bx] |= oppositeBit(bit);
+  };
+
+  for (const k of cells) {
+    const x = k % cols;
+    const y = Math.floor(k / cols);
+    if (x < 0 || x >= cols || y < 0 || y >= rows) continue;
+    // 只扫右/下/右下/左下四个方向，避免同一格对被处理两遍。
+    if (cells.has(key(x + 1, y))) connect(x, y, x + 1, y);
+    if (cells.has(key(x, y + 1))) connect(x, y, x, y + 1);
+    if (cells.has(key(x + 1, y + 1))) connect(x, y, x + 1, y + 1);
+    if (cells.has(key(x - 1, y + 1))) connect(x, y, x - 1, y + 1);
   }
-  let next = draft;
+  return masks;
+}
+
+/**
+ * 收笔时的最终字符生成：把待生成格子集合按**完整轨迹**重算掩码（基于起笔
+ * 快照做并集），一次性选出所有字符。中途帧从未碰过字符网格，所以不存在
+ * 「画歪的符号残留」。
+ */
+export function commitStrokes(
+  draft: AsciiDraft,
+  pending: PendingStroke,
+): AsciiDraft {
+  if (pending.cells.size === 0) return draft;
+  const { grid } = draft;
+  const masks = computeMasksFromStrokes(
+    grid.cols,
+    grid.rows,
+    pending.baseMasks,
+    pending.cells,
+  );
+  let nextGrid = grid;
+  for (const k of pending.cells) {
+    const x = k % grid.cols;
+    const y = Math.floor(k / grid.cols);
+    if (x < 0 || x >= grid.cols || y < 0 || y >= grid.rows) continue;
+    nextGrid = setCell(nextGrid, x, y, lineCharFor(masks[y][x]));
+  }
+  return { grid: nextGrid, masks };
+}
+
+/** 矩形轨迹：外接框四条边的所有格子登记进待生成集合（起点顺序随意）。 */
+export function rectStrokeCells(
+  from: Cell,
+  to: Cell,
+  cols: number,
+  rows: number,
+): Set<number> {
+  const cells = new Set<number>();
+  const left = Math.max(0, Math.min(from.x, to.x));
+  const right = Math.min(cols - 1, Math.max(from.x, to.x));
+  const top = Math.max(0, Math.min(from.y, to.y));
+  const bottom = Math.min(rows - 1, Math.max(from.y, to.y));
+  for (let x = left; x <= right; x++) {
+    cells.add(top * cols + x);
+    cells.add(bottom * cols + x);
+  }
+  for (let y = top; y <= bottom; y++) {
+    cells.add(y * cols + left);
+    cells.add(y * cols + right);
+  }
+  return cells;
+}
+
+/** 沿 Bresenham 轨迹（含两端）把格子登记进待生成集合。 */
+export function pathStrokeCells(
+  from: Cell,
+  to: Cell,
+  cols: number,
+  rows: number,
+  cells: Set<number> = new Set<number>(),
+): Set<number> {
   let x = Math.round(from.x);
   let y = Math.round(from.y);
-  const endX = Math.round(to.x);
-  const endY = Math.round(to.y);
-  const dxx = Math.abs(endX - x);
-  const sx = x < endX ? 1 : -1;
-  const dyy = -Math.abs(endY - y);
-  const sy = y < endY ? 1 : -1;
-  let err = dxx + dyy;
+  const endX = Math.round(Math.max(0, Math.min(cols - 1, to.x)));
+  const endY = Math.round(Math.max(0, Math.min(rows - 1, to.y)));
+  const startX = Math.round(Math.max(0, Math.min(cols - 1, x)));
+  const startY = Math.round(Math.max(0, Math.min(rows - 1, y)));
+  const dx = Math.abs(endX - startX);
+  const sx = startX < endX ? 1 : -1;
+  const dy = -Math.abs(endY - startY);
+  const sy = startY < endY ? 1 : -1;
+  let err = dx + dy;
+
+  let cx = startX;
+  let cy = startY;
   for (;;) {
-    const prev: Cell = { x, y };
-    if (x === endX && y === endY) break;
+    cells.add(cy * cols + cx);
+    if (cx === endX && cy === endY) break;
     const e2 = 2 * err;
-    if (e2 >= dyy) {
-      err += dyy;
-      x += sx;
+    if (e2 >= dy) {
+      err += dy;
+      cx += sx;
     }
-    if (e2 <= dxx) {
-      err += dxx;
-      y += sy;
+    if (e2 <= dx) {
+      err += dx;
+      cy += sy;
     }
-    const { prevBits, curBits } = stepBits(prev, { x, y });
-    next = unionCell(next, prev.x, prev.y, prevBits);
-    next = unionCell(next, x, y, curBits);
   }
-  return next;
+  return cells;
 }
 
 /**
- * 把一次「从 from 到 to」的编辑应用到网格。形状工具用它做实时预览：
- * 调用方保留起笔快照，每次 move 都从快照重算，不会叠出重影。
+ * 把一次「从 from 到 to」的编辑应用到网格。橡皮/文字沿轨迹连续落笔；
+ * freehand 不经此入口（轨迹只累积、收笔统一生成）。
  */
 export function applyTool(
   g: AsciiGrid,
@@ -465,21 +448,16 @@ export function applyTool(
   ch: string,
 ): AsciiGrid {
   switch (tool) {
-    case 'auto':
-      // auto 走 applyAutoTool（需要连通掩码草稿），不经此纯字符入口。
+    case 'freehand':
       return g;
-    case 'hline':
-      return drawLine(g, from.x, from.y, to.x, from.y, ch);
-    case 'vline':
-      return drawLine(g, from.x, from.y, from.x, to.y, ch);
-    case 'diag':
-      return drawLine(g, from.x, from.y, to.x, to.y, ch);
-    case 'rect':
-      return drawRect(g, from.x, from.y, to.x, to.y);
-    case 'arrow':
-      return drawArrow(g, from.x, from.y, to.x, to.y);
+    case 'rect': {
+      // 矩形=画布上已有的正交/斜线格按外接框补齐，走连通模型统一生成；
+      // 在 applyTool 里只做「把四条边的格子登记成待生成集合」无法返回集合，
+      // 所以矩形改在 useAsciiEditing 里单独处理。
+      return g;
+    }
     case 'eraser':
-      return drawLine(g, from.x, from.y, to.x, to.y, EMPTY_CELL);
+      return drawCells(g, from.x, from.y, to.x, to.y, EMPTY_CELL);
     case 'text':
       return setCell(g, to.x, to.y, ch);
   }
@@ -494,7 +472,11 @@ export interface AsciiEditing {
   grid: AsciiGrid;
   canUndo: boolean;
   canRedo: boolean;
-  /** 起笔：记录快照与起点。形状工具从快照重算，自由工具沿轨迹累积。 */
+  /** 本笔是否已有轨迹在累积（画布用来显示预览高亮）。 */
+  hasPending: boolean;
+  /** 本笔轨迹覆盖的格子（坐标键），画布叠加高亮用；无进行中笔迹时为 null。 */
+  pendingCells: { cols: number; keys: Set<number> } | null;
+  /** 起笔：记录起笔快照。freehand/rect 只累积轨迹，收笔统一生成。 */
   beginStroke: (cell: Cell, tool: AsciiTool, ch: string) => void;
   moveStroke: (cell: Cell, tool: AsciiTool, ch: string) => void;
   endStroke: (cell: Cell, tool: AsciiTool, ch: string) => void;
@@ -508,6 +490,14 @@ export interface AsciiEditing {
 /**
  * 编辑状态机。手势回调是高频事件（每帧一次），所以「当前网格」用 ref 镜像，
  * 避免闭包读到上一帧的旧值；撤销/重做是低频的用户动作，直接用 state 即可。
+ *
+ * 2026-10-30 改版：「先涂抹、后生成」。
+ *   - freehand/rect 拖动过程只往 `pendingRef.cells` 里累积格子（配合画布的
+ *     高亮预览层），不写任何字符——中途的 Bresenham 中间形态不再落到画布上，
+ *     「符号跑偏」的根源消除；
+ *   - 收笔（endStroke）按**完整轨迹**一次性重算连通掩码并落字（commitStrokes）；
+ *   - 撤销栈改为**收笔时按结果比对**：轨迹没产生任何实际变化（比如单击一个
+ *     空格子）就不入栈，按撤销永远能看到内容回退，不再出现「按了没反应」。
  */
 export function useAsciiEditing(
   cols: number = DEFAULT_GRID_COLS,
@@ -516,13 +506,20 @@ export function useAsciiEditing(
   const [draft, setDraft] = useState<AsciiDraft>(() => createDraft(cols, rows));
   const [undoStack, setUndoStack] = useState<AsciiDraft[]>([]);
   const [redoStack, setRedoStack] = useState<AsciiDraft[]>([]);
+  /** 进行中笔迹的展示句柄（引用稳定：cells 原地累积，组件按 hasPending 分支）。 */
+  const [pendingView, setPendingView] = useState<{
+    cols: number;
+    keys: Set<number>;
+  } | null>(null);
 
   const draftRef = useRef<AsciiDraft>(draft);
-  /** 形状工具的起笔快照。 */
-  const baseRef = useRef<AsciiGrid | null>(null);
+  /** 本笔起笔快照：连通生成要以「画这笔之前」为基底，撤销比对也用它。 */
+  const strokeStartRef = useRef<AsciiDraft | null>(null);
   const startRef = useRef<Cell | null>(null);
   /** 自由工具的上一个落笔格（画线到当前格，避免快速拖动时跳格）。 */
   const lastRef = useRef<Cell | null>(null);
+  /** 本笔待生成格子集合（y × cols + x）。 */
+  const pendingRef = useRef<Set<number>>(new Set());
 
   const commit = useCallback((next: AsciiDraft) => {
     draftRef.current = next;
@@ -538,27 +535,29 @@ export function useAsciiEditing(
     setRedoStack([]);
   }, []);
 
-  /** 一次笔画段的统一切换：auto 走连通合并，其余走纯字符然后重建掩码。 */
-  const applyStroke = useCallback(
-    (d: AsciiDraft, tool: AsciiTool, from: Cell, to: Cell, ch: string): AsciiDraft => {
-      if (tool === 'auto') return applyAutoTool(d, from, to);
-      const grid = applyTool(d.grid, tool, from, to, ch);
-      return { grid, masks: rebuildMasksFromChars(grid) };
-    },
-    [],
-  );
-
   const beginStroke = useCallback(
     (cell: Cell, tool: AsciiTool, ch: string) => {
       const current = draftRef.current;
-      pushHistory(current);
-      baseRef.current = current.grid;
       startRef.current = cell;
       lastRef.current = cell;
-      // 起笔只落一个点：形状工具后续 move 会从快照重算，自由工具从这里开始累积。
-      commit(applyStroke(current, tool, cell, cell, ch));
+      pendingRef.current = new Set();
+      strokeStartRef.current = current;
+
+      if (tool === 'freehand' || tool === 'rect') {
+        // 只登记轨迹，不落字。起笔格也先进集合：单击一个空格收笔时
+        // commitStrokes 会给它一个圆点 `·`。
+        pendingRef.current.add(cell.y * current.grid.cols + cell.x);
+        setPendingView({ cols: current.grid.cols, keys: pendingRef.current });
+        return;
+      }
+
+      // 橡皮/文字：直填字符，起笔即生效。撤销步由 endStroke 按结果比对后统一入栈。
+      const grid = applyTool(current.grid, tool, cell, cell, ch);
+      if (grid !== current.grid) {
+        commit({ grid, masks: rebuildMasksFromChars(grid) });
+      }
     },
-    [applyStroke, commit, pushHistory],
+    [commit],
   );
 
   const moveStroke = useCallback(
@@ -566,28 +565,61 @@ export function useAsciiEditing(
       const start = startRef.current;
       if (!start) return;
 
-      if (isFreehandTool(tool)) {
+      if (tool === 'freehand' || tool === 'rect') {
         const last = lastRef.current ?? cell;
         if (last.x === cell.x && last.y === cell.y) return;
-        commit(applyStroke(draftRef.current, tool, last, cell, ch));
+        const current = draftRef.current;
+        if (tool === 'rect') {
+          pendingRef.current = rectStrokeCells(start, cell, current.grid.cols, current.grid.rows);
+        } else {
+          pathStrokeCells(last, cell, current.grid.cols, current.grid.rows, pendingRef.current);
+        }
         lastRef.current = cell;
+        setPendingView({ cols: current.grid.cols, keys: pendingRef.current });
         return;
       }
 
-      const base = baseRef.current ?? draftRef.current.grid;
-      commit(applyStroke({ ...draftRef.current, grid: base }, tool, start, cell, ch));
+      // 橡皮/文字：每次事件从起笔快照重算，实时预览。
+      const startDraft = strokeStartRef.current ?? draftRef.current;
+      const grid = applyTool(startDraft.grid, tool, start, cell, ch);
+      if (grid === startDraft.grid) return;
+      commit({ grid, masks: rebuildMasksFromChars(grid) });
     },
-    [applyStroke, commit],
+    [commit],
   );
 
   const endStroke = useCallback(
     (cell: Cell, tool: AsciiTool, ch: string) => {
       moveStroke(cell, tool, ch);
-      baseRef.current = null;
+      const start = startRef.current;
+      const startDraft = strokeStartRef.current;
       startRef.current = null;
+      strokeStartRef.current = null;
       lastRef.current = null;
+      if (!start || !startDraft) return;
+
+      const current = draftRef.current;
+      if (tool === 'freehand' || tool === 'rect') {
+        const pending = pendingRef.current;
+        pendingRef.current = new Set();
+        setPendingView(null);
+        const next = commitStrokes(current, {
+          cells: pending,
+          baseMasks: startDraft.masks,
+        });
+        // 无实际变化（轨迹全落在已相同字符的格子上）→ 不留撤销步。
+        if (next.grid === startDraft.grid) return;
+        pushHistory(startDraft);
+        commit(next);
+        return;
+      }
+
+      // 橡皮/文字：比对起笔快照，无实际变化不入栈。
+      if (current.grid === startDraft.grid) return;
+      pushHistory(startDraft);
+      commit(current);
     },
-    [moveStroke],
+    [commit, moveStroke, pushHistory],
   );
 
   const undo = useCallback(() => {
@@ -617,9 +649,11 @@ export function useAsciiEditing(
       const current = draftRef.current;
       if (nextCols === current.grid.cols && nextRows === current.grid.rows) return;
       pushHistory(current);
-      baseRef.current = null;
       startRef.current = null;
+      strokeStartRef.current = null;
       lastRef.current = null;
+      pendingRef.current = new Set();
+      setPendingView(null);
       const grid = resizeGrid(current.grid, nextCols, nextRows);
       commit({
         grid,
@@ -635,6 +669,8 @@ export function useAsciiEditing(
     grid: draft.grid,
     canUndo: undoStack.length > 0,
     canRedo: redoStack.length > 0,
+    hasPending: pendingView !== null,
+    pendingCells: pendingView,
     beginStroke,
     moveStroke,
     endStroke,

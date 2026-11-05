@@ -60,6 +60,7 @@ export const AsciiScreen: React.FC = () => {
     grid,
     canUndo,
     canRedo,
+    pendingCells,
     beginStroke,
     moveStroke,
     endStroke,
@@ -69,7 +70,7 @@ export const AsciiScreen: React.FC = () => {
     resize,
   } = useAsciiEditing(SMALL_SIZE.cols, SMALL_SIZE.rows);
 
-  const [tool, setTool] = useState<AsciiTool>('auto');
+  const [tool, setTool] = useState<AsciiTool>('freehand');
   const [char, setChar] = useState('─');
   const [saving, setSaving] = useState(false);
 
@@ -167,6 +168,7 @@ export const AsciiScreen: React.FC = () => {
           ]}>
           <AsciiCanvas
             grid={grid}
+            pending={pendingCells}
             onStrokeStart={handleStrokeStart}
             onStrokeMove={handleStrokeMove}
             onStrokeEnd={handleStrokeEnd}
@@ -199,7 +201,9 @@ export const AsciiScreen: React.FC = () => {
               styles.attachHint,
               { color: theme.colors.onSurfaceVariant },
             ]}>
-            {t('ascii.attachHint')}
+            {tool === 'freehand'
+              ? t('ascii.pendingHint')
+              : t('ascii.attachHint')}
           </Text>
           <Pressable
             testID="ascii-save"

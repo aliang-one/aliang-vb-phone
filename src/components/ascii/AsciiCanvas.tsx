@@ -1,8 +1,13 @@
 /**
- * ASCII 画布（Task 23；2026-10-23 两次真机修复）。
+ * ASCII 画布（Task 23；2026-10-23 两次真机修复；2026-10-30「先涂抹后生成」改版）。
  *
  * 性能关键：整块网格渲染成**一个** `<Text>`。60×30 逐格一个节点是 1800 个
  * 视图，拖动时每帧重渲染会直接卡死；一个 Text 只是一次文本布局。
+ *
+ * 「先涂抹、后生成」：freehand/rect 拖动过程只更新 `pending` 高亮层（半透明
+ * 方块），字符网格完全不动；收笔后由 useAsciiEditing 按完整轨迹一次性生成
+ * 制表符——中途形态不再落画布，「符号跑偏」不复存在。高亮层是原生 Svg Rect
+ * 集合（60×30 一笔至多百来个 Rect，只在一笔内重建），不碰文本布局。
  *
  * ⚠️ 触摸层必须**显式定尺寸**，不能让文本内容撑开：空网格全是空格，iOS
  * 测量 Text 时会剥掉行尾空白，宽度塌缩为 0 → 触摸目标消失、网格线零宽
@@ -25,7 +30,7 @@ import {
   type GestureResponderEvent,
   type LayoutChangeEvent,
 } from 'react-native';
-import Svg, { Line } from 'react-native-svg';
+import Svg, { Line, Rect } from 'react-native-svg';
 import { useTheme } from '../../theme/useTheme';
 import type { AsciiGrid, Cell } from './asciiGrid';
 import { toText } from './asciiGrid';
@@ -40,6 +45,11 @@ const SIZE_SAFETY = 8;
 
 export interface AsciiCanvasProps {
   grid: AsciiGrid;
+  /**
+   * 进行中笔迹的涂抹预览：cols 是网格列数（键 = y×cols+x），keys 为空集时
+   * 不渲染。拖动过程只显示这层高亮，不落任何字符——收笔才统一生成。
+   */
+  pending: { cols: number; keys: Set<number> } | null;
   onStrokeStart: (cell: Cell) => void;
   onStrokeMove: (cell: Cell) => void;
   onStrokeEnd: (cell: Cell) => void;
@@ -50,6 +60,7 @@ const clamp = (value: number, min: number, max: number): number =>
 
 export const AsciiCanvas: React.FC<AsciiCanvasProps> = ({
   grid,
+  pending,
   onStrokeStart,
   onStrokeMove,
   onStrokeEnd,
@@ -99,8 +110,11 @@ export const AsciiCanvas: React.FC<AsciiCanvasProps> = ({
     };
   }, []);
 
-  const cellOf = (event: GestureResponderEvent): Cell =>
-    toCell(event.nativeEvent.locationX, event.nativeEvent.locationY);
+  const cellOf = useCallback(
+    (event: GestureResponderEvent): Cell =>
+      toCell(event.nativeEvent.locationX, event.nativeEvent.locationY),
+    [toCell],
+  );
 
   const gesture = useMemo(
     () =>
@@ -182,6 +196,51 @@ export const AsciiCanvas: React.FC<AsciiCanvasProps> = ({
     );
   }, [available.height, available.width, cellWidth, canvasHeight, canvasWidth, grid.cols, grid.rows, isDark, lineHeight]);
 
+  /**
+   * 进行中笔迹的涂抹预览：半透明方块叠加在字符层下面。是「你要画的范围」
+   * 的即时反馈——收笔后这层消失，取而代之的是按完整轨迹自动生成的符号。
+   */
+  const pendingOverlay = useMemo(() => {
+    if (!pending || pending.keys.size === 0) return null;
+    if (available.width <= 0 || available.height <= 0) return null;
+    const keyColor = isDark ? 'rgba(96,165,250,0.35)' : 'rgba(37,99,235,0.28)';
+    const rects: React.ReactElement[] = [];
+    for (const key of pending.keys) {
+      const x = key % pending.cols;
+      const y = Math.floor(key / pending.cols);
+      rects.push(
+        <Rect
+          key={key}
+          x={x * cellWidth + 0.5}
+          y={y * lineHeight + 0.5}
+          width={cellWidth - 1}
+          height={lineHeight - 1}
+          fill={keyColor}
+          rx={1}
+        />,
+      );
+    }
+    return (
+      <Svg
+        width={canvasWidth}
+        height={canvasHeight}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+        testID="ascii-pending-overlay">
+        {rects}
+      </Svg>
+    );
+  }, [
+    available.height,
+    available.width,
+    cellWidth,
+    canvasHeight,
+    canvasWidth,
+    isDark,
+    lineHeight,
+    pending,
+  ]);
+
   return (
     <View style={styles.container} onLayout={handleAvailableLayout} testID="ascii-canvas-frame">
       <View
@@ -189,6 +248,7 @@ export const AsciiCanvas: React.FC<AsciiCanvasProps> = ({
         style={[styles.touchLayer, { width: canvasWidth, height: canvasHeight }]}
         testID="ascii-canvas">
         {gridLines}
+        {pendingOverlay}
         <Text
           testID="ascii-text"
           pointerEvents="none"

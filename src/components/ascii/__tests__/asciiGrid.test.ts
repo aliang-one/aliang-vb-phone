@@ -1,36 +1,43 @@
 /**
- * 字符网格契约（Task 22 Step 1）。
+ * 字符网格契约（Task 22 Step 1；2026-10-30「先涂抹后生成」改版）。
  *
- *   - drawLine 水平/垂直/45° 三种；
- *   - drawRect 四角四边正确；
+ *   - lineCharFor：连通掩码 → 制表符；
+ *   - commitStrokes：轨迹收笔后按完整连通生成（转角/交叉/孤立圆点）；
+ *   - rectStrokeCells / pathStrokeCells：轨迹集合的形状正确性；
  *   - crop 四周空白全去、内部空白保留；
  *   - toText 行数与列数对齐（短行补空格）。
  */
 import {
-  applyAutoTool,
   CONN_D,
   CONN_L,
   CONN_NE,
   CONN_NW,
   CONN_R,
   CONN_U,
+  commitStrokes,
   createDraft,
   createGrid,
   crop,
-  drawLine,
-  drawRect,
-  erase,
-  lineCharFor,
+  pathStrokeCells,
+  rectStrokeCells,
   resizeGrid,
   setCell,
   toText,
+  lineCharFor,
   type AsciiGrid,
+  type PendingStroke,
 } from '../asciiGrid';
 
 /** 取某一行拼接后的字符串，断言更直观。 */
 const rowText = (g: AsciiGrid, y: number): string => g.cells[y].join('');
 
 const cellAt = (g: AsciiGrid, x: number, y: number): string => g.cells[y][x];
+
+/** 把格子集合（y×cols+x 编码）打包成 PendingStroke，基掩码取草稿当前值。 */
+const pendingOf = (
+  draft: ReturnType<typeof createDraft>,
+  cells: Set<number>,
+): PendingStroke => ({ cells, baseMasks: draft.masks });
 
 describe('lineCharFor（连通掩码 → 字符）', () => {
   it('单方向：横/竖', () => {
@@ -64,101 +71,174 @@ describe('lineCharFor（连通掩码 → 字符）', () => {
   });
 });
 
-describe("applyAutoTool（连通合并：随手画，字符自动长对）", () => {
-  it('水平拖动 → 整段 ─（端点也是 ─）', () => {
-    const d = applyAutoTool(createDraft(10, 5), { x: 2, y: 2 }, { x: 5, y: 2 });
-    expect(rowText(d.grid, 2)).toBe('  ────    ');
+describe('pathStrokeCells（Bresenham 轨迹集合）', () => {
+  it('水平轨迹：整段包含，键位正确', () => {
+    const cells = pathStrokeCells({ x: 2, y: 2 }, { x: 5, y: 2 }, 10, 5);
+    expect(cells.size).toBe(4);
+    for (let x = 2; x <= 5; x++) expect(cells.has(2 * 10 + x)).toBe(true);
   });
-  it('垂直拖动 → 整列 │', () => {
-    const d = applyAutoTool(createDraft(10, 5), { x: 3, y: 1 }, { x: 3, y: 3 });
-    expect(cellAt(d.grid, 3, 1)).toBe('│');
-    expect(cellAt(d.grid, 3, 2)).toBe('│');
-    expect(cellAt(d.grid, 3, 3)).toBe('│');
+
+  it('垂直轨迹：整列包含', () => {
+    const cells = pathStrokeCells({ x: 3, y: 1 }, { x: 3, y: 3 }, 10, 5);
+    expect(cells.size).toBe(3);
+    expect(cells.has(1 * 10 + 3)).toBe(true);
+    expect(cells.has(2 * 10 + 3)).toBe(true);
+    expect(cells.has(3 * 10 + 3)).toBe(true);
   });
-  it('斜拖 → 逐格 ╲ ╱，不跳格', () => {
-    const d = applyAutoTool(createDraft(10, 10), { x: 2, y: 2 }, { x: 4, y: 4 });
-    expect(cellAt(d.grid, 2, 2)).toBe('╲');
-    expect(cellAt(d.grid, 3, 3)).toBe('╲');
-    expect(cellAt(d.grid, 4, 4)).toBe('╲');
-    const d2 = applyAutoTool(createDraft(10, 10), { x: 4, y: 2 }, { x: 2, y: 4 });
-    expect(cellAt(d2.grid, 3, 3)).toBe('╱');
+
+  it('对角轨迹：逐格不跳格', () => {
+    const cells = pathStrokeCells({ x: 2, y: 2 }, { x: 4, y: 4 }, 10, 10);
+    expect(cells.size).toBe(3);
+    expect(cells.has(2 * 10 + 2)).toBe(true);
+    expect(cells.has(3 * 10 + 3)).toBe(true);
+    expect(cells.has(4 * 10 + 4)).toBe(true);
   });
-  it('同格一笔 → 圆点', () => {
-    const d = applyAutoTool(createDraft(10, 5), { x: 3, y: 3 }, { x: 3, y: 3 });
-    expect(cellAt(d.grid, 3, 3)).toBe('·');
+
+  it('同格轨迹：单格集合', () => {
+    const cells = pathStrokeCells({ x: 3, y: 3 }, { x: 3, y: 3 }, 10, 5);
+    expect(cells.size).toBe(1);
+    expect(cells.has(3 * 10 + 3)).toBe(true);
   });
-  it('横折竖：拐角自动变 ┐（不再被第二笔冲掉）', () => {
-    let d = applyAutoTool(createDraft(10, 5), { x: 2, y: 2 }, { x: 5, y: 2 });
-    d = applyAutoTool(d, { x: 5, y: 2 }, { x: 5, y: 4 });
-    expect(cellAt(d.grid, 5, 2)).toBe('┐');
-    expect(cellAt(d.grid, 4, 2)).toBe('─');
-    expect(cellAt(d.grid, 5, 3)).toBe('│');
+
+  it('跨笔累积：传入已有集合原地合并', () => {
+    const cells = pathStrokeCells({ x: 1, y: 1 }, { x: 2, y: 1 }, 10, 5);
+    pathStrokeCells({ x: 2, y: 1 }, { x: 2, y: 3 }, 10, 5, cells);
+    expect(cells.size).toBe(4); // (1,1)(2,1)(2,2)(2,3)
   });
-  it('竖折横：拐角 └', () => {
-    let d = applyAutoTool(createDraft(10, 5), { x: 3, y: 1 }, { x: 3, y: 3 });
-    d = applyAutoTool(d, { x: 3, y: 3 }, { x: 6, y: 3 });
-    expect(cellAt(d.grid, 3, 3)).toBe('└');
-    expect(cellAt(d.grid, 4, 3)).toBe('─');
-  });
-  it('T 字交叉：┬', () => {
-    let d = applyAutoTool(createDraft(10, 5), { x: 2, y: 2 }, { x: 6, y: 2 });
-    d = applyAutoTool(d, { x: 4, y: 2 }, { x: 4, y: 4 });
-    expect(cellAt(d.grid, 4, 2)).toBe('┬');
-  });
-  it('十字交叉：┼', () => {
-    let d = applyAutoTool(createDraft(10, 5), { x: 2, y: 2 }, { x: 6, y: 2 });
-    d = applyAutoTool(d, { x: 4, y: 1 }, { x: 4, y: 3 });
-    expect(cellAt(d.grid, 4, 2)).toBe('┼');
-  });
-  it('线穿过圆点 → 圆点被线取代', () => {
-    let d = applyAutoTool(createDraft(10, 5), { x: 3, y: 2 }, { x: 3, y: 2 });
-    expect(cellAt(d.grid, 3, 2)).toBe('·');
-    d = applyAutoTool(d, { x: 3, y: 1 }, { x: 3, y: 3 });
-    expect(cellAt(d.grid, 3, 2)).toBe('│');
+
+  it('越界端点夹到网格内', () => {
+    const cells = pathStrokeCells({ x: -5, y: -5 }, { x: 99, y: 2 }, 10, 5);
+    for (const key of cells) {
+      const x = key % 10;
+      const y = Math.floor(key / 10);
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThan(10);
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(y).toBeLessThan(5);
+    }
   });
 });
 
-describe('drawLine', () => {
-  it('水平线：整段填充，两端包含', () => {
-    const g = drawLine(createGrid(10, 5), 2, 3, 6, 3, '─');
-    expect(rowText(g, 3)).toBe('  ─────   ');
-    expect(rowText(g, 2)).toBe('          ');
-  });
-
-  it('垂直线：整列填充', () => {
-    const g = drawLine(createGrid(10, 5), 4, 1, 4, 3, '│');
-    expect(g.cells.map(row => row[4]).join('')).toBe(' │││ ');
-  });
-
-  it('45° 斜线：对角逐格', () => {
-    const g = drawLine(createGrid(6, 6), 0, 0, 3, 3, '╲');
-    expect(rowText(g, 0).slice(0, 4)).toBe('╲   ');
-    expect(rowText(g, 1).slice(0, 4)).toBe(' ╲  ');
-    expect(rowText(g, 2).slice(0, 4)).toBe('  ╲ ');
-    expect(rowText(g, 3).slice(0, 4)).toBe('   ╲');
-  });
-
-  it('反向斜线同样逐格（不跳格）', () => {
-    const g = drawLine(createGrid(6, 6), 4, 0, 1, 3, '╱');
-    expect(rowText(g, 0)[4]).toBe('╱');
-    expect(rowText(g, 1)[3]).toBe('╱');
-    expect(rowText(g, 2)[2]).toBe('╱');
-    expect(rowText(g, 3)[1]).toBe('╱');
-  });
-});
-
-describe('drawRect', () => {
-  it('四角四边正确，内部保持空白', () => {
-    const g = drawRect(createGrid(8, 5), 1, 1, 5, 3);
-    expect(rowText(g, 1)).toBe(' ┌───┐  ');
-    expect(rowText(g, 2)).toBe(' │   │  ');
-    expect(rowText(g, 3)).toBe(' └───┘  ');
+describe('rectStrokeCells（矩形轨迹集合）', () => {
+  it('四条边全部登记，内部空白', () => {
+    const cells = rectStrokeCells({ x: 1, y: 1 }, { x: 5, y: 3 }, 10, 6);
+    // 周长 2×(5+3) − 4 个重复角 = 12。
+    expect(cells.size).toBe(12);
+    expect(cells.has(1 * 10 + 1)).toBe(true);
+    expect(cells.has(1 * 10 + 5)).toBe(true);
+    expect(cells.has(3 * 10 + 1)).toBe(true);
+    expect(cells.has(3 * 10 + 5)).toBe(true);
+    expect(cells.has(2 * 10 + 3)).toBe(false);
   });
 
   it('端点顺序随意（反向拖拽）', () => {
-    const forward = drawRect(createGrid(8, 5), 1, 1, 5, 3);
-    const backward = drawRect(createGrid(8, 5), 5, 3, 1, 1);
-    expect(backward.cells).toEqual(forward.cells);
+    const forward = rectStrokeCells({ x: 1, y: 1 }, { x: 5, y: 3 }, 10, 6);
+    const backward = rectStrokeCells({ x: 5, y: 3 }, { x: 1, y: 1 }, 10, 6);
+    expect(backward).toEqual(forward);
+  });
+});
+
+describe('commitStrokes（收笔按完整轨迹生成）', () => {
+  it('空画布水平一笔 → 整段 ─（端点也是 ─）', () => {
+    const draft = createDraft(10, 5);
+    const cells = pathStrokeCells({ x: 2, y: 2 }, { x: 5, y: 2 }, 10, 5);
+    const next = commitStrokes(draft, pendingOf(draft, cells));
+    expect(rowText(next.grid, 2)).toBe('  ────    ');
+  });
+
+  it('空画布垂直一笔 → 整列 │', () => {
+    const draft = createDraft(10, 5);
+    const cells = pathStrokeCells({ x: 3, y: 1 }, { x: 3, y: 3 }, 10, 5);
+    const next = commitStrokes(draft, pendingOf(draft, cells));
+    expect(cellAt(next.grid, 3, 1)).toBe('│');
+    expect(cellAt(next.grid, 3, 2)).toBe('│');
+    expect(cellAt(next.grid, 3, 3)).toBe('│');
+  });
+
+  it('一笔拖出 L 形 → 拐角自动 ┐（不再依赖笔顺）', () => {
+    const draft = createDraft(10, 5);
+    // 同一笔内先横后竖（轨迹连续），收笔一次生成。
+    const cells = pathStrokeCells({ x: 2, y: 2 }, { x: 5, y: 2 }, 10, 5);
+    pathStrokeCells({ x: 5, y: 2 }, { x: 5, y: 4 }, 10, 5, cells);
+    const next = commitStrokes(draft, pendingOf(draft, cells));
+    expect(cellAt(next.grid, 5, 2)).toBe('┐');
+    expect(cellAt(next.grid, 4, 2)).toBe('─');
+    expect(cellAt(next.grid, 5, 3)).toBe('│');
+  });
+
+  it('两笔交叉：后笔收笔时前笔同步长出 ┬', () => {
+    let draft = createDraft(10, 5);
+    const first = pathStrokeCells({ x: 2, y: 2 }, { x: 6, y: 2 }, 10, 5);
+    draft = commitStrokes(draft, pendingOf(draft, first));
+    const second = pathStrokeCells({ x: 4, y: 2 }, { x: 4, y: 4 }, 10, 5);
+    draft = commitStrokes(draft, pendingOf(draft, second));
+    expect(cellAt(draft.grid, 4, 2)).toBe('┬');
+    expect(cellAt(draft.grid, 4, 3)).toBe('│');
+  });
+
+  it('十字交叉：┼', () => {
+    let draft = createDraft(10, 5);
+    const first = pathStrokeCells({ x: 2, y: 2 }, { x: 6, y: 2 }, 10, 5);
+    draft = commitStrokes(draft, pendingOf(draft, first));
+    const second = pathStrokeCells({ x: 4, y: 1 }, { x: 4, y: 3 }, 10, 5);
+    draft = commitStrokes(draft, pendingOf(draft, second));
+    expect(cellAt(draft.grid, 4, 2)).toBe('┼');
+  });
+
+  it('斜拖 → 逐格 ╲ ╱', () => {
+    const draft = createDraft(10, 10);
+    const cells = pathStrokeCells({ x: 2, y: 2 }, { x: 4, y: 4 }, 10, 10);
+    const next = commitStrokes(draft, pendingOf(draft, cells));
+    expect(cellAt(next.grid, 2, 2)).toBe('╲');
+    expect(cellAt(next.grid, 3, 3)).toBe('╲');
+    expect(cellAt(next.grid, 4, 4)).toBe('╲');
+    const d2 = createDraft(10, 10);
+    const cells2 = pathStrokeCells({ x: 4, y: 2 }, { x: 2, y: 4 }, 10, 10);
+    const next2 = commitStrokes(d2, pendingOf(d2, cells2));
+    expect(cellAt(next2.grid, 3, 3)).toBe('╱');
+  });
+
+  it('孤立单格 → 圆点 ·', () => {
+    const draft = createDraft(10, 5);
+    const cells = new Set<number>([3 * 10 + 3]);
+    const next = commitStrokes(draft, pendingOf(draft, cells));
+    expect(cellAt(next.grid, 3, 3)).toBe('·');
+  });
+
+  it('空轨迹返回原草稿', () => {
+    const draft = createDraft(10, 5);
+    expect(
+      commitStrokes(draft, { cells: new Set(), baseMasks: draft.masks }),
+    ).toBe(draft);
+  });
+
+  it('矩形：四边符号一次生成（角 ┌┐└┘、边 ─│）', () => {
+    const draft = createDraft(8, 5);
+    const cells = rectStrokeCells({ x: 1, y: 1 }, { x: 5, y: 3 }, 8, 5);
+    const next = commitStrokes(draft, pendingOf(draft, cells));
+    expect(rowText(next.grid, 1)).toBe(' ┌───┐  ');
+    expect(rowText(next.grid, 2)).toBe(' │   │  ');
+    expect(rowText(next.grid, 3)).toBe(' └───┘  ');
+  });
+
+  it('跨笔 T 交叉后原 ─ 格掩码被并集更新（后笔改变前笔端点字符）', () => {
+    let draft = createDraft(10, 5);
+    const first = pathStrokeCells({ x: 3, y: 1 }, { x: 3, y: 3 }, 10, 5);
+    draft = commitStrokes(draft, pendingOf(draft, first));
+    const second = pathStrokeCells({ x: 3, y: 3 }, { x: 6, y: 3 }, 10, 5);
+    draft = commitStrokes(draft, pendingOf(draft, second));
+    expect(cellAt(draft.grid, 3, 3)).toBe('└');
+    expect(cellAt(draft.grid, 4, 3)).toBe('─');
+  });
+
+  it('轨迹穿过已有圆点 → 圆点被线取代', () => {
+    let draft = createDraft(10, 5);
+    const dot = new Set<number>([2 * 10 + 3]); // (x=3, y=2)
+    draft = commitStrokes(draft, pendingOf(draft, dot));
+    expect(cellAt(draft.grid, 3, 2)).toBe('·');
+    const line = pathStrokeCells({ x: 3, y: 1 }, { x: 3, y: 3 }, 10, 5);
+    draft = commitStrokes(draft, pendingOf(draft, line));
+    expect(cellAt(draft.grid, 3, 2)).toBe('│');
   });
 });
 
@@ -236,7 +316,7 @@ describe('resizeGrid', () => {
   });
 });
 
-describe('setCell / erase', () => {
+describe('setCell', () => {
   it('不可变：原 grid 不被修改', () => {
     const original = createGrid(4, 3);
     const next = setCell(original, 1, 1, 'X');
@@ -251,13 +331,5 @@ describe('setCell / erase', () => {
     expect(setCell(g, 4, 0, 'X')).toBe(g);
     expect(setCell(g, 0, 3, 'X')).toBe(g);
     expect(setCell(g, 0, 0, ' ')).toBe(g);
-  });
-
-  it('erase 把矩形区域清空，越界部分自动夹紧', () => {
-    const drawn = drawRect(createGrid(8, 5), 1, 1, 5, 3);
-    const cleared = erase(drawn, -3, 0, 99, 99);
-    expect(toText(cleared)).toBe(
-      Array.from({ length: 5 }, () => '        ').join('\n'),
-    );
   });
 });

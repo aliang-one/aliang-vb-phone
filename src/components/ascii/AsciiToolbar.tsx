@@ -1,14 +1,16 @@
 /**
- * 字符画工具栏（Task 23）。
+ * 字符画工具栏（Task 23；2026-10-30 精简改版）。
  *
- * 两行：工具 + 历史；字符调色板 + 自定义字符输入。字符集是制表符/箭头，
- * 自定义输入让用户能写字母数字标签（「文字」工具的落笔字符）。
+ * 两个横向滚动行：
+ *   - 工具行：手绘 / 矩形 / 文字 / 橡皮 + 撤销 / 重做 / 清空；
+ *   - 字符行：4 个方向符号快捷键（─ │ ╱ ╲，供「文字」工具直填）+ 自定义
+ *     字符输入。转角/三通/交叉等复杂制表符不再让用户挑——手绘自动生成。
  */
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/useTheme';
-import { ASCII_CHARSET, ASCII_TOOLS, type AsciiTool } from './asciiGrid';
+import { ASCII_PRESET_CHARS, ASCII_TOOLS, type AsciiTool } from './asciiGrid';
 
 export interface AsciiToolbarProps {
   tool: AsciiTool;
@@ -23,12 +25,8 @@ export interface AsciiToolbarProps {
 }
 
 const TOOL_LABEL_KEYS: Record<AsciiTool, string> = {
-  auto: 'ascii.toolAuto',
-  hline: 'ascii.toolHline',
-  vline: 'ascii.toolVline',
-  diag: 'ascii.toolDiag',
+  freehand: 'ascii.toolFreehand',
   rect: 'ascii.toolRect',
-  arrow: 'ascii.toolArrow',
   text: 'ascii.toolText',
   eraser: 'ascii.toolEraser',
 };
@@ -116,7 +114,7 @@ export const AsciiToolbar: React.FC<AsciiToolbarProps> = ({
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View style={styles.row}>
-          {ASCII_CHARSET.map(item => {
+          {ASCII_PRESET_CHARS.map(item => {
             const selected = char === item;
             return (
               <Pressable
