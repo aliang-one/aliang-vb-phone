@@ -74,4 +74,7 @@ describe('commitDictationText / revertDictation', () => {
   it('revert：清掉在途段还原原文', () => {
     expect(revertDictation(session, 'AB你好呀CD')).toBe('ABCD');
   });
+  it('IDLE_DICTATION：哨兵会话（Task 6 复位用）', () => {
+    expect(IDLE_DICTATION).toEqual({ active: false, cursor: 0, segLen: 0 });
+  });
 });
