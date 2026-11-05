@@ -376,9 +376,10 @@ props 内加（可选）：
 
 **记得把新 props 加进组件的 props 解构**（`MessageComposerBase` 顶部，约 301 行起）。
 
-3b. 组件改 forwardRef（`MessageComposerBase` 签名改为接受 ref）：
-
-```tsx
+3b. 组件改 forwardRef（`MessageComposerBase` 签名改为接受 ref）。
+**注意：现签名是 `const MessageComposerBase: React.FC<MessageComposerProps> = ({...解构...}) => {...}`——
+改 forwardRef 时去掉 `React.FC` 注解、参数改为 `(props, ref)`，解构移进函数体首行
+（`const { mode, onModeChange, ... } = props;`），否则 tsc 报 ref 类型不兼容：**
 const MessageComposerBase = (
   props: MessageComposerProps,
   ref: React.Ref<MessageComposerHandle>,
