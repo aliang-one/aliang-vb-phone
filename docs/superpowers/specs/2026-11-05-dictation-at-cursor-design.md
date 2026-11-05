@@ -17,10 +17,9 @@
 
 1. 结束方式 = **按住说话，松手结束**（hold-to-talk，与语音模式现有手势一致）。
 2. 识别结果 = **实时填入输入框光标处**（中途改为实时，替代最初"松手才插入"）。
-3. "前边问答当 STT 提示词（上下文增强）" = **本期不做**，单独立项。现有阿里云
-   NLS ISI SpeechTranscriber 不支持按请求上下文；百炼 DashScope 流式模型
-   （fun-asr-realtime / qwen-audio-asr-flash-streaming）的 `input.context`
-   才支持（≤5 轮、每轮 ≤400 字符）。仅记录，不实施。
+3. "前边问答当 STT 提示词（上下文增强）" = **本期不做**，单独立项。现有 NLS
+   provider 不支持按请求上下文，需迁百炼 DashScope 流式模型才支持；仅记录，
+   不实施。
 
 ## 2. 交互定义
 
@@ -35,8 +34,9 @@
 听写期间：
 
 - 键盘不收起（按住的是输入框外的按钮，不会触发 blur）。
-- 输入框上方出现一条提示行："正在听写…松手结束" + 波形微动 + 实时字幕语义的
-  视觉反馈；在途未定稿片段以弱化样式区分，定稿后转正常样式。
+- 输入框上方出现一条提示行："正在听写…松手结束" + 波形微动；状态反馈（连接
+  中/录音中/错误文案）全部由该提示行承担。在途未定稿片段以**普通文本样式**
+  直接呈现在输入框内——RN `TextInput` 无法对子串做样式区分，不做花哨效果。
 - 模式切换键禁用（`isVoiceActive` 已有该守卫），防止按住期间误触切模式。
 
 语音模式的全部交互（点按开始/停止、hold-to-talk、live caption、编辑回填）不动。
@@ -80,13 +80,24 @@ stt.error / 空结果 ──▶ screen: revertSegment()（还原原文）+ 提�
   锚定 cursor、`voiceStt.start({ ..., onComplete: commitDictation })`。
 - `handleDictationPressOut`：`voiceStt.stop()`（最短录音/超时兜底等既有韧性
   逻辑全部复用，不另起炉灶）。
-- `commitDictation(text)`：`text` 非空 → 片段已在位（liveCaption 已收敛为
-  final 全文），清 `active`/`segLen`，经 composerRef 落光标；`text` 空 →
-  revert + 复用 `noSpeechDetected` 文案。
+- `commitDictation(text)`：**必须**用 `replaceSegment(input, cursor, segLen,
+  text)` 把在途段整体替换为权威 final 全文（`text` 为 hook onComplete 交付的
+  `full_text`/partial），再做清理。绝不能假设"片段已在位、liveCaption 已收敛"：
+  liveCaption 有 120ms 节流，`finishWith` 会**丢弃未刷新的 pending caption**，
+  服务端标点/ITN 归一化也可能使 `full_text` 与已显示文本不一致——跳过 splice
+  会静默丢失听写尾部。替换后清 `active`/`segLen`，经 composerRef
+  `setSelection(cursor+text.length)` 落光标。`text` 空 → revert + 复用
+  `noSpeechDetected` 文案。
+- watcher 门控：liveCaption 的 watch 效果以 `dictationRef.current.active` 判定
+  是否应用。这是硬性要求——`finishWith` 在 `onComplete` 触发**之前**会把
+  liveCaption 置空（还会带上从未渲染过的 pending 值），未门控的 watcher 会在
+  commit/revert 之后收到尾随空更新，把已定稿片段抹掉。
+- revert：与 commit 同一助手函数（`replaceSegment(input, cursor, segLen, '')`
+  还原原文）。
 - 失败路径：`failWith`（如 `noSpeechDetected`、captureSilent）不会触发
-  onComplete → watch 停止后 revert 原文，提示行显示 `voiceStt.errorMessage`
-  （下一次交互或超时消失）。`stt.error` 携带部分文本时 hook 已走
-  `finishWith(partial)` → 正常 commit。
+  onComplete → active 状态下收到 error 即 revert 原文，提示行显示
+  `voiceStt.errorMessage`（下一次交互或超时消失）。`stt.error` 携带部分文本时
+  hook 已走 `finishWith(partial)` → 正常 commit。
 
 ### 3.3 插入纯函数（可单测）
 
@@ -104,6 +115,8 @@ replaceSegment(input: string, cursor: number, segLen: number, incoming: string):
 - 选区非空：`cursor = selection.start`，`segLen` 初始 = `selection.end -
   selection.start` —— 第一次 liveCaption 更新即替换整个选区，与系统键盘
   听写习惯一致。
+- 输入框从未聚焦（`onSelectionChange` 一次都没触发过）：默认
+  `cursor = input.length`（追加到末尾），不取 0。
 
 ### 3.5 光标落位
 
@@ -113,8 +126,9 @@ RN 受控 TextInput 程序化改值后光标默认跳到全文末尾；听写多
 - `MessageComposer` 改为 `React.forwardRef` + `useImperativeHandle`，对外暴露
   `setSelection(start: number, end: number)`（内部 TextInput ref 透传）。
   memo 包裹保留（`React.memo` 套 `forwardRef`）。
-- `commitDictation` 定稿后调用 `composerRef.current?.setSelection(cursor+len,
-  cursor+len)`。
+- `commitDictation` 做 splice 后调用 `composerRef.current?.setSelection(
+  cursor+text.length, cursor+text.length)`——splice 本身会改变文本，落光标
+  必须在 splice 之后同一次完成。
 - 实时更新途中不强制控制光标（用户双手被占用，期间光标位置纯视觉；定稿一刻
   才修正）。
 
@@ -123,8 +137,10 @@ RN 受控 TextInput 程序化改值后光标默认跳到全文末尾；听写多
 1. `renderModeToggle`：`TouchableOpacity` 增加 `onLongPress`（RN 中
    onLongPress 触发后松手不再触发 onPress，点按路径零回归）；新 props
    `onDictationPressIn` / `onDictationPressOut`（可选 prop，未传时长按回落为
-   无操作，ApprovalCustomReply / DeviceControlCard / VibeSessionCard 等复用方
-   不受影响）。
+   无操作）。影响面说明：`MessageComposer` 的唯一消费方是
+   `VibeCodingSessionScreen`（已 grep 证实）；`ApprovalCustomReply` /
+   `DeviceControlCard` / `VibeSessionCard` 用的是另一个组件 `VoiceTextInput`，
+   与本改动无关。可选 prop 是为未来复用留的安全垫，本期无其他回归面。
 2. `TextInput` 增加 `onSelectionChange`，经新 prop `onComposerSelectionChange`
    上报屏幕（屏幕存 ref，不进 state）。
 3. 听写提示条：`status ∈ {connecting, recording, stopping}` 且 `mode === 'text'`
@@ -159,9 +175,10 @@ stt_records 浏览与回放口径不变。
 
 1. 纯函数 `replaceSegment` 单测：3.3 所列场景全绿。
 2. Composer 手势测试：长按触发 `onDictationPressIn`；press-out 触发
-   `onDictationPressOut`；点按仍触发 `onModeChange`（回归）；未传新 props 时
-   长按无操作（回归复用方）。
-3. 屏幕级听写状态机测试（可抽纯逻辑）：liveCaption 更新替换在途段；定稿落
-   光标；错误 revert。
+   `onDictationPressOut`；点按仍触发 `onModeChange`（回归）；未传可选 props
+   时长按无操作（守住可选契约）。
+3. 屏幕级听写状态机测试（可抽纯逻辑）：liveCaption 更新替换在途段；
+   `commitDictation` splice 权威文本 + 落光标；尾随 liveCaption 空更新不抹
+   已定稿片段（watcher 门控）；错误 revert。
 4. 既有 jest 基线保持绿（`MessageComposer.memo/attachments/steer`、
    `VoiceTextInput`、`useVoiceStt` 系列不回归）。
