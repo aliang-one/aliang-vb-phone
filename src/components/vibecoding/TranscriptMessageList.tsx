@@ -1,5 +1,14 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  Alert,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { useTheme } from '../../theme/useTheme';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -12,6 +21,8 @@ import {
   activityEventsRenderSignature,
   relevantActivityDetailsEqual,
 } from '../../utils/activityRenderMemo';
+import { derivedApprovalPlanKey } from '../../utils/messageRendering';
+import { useToastStore } from '../../store/toastStore';
 import type { StructuredActivityEvent } from '../../data/platformModels';
 import type {
   TranscriptCalloutSegment,
@@ -71,6 +82,15 @@ interface TranscriptMessageListProps {
   /** Discard a failed-to-send user bubble (only fired for `message.failed`). */
   onDismissFailed?: (messageId: string) => void;
   /**
+   * Long-press menu on a SENT user bubble: put the message's original text back
+   * into the composer so the user can revise it and send it again as a new
+   * message. Never fired for `message.failed` bubbles (they already carry their
+   * own retry / dismiss row). Edit semantics stay a MOVE: what lands in the
+   * composer is the raw source `AgentMessage.content`, not the markdown-rendered
+   * view.
+   */
+  onEditAndResend?: (messageId: string, originalText: string) => void;
+  /**
    * Turn-failed retry (case B): the user message reached the agent but no reply
    * came back (session.status 'failed'). When `turnFailedMessageId` matches a
    * NON-`failed` user bubble, render a small "未收到回复 · 重试" affordance under
@@ -83,6 +103,15 @@ interface TranscriptMessageListProps {
   onRetryTurn?: (messageId: string) => void;
   /** Position of this row in the visible conversation rail. */
   timelinePosition?: TimelinePosition;
+  /**
+   * 会话权威审批的 plan-key 集合(见 derivedApprovalPlanKey,与服务端
+   * stableDerivedApprovalId 的 key 镜像)。聊天气泡里的静态 approval 卡命中
+   * 集合时整体隐藏——同一份内容已由服务端派生成时间线里的交互卡(答题入口),
+   * 气泡里再渲染一份 markdown 圆点就是「文本 + options」双份。由会话屏从
+   * store approvals 派生并保持引用稳定,审批被答后交互卡仍在(已处理的进
+   * 折叠组),静态卡不闪回。
+   */
+  suppressedApprovalPlanKeys?: ReadonlySet<string>;
 }
 
 type TimelinePosition = 'single' | 'start' | 'middle' | 'end';
@@ -197,12 +226,15 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
   liveMessageId,
   onRetryFailed,
   onDismissFailed,
+  onEditAndResend,
   turnFailedMessageId,
   onRetryTurn,
   timelinePosition = 'middle',
+  suppressedApprovalPlanKeys,
 }) => {
   const { theme, isDark } = useTheme();
   const { t } = useTranslation('vibecoding');
+  const showToast = useToastStore(state => state.show);
   // Render at most one bubble; the owning screen passes a single message.
   const items = message ? [message] : [];
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -697,6 +729,17 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
     // 片：盾形徽标 + i18n 标题 + 待处理徽章（单选/多选区分），不再是通用
     // 警示框。其余 callout 保持原样。
     if (segment.variant === 'approval') {
+      // 权威对账隐藏:服务端已把同一份方案派生成时间线里的交互审批卡
+      // (答题入口),气泡里这份静态卡(markdown 圆点降级)命中同一 plan key
+      // 时整体不渲染,消灭「文本 + options」双份展示。
+      if (
+        segment.optionCard &&
+        suppressedApprovalPlanKeys?.has(
+          derivedApprovalPlanKey(segment.optionCard),
+        )
+      ) {
+        return null;
+      }
       const card = segment.optionCard;
       const multi = card ? card.multi : segment.multi === true;
       return (
@@ -1265,7 +1308,13 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
             !isFailed &&
             turnFailedMessageId != null &&
             message.id === turnFailedMessageId;
-          return (
+          // 「编辑并重发」只针对真正送达的用户消息:failed 气泡有自己的
+          // 重试/删除行,长按菜单不应叠加出现。
+          const isEditableSentUser = !isFailed && onEditAndResend != null;
+          // 编辑重发回填的是 rawContent(用户当时敲进来的字节),不是 markdown
+          // 渲染树——同一条消息再发出去必须与原文逐字节一致。
+          const originalText = message.rawContent ?? '';
+          const bubble = (
             <View
               key={message.id}
               // 只在有消费者时挂布局监听:当前所有调用方都不传 onMessageLayout,
@@ -1407,6 +1456,36 @@ const TranscriptMessageListBase: React.FC<TranscriptMessageListProps> = ({
                 style={styles.userAvatar}
               />
             </View>
+          );
+          return isEditableSentUser ? (
+            <Pressable
+              key={`pressable-${message.id}`}
+              accessibilityRole="button"
+              accessibilityLabel={t('transcript.editResend')}
+              onLongPress={() => {
+                const text = originalText.trim();
+                const options = [
+                  {
+                    text: t('transcript.copy'),
+                    onPress: () => {
+                      Clipboard.setString(text);
+                      showToast(t('transcript.copied'));
+                    },
+                  },
+                  {
+                    text: t('transcript.editResend'),
+                    onPress: () => onEditAndResend?.(message.id, text),
+                  },
+                  { text: t('common:cancel'), style: 'cancel' as const },
+                ];
+                if (Platform.OS === 'android') options.reverse();
+                Alert.alert(t('transcript.messageActions'), undefined, options);
+              }}
+            >
+              {bubble}
+            </Pressable>
+          ) : (
+            bubble
           );
         }
 
@@ -1677,6 +1756,11 @@ const areTranscriptPropsEqual = (
   // re-render of all bubbles then — never per flush.
   if (prev.liveMessageId !== next.liveMessageId) return false;
   if (prev.timelinePosition !== next.timelinePosition) return false;
+  // 权威审批 plan-key 集合变化(新审批派生/对账落库)必须重渲染,否则静态
+  // approval 卡的隐藏时机错过。引用相等即跳过(会话屏 useMemo 保持稳定)。
+  if (prev.suppressedApprovalPlanKeys !== next.suppressedApprovalPlanKeys) {
+    return false;
+  }
   // 历史图片签名要靠它推导对象键；会话切换时必须重渲染气泡。
   if (prev.sessionId !== next.sessionId) return false;
   // Turn-failure affordance (case B): a mounted bubble can flip to

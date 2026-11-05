@@ -59,6 +59,13 @@ export interface DisplayTranscriptMessage {
    * 服务端确认后同一字段原样回传，乐观气泡与历史消息走同一条渲染路径。
    */
   attachments?: AgentMessage['attachments'];
+  /**
+   * 用户气泡的原始发送文本（底层 {@link AgentMessage.content}，未经 markdown
+   * 解析）。编辑重发场景要的是「用户当时敲进来的字节」——用渲染树还原会在
+   * 用户原文恰好长得像 markdown 时悄悄改变内容。只挂 user 气泡；一消息一
+   * 气泡（见 buildDisplayTranscript），不存在合并气泡取哪条的歧义。
+   */
+  rawContent?: string;
 }
 
 // Markdown parsing (parseMessageContentSegments) is by far the most expensive
@@ -352,6 +359,7 @@ export const buildDisplayTranscript = (
         sourceMessageIds: [message.id],
         failed: message.failed ? true : undefined,
         attachments: message.attachments?.length ? message.attachments : undefined,
+        rawContent: message.content ?? '',
       });
       continue;
     }

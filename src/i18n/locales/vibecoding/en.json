@@ -168,6 +168,10 @@
     "retry": "Retry",
     "dismissFailed": "Delete failed message",
     "delete": "Delete",
+    "messageActions": "Message actions",
+    "copy": "Copy",
+    "copied": "Copied",
+    "editResend": "Edit & resend",
     "noReply": "No reply",
     "retryTurn": "Retry turn",
     "collapseSystem": "Collapse system output",
@@ -624,12 +628,8 @@
     "done": "Done",
     "attachHint": "Adds the ASCII art to the composer — type more, then send when ready",
     "empty": "Nothing drawn yet",
-    "toolAuto": "Auto",
-    "toolHline": "Line",
-    "toolVline": "Vertical",
-    "toolDiag": "Diagonal",
+    "toolFreehand": "Draw",
     "toolRect": "Box",
-    "toolArrow": "Arrow",
     "toolText": "Text",
     "toolEraser": "Eraser",
     "undo": "Undo",
@@ -638,6 +638,7 @@
     "customChar": "Custom",
     "sizeSmall": "Small grid",
     "sizeLarge": "Large grid",
-    "defaultPrompt": "Here's an ASCII diagram"
+    "defaultPrompt": "Here's an ASCII diagram",
+    "pendingHint": "Drag to sketch — line glyphs are generated on release"
   }
 }

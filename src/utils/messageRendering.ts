@@ -1,5 +1,11 @@
 import { extractGoalReport, type GoalReportKind } from './goalReportMarker';
 
+/** approvalOptionPlanKey 的最小结构约束(避免反向依赖 store 类型)。 */
+type ApprovalRequestLike = {
+  title: string;
+  options?: Array<{ id: string }>;
+};
+
 export type TranscriptTone = 'info' | 'warning' | 'neutral';
 
 /**
@@ -393,7 +399,13 @@ const formatAliangOptionsFence = (
       'The assistant is waiting for your choice.';
     const structured = objectRecords(raw.options)
       .map((option, index) => {
-        const id = textValue(option.id) || textValue(option.label) || `option-${index + 1}`;
+        // id 镜像 server optionBlockFromRaw 规则:显式 id ?? label 截 48 ?? option-N。
+        // 截断必须逐字节一致——derivedApprovalPlanKey 用它与服务端权威审批对账,
+        // 长装饰 label 差一个字符静态卡就压不住、聊天气泡会双份渲染。
+        const id =
+          textValue(option.id) ||
+          textValue(option.label).slice(0, 48) ||
+          `option-${index + 1}`;
         const label =
           textValue(option.label) || textValue(option.id) || `Option ${index + 1}`;
         const description = textValue(option.description);
@@ -439,6 +451,34 @@ const formatAliangOptionsFence = (
     return fallback();
   }
 };
+
+/**
+ * 与服务端 stableDerivedApprovalId 的 plan.key 镜像(字面量逐字节一致):
+ * `JSON.stringify({title, options: [各选项 id]})`。用途:聊天气泡里的静态
+ * approval 卡(aliang-options 围栏的降级渲染)拿它与会话 store 的权威审批
+ * 对账——同一份内容服务端已派生成时间线里的交互卡,静态卡命中即整体隐藏,
+ * 消灭「文本圆点 + options 卡」双份展示。仅对 v2 结构化卡可算(坏 JSON/v1
+ * 块没有 optionCard,静态卡保持降级渲染,宁重复不丢内容)。
+ */
+export const derivedApprovalPlanKey = (card: TranscriptOptionCard): string =>
+  JSON.stringify({
+    title: card.title,
+    options: card.options.map(option => option.id),
+  });
+
+/**
+ * store 权威审批(ApprovalRequest)侧的同款 plan key。服务端派生时 key 只含
+ * {title, options:[id]},所以这里同样只取 id——ApprovalRequest.options 的
+ * label/description/response 与围栏原始 JSON 不逐字节相同(服务端重造),取
+ * 它们反而配不上。与 derivedApprovalPlanKey 一同构成两端对账闭环。
+ */
+export const approvalOptionPlanKey = (
+  approval: Pick<ApprovalRequestLike, 'title' | 'options'>,
+): string =>
+  JSON.stringify({
+    title: approval.title,
+    options: (approval.options ?? []).map(option => option.id),
+  });
 
 // --- Claude Code harness 信封格式化 -----------------------------------------
 // harness 会把后台任务通知、斜杠命令记录等以 XML 信封形态注入 user 消息流

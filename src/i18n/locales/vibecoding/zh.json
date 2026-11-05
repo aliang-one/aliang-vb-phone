@@ -168,6 +168,10 @@
     "retry": "重试",
     "dismissFailed": "删除失败消息",
     "delete": "删除",
+    "messageActions": "消息操作",
+    "copy": "复制",
+    "copied": "已复制",
+    "editResend": "编辑并重发",
     "noReply": "未收到回复",
     "retryTurn": "重试回合",
     "collapseSystem": "折叠系统输出",
@@ -624,12 +628,8 @@
     "done": "完成",
     "attachHint": "完成后插入输入框，可继续输入文字再发送",
     "empty": "画布还是空的",
-    "toolAuto": "自动",
-    "toolHline": "横线",
-    "toolVline": "竖线",
-    "toolDiag": "斜线",
+    "toolFreehand": "手绘",
     "toolRect": "矩形",
-    "toolArrow": "箭头",
     "toolText": "文字",
     "toolEraser": "橡皮",
     "undo": "撤销",
@@ -638,6 +638,7 @@
     "customChar": "自定义",
     "sizeSmall": "小画布",
     "sizeLarge": "大画布",
-    "defaultPrompt": "请看这张字符画"
+    "defaultPrompt": "请看这张字符画",
+    "pendingHint": "拖动涂抹，松手自动生成线条符号"
   }
 }
