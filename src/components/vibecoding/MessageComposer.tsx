@@ -100,7 +100,8 @@ export interface MessageComposerProps {
   /** 听写：TextInput 选区变化上报（屏幕存 ref 不进 state）。 */
   onComposerSelectionChange?: (selection: { start: number; end: number }) => void;
   /** 听写：文本模式下长按 toggle 进入 hold-to-talk 听写（屏幕启动 STT）。
-   * 未传时长按为无操作（保守可选 prop，现无其他消费方）。 */
+   * 仅文本模式挂载，且须与 onDictationPressOut 成对传入；否则长按无处理
+   * （语音模式保持任意时长按松=切模式的现行为，spec §2）。 */
   onDictationPressIn?: () => void;
   /** 听写：松手结束（屏幕 stop STT）。与 onDictationPressIn 配对。 */
   onDictationPressOut?: () => void;
@@ -503,11 +504,15 @@ const MessageComposerBase = (
           if (dictationHolding) return;
           onModeChange(targetMode);
         }}
-        onLongPress={() => {
-          if (composerDisabled || !onDictationPressIn) return;
-          setDictationHolding(true);
-          onDictationPressIn();
-        }}
+        onLongPress={
+          mode === 'text' && onDictationPressIn && onDictationPressOut
+            ? () => {
+                if (composerDisabled) return;
+                setDictationHolding(true);
+                onDictationPressIn();
+              }
+            : undefined
+        }
         onPressOut={() => {
           if (!dictationHolding) return;
           setDictationHolding(false);
