@@ -97,6 +97,13 @@ export interface MessageComposerProps {
   onInterruptTurn?: () => void;
   /** Moves the voice draft into the text input for editing (switches to text mode). */
   onEditVoice: () => void;
+  /** 听写：TextInput 选区变化上报（屏幕存 ref 不进 state）。 */
+  onComposerSelectionChange?: (selection: { start: number; end: number }) => void;
+}
+
+export interface MessageComposerHandle {
+  /** 定稿后把光标放到插入文本末尾（TextInput ref 透传；未挂载时空安全）。 */
+  setSelection: (start: number, end: number) => void;
 }
 
 // ---------- icons (inline SVG; no shared icon lib ships mic/keyboard/send) ----------
@@ -298,41 +305,46 @@ const ACTIVE_STATUSES: Array<UseVoiceSttResult['status']> = [
   'stopping',
 ];
 
-const MessageComposerBase: React.FC<MessageComposerProps> = ({
-  mode,
-  onModeChange,
-  input,
-  onInputChange,
-  voiceDraft,
-  commands,
-  voiceStt,
-  sendingMessage,
-  interruptingTurn = false,
-  canInterruptTurn = false,
-  interruptGreyed = false,
-  interruptGreyedHint,
-  canSteer = false,
-  deviceOffline,
-  readOnlyReason,
-  autoFocusText,
-  toolsMenuVisible,
-  toolsDisabled = false,
-  onToggleTools,
-  attachmentsEnabled = false,
-  onOpenAttachments,
-  attachmentCount = 0,
-  goalDraft = false,
-  goalSession = false,
-  showGoalHint = false,
-  onTextInputFocus,
-  onVoiceCapture,
-  onVoiceCaptureStart,
-  onVoiceCaptureEnd,
-  onSendVoice,
-  onSendText,
-  onInterruptTurn,
-  onEditVoice,
-}) => {
+const MessageComposerBase = (
+  props: MessageComposerProps,
+  ref: React.Ref<MessageComposerHandle>,
+) => {
+  const {
+    mode,
+    onModeChange,
+    input,
+    onInputChange,
+    voiceDraft,
+    commands,
+    voiceStt,
+    sendingMessage,
+    interruptingTurn = false,
+    canInterruptTurn = false,
+    interruptGreyed = false,
+    interruptGreyedHint,
+    canSteer = false,
+    deviceOffline,
+    readOnlyReason,
+    autoFocusText,
+    toolsMenuVisible,
+    toolsDisabled = false,
+    onToggleTools,
+    attachmentsEnabled = false,
+    onOpenAttachments,
+    attachmentCount = 0,
+    goalDraft = false,
+    goalSession = false,
+    showGoalHint = false,
+    onTextInputFocus,
+    onVoiceCapture,
+    onVoiceCaptureStart,
+    onVoiceCaptureEnd,
+    onSendVoice,
+    onSendText,
+    onInterruptTurn,
+    onEditVoice,
+    onComposerSelectionChange,
+  } = props;
   const { theme, isDark } = useTheme();
   const { t } = useTranslation('vibecoding');
   const status = voiceStt.status;
@@ -389,6 +401,18 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
   const draftOpacity = useRef(new Animated.Value(0)).current;
   const draftSlide = useRef(new Animated.Value(10)).current;
   const voicePressActiveRef = useRef(false);
+  const textInputRef = useRef<TextInput | null>(null);
+  React.useImperativeHandle(
+    ref,
+    () => ({
+      setSelection: (start: number, end: number) => {
+        // 双重 ?. :current 为 null(未挂载/已卸载)与 TestRenderer 下的
+        // host mock(真值但无 setSelection 方法)都必须空值安全不抛错。
+        textInputRef.current?.setSelection?.(start, end);
+      },
+    }),
+    [],
+  );
 
   useEffect(() => {
     contentOpacity.setValue(0);
@@ -599,8 +623,11 @@ const MessageComposerBase: React.FC<MessageComposerProps> = ({
     if (mode === 'text') {
       return (
         <TextInput
+          ref={textInputRef}
           value={input}
           onChangeText={onInputChange}
+          onSelectionChange={e => onComposerSelectionChange?.(e.nativeEvent.selection)}
+          testID="composer-text-input"
           onFocus={() => {
             setInputFocused(true);
             onTextInputFocus?.();
@@ -1091,4 +1118,8 @@ const styles = StyleSheet.create({
 // memo:与消息内容无关的输入区。流式期间聊天屏以 ≤5Hz 重渲染
 // (usePublishedVibeRun),props 引用稳定(父级 useCallback/useMemo 化 +
 // useVoiceStt 返回对象 memo 化)时整块跳过,不再陪跑。
-export const MessageComposer = React.memo(MessageComposerBase);
+// memo(forwardRef(Base)) 语义与裸 memo 相同:props 浅比较 bailout 不变,
+// 只是把 ref 透传给 Base 的 useImperativeHandle(听写定稿 setSelection)。
+export const MessageComposer = React.memo(
+  React.forwardRef<MessageComposerHandle, MessageComposerProps>(MessageComposerBase),
+);
