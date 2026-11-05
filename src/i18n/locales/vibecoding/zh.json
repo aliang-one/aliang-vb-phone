@@ -356,6 +356,7 @@
     "goal": "Goal",
     "voiceError": "语音输入出错，点击重试",
     "tapToSpeak": "点按开始说话",
+    "dictationHint": "正在听写…松手结束",
     "tools": "工具与设置",
     "recordingActive": "录音中",
     "tapToRecord": "点按开始录音",

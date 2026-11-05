@@ -356,6 +356,7 @@
     "goal": "Goal",
     "voiceError": "Voice input failed, tap to retry",
     "tapToSpeak": "Tap to start speaking",
+    "dictationHint": "Dictating… release to insert",
     "tools": "Tools & settings",
     "recordingActive": "Recording",
     "tapToRecord": "Tap to start recording",
