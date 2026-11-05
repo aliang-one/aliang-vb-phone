@@ -38,6 +38,11 @@ type Navigation = NativeStackNavigationProp<RootStackParamList>;
 // not only on the website.
 const PRIVACY_POLICY_URL = 'https://www.aliang.one/privacy';
 
+// MIIT 信管〔2023〕105号第(八)条:APP 须在显著位置(设置两级菜单内)标明
+// APP 备案号,并在编号下方链接备案系统供公众核验。编号与备案登记一致。
+const ICP_FILING_NUMBER = '蜀ICP备2026066317号-2A';
+const MIIT_BEIAN_URL = 'https://beian.miit.gov.cn';
+
 export const AboutScreen: React.FC = () => {
   const { theme } = useTheme();
   const { t } = useTranslation('settings');
@@ -177,6 +182,26 @@ export const AboutScreen: React.FC = () => {
               </Text>
               <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
                 {PRIVACY_POLICY_URL}
+              </Text>
+            </View>
+            <Text style={[theme.typography.labelMd, { color: theme.colors.primary }]}>
+              ›
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={() => {
+              // 备案核验入口:工信部备案系统(105号文第(八)条要求编号下方链接)。
+              Linking.openURL(MIIT_BEIAN_URL).catch(() => {});
+            }}
+            accessibilityRole="button"
+            testID="settings-icp-filing-row">
+            <View style={styles.settingCopy}>
+              <Text style={[theme.typography.bodyMd, { color: theme.colors.onSurface }]}>
+                {t('about.icpFiling')}
+              </Text>
+              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+                {ICP_FILING_NUMBER}
               </Text>
             </View>
             <Text style={[theme.typography.labelMd, { color: theme.colors.primary }]}>
