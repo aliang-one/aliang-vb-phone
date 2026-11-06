@@ -620,6 +620,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
     text: string;
   } | null>(null);
   const dictationNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // input 最新快照 + 在途段期望内容：commit/revert 前校验锚点上下文仍成立，
+  // 防止 stop→completed 延迟窗口内 input 被整体替换(goalDraft/发送)后把
+  // 听写文本拼进新文本。
+  const dictationInputSnapshotRef = useRef(input);
+  const dictationExpectedSegRef = useRef('');
+  useEffect(() => {
+    dictationInputSnapshotRef.current = input;
+  }, [input]);
 
   const clearDictationNotice = useCallback(() => {
     if (dictationNoticeTimerRef.current) {
@@ -658,17 +666,28 @@ export const VibeCodingSessionScreen: React.FC = () => {
     const next = applyDictationLive(dictation, input, voiceStt.liveCaption);
     if (next.input === input && next.segLen === dictation.segLen) return;
     dictation.segLen = next.segLen;
+    dictationExpectedSegRef.current = voiceStt.liveCaption;
     setInput(next.input);
   }, [input, voiceStt.liveCaption]);
 
   // 失败感知（failWith 不触发 onComplete，只能走 status watch）：
   // revert 原文 + 错误提示 4s。异常必须有状态返回（硬规则）。
+  // revert 前同口径校验锚点上下文：窗口期 input 被整体替换后，失效段还原
+  // 会误删新文本——mismatch 只复位状态，不动 input。
   useEffect(() => {
     const dictation = dictationRef.current;
     if (!dictation.active) return;
     if (voiceStt.status !== 'error') return;
     dictationRef.current = { ...IDLE_DICTATION };
-    setInput(prev => revertDictation(dictation, prev));
+    const prev = dictationInputSnapshotRef.current;
+    const contextIntact =
+      prev.length >= dictation.cursor &&
+      prev.slice(dictation.cursor, dictation.cursor + dictation.segLen) ===
+        dictationExpectedSegRef.current;
+    dictationExpectedSegRef.current = '';
+    if (contextIntact) {
+      setInput(p => revertDictation(dictation, p));
+    }
     armDictationErrorNotice(
       voiceStt.errorMessage || t('vibecoding:composer.voiceError'),
     );
@@ -2190,27 +2209,43 @@ export const VibeCodingSessionScreen: React.FC = () => {
           ? t('session.composer.claudeRunning')
           : undefined;
 
+  // ⚠️ 听写回调必须位于 composerReadOnlyReason（~2170）声明之后——依赖数组
+  // 引用它与 shouldDisableComposerForProvider；上移会 TDZ 编译错误（tsc 即拦）。
+
   // stt.completed / STOP_SAFETY 兜底 / stt.error 携带部分文本 都会走这里。
   // 必须以权威 final 全文 splice 替换在途段（spec §3.2：liveCaption 120ms
   // 节流 + finishWith 丢弃 pending + 服务端标点归一化，"已在位"假设不成立）。
+  // commit/revert 前先校验锚点上下文：pressOut→completed 有最长秒级的延迟
+  // 窗口，期间 goalDraft/发送会整体替换 input，往新文本上拼旧锚点会出幽灵文本。
   const handleDictationComplete = useCallback(
     (text: string) => {
       const dictation = dictationRef.current;
       dictationRef.current = { ...IDLE_DICTATION };
+      const prev = dictationInputSnapshotRef.current;
+      const contextIntact =
+        prev.length >= dictation.cursor &&
+        prev.slice(dictation.cursor, dictation.cursor + dictation.segLen) ===
+          dictationExpectedSegRef.current;
+      dictationExpectedSegRef.current = '';
+      if (!contextIntact) {
+        // 锚点上下文已失效（窗口期 input 被替换）：放弃拼接/还原，静默丢弃。
+        clearDictationNotice();
+        return;
+      }
       if (!text.trim()) {
-        setInput(prev => revertDictation(dictation, prev));
+        setInput(p => revertDictation(dictation, p));
         armDictationErrorNotice(t('common:voice.noSpeechDetected'));
         return;
       }
-      setInput(prev => commitDictationText(dictation, prev, text).input);
+      setInput(p => commitDictationText(dictation, p, text).input);
       const cursor = dictation.cursor + text.length;
       // 值经 React 提交后再落光标；rAF 一拍足够。
       requestAnimationFrame(() => {
         composerRef.current?.setSelection(cursor, cursor);
       });
-      setDictationNotice(null);
+      clearDictationNotice();
     },
-    [armDictationErrorNotice, t],
+    [armDictationErrorNotice, clearDictationNotice, t],
   );
 
   const handleDictationPressIn = useCallback(() => {
@@ -2229,6 +2264,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
     if (composerReadOnlyReason) return;
     const anchor = resolveDictationAnchor(composerSelectionRef.current, input.length);
     dictationRef.current = { active: true, cursor: anchor.cursor, segLen: anchor.segLen };
+    // 选区替换场景的段初值：commit 时校验"锚点上下文未被整体替换"用。
+    dictationExpectedSegRef.current = input.slice(
+      anchor.cursor,
+      anchor.cursor + anchor.segLen,
+    );
     if (dictationNoticeTimerRef.current) {
       clearTimeout(dictationNoticeTimerRef.current);
       dictationNoticeTimerRef.current = null;
@@ -2244,10 +2284,17 @@ export const VibeCodingSessionScreen: React.FC = () => {
         if (!started) {
           // start 被拒（如上一段录音仍在 stopping）：撤销锚点，还原提示。
           dictationRef.current = { ...IDLE_DICTATION };
+          dictationExpectedSegRef.current = '';
           setDictationNotice(null);
         }
+      })
+      .catch(() => {
+        // start() 异常兜底：复位会话与提示，不留死麦克风（异常必须有状态返回）。
+        dictationRef.current = { ...IDLE_DICTATION };
+        dictationExpectedSegRef.current = '';
+        armDictationErrorNotice(t('common:voice.recognizeFailed'));
       });
-  }, [input, voiceStt, session, project, deviceOffline, shouldDisableComposerForProvider, composerReadOnlyReason, t, handleDictationComplete]);
+  }, [input, voiceStt, session, project, deviceOffline, shouldDisableComposerForProvider, composerReadOnlyReason, t, handleDictationComplete, armDictationErrorNotice]);
 
   // 无活动听写会话时绝不调 voiceStt.stop()（普通点按 toggle 的松手会走到这）。
   const handleDictationPressOut = useCallback(() => {
