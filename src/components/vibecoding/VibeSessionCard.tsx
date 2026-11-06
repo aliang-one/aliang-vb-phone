@@ -35,8 +35,8 @@ import { useNowTick } from '../../hooks/useNowTick';
 import { useReduceMotion } from '../../hooks/useReduceMotion';
 import { IconBadge } from '../visual/IconBadge';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
-import { providerLabel } from '../../utils/modelIntensity';
-import { terminalResumeTarget } from '../../utils/sessionOrigin';
+import { defaultModelFor, providerLabel } from '../../utils/modelIntensity';
+import { sessionResumeTarget } from '../../utils/sessionOrigin';
 import { SessionOriginBadge } from './SessionOriginBadge';
 
 const formatBudget = (budget: VibeCodingRun['projectBudget']) =>
@@ -113,9 +113,12 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
     );
     // 另起续聊（跨端统一 P4-1.3）：终端前缀壳（claude_/codex_）没有本端可直连
     // 的会话记录，续聊 = 新建托管会话并以剥前缀原生 id 回填 source_session_id，
-    // 首条消息的回合由 agent 按 resume 装回原生历史。运行中的终端回合不提供
-    // （与 TUI 运行中锁同族——CLI 会话文件正在被写，续读有竞态）。
-    const resumeTarget = terminalResumeTarget(session.id);
+    // 首条消息的回合由 agent 按 resume 装回原生历史。agentcore 壳卡
+    // （ai_import_<sha1>，PhoneServer 摄入铸壳）同理——原生 id 不在壳 id 里，
+    // 以列表下发的 sourceSessionId 回填（判据见 sessionOrigin.agentcoreResumeTarget）。
+    // 运行中的终端回合不提供（与 TUI 运行中锁同族——CLI 会话文件正在被写，
+    // 续读有竞态）。
+    const resumeTarget = sessionResumeTarget(session);
     const [resumeCreating, setResumeCreating] = useState(false);
     // Re-render on a shared 30s cadence so the relative "上次激活" label below
     // stays fresh instead of freezing at the value from when activity happened.
@@ -222,6 +225,10 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
           provider: resumeTarget.provider,
           objective: '',
           sourceSessionId: resumeTarget.nativeSessionId,
+          // agentcore 要求手机显式下发模型（requiresExplicitModel，缺省会被
+          // 网关按自家默认跑，用户看到的与实际请求对不上）。claude/codex 的
+          // defaultModelFor 返回 undefined → 不发 model 键，行为不变。
+          model: defaultModelFor(resumeTarget.provider),
         });
         setNotice('');
         setMenuVisible(false);
