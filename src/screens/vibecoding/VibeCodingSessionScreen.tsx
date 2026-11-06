@@ -625,6 +625,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // 听写文本拼进新文本。
   const dictationInputSnapshotRef = useRef(input);
   const dictationExpectedSegRef = useRef('');
+  // 选区段仅在首次 live 应用后才算被"消费"；零应用的失败不得 revert，
+  // 否则会删掉用户选中的原文（终审 Fix1：静默失败/未识别不应吞内容）。
+  const dictationAppliedRef = useRef(false);
   useEffect(() => {
     dictationInputSnapshotRef.current = input;
   }, [input]);
@@ -667,6 +670,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     if (next.input === input && next.segLen === dictation.segLen) return;
     dictation.segLen = next.segLen;
     dictationExpectedSegRef.current = voiceStt.liveCaption;
+    dictationAppliedRef.current = true;
     setInput(next.input);
   }, [input, voiceStt.liveCaption]);
 
@@ -679,13 +683,17 @@ export const VibeCodingSessionScreen: React.FC = () => {
     if (!dictation.active) return;
     if (voiceStt.status !== 'error') return;
     dictationRef.current = { ...IDLE_DICTATION };
+    const applied = dictationAppliedRef.current;
+    dictationAppliedRef.current = false;
     const prev = dictationInputSnapshotRef.current;
     const contextIntact =
       prev.length >= dictation.cursor &&
       prev.slice(dictation.cursor, dictation.cursor + dictation.segLen) ===
         dictationExpectedSegRef.current;
     dictationExpectedSegRef.current = '';
-    if (contextIntact) {
+    // 零应用的失败：input 仍是用户未触碰的原文（含选区），revert 只会删
+    // 内容——只复位状态 + 报错，不动 input。
+    if (contextIntact && applied) {
       setInput(p => revertDictation(dictation, p));
     }
     armDictationErrorNotice(
@@ -699,6 +707,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     () => () => {
       if (dictationNoticeTimerRef.current) clearTimeout(dictationNoticeTimerRef.current);
       dictationRef.current = { ...IDLE_DICTATION };
+      dictationAppliedRef.current = false;
     },
     [],
   );
@@ -2219,8 +2228,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // 窗口，期间 goalDraft/发送会整体替换 input，往新文本上拼旧锚点会出幽灵文本。
   const handleDictationComplete = useCallback(
     (text: string) => {
+      // 迟到的 stt.completed（上一段已失败/已复位）：active 门拦住，不得拼接
+      // （正常定稿 finishWith 在任何复位之前同步回调 onComplete，恒 active）。
+      if (!dictationRef.current.active) return;
       const dictation = dictationRef.current;
       dictationRef.current = { ...IDLE_DICTATION };
+      const applied = dictationAppliedRef.current;
+      dictationAppliedRef.current = false;
       const prev = dictationInputSnapshotRef.current;
       const contextIntact =
         prev.length >= dictation.cursor &&
@@ -2233,7 +2247,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
         return;
       }
       if (!text.trim()) {
-        setInput(p => revertDictation(dictation, p));
+        // 零应用失败不得 revert（在途段=未触碰的选区原文，revert 会删内容）；
+        // 只有真正 live 应用过的段才需要撤掉。
+        if (applied) {
+          setInput(p => revertDictation(dictation, p));
+        }
         armDictationErrorNotice(t('common:voice.noSpeechDetected'));
         return;
       }
@@ -2269,6 +2287,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
       anchor.cursor,
       anchor.cursor + anchor.segLen,
     );
+    dictationAppliedRef.current = false;
     if (dictationNoticeTimerRef.current) {
       clearTimeout(dictationNoticeTimerRef.current);
       dictationNoticeTimerRef.current = null;
@@ -2282,16 +2301,21 @@ export const VibeCodingSessionScreen: React.FC = () => {
       })
       .then(started => {
         if (!started) {
-          // start 被拒（如上一段录音仍在 stopping）：撤销锚点，还原提示。
+          // start 被拒：现实只剩 hook 的 token 缺失路径（status 已 error 且
+          // error watch 够不到——本微task先复位了会话 ref）。不得静默：清掉
+          // live 提示并响错误（异常必须有状态返回，与语音路径同口径）。
           dictationRef.current = { ...IDLE_DICTATION };
           dictationExpectedSegRef.current = '';
+          dictationAppliedRef.current = false;
           setDictationNotice(null);
+          armDictationErrorNotice(t('common:voice.recognizeFailed'));
         }
       })
       .catch(() => {
         // start() 异常兜底：复位会话与提示，不留死麦克风（异常必须有状态返回）。
         dictationRef.current = { ...IDLE_DICTATION };
         dictationExpectedSegRef.current = '';
+        dictationAppliedRef.current = false;
         armDictationErrorNotice(t('common:voice.recognizeFailed'));
       });
   }, [input, voiceStt, session, project, deviceOffline, shouldDisableComposerForProvider, composerReadOnlyReason, t, handleDictationComplete, armDictationErrorNotice]);
