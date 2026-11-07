@@ -1,8 +1,13 @@
 name: Release APK
 
 # Push a tag on main (e.g. `git tag v1.0.1 && git push github v1.0.1`) to build
-# an installable Android APK. It is attached to a GitHub Release for the tag
-# and also uploaded as a workflow artifact.
+# an installable Android APK. Release assets: the raw APK + (release-signed
+# builds only) the download-center zip bundle (aliang-android-<tag>.zip /
+# aliang-android-latest.zip, inner file neutral-named app-arm64.bin — COS 拦
+# .apk 直链，官网走 zip + 网页内解压) + SHA256SUMS. Everything is attached to
+# the GitHub Release for the tag; the cos-phone-release-sync relay in the
+# cluster mirrors release assets to 腾讯云 COS every 5 minutes. The APK is
+# also uploaded as a workflow artifact.
 on:
   push:
     tags: ['v*']
@@ -87,6 +92,36 @@ jobs:
           cp android/app/build/outputs/apk/release/app-release.apk "$NAME"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
+      # 下载中心 zip 包：内部文件名刻意中性化（app-arm64.bin）——COS 的 APK
+      # 拦截按扩展名/Content-Type 工作，zip 内容不经解压不会被嗅探；用户侧
+      # 由官网 /download 页 fetch→解压→Blob 指定 .apk 文件名，zip 内部叫什么
+      # 不影响落盘名。仅正式签名出 zip（debug 签名绝不能进分发渠道）；固定
+      # 名 aliang-android-latest.zip 让官网条目的 URL 一次填写、永不随版本变。
+      # SHA256SUMS 无论签名模式都生成——cos-phone-release-sync 中继以它为
+      # 资产清单（缺失会让定时搬运每 5 分钟报一次错）。
+      - name: Package download-center bundle (zip + SHA256SUMS)
+        id: bundle
+        env:
+          APK_NAME: ${{ steps.apk.outputs.name }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          mkdir zip-stage
+          cp "android/app/build/outputs/apk/release/app-release.apk" zip-stage/app-arm64.bin
+          if [ "${{ steps.signing.outputs.mode }}" = "release" ]; then
+            (cd zip-stage \
+              && zip -q "../aliang-android-${TAG}.zip" app-arm64.bin \
+              && zip -q "../aliang-android-latest.zip" app-arm64.bin)
+            echo "zip_tagged=aliang-android-${TAG}.zip" >> "$GITHUB_OUTPUT"
+            echo "zip_latest=aliang-android-latest.zip" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::debug-signed build — download-center zip bundle skipped (debug signatures must not reach the download center)"
+          fi
+          sha256sum "$APK_NAME" > SHA256SUMS
+          if [ -f "aliang-android-${TAG}.zip" ]; then
+            sha256sum "aliang-android-${TAG}.zip" "aliang-android-latest.zip" >> SHA256SUMS
+          fi
+          cat SHA256SUMS
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
         with:
@@ -94,7 +129,7 @@ jobs:
           path: ${{ steps.apk.outputs.name }}
           if-no-files-found: error
 
-      - name: Attach APK to the GitHub Release
+      - name: Attach assets to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -102,5 +137,11 @@ jobs:
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
               --title "$GITHUB_REF_NAME" --generate-notes
           fi
-          gh release upload "$GITHUB_REF_NAME" "${{ steps.apk.outputs.name }}" \
+          # zip 产物仅在正式签名模式存在（bundle 步骤被跳过时 outputs 为空），
+          # 按条件拼装上传清单，避免空参数打断 gh release upload。
+          FILES=("${{ steps.apk.outputs.name }}" SHA256SUMS)
+          if [ -n "${{ steps.bundle.outputs.zip_tagged }}" ]; then
+            FILES+=("${{ steps.bundle.outputs.zip_tagged }}" "${{ steps.bundle.outputs.zip_latest }}")
+          fi
+          gh release upload "$GITHUB_REF_NAME" "${FILES[@]}" \
             --repo "$GITHUB_REPOSITORY" --clobber
