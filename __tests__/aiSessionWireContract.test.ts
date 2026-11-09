@@ -20,9 +20,12 @@
  *
  * Server fields referenced (publicAiSession + the detail route's `detail_refresh`):
  *   status, run_state, run_state_version, phase, detail_refresh.status,
- *   transcript_count, transcript[], purpose, source_session_id.
+ *   transcript_count, transcript[], purpose, source_session_id, approval_mode.
  */
-import { serverAiSessionToVibeRun } from '../src/store/internals';
+import {
+  mergeVibeRunSnapshot,
+  serverAiSessionToVibeRun,
+} from '../src/store/internals';
 import { resolveDetailState, isAuthoritativeDetail } from '../src/store/sessionDetail';
 import type { ServerAiSession } from '../src/api/sessions';
 import * as fs from 'fs';
@@ -211,6 +214,94 @@ describe('wire contract — 会话发起来源 origin(手机 vs 电脑 TUI)', ()
   });
 });
 
+describe('wire contract — approval_mode(内核审批挡位,手机端只读展示)', () => {
+  // 概念区分(勿混淆):approval_mode 是内核审批挡位('' | 'ask_all' |
+  // 'bypass_all',由 PhoneServer publicAiSession 恒带键下发),≠ approvalScheme
+  // (allow_all/ask_all/read_only 会话权限策略,i18n 也分开)。客户端模型三态
+  // 保留(2026-11-09 评审修正):'' 是合法显式值(桌面端切回默认),必须与缺键
+  // (老 server → undefined = 未知)区分,否则合并守卫会把重置永远洗掉。
+  it('bypass_all 透传(桌面端切到放过所有 → 手机只读展示同值)', () => {
+    const run = serverAiSessionToVibeRun(
+      wire({ approval_mode: 'bypass_all' }),
+      [],
+      [],
+    );
+    expect(run.approvalMode).toBe('bypass_all');
+  });
+
+  it('缺键(老 server)→ undefined(未知,展示按默认推荐)', () => {
+    const run = serverAiSessionToVibeRun(
+      wire({ approval_mode: undefined }),
+      [],
+      [],
+    );
+    expect(run.approvalMode).toBeUndefined();
+  });
+
+  it("空串三态保留('' = 显式默认推荐,不得坍缩 undefined——否则重置传不到手机)", () => {
+    const run = serverAiSessionToVibeRun(wire({ approval_mode: '' }), [], []);
+    expect(run.approvalMode).toBe('');
+  });
+
+  it('非法值 → undefined(未知;脏 wire 数据防御,运行时注入绕开类型)', () => {
+    const dirty = wire({});
+    (dirty as { approval_mode?: string }).approval_mode = 'yolo';
+    const run = serverAiSessionToVibeRun(dirty, [], []);
+    expect(run.approvalMode).toBeUndefined();
+  });
+});
+
+describe('wire contract — approvalMode 合并守卫(部分快照缺键不得洗掉详情值)', () => {
+  // 照 executor 先例:列表/重命名等部分快照不带 approval_mode,裸 spread 会把
+  // 详情快照刚拿到的挡位洗掉,设置页闪变。守卫 = incoming 缺键(undefined)
+  // 保留 existing;显式值含 '' 照常覆盖(?? 只放过 undefined/空值链,
+  // '' 是合法显式值必须传播——桌面端切回默认靠它落到手机)。
+  it("existing='bypass_all' + incoming 缺键 → 保留", () => {
+    const existing = serverAiSessionToVibeRun(
+      wire({ approval_mode: 'bypass_all' }),
+      [],
+      [],
+    );
+    const incoming = serverAiSessionToVibeRun(
+      wire({ approval_mode: undefined }),
+      [],
+      [],
+    );
+    const merged = mergeVibeRunSnapshot(existing, incoming);
+    expect(merged.approvalMode).toBe('bypass_all');
+  });
+
+  it("incoming='ask_all' → 覆盖(桌面端真实切换照常生效)", () => {
+    const existing = serverAiSessionToVibeRun(
+      wire({ approval_mode: 'bypass_all' }),
+      [],
+      [],
+    );
+    const incoming = serverAiSessionToVibeRun(
+      wire({ approval_mode: 'ask_all' }),
+      [],
+      [],
+    );
+    const merged = mergeVibeRunSnapshot(existing, incoming);
+    expect(merged.approvalMode).toBe('ask_all');
+  });
+
+  it("incoming='' → 覆盖回默认推荐(桌面端切回默认必须传播,不得困在旧挡位)", () => {
+    const existing = serverAiSessionToVibeRun(
+      wire({ approval_mode: 'bypass_all' }),
+      [],
+      [],
+    );
+    const incoming = serverAiSessionToVibeRun(
+      wire({ approval_mode: '' }),
+      [],
+      [],
+    );
+    const merged = mergeVibeRunSnapshot(existing, incoming);
+    expect(merged.approvalMode).toBe('');
+  });
+});
+
 // --- 真正的跨端 golden contract: 读服务端 publicAiSession 的实际输出 ---
 
 const GOLDEN_PATH = path.resolve(
@@ -250,6 +341,11 @@ describe('跨端 golden contract (服务端真实 publicAiSession 输出)', () =
       }
       // transcript_count 透传(空历史升级信号)
       expect(run.transcriptCount).toBe(golden.transcript_count);
+      // approval_mode 透传(审批挡位跨端展示):golden 是服务端 publicAiSession
+      // 的真实输出,此处断言三态原样穿过映射,空串不得被折叠成 undefined
+      if (golden.approval_mode !== undefined) {
+        expect(run.approvalMode).toBe(golden.approval_mode);
+      }
       // 有内容 → detailState ready
       if ((golden.transcript_count ?? 0) > 0) {
         expect(run.detailState).toEqual({ kind: 'ready' });
