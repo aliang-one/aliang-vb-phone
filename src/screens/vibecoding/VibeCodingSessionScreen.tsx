@@ -3090,12 +3090,17 @@ export const VibeCodingSessionScreen: React.FC = () => {
     providerCatalog,
   );
   const effective = session.effectiveModelConfig;
+  // 内核审批挡位(approval_mode;undefined 含空串归一 → 默认推荐文案)。手机端
+  // 只读展示,⚠️ ≠ approvalScheme(allow_all/ask_all/read_only 会话权限策略)。
+  const approvalModeLabel =
+    session.approvalMode || t('sessionSettings.approvalDefault');
   const effectiveLabel = effective
     ? [
         `model=${effective.model || t('session.composer.userDefault')}`,
         effective.source?.model ? `(${effective.source.model})` : '',
         `· effort=${effective.effort || t('session.composer.userDefault')}`,
         effective.source?.effort ? `(${effective.source.effort})` : '',
+        `· approval=${approvalModeLabel}`,
         `· ctx=${formatContextWindow(effective.contextWindow)}`,
         effective.source?.context ? `(${effective.source.context})` : '',
       ]
@@ -3107,6 +3112,8 @@ export const VibeCodingSessionScreen: React.FC = () => {
     ? [
         `model=${activeExecution.model || t('session.composer.userDefault')}`,
         `· effort=${activeExecution.effort || t('session.composer.userDefault')}`,
+        // 审批挡位是会话级设置(profile 不携带),随会话当前值展示。
+        `· approval=${approvalModeLabel}`,
         // 老 server 的 profile 不带窗口 → 不写 200k 假装知道（那一轮实际
         // 用的值我们核对不了）。
         activeExecution.contextWindow

@@ -807,6 +807,17 @@ export function serverAiSessionToVibeRun(
     objective: session.objective ?? '',
     model,
     effort: session.effort || undefined,
+    // 内核审批挡位:三态保留(2026-11-09 评审修正)。'' 是合法显式值(桌面端
+    // 切回默认推荐),不能 || undefined 坍缩——否则与 mergeVibeRunSnapshot 的
+    // 「缺键保存量」守卫咬合,桌面重置永远传不到手机(陈旧挡位显示到冷启动)。
+    // 缺键(老 server)/非法值 → undefined = 未知,交守卫保存量。
+    // ⚠️ ≠ approvalScheme(会话权限策略)——两套值域勿混淆。
+    approvalMode:
+      session.approval_mode === '' ||
+      session.approval_mode === 'ask_all' ||
+      session.approval_mode === 'bypass_all'
+        ? session.approval_mode
+        : undefined,
     // 会话级上下文窗口：老 server 不发 → undefined（= 未设置，UI 显示用户
     // 默认值），绝不用 effective 值伪造会话值（两者来源不同）。
     contextWindow: session.context_window ?? undefined,
@@ -921,8 +932,8 @@ const shallowEqualMessage = (
   const keysA = Object.keys(a);
   const keysB = Object.keys(b);
   if (keysA.length !== keysB.length) return false;
-  const recordA = a as Record<string, unknown>;
-  const recordB = b as Record<string, unknown>;
+  const recordA = a as unknown as Record<string, unknown>;
+  const recordB = b as unknown as Record<string, unknown>;
   return keysA.every(key => recordA[key] === recordB[key]);
 };
 
@@ -1245,6 +1256,11 @@ export function mergeVibeRunSnapshot(
     // 否则一次列表快照就能把「这是 TUI 运行」抹掉，composer 又会误开插话。
     // 新 server 每次运行开始都会显式下发 'tui'|'spawn'，切换执行器时照常覆盖。
     executor: incoming.executor ?? existing.executor,
+    // 同 executor 先例:内核审批挡位缺键(老 server/未知)时保留已知值——否则
+    // 一次列表快照就把设置页的挡位洗掉。注意 ?? 只放过 undefined:'' 是合法
+    // 显式值(桌面切回默认),照常覆盖传播,不会被困在旧挡位(2026-11-09 评审
+    // 修正的另一半——归一化层已保证 '' 三态保留,见 serverAiSessionToVibeRun)。
+    approvalMode: incoming.approvalMode ?? existing.approvalMode,
     optimisticRunPending:
       existing.optimisticRunPending &&
       (rejectIncomingState || !incomingHasVersionAuthority),

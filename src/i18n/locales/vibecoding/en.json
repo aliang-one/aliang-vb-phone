@@ -148,7 +148,12 @@
     "saveButton": "Save settings",
     "saveFailed": "Save failed, please retry.",
     "userDefault": "user default",
-    "defaultChip": "Default"
+    "defaultChip": "Default",
+    "approvalSection": "3. APPROVAL MODE",
+    "approvalDefault": "Recommended",
+    "approvalAskAll": "Ask every time",
+    "approvalBypassAll": "Allow all",
+    "approvalReadOnlyHint": "The approval mode is switched from the desktop composer's permission-mode panel; read-only here."
   },
   "agentSessions": {
     "messagesCount": "{{count}} messages",

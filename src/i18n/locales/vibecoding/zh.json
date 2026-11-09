@@ -148,7 +148,12 @@
     "saveButton": "保存设置",
     "saveFailed": "保存失败,请重试。",
     "userDefault": "用户默认",
-    "defaultChip": "默认"
+    "defaultChip": "默认",
+    "approvalSection": "3. 审批挡位 APPROVAL",
+    "approvalDefault": "默认推荐",
+    "approvalAskAll": "每次询问",
+    "approvalBypassAll": "放过所有",
+    "approvalReadOnlyHint": "审批挡位在桌面端聊天输入框的「权限模式」面板切换，手机端只读展示。"
   },
   "agentSessions": {
     "messagesCount": "{{count}} 条消息",

@@ -73,6 +73,19 @@ export const SessionSettingsScreen: React.FC = () => {
   // fallback before it loads.
   const { providerCatalog } = useModelOptions();
   const effortOptions = catalogEffortOptions(provider, providerCatalog);
+  // 内核审批挡位(approval_mode,undefined=默认推荐)——手机端**只读展示**,
+  // 不提供任何编辑入口。⚠️ ≠ approvalScheme(allow_all/ask_all/read_only 会话
+  // 权限策略,创建页可编辑的那套)——值域不同,文案走 sessionSettings.approval*
+  // 专用键,绝不复用 create.permissions.approval.*。
+  const approvalChips = useMemo(
+    () => [
+      { label: t('sessionSettings.approvalDefault'), value: '' },
+      { label: t('sessionSettings.approvalAskAll'), value: 'ask_all' },
+      { label: t('sessionSettings.approvalBypassAll'), value: 'bypass_all' },
+    ],
+    [t],
+  );
+  const approvalModeLabel = session?.approvalMode || t('sessionSettings.approvalDefault');
   // Provider-aware model chips (codex: gpt-5.4/5.5, claude_code: glm-5.1/5.2),
   // led by "默认" (clear → inherit).
   const serverModelOptions = useMemo(
@@ -96,6 +109,9 @@ export const SessionSettingsScreen: React.FC = () => {
         effective.source?.model ? `(${effective.source.model})` : '',
         `· effort=${effective.effort || userDefaultLabel}`,
         effective.source?.effort ? `(${effective.source.effort})` : '',
+        // 内核审批挡位(approval_mode,与 approvalScheme 权限策略无关):
+        // undefined(含空串归一)→ 默认推荐文案。
+        `· approval=${approvalModeLabel}`,
       ]
         .filter(Boolean)
         .join(' ')
@@ -312,6 +328,63 @@ export const SessionSettingsScreen: React.FC = () => {
             provider: providerLabel(provider),
             levels: effortOptions.filter(o => o.value).map(o => o.value).join('/'),
           })}
+        </Text>
+
+        {/* 内核审批挡位(approval_mode)只读区块:样式照 effort 区块,但用 View
+            替代 TouchableOpacity——不可点,无任何编辑入口。桌面端在会话权限里
+            切换,手机端只展示当前值(undefined=默认推荐)。注意这是内核挡位,
+            ≠ approvalScheme 会话权限策略。 */}
+        <Text
+          style={[
+            theme.typography.labelCaps,
+            { color: theme.colors.onSurfaceVariant },
+            styles.sectionTitle,
+          ]}>
+          {t('sessionSettings.approvalSection')}
+        </Text>
+        <View style={styles.chipRow}>
+          {approvalChips.map(option => {
+            const active = (session.approvalMode ?? '') === option.value;
+            return (
+              <View
+                key={option.value || 'default'}
+                testID={`approval-chip-${option.value || 'default'}`}
+                style={[
+                  styles.chip,
+                  {
+                    borderRadius: theme.borderRadius.full,
+                    borderColor: active
+                      ? theme.colors.primary
+                      : theme.colors.outlineVariant,
+                    backgroundColor: active
+                      ? isDark
+                        ? 'rgba(86, 156, 214, 0.12)'
+                        : 'rgba(0, 81, 174, 0.08)'
+                      : 'transparent',
+                  },
+                ]}>
+                <Text
+                  style={[
+                    theme.typography.labelSm,
+                    {
+                      color: active
+                        ? theme.colors.primary
+                        : theme.colors.onSurfaceVariant,
+                    },
+                  ]}>
+                  {option.label}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+        <Text
+          style={[
+            theme.typography.bodySm,
+            { color: theme.colors.onSurfaceVariant },
+            styles.hint,
+          ]}>
+          {t('sessionSettings.approvalReadOnlyHint')}
         </Text>
 
         {effectiveLabel ? (

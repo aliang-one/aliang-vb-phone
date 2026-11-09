@@ -201,6 +201,14 @@ export interface ServerAiSession {
    * suffix. Empty/omit = no effort override (CLI/gateway default).
    */
   effort?: string;
+  /**
+   * 内核审批挡位(与 effort 同风格 snake_case,键名与 PhoneServer
+   * publicAiSession 出站逐字对齐)。'' | 'ask_all' | 'bypass_all',服务端恒带键
+   * (空串 = 默认推荐)。**手机端只读展示**,不新增任何编辑入口。
+   * ⚠️ ≠ approvalScheme(allow_all/ask_all/read_only 会话权限策略,创建链路
+   * 出站字段)——两套值域、两层语义,勿混用文案。
+   */
+  approval_mode?: '' | 'ask_all' | 'bypass_all';
   model_config_version?: number;
   /**
    * 会话级上下文窗口（tokens）。缺省 = 未设置，服务端逐层回落（会话 →
