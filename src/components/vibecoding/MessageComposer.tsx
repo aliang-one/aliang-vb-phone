@@ -83,7 +83,6 @@ export interface MessageComposerProps {
   goalDraft?: boolean;
   /** Created Goal session. Messages are queued by the server even while Provider work is running. */
   goalSession?: boolean;
-  showGoalHint?: boolean;
   onTextInputFocus?: () => void;
   /** Toggles start/stop of voice capture. */
   onVoiceCapture: () => void;
@@ -343,7 +342,6 @@ const MessageComposerBase = (
     attachmentCount = 0,
     goalDraft = false,
     goalSession = false,
-    showGoalHint = false,
     onTextInputFocus,
     onVoiceCapture,
     onVoiceCaptureStart,
@@ -673,7 +671,7 @@ const MessageComposerBase = (
           editable={!sendingMessage}
           placeholder={goalDraft
             ? '描述这个 Goal…'
-            : t(showGoalHint ? 'composer.sendPlaceholderWithGoal' : 'composer.sendPlaceholder')}
+            : t('composer.sendPlaceholder')}
           placeholderTextColor={theme.colors.onSurfaceVariant}
           multiline
           style={[

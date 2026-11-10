@@ -362,7 +362,6 @@
     "stopGenerate": "停止生成",
     "send": "发送",
     "sendPlaceholder": "Send a direction...",
-    "sendPlaceholderWithGoal": "发送消息，或输入 /goal 创建目标",
     "goal": "Goal",
     "voiceError": "语音输入出错，点击重试",
     "tapToSpeak": "点按开始说话",

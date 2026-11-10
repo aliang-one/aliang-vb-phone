@@ -4404,7 +4404,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
             }
             goalDraft={goalDraftActive}
             goalSession={session?.purpose === 'goal'}
-            showGoalHint={session?.purpose !== 'goal'}
             onTextInputFocus={handleComposerTextInputFocus}
             onVoiceCapture={handleVoiceCapture}
             onVoiceCaptureStart={handleVoiceCaptureStart}

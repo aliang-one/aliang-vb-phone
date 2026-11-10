@@ -48,7 +48,6 @@ const baseProps = {
   onToggleTools: jest.fn(),
   goalDraft: false,
   goalSession: false,
-  showGoalHint: true,
   onTextInputFocus: jest.fn(),
   onVoiceCapture: jest.fn(),
   onSendVoice: jest.fn(),

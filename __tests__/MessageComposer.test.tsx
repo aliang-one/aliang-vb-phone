@@ -284,13 +284,6 @@ describe('MessageComposer', () => {
     expect(onInterruptTurn).toHaveBeenCalled();
   });
 
-  it('surfaces the /goal hint in the ordinary text composer', () => {
-    const root = wrap(
-      <MessageComposer {...defaultProps({ showGoalHint: true })} />,
-    );
-    expect(root.root.findByType(TextInput).props.placeholder).toContain('/goal');
-  });
-
   it('replaces send with interrupt while a turn is running', () => {
     const onInterruptTurn = jest.fn();
     const root = wrap(

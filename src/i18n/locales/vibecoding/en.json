@@ -362,7 +362,6 @@
     "stopGenerate": "Stop generating",
     "send": "Send",
     "sendPlaceholder": "Send a direction...",
-    "sendPlaceholderWithGoal": "Send a message, or type /goal to create a goal",
     "goal": "Goal",
     "voiceError": "Voice input failed, tap to retry",
     "tapToSpeak": "Tap to start speaking",
