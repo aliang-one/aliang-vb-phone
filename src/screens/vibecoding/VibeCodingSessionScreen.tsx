@@ -149,6 +149,7 @@ import {
   acquireDraftRequestId,
   confirmDraftRequestId,
 } from './draftRequestRegistry';
+import { buildTurnRetryPayload } from './turnRetry';
 import { useUiNoticeStore } from '../../store/uiNoticeStore';
 import { useSessionDetailLoader } from './useSessionDetailLoader';
 import { useSessionCatchUp } from './useSessionCatchUp';
@@ -1910,9 +1911,17 @@ export const VibeCodingSessionScreen: React.FC = () => {
       const agentMsg = sourceId
         ? session.transcript.find(message => message.id === sourceId)
         : undefined;
-      const content = agentMsg?.content?.trim();
-      if (!content) return;
-      void appendAgentMessage(session.id, content, 'text').catch(error => {
+      // 载荷走 buildTurnRetryPayload:附件必须随行(2026-11-10 vm129 事故——
+      // 带图消息回合失败,重试只带文字,agent 如实回答「没收到图片」)。
+      // 失败气泡重试(retryFailedMessage 带 failed.attachments)是同口径先例。
+      const payload = buildTurnRetryPayload(agentMsg);
+      if (!payload) return;
+      void appendAgentMessage(
+        session.id,
+        payload.content,
+        'text',
+        payload.attachments,
+      ).catch(error => {
         // 「会话忙」类拒绝（store 硬闸 / 服务端 409）：与文本发送路径同口径
         // 弹横幅——重试点上去不该是无声无息（G10b，2026-10-24）。其余失败维持
         // 既有 failed 气泡，不额外打扰。
