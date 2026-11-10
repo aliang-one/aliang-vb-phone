@@ -479,10 +479,18 @@ export interface StructuredEventDetailResponse {
  * the first known text-bearing field for display; null/missing → undefined so
  * the UI can show a neutral placeholder.
  */
+/** 子 agent 合成事件的重字段轨迹行（journal kind=tool 行透传）。 */
+export type SubagentDetailTools = Array<{
+  tool: string;
+  summary?: string;
+  is_error?: boolean;
+  ts?: string;
+}>;
+
 export async function fetchStructuredEventDetail(
   sessionId: string,
   eventId: string,
-): Promise<{ text?: string; truncated: boolean }> {
+): Promise<{ text?: string; truncated: boolean; tools?: SubagentDetailTools }> {
   const r = await apiGet<StructuredEventDetailResponse>(
     `/api/ai/sessions/${sessionId}/structured-events/${eventId}`,
   );
@@ -495,7 +503,17 @@ export async function fetchStructuredEventDetail(
         : typeof d.text === 'string'
           ? d.text
           : undefined;
-  return { text, truncated: Boolean(r.truncated) };
+  // 子 agent 合成事件（event_id=synth:<task_id>）的 detail.tools 是工具轨迹
+  // 数组（journal kind=tool 行）；其他事件类型无此键，透传 undefined。
+  const tools = Array.isArray(d.tools)
+    ? (d.tools.filter(
+        (row): row is SubagentDetailTools[number] =>
+          Boolean(row) &&
+          typeof row === 'object' &&
+          typeof (row as Record<string, unknown>).tool === 'string',
+      ) as SubagentDetailTools)
+    : undefined;
+  return { text, truncated: Boolean(r.truncated), tools };
 }
 
 export const createAiSession = (input: {

@@ -237,7 +237,12 @@
     "badgeCreate": "+ New",
     "badgeDelete": "− Delete",
     "badgeRename": "⇄ Rename",
-    "badgeEdit": "✎ Edit"
+    "badgeEdit": "✎ Edit",
+    "subagentTokens": "{{count}} tokens",
+    "subagentToolsLabel": "TOOL TRAIL",
+    "subagentResultLabel": "RESULT",
+    "subagentDetailUnavailable": "Failed to load detail, please retry",
+    "subagentNoResult": "This subagent left no result report"
   },
   "deviceControl": {
     "newName": "New name",

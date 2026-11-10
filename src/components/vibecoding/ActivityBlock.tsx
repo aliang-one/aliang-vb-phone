@@ -3,6 +3,7 @@ import {
   View,
   Text,
   TouchableOpacity,
+  Pressable,
   ActivityIndicator,
   StyleSheet,
 } from 'react-native';
@@ -13,6 +14,7 @@ import { GlassPanel } from '../shared/GlassPanel';
 import { CodeHighlight } from '../shared/CodeHighlight';
 import { summarizeActivity } from '../../utils/activitySummary';
 import { fetchStructuredEventDetail } from '../../api/sessions';
+import { SubagentDrawer } from './SubagentDrawer';
 import type { StructuredActivityEvent } from '../../data/platformModels';
 import { THINKING_RENDER_BUCKET_CHARS } from '../../utils/activityRenderMemo';
 
@@ -275,7 +277,7 @@ const ToolActivityBlock: React.FC<ActivityBlockProps> = ({
               </View>
             ) : null}
 
-            {subagents.length > 0 ? <SubagentRows events={subagents} /> : null}
+            {subagents.length > 0 ? <SubagentRows events={subagents} sessionId={sessionId} /> : null}
             {task ? <TaskList event={task} /> : null}
           </View>
         ) : null}
@@ -775,7 +777,16 @@ const taskMark = (status: string): string => {
 
 const SubagentRows: React.FC<{
   events: Extract<StructuredActivityEvent, { kind: 'subagent' }> [];
-}> = ({ events }) => {
+  sessionId: string;
+}> = ({ events, sessionId }) => {
+  // 行点击 → 右侧抽屉（子 agent 对话简洁查看，对齐 aliangcode 网页面板）。
+  // 抽屉状态内聚在本组件：Modal 全屏覆盖与父层布局无关；选中态存 task_id，
+  // event 由 events 按 taskId 找回（详情拉取需要的字段都在事件上）。
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const openEvent = events.find(e => e.taskId === openTaskId) ?? null;
+  const drawerEvent = openEvent
+    ? { ...openEvent, sessionId }
+    : null;
   const { theme } = useTheme();
   const { t } = useTranslation('vibecoding');
   const phaseLabel = (phase: Extract<StructuredActivityEvent, { kind: 'subagent' }>['phase']) =>
@@ -799,7 +810,13 @@ const SubagentRows: React.FC<{
         const mark = running ? '' : event.phase === 'completed' ? '✓ ' : event.phase === 'failed' ? '✗ ' : '⊘ ';
         const nameColor = event.phase === 'failed' ? theme.colors.error : theme.colors.onSurface;
         return (
-          <View key={event.eventId} style={styles.taskRow}>
+          <Pressable
+            key={event.eventId}
+            style={styles.taskRow}
+            onPress={() => setOpenTaskId(event.taskId)}
+            accessibilityRole="button"
+            accessibilityLabel={`${event.description ?? event.subagentType ?? event.taskId} ${phaseLabel(event.phase)}`}
+          >
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               {running ? <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginRight: 6 }} /> : null}
               <Text style={[theme.typography.codeSm, { color: nameColor }]} numberOfLines={1}>
@@ -807,12 +824,19 @@ const SubagentRows: React.FC<{
                 {event.description ?? event.subagentType ?? event.taskId}
                 {running ? ` · ${phaseLabel(event.phase)}` : ''}
               </Text>
+              {/* 可点开的可见暗示（chevron）：对齐 aliangcode 网页面板的入口语言 */}
+              <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant, marginLeft: 'auto' }]}>›</Text>
             </View>
             {detail ? <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }, styles.taskSub]} numberOfLines={1}>{detail}</Text> : null}
             {event.summary ? <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant }, styles.taskSub]} numberOfLines={2}>{event.summary}</Text> : null}
-          </View>
+          </Pressable>
         );
       })}
+      <SubagentDrawer
+        open={drawerEvent !== null}
+        event={drawerEvent}
+        onClose={() => setOpenTaskId(null)}
+      />
     </View>
   );
 };

@@ -237,7 +237,12 @@
     "badgeCreate": "+ 新建",
     "badgeDelete": "− 删除",
     "badgeRename": "⇄ 重命名",
-    "badgeEdit": "✎ 编辑"
+    "badgeEdit": "✎ 编辑",
+    "subagentTokens": "{{count}} tokens",
+    "subagentToolsLabel": "工具轨迹 TOOL TRAIL",
+    "subagentResultLabel": "结果报告 RESULT",
+    "subagentDetailUnavailable": "详情拉取失败，请重试",
+    "subagentNoResult": "该子 agent 未留下结果报告"
   },
   "deviceControl": {
     "newName": "新名称",
