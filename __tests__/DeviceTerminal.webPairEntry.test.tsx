@@ -137,7 +137,7 @@ const seedStore = () => {
 // jest 锁 zh(jest.setup)。可见标签用短 key(34px 固定宽插槽放不下全句,
 // 会被压成多行);读屏 accessibilityLabel 用完整句 scanEntryLabel。
 const SCAN_ENTRY_SHORT = '扫码';
-const SCAN_ENTRY_LABEL = '扫码投屏';
+const SCAN_ENTRY_LABEL = '扫码接力终端到网页';
 
 describe('DeviceTerminalScreen 快捷键栏网页扫码入口', () => {
   let screen: ReactTestRenderer.ReactTestRenderer | null;

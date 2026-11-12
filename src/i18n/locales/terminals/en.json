@@ -24,8 +24,8 @@
   "menu": {
     "title": "Terminal actions",
     "delete": "Delete terminal",
-    "scan": "Scan to pair",
-    "scanHint": "Scan the terminal.aliang.one QR code",
+    "scan": "Resume on web",
+    "scanHint": "Scan to resume this terminal session on the web",
     "info": "Terminal info"
   },
   "lifetime": {

@@ -24,8 +24,8 @@
   "menu": {
     "title": "终端操作",
     "delete": "删除终端",
-    "scan": "扫码配对",
-    "scanHint": "扫 terminal.aliang.one 页面二维码",
+    "scan": "扫码接力",
+    "scanHint": "扫码在网页上接力此终端会话",
     "info": "终端简介"
   },
   "lifetime": {

@@ -377,10 +377,13 @@ describe('DeviceCameraScannerScreen terminalWebPair 模式', () => {
 
     // 顶栏不再借用扫码登录的文案。
     expect(hasText(screen.root, '扫码登录')).toBe(false);
-    expect(hasText(screen.root, '扫码连接终端')).toBe(true);
-    expect(hasText(screen.root, '扫描 terminal.aliang.one 页面上的二维码')).toBe(
-      true,
-    );
+    expect(hasText(screen.root, '扫码接力终端会话')).toBe(true);
+    expect(
+      hasText(
+        screen.root,
+        '扫描 terminal.aliang.one 页面上的二维码,在电脑上接力当前终端会话',
+      ),
+    ).toBe(true);
     // 指引卡:打开域名 + 授权后会发生什么。
     expect(hasText(screen.root, '在电脑浏览器打开')).toBe(true);
     expect(hasText(screen.root, 'terminal.aliang.one')).toBe(true);

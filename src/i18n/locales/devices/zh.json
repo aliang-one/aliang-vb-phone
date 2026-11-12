@@ -42,12 +42,12 @@
     "expired": "二维码已过期,请刷新网页后重试",
     "pageDisconnected": "网页已断开,请刷新后重新扫码",
     "unrecognized": "二维码无法识别,请扫描网页上的配对码",
-    "scanEntryLabel": "扫码投屏",
+    "scanEntryLabel": "扫码接力终端到网页",
     "scanEntryShort": "扫码",
-    "screenTitle": "扫码连接终端",
-    "screenSubtitle": "扫描 terminal.aliang.one 页面上的二维码",
+    "screenTitle": "扫码接力终端会话",
+    "screenSubtitle": "扫描 terminal.aliang.one 页面上的二维码,在电脑上接力当前终端会话",
     "visitHintTitle": "在电脑浏览器打开",
-    "visitHintBody": "扫码授权后,当前终端会话将同步到网页,可直接在电脑上操作。"
+    "visitHintBody": "扫码授权后,当前终端会话将接力到网页,可直接在电脑上继续操作。"
   },
   "detail": {
     "emptyTerminal": "暂无进行中的终端。点击上方 Terminal 开启一个远程 shell。"

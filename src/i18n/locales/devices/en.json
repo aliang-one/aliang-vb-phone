@@ -42,12 +42,12 @@
     "expired": "QR code expired — refresh the page and scan again",
     "pageDisconnected": "Web page disconnected — refresh and rescan",
     "unrecognized": "Unrecognized QR code — scan the pairing code shown on the web page",
-    "scanEntryLabel": "Scan to open on web",
+    "scanEntryLabel": "Scan to resume terminal on web",
     "scanEntryShort": "Web QR",
-    "screenTitle": "Pair with Web Terminal",
-    "screenSubtitle": "Scan the QR code shown on terminal.aliang.one",
+    "screenTitle": "Resume Terminal on Web",
+    "screenSubtitle": "Scan the QR code on terminal.aliang.one to resume this terminal session on your computer",
     "visitHintTitle": "Open in your computer's browser",
-    "visitHintBody": "After you approve, this terminal session mirrors to the web page so you can use it from your computer."
+    "visitHintBody": "After you approve, this terminal session resumes on the web page so you can continue from your computer."
   },
   "detail": {
     "emptyTerminal": "No active terminals. Tap Terminal above to open a remote shell."

@@ -87,7 +87,7 @@ describe('TerminalCardMenuSheet', () => {
       <TerminalCardMenuSheet {...baseProps(makeTerminal())} />,
     );
     expect(buttonBy(renderer, { text: '删除终端' })).toBeTruthy();
-    expect(buttonBy(renderer, { text: '扫码配对' })).toBeTruthy();
+    expect(buttonBy(renderer, { text: '扫码接力' })).toBeTruthy();
     expect(buttonBy(renderer, { text: '终端简介' })).toBeTruthy();
   });
 
