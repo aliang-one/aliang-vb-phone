@@ -278,6 +278,38 @@ describe('deriveLivePulse (L3 底部脉冲)', () => {
     }], false)).toMatchObject({ hasActive: true, headline: '🤖 子 Agent · Running tests' });
   });
 
+  it('queued subagent 显示排队态并保持 live(并发闸可见化,2026-11-10 审计③)', () => {
+    const queuedEvent = {
+      kind: 'subagent', eventId: 'sub:task-q', serverEventId: 'se-q', messageId: 'm1', itemId: 'task-q', taskId: 'task-q',
+      phase: 'queued' as const, description: 'Waiting for slot',
+    } as Extract<StructuredActivityEvent, { kind: 'subagent' }>;
+    const pulse = deriveLivePulse([queuedEvent], false);
+    expect(pulse?.hasActive).toBe(true);
+    expect(pulse?.headline).toBe('🤖 子 Agent 排队中 · Waiting for slot');
+    // L2 headline 同口径
+    const summary = summarizeActivity([queuedEvent], false);
+    expect(summary?.hasActive).toBe(true);
+    expect(summary?.headline).toBe('🤖 子 Agent 排队中 · Waiting for slot');
+  });
+
+  it('queued + running 并存时仍显示子 agent 行(首个匹配决定排队/运行文案)', () => {
+    const queuedEvent = {
+      kind: 'subagent', eventId: 'sub:task-q', serverEventId: 'se-q', messageId: 'm1', itemId: 'task-q', taskId: 'task-q',
+      phase: 'queued' as const, description: 'Waiting',
+    } as Extract<StructuredActivityEvent, { kind: 'subagent' }>;
+    const running = {
+      kind: 'subagent', eventId: 'sub:task-r', serverEventId: 'se-r', messageId: 'm1', itemId: 'task-r', taskId: 'task-r',
+      phase: 'progress' as const, description: 'Working',
+    } as Extract<StructuredActivityEvent, { kind: 'subagent' }>;
+    // find() 返回第一个活跃匹配:queued 在前显示排队文案,running 在前显示
+    // 运行文案——两者都算活跃,headline 必是子 Agent 行。
+    const pulse = deriveLivePulse([queuedEvent, running], false);
+    expect(pulse?.hasActive).toBe(true);
+    expect(pulse?.headline).toContain('子 Agent');
+    const pulseRunningFirst = deriveLivePulse([running, queuedEvent], false);
+    expect(pulseRunningFirst?.headline).toBe('🤖 子 Agent · Working');
+  });
+
   it('永不返回「已完成/DONE」', () => {
     const cases = [
       deriveLivePulse([cmd({ status: 'completed' })], true),

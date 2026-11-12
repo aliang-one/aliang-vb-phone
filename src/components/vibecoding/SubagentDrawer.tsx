@@ -90,6 +90,7 @@ export const SubagentDrawer: React.FC<SubagentDrawerProps> = ({ open, event, onC
 
   if (!event) return null;
   const running = event.phase === 'started' || event.phase === 'progress';
+  const queued = event.phase === 'queued';
   const seconds = !running && event.durationMs !== undefined
     ? Math.max(0, Math.round(event.durationMs / 1000))
     : undefined;
@@ -99,6 +100,8 @@ export const SubagentDrawer: React.FC<SubagentDrawerProps> = ({ open, event, onC
     : event.phase === 'completed'
       ? theme.colors.primary
       : theme.colors.onSurfaceVariant;
+  // queued 行 = 排队等待：标题旁无 ● 脉冲(没在跑),但仍以文案可见排队态。
+  const showPulse = running && !queued;
   const title = event.description ?? event.subagentType ?? event.taskId;
 
   return (
@@ -123,7 +126,7 @@ export const SubagentDrawer: React.FC<SubagentDrawerProps> = ({ open, event, onC
                 {title}
               </Text>
               <Text style={[theme.typography.labelSm, { color: phaseColor, marginTop: 2 }]}>
-                {running ? `● ${phaseLabel}` : phaseLabel}
+                {showPulse ? `● ${phaseLabel}` : phaseLabel}
                 {seconds !== undefined ? ` · ${t('activity.subagentDuration', { seconds })}` : ''}
                 {event.totalTokens ? ` · ${t('activity.subagentTokens', { count: event.totalTokens })}` : ''}
               </Text>

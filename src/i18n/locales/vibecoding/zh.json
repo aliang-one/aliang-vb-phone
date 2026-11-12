@@ -7,6 +7,7 @@
     "done": "已完成",
     "processing": "处理中…",
     "subagentRunning": "🤖 子 Agent · {{step}}",
+    "subagentQueued": "🤖 子 Agent 排队中 · {{step}}",
     "awaitingInput": "等待你的输入"
   },
   "devicePin": {
@@ -217,6 +218,7 @@
     "subagentsLabel": "子 Agent SUBAGENTS",
     "subagentStarted": "启动中",
     "subagentProgress": "进行中",
+    "subagentQueued": "排队中",
     "subagentCompleted": "已完成",
     "subagentFailed": "失败",
     "subagentInterrupted": "已中断",

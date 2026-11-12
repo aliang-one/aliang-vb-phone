@@ -778,10 +778,10 @@ export const useControlCenterStore = create<ControlCenterState>()(
                         return { ...e, status: 'done' as const };
                       }
                       // 与服务端 finalizeTurnActivity 同语义:回合终了仍在
-                      // started/progress 的子 agent 收敛为 interrupted,否则
+                      // queued/started/progress 的子 agent 收敛为 interrupted,否则
                       // activitySummary.hasActive 恒真,「处理中」脉冲和块内
                       // spinner 永转。
-                      if (e.kind === 'subagent' && (e.phase === 'started' || e.phase === 'progress')) {
+                      if (e.kind === 'subagent' && (e.phase === 'queued' || e.phase === 'started' || e.phase === 'progress')) {
                         changed = true;
                         return { ...e, phase: 'interrupted' as const };
                       }

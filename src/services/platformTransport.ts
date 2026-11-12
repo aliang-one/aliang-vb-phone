@@ -206,7 +206,7 @@ export type PlatformTransportEvent =
   | { type: 'ai.thinking'; sessionId: string; messageId: string; active: boolean; chars: number; eventId: string; raw: Record<string, unknown> }
   | { type: 'ai.usage'; sessionId: string; messageId?: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; model?: string; eventId: string; raw: Record<string, unknown> }
   | { type: 'ai.task'; sessionId: string; messageId: string; tasks: { subject: string; status: string; active_form?: string }[]; eventId: string; raw: Record<string, unknown> }
-  | { type: 'ai.subagent'; sessionId: string; messageId: string; itemId: string; taskId: string; phase: 'started' | 'progress' | 'completed' | 'failed' | 'interrupted'; toolUseId?: string; description?: string; subagentType?: string; spawnDepth?: number; taskType?: string; isBackgrounded?: boolean; currentStep?: string; lastTool?: string; toolUses?: number; totalTokens?: number; durationMs?: number; summary?: string; outputFile?: string; eventId: string; raw: Record<string, unknown> }
+  | { type: 'ai.subagent'; sessionId: string; messageId: string; itemId: string; taskId: string; phase: 'queued' | 'started' | 'progress' | 'completed' | 'failed' | 'interrupted'; toolUseId?: string; description?: string; subagentType?: string; spawnDepth?: number; taskType?: string; isBackgrounded?: boolean; currentStep?: string; lastTool?: string; toolUses?: number; totalTokens?: number; durationMs?: number; summary?: string; outputFile?: string; eventId: string; raw: Record<string, unknown> }
   | { type: 'ai.session.created'; sessionId: string; raw: Record<string, unknown> }
   | { type: 'ai.session.updated'; session: PlatformAiSessionSnapshot; raw: Record<string, unknown> }
   | { type: 'ai.session.deleted'; sessionId: string; raw: Record<string, unknown> }
@@ -774,7 +774,8 @@ class PlatformTransport {
 
     if (type === 'ai.subagent') {
       const phase = message.phase;
-      if (phase === 'started' || phase === 'progress' || phase === 'completed' || phase === 'failed' || phase === 'interrupted') {
+      // queued：agentcore 并发闸排队态（排队期可见化，2026-11-10 审计③）
+      if (phase === 'queued' || phase === 'started' || phase === 'progress' || phase === 'completed' || phase === 'failed' || phase === 'interrupted') {
         const taskId = String(message.task_id ?? message.item_id ?? '');
         return {
           type: 'ai.subagent', sessionId: String(message.session_id ?? ''),

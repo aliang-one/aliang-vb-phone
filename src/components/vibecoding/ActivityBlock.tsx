@@ -798,6 +798,7 @@ const SubagentRows: React.FC<{
       </Text>
       {events.map(event => {
         const running = event.phase === 'started' || event.phase === 'progress';
+        const queued = event.phase === 'queued';
         // duration_ms 在 progress 帧上的语义未经证实(可能是单步耗时),只在
         // 终态行显示——终态时它是该子 agent 的总耗时。
         const seconds = !running && event.durationMs !== undefined ? Math.max(0, Math.round(event.durationMs / 1000)) : undefined;
@@ -807,7 +808,7 @@ const SubagentRows: React.FC<{
           event.toolUses !== undefined && event.toolUses > 0 ? t('activity.subagentToolUses', { count: event.toolUses }) : undefined,
           seconds === undefined ? undefined : t('activity.subagentDuration', { seconds }),
         ].filter(Boolean).join(' · ');
-        const mark = running ? '' : event.phase === 'completed' ? '✓ ' : event.phase === 'failed' ? '✗ ' : '⊘ ';
+        const mark = running ? '' : queued ? '' : event.phase === 'completed' ? '✓ ' : event.phase === 'failed' ? '✗ ' : '⊘ ';
         const nameColor = event.phase === 'failed' ? theme.colors.error : theme.colors.onSurface;
         return (
           <Pressable
@@ -822,7 +823,7 @@ const SubagentRows: React.FC<{
               <Text style={[theme.typography.codeSm, { color: nameColor }]} numberOfLines={1}>
                 {mark}
                 {event.description ?? event.subagentType ?? event.taskId}
-                {running ? ` · ${phaseLabel(event.phase)}` : ''}
+                {running || queued ? ` · ${phaseLabel(event.phase)}` : ''}
               </Text>
               {/* 可点开的可见暗示（chevron）：对齐 aliangcode 网页面板的入口语言 */}
               <Text style={[theme.typography.labelSm, { color: theme.colors.onSurfaceVariant, marginLeft: 'auto' }]}>›</Text>

@@ -667,7 +667,7 @@ export type StructuredActivityEvent =
       messageId: string;
       itemId: string;
       taskId: string;
-      phase: 'started' | 'progress' | 'completed' | 'failed' | 'interrupted';
+      phase: 'queued' | 'started' | 'progress' | 'completed' | 'failed' | 'interrupted';
       toolUseId?: string;
       description?: string;
       subagentType?: string;
@@ -725,7 +725,8 @@ export function envelopeToActivity(
     case 'ai.subagent': {
       const phase = env.phase;
       const taskId = String(env.task_id ?? env.item_id ?? '');
-      if (!taskId || !(phase === 'started' || phase === 'progress' || phase === 'completed' || phase === 'failed' || phase === 'interrupted')) return null;
+      // queued：agentcore 并发闸排队态（排队期可见化）——与 server 侧词表同步
+      if (!taskId || !(phase === 'queued' || phase === 'started' || phase === 'progress' || phase === 'completed' || phase === 'failed' || phase === 'interrupted')) return null;
       return {
         kind: 'subagent', eventId: `sub:${taskId}`, serverEventId: eventId,
         messageId, itemId: taskId, taskId, phase,

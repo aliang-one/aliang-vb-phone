@@ -7,6 +7,7 @@
     "done": "Done",
     "processing": "Processing…",
     "subagentRunning": "🤖 Subagent · {{step}}",
+    "subagentQueued": "🤖 Subagent queued · {{step}}",
     "awaitingInput": "Awaiting your input"
   },
   "devicePin": {
@@ -217,6 +218,7 @@
     "subagentsLabel": "Subagents",
     "subagentStarted": "Starting",
     "subagentProgress": "Running",
+    "subagentQueued": "Queued",
     "subagentCompleted": "Completed",
     "subagentFailed": "Failed",
     "subagentInterrupted": "Interrupted",

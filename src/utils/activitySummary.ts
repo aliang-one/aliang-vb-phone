@@ -45,7 +45,8 @@ export function summarizeActivity(
   const openCmd = cmds.find(c => c.status === 'started');
   const activeThink = thinking.some(t => t.active);
   const lastThink = thinking[thinking.length - 1];
-  const activeSubagent = subagents.find(e => e.phase === 'started' || e.phase === 'progress');
+  const activeSubagent = subagents.find(e => e.phase === 'queued' || e.phase === 'started' || e.phase === 'progress');
+  const queuedSubagent = activeSubagent?.phase === 'queued' ? activeSubagent : undefined;
   const headline = activeThink
     ? lastThink && lastThink.chars > 0
       ? i18n.t('vibecoding:activitySummary.thinkingWithChars', { chars: fmtChars(lastThink.chars) })
@@ -53,7 +54,9 @@ export function summarizeActivity(
     : openCmd
       ? `⚙ ${openCmd.command ?? i18n.t('vibecoding:activitySummary.runningCommand')}`
       : activeSubagent
-        ? i18n.t('vibecoding:activitySummary.subagentRunning', { step: activeSubagent.currentStep ?? activeSubagent.description ?? '' })
+        ? queuedSubagent
+          ? i18n.t('vibecoding:activitySummary.subagentQueued', { step: activeSubagent.currentStep ?? activeSubagent.description ?? '' })
+          : i18n.t('vibecoding:activitySummary.subagentRunning', { step: activeSubagent.currentStep ?? activeSubagent.description ?? '' })
         : files.length > 0
           ? i18n.t('vibecoding:activitySummary.editingFiles', { count: files.length })
           : turnSettled
@@ -101,7 +104,8 @@ export function deriveLivePulse(
   const subagents = events.filter((e): e is Extract<StructuredActivityEvent, { kind: 'subagent' }> => e.kind === 'subagent');
   const openCmd = cmds.find(c => c.status === 'started');
   const activeThink = thinking.some(t => t.active);
-  const activeSubagent = subagents.find(e => e.phase === 'started' || e.phase === 'progress');
+  const activeSubagent = subagents.find(e => e.phase === 'queued' || e.phase === 'started' || e.phase === 'progress');
+  const queuedSubagent = activeSubagent?.phase === 'queued' ? activeSubagent : undefined;
   const hasActive = activeThink || Boolean(openCmd) || Boolean(activeSubagent);
   const live = isLiveTurn || hasActive;
   const headline = activeThink
@@ -109,7 +113,9 @@ export function deriveLivePulse(
     : openCmd
       ? `⚙ ${openCmd.command ?? i18n.t('vibecoding:activitySummary.runningCommand')}`
       : activeSubagent
-        ? i18n.t('vibecoding:activitySummary.subagentRunning', { step: activeSubagent.currentStep ?? activeSubagent.description ?? '' })
+        ? queuedSubagent
+          ? i18n.t('vibecoding:activitySummary.subagentQueued', { step: activeSubagent.currentStep ?? activeSubagent.description ?? '' })
+          : i18n.t('vibecoding:activitySummary.subagentRunning', { step: activeSubagent.currentStep ?? activeSubagent.description ?? '' })
         : live
           ? i18n.t('vibecoding:activitySummary.processing')
           : i18n.t('vibecoding:activitySummary.awaitingInput');
