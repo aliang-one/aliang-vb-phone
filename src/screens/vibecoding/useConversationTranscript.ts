@@ -71,11 +71,17 @@ export function useConversationTranscript(
     turns: ConversationTurn[];
     transcriptMapSig: string;
     sourceToDisplayMessageId: Map<string, string>;
+    activityEventsSource: StructuredActivityEvent[] | typeof EMPTY_ACTIVITY_EVENTS;
+    activityEventsMapSource: Map<string, string>;
+    activityEventsByDisplayMessageId: Map<string, StructuredActivityEvent[]>;
   }>({
     transcript: [],
     turns: [],
     transcriptMapSig: '',
     sourceToDisplayMessageId: new Map<string, string>(),
+    activityEventsSource: EMPTY_ACTIVITY_EVENTS,
+    activityEventsMapSource: new Map<string, string>(),
+    activityEventsByDisplayMessageId: new Map<string, StructuredActivityEvent[]>(),
   });
 
   const displayTranscriptSource = useThrottledValue(
@@ -117,9 +123,11 @@ export function useConversationTranscript(
     [visibleDisplaySource, isSessionLive],
   );
 
+  const structuredEvents = session?.structuredEvents ?? EMPTY_ACTIVITY_EVENTS;
+
   const activityEventsByMessageId = useMemo(() => {
     const byMessageId = new Map<string, StructuredActivityEvent[]>();
-    for (const event of session?.structuredEvents ?? EMPTY_ACTIVITY_EVENTS) {
+    for (const event of structuredEvents) {
       if (!event.messageId) continue;
       const list = byMessageId.get(event.messageId);
       if (list) {
@@ -129,7 +137,7 @@ export function useConversationTranscript(
       }
     }
     return byMessageId;
-  }, [session?.structuredEvents]);
+  }, [structuredEvents]);
 
   const activityEventCountsByMessageId = useMemo(() => {
     const counts = new Map<string, number>();
@@ -162,6 +170,17 @@ export function useConversationTranscript(
   }, [transcript]);
 
   const activityEventsByDisplayMessageId = useMemo(() => {
+    // 引用守卫：以「源 structuredEvents 数组引用 + 源→显示映射引用」做键。
+    // 纯文本吐字帧（store 每 ≤200ms 换 transcript 引用）不动 structuredEvents
+    // 的引用，此时整 Map 原引用复用——气泡侧拿到的 events 数组引用逐帧稳定，
+    // ActivityBlock/TranscriptMessageList 的签名 memo 才有连续的短路机会。
+    // 结构化事件帧（ai.command/ai.thinking 入库）换引用 → 正常重建。
+    if (
+      reuseRef.current.activityEventsSource === structuredEvents &&
+      reuseRef.current.activityEventsMapSource === sourceToDisplayMessageId
+    ) {
+      return reuseRef.current.activityEventsByDisplayMessageId;
+    }
     const byDisplayMessageId = new Map<string, StructuredActivityEvent[]>();
     for (const [sourceMessageId, events] of activityEventsByMessageId) {
       const displayId = sourceToDisplayMessageId.get(sourceMessageId);
@@ -170,8 +189,11 @@ export function useConversationTranscript(
       if (existing) existing.push(...events);
       else byDisplayMessageId.set(displayId, events.slice());
     }
+    reuseRef.current.activityEventsSource = structuredEvents;
+    reuseRef.current.activityEventsMapSource = sourceToDisplayMessageId;
+    reuseRef.current.activityEventsByDisplayMessageId = byDisplayMessageId;
     return byDisplayMessageId;
-  }, [activityEventsByMessageId, sourceToDisplayMessageId]);
+  }, [activityEventsByMessageId, sourceToDisplayMessageId, structuredEvents]);
 
   const conversationTurns = useMemo(
     () => {

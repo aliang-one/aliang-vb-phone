@@ -36,7 +36,13 @@ export type ComposerMode = 'voice' | 'text';
 export interface MessageComposerProps {
   mode: ComposerMode;
   onModeChange: (mode: ComposerMode) => void;
-  input: string;
+  /**
+   * 受控兼容口（可选）：与本地镜像不同且非 null 时视作外部写入、同步进
+   * 镜像（测试喂值 / 旧调用方）。生产屏幕不再传它——输入文本经 setText
+   * 句柄程序化写入、用户键入在镜像内消化，屏幕层零渲染。undefined/null
+   * = 无外部覆写，effect 直接跳过。
+   */
+  input?: string | null;
   onInputChange: (text: string) => void;
   voiceDraft: string;
   /** Slash commands available for inline `/`-command typeahead in text mode. */
@@ -112,6 +118,13 @@ export interface MessageComposerProps {
 export interface MessageComposerHandle {
   /** 定稿后把光标放到插入文本末尾（TextInput ref 透传；未挂载时空安全）。 */
   setSelection: (start: number, end: number) => void;
+  /**
+   * 程序化写入输入框文本（goal 草稿 / 编辑语音 / 发送清空 / 命令插入 /
+   * 听写 commit 等）。屏幕已不再持有 input state（每键 setState 会整屏
+   * 重渲染 5000 行组件），程序化写入经此句柄直接更新 composer 本地镜像——
+   * 只重渲染 composer 本体，不惊动父级。未挂载时空安全。
+   */
+  setText: (text: string) => void;
 }
 
 // ---------- icons (inline SVG; no shared icon lib ships mic/keyboard/send) ----------
@@ -362,15 +375,34 @@ const MessageComposerBase = (
   const isRecording = status === 'recording';
   const hasDraft = Boolean(voiceDraft);
   const composerDisabled = !(goalDraft || goalSession) && (deviceOffline || Boolean(readOnlyReason));
+
+  // ----- 输入文本：本地镜像（每键更新只重渲染 composer，不整屏陪跑）-----
+  // 受控兼容：`input` prop 变化（父级程序化写入/测试喂值）同步进镜像；用户
+  // 键入走 onChangeText → 本地镜像 + onInputChange 上报（父级只记 ref）。
+  const [inputText, setInputText] = useState(input ?? '');
+  const inputTextRef = useRef(inputText);
+  useEffect(() => {
+    if (input != null && input !== inputTextRef.current) {
+      inputTextRef.current = input;
+      setInputText(input);
+    }
+  }, [input]);
+  const handleInputChange = (text: string) => {
+    inputTextRef.current = text;
+    setInputText(text);
+    onInputChange(text);
+  };
   // /goal 形态输入的特判必须与屏侧同源门控 GOAL_UI_ENABLED：flag 关闭时
   // /goal 就是普通文本，不得绕过 composerDisabled，更不能把回合中的停止键
   // 顶掉（2026-10-24 状态矩阵清洗 G5）。
-  const isGoalCommandInput = GOAL_UI_ENABLED && isGoalCommand(input);
+  const isGoalCommandInput = GOAL_UI_ENABLED && isGoalCommand(inputText);
   // Slash-command typeahead: active only while the whole input is a single
   // `/token` (slash first, command-name chars, no space yet) in text mode. A
   // space ends the command name and hides the dropdown.
   const slashMatch =
-    mode === 'text' && !goalDraft ? input.match(/^\/([a-zA-Z0-9_-]*)$/) : null;
+    mode === 'text' && !goalDraft
+      ? inputText.match(/^\/([a-zA-Z0-9_-]*)$/)
+      : null;
   const slashQuery = slashMatch ? slashMatch[1].toLowerCase() : '';
 
   // TUI-driven-turn hint starts collapsed behind the desktop icon; the full
@@ -419,6 +451,10 @@ const MessageComposerBase = (
         // 双重 ?. :current 为 null(未挂载/已卸载)与 TestRenderer 下的
         // host mock(真值但无 setSelection 方法)都必须空值安全不抛错。
         textInputRef.current?.setSelection?.(start, end);
+      },
+      setText: (text: string) => {
+        inputTextRef.current = text;
+        setInputText(text);
       },
     }),
     [],
@@ -532,7 +568,7 @@ const MessageComposerBase = (
 
   const renderSendButton = () => {
     const canSend =
-      (input.trim().length > 0 || attachmentCount > 0) &&
+      (inputText.trim().length > 0 || attachmentCount > 0) &&
       !sendingMessage &&
       // goalDraft 时 composerDisabled 本就为 false，无需重复放行。
       (!composerDisabled || isGoalCommandInput);
@@ -607,7 +643,7 @@ const MessageComposerBase = (
       // 也免去「输入时最右该是谁」的纠结。清空输入（发送或删除）后停止键
       // 回来；回合不因输入而受影响。canSteer 与否只决定输入期有没有发送键，
       // 无 steer 通道时输入区本就是只读，不会走到非空分支。
-      if (canSteer && mode === 'text' && (input.trim().length > 0 || attachmentCount > 0)) {
+      if (canSteer && mode === 'text' && (inputText.trim().length > 0 || attachmentCount > 0)) {
         return renderSendButton();
       }
       // TUI 驱动的回合不再置灰停止键——外部 SIGINT 通道已存在，见
@@ -658,8 +694,8 @@ const MessageComposerBase = (
       return (
         <TextInput
           ref={textInputRef}
-          value={input}
-          onChangeText={onInputChange}
+          value={inputText}
+          onChangeText={handleInputChange}
           onSelectionChange={e => onComposerSelectionChange?.(e.nativeEvent.selection)}
           testID="composer-text-input"
           onFocus={() => {
@@ -947,7 +983,7 @@ const MessageComposerBase = (
                   看到入口、知道为什么点不动。语音模式不属于文字输入，不出现。 */}
               {attachmentsEnabled &&
               mode === 'text' &&
-              (inputFocused || input.length > 0) ? (
+              (inputFocused || inputText.length > 0) ? (
                 <TouchableOpacity
                   testID="composer-attachments"
                   activeOpacity={0.7}

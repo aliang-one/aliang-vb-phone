@@ -100,7 +100,11 @@ const RAIL_TOP = 172;
  *
  * No full-screen backdrop, no expand: the conversation stays visible.
  */
-export const ConversationScrubber: React.FC<ConversationScrubberProps> = ({
+// memo：滚动时 ConversationScrubberLayer 以 ≤12.5Hz 重渲染(scrollY 状态驱动)，
+// 但它的 collapsedMarks/markStopIndices/stops/onCommit/belowRail 在 useMemo 化后
+// 引用全部稳定——memo 让滚动节拍只重渲染这一层轻量 overlay，scrubber 本体
+// (PanResponder/含 loupe 的整棵子树)不再陪跑。
+const ConversationScrubberBase: React.FC<ConversationScrubberProps> = ({
   collapsedMarks,
   markStopIndices,
   stops,
@@ -589,3 +593,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
 });
+
+// props 数组(collapsedMarks/markStopIndices/stops)由 ConversationScrubberLayer
+// 的 useMemo 提供稳定引用，memo 才能在滚动节拍上真正短路(见组件顶部注释)。
+export const ConversationScrubber = React.memo(ConversationScrubberBase);

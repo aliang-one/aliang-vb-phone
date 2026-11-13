@@ -13,6 +13,10 @@ import type { TFunction } from 'i18next';
 import { GlassPanel } from '../shared/GlassPanel';
 import { CodeHighlight } from '../shared/CodeHighlight';
 import { summarizeActivity } from '../../utils/activitySummary';
+import {
+  activityEventsRenderSignature,
+  relevantActivityDetailsEqual,
+} from '../../utils/activityRenderMemo';
 import { fetchStructuredEventDetail } from '../../api/sessions';
 import { SubagentDrawer } from './SubagentDrawer';
 import type { StructuredActivityEvent } from '../../data/platformModels';
@@ -39,8 +43,13 @@ export interface ActivityBlockProps {
   turnSettled?: boolean;
 }
 
-export const ActivityBlock: React.FC<ActivityBlockProps> = React.memo(
-  ({ sessionId, events, detailCache, onCacheDetail, turnSettled = true }) => {
+const ActivityBlockBase: React.FC<ActivityBlockProps> = ({
+  sessionId,
+  events,
+  detailCache,
+  onCacheDetail,
+  turnSettled = true,
+}) => {
     const activeThinking = events.filter(
       (event): event is Extract<StructuredActivityEvent, { kind: 'thinking' }> =>
         event.kind === 'thinking' && event.active,
@@ -68,8 +77,31 @@ export const ActivityBlock: React.FC<ActivityBlockProps> = React.memo(
         ) : null}
       </>
     );
-  },
-);
+};
+
+// 签名 memo：结构化事件流期间（服务端逐帧下发 ai.command/ai.thinking 等），
+// 屏幕每次渲染都会为每条消息经 Map.get 取到「本次新建的 events 数组」——
+// 内容没变的气泡数组引用也变了，默认浅比较挡不住，ActivityBlock 里两个
+// 分支块随屏幕节拍全量陪跑（summarizeActivity + 整列行渲染）。对齐
+// TranscriptMessageList.areTranscriptPropsEqual 的 activityEventsRenderSignature
+// 手法：签名（逐事件的 id/kind/状态/512 字符桶）不变即整块跳过。
+const areActivityPropsEqual = (
+  prev: ActivityBlockProps,
+  next: ActivityBlockProps,
+): boolean => {
+  if (prev.turnSettled !== next.turnSettled) return false;
+  if (
+    activityEventsRenderSignature(prev.events) !==
+    activityEventsRenderSignature(next.events)
+  ) {
+    return false;
+  }
+  // detailCache 变化由 areTranscriptPropsEqual 里 relevantActivityDetailsEqual
+  // 的同款口径处理：只有本块事件的 detail 真变了才需要重渲染。
+  return relevantActivityDetailsEqual(prev.events, prev.detailCache, next.detailCache);
+};
+
+export const ActivityBlock = React.memo(ActivityBlockBase, areActivityPropsEqual);
 ActivityBlock.displayName = 'ActivityBlock';
 
 const LiveThinkingBlock: React.FC<{

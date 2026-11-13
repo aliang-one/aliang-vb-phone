@@ -4,7 +4,7 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 
 import { MessageComposer } from '../MessageComposer';
-import type { MessageComposerProps } from '../MessageComposer';
+import type { MessageComposerHandle, MessageComposerProps } from '../MessageComposer';
 import type { UseVoiceSttResult } from '../../../hooks/useVoiceStt';
 
 const stableVoiceStt = {
@@ -73,7 +73,7 @@ describe('MessageComposer 听写契约', () => {
   });
 
   it('ref.setSelection 存在且可调用（透传 TextInput）', () => {
-    const ref = React.createRef<{ setSelection: (s: number, e: number) => void }>();
+    const ref = React.createRef<MessageComposerHandle>();
     let tree: TestRenderer.ReactTestRenderer | undefined;
     act(() => {
       tree = TestRenderer.create(<MessageComposer ref={ref} {...buildProps()} />);

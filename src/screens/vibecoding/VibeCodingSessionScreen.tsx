@@ -363,16 +363,28 @@ const ConversationScrubberLayer: React.FC<ConversationScrubberLayerProps> = Reac
       () => deriveTurnScrubberStops(conversationTurns),
       [conversationTurns],
     );
-
-    return (
-      <ConversationScrubber
-        collapsedMarks={conversationRailItems.map(({ turn, active, visible }) => ({
+    // 数组引用稳定化：滚动节拍(scrollY state)重渲染本层时，collapsedMarks /
+    // markStopIndices 若每次新建数组会击穿下游 ConversationScrubber 的 memo。
+    // 它们的元素只由 conversationRailItems 决定，直接复用其引用即可。
+    const scrubberCollapsedMarks = useMemo(
+      () =>
+        conversationRailItems.map(({ turn, active, visible }) => ({
           id: turn.id,
           role: turn.role,
           active,
           visible,
-        }))}
-        markStopIndices={conversationRailItems.map(({ stopIndex }) => stopIndex)}
+        })),
+      [conversationRailItems],
+    );
+    const scrubberMarkStopIndices = useMemo(
+      () => conversationRailItems.map(({ stopIndex }) => stopIndex),
+      [conversationRailItems],
+    );
+
+    return (
+      <ConversationScrubber
+        collapsedMarks={scrubberCollapsedMarks}
+        markStopIndices={scrubberMarkStopIndices}
         stops={scrubberStops}
         // Every conversation turn is a stop now, so the idle focus is simply
         // the mounted turn nearest the viewport.
@@ -602,7 +614,26 @@ export const VibeCodingSessionScreen: React.FC = () => {
   );
 
   const [mode, setMode] = useState<'voice' | 'text'>('voice');
-  const [input, setInput] = useState('');
+  // ----- 输入框文本：ref 持有 + composer 句柄写入（性能修复 2026-11-13）-----
+  // 旧实现是屏幕级 useState：每敲一键 setInput → 5000 行组件全量重渲染
+  // （打字卡顿根因），长按听写 liveCaption 每 120ms 一次更是 8Hz 整屏陪跑。
+  // 现在：用户键入由 composer 本地镜像消化（onInputChange 只回写 ref，零
+  // 渲染）；程序化写入（goal 草稿/编辑语音/发送清空/命令插入/听写）经
+  // composerRef.current.setText 直接更新 composer，同样不触发整屏渲染。
+  const inputRef = useRef('');
+  // 兼容别名：全部原 setInput 调用点迁移为 writeInput，语义与旧 state 写入
+  // 一致（句柄未挂载——draft 无 composer/TestRenderer 环境——时仅记 ref）。
+  const writeInput = useCallback((text: string) => {
+    inputRef.current = text;
+    composerRef.current?.setText(text);
+  }, []);
+  // 听写引擎的函数式更新需求（revert/commit 基于「当前值」推导新值）：
+  const updateInput = useCallback(
+    (updater: (prev: string) => string) => {
+      writeInput(updater(inputRef.current));
+    },
+    [writeInput],
+  );
   const [voiceDraft, setVoiceDraft] = useState('');
   // One-shot: focus the text composer (pop the keyboard) after the voice draft
   // is transferred into the text field via "编辑". Reset on focus so subsequent
@@ -624,14 +655,14 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // input 最新快照 + 在途段期望内容：commit/revert 前校验锚点上下文仍成立，
   // 防止 stop→completed 延迟窗口内 input 被整体替换(goalDraft/发送)后把
   // 听写文本拼进新文本。
-  const dictationInputSnapshotRef = useRef(input);
+  const dictationInputSnapshotRef = useRef('');
   const dictationExpectedSegRef = useRef('');
   // 选区段仅在首次 live 应用后才算被"消费"；零应用的失败不得 revert，
   // 否则会删掉用户选中的原文（终审 Fix1：静默失败/未识别不应吞内容）。
   const dictationAppliedRef = useRef(false);
   useEffect(() => {
-    dictationInputSnapshotRef.current = input;
-  }, [input]);
+    dictationInputSnapshotRef.current = inputRef.current;
+  }, [voiceStt.liveCaption, mode]);
 
   const clearDictationNotice = useCallback(() => {
     if (dictationNoticeTimerRef.current) {
@@ -664,16 +695,20 @@ export const VibeCodingSessionScreen: React.FC = () => {
   // stt.partial 驱动：liveCaption 变化 → 在途片段滑动替换。session ref 门控：
   // finishWith 在 onComplete 前把 liveCaption 置空，此 effect 若在 commit 之后
   // 运行会拿到 inactive → applyDictationLive 恒等返回（dictation.test 固化）。
+  // 文本真值在 inputRef（composer 本地镜像）：liveCaption 变化直接换算写回，
+  // 不经 state——听写期间不再 8Hz 整屏重渲染。
   useEffect(() => {
     const dictation = dictationRef.current;
     if (!dictation.active) return;
-    const next = applyDictationLive(dictation, input, voiceStt.liveCaption);
-    if (next.input === input && next.segLen === dictation.segLen) return;
+    const current = inputRef.current;
+    const next = applyDictationLive(dictation, current, voiceStt.liveCaption);
+    if (next.input === current && next.segLen === dictation.segLen) return;
     dictation.segLen = next.segLen;
     dictationExpectedSegRef.current = voiceStt.liveCaption;
     dictationAppliedRef.current = true;
-    setInput(next.input);
-  }, [input, voiceStt.liveCaption]);
+    inputRef.current = next.input;
+    composerRef.current?.setText(next.input);
+  }, [voiceStt.liveCaption]);
 
   // 失败感知（failWith 不触发 onComplete，只能走 status watch）：
   // revert 原文 + 错误提示 4s。异常必须有状态返回（硬规则）。
@@ -695,7 +730,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     // 零应用的失败：input 仍是用户未触碰的原文（含选区），revert 只会删
     // 内容——只复位状态 + 报错，不动 input。
     if (contextIntact && applied) {
-      setInput(p => revertDictation(dictation, p));
+      updateInput(p => revertDictation(dictation, p));
     }
     armDictationErrorNotice(
       voiceStt.errorMessage || t('vibecoding:composer.voiceError'),
@@ -1302,6 +1337,42 @@ export const VibeCodingSessionScreen: React.FC = () => {
     [conversationTurns, followTailRef, revealTurnsForJump, setPendingJumpId],
   );
 
+  // 回到底部 FAB（scrubber 下方）。useMemo 化：内联 JSX 会在每次屏幕渲染
+  // （流式 ≤5Hz / 滚动节拍）生成新引用，击穿 ConversationScrubberLayer→
+  // ConversationScrubber 的 memo 链。依赖均为低频项（滚动可见性/主题/回调）。
+  const scrollToBottomFab = useMemo(
+    () =>
+      showScrollToBottom ? (
+        <TouchableOpacity
+          testID="scroll-to-bottom-fab"
+          accessibilityRole="button"
+          accessibilityLabel={t('scrubber.scrollToLatest')}
+          onPress={() => scrollToBottom(true)}
+          style={[
+            styles.scrollFab,
+            {
+              backgroundColor: isDark
+                ? 'rgba(17, 20, 23, 0.85)'
+                : 'rgba(255, 255, 255, 0.92)',
+              borderColor: isDark
+                ? 'rgba(255, 255, 255, 0.1)'
+                : theme.colors.outlineVariant,
+            },
+          ]}
+        >
+          <Text
+            style={[
+              styles.scrollFabGlyph,
+              { color: theme.colors.primary },
+            ]}
+          >
+            ↓
+          </Text>
+        </TouchableOpacity>
+      ) : null,
+    [showScrollToBottom, scrollToBottom, isDark, theme, t],
+  );
+
   useEffect(() => {
     if (!pendingJumpId) return;
     const layout = messageLayouts[pendingJumpId];
@@ -1444,34 +1515,38 @@ export const VibeCodingSessionScreen: React.FC = () => {
 
   const enterGoalDraft = useCallback((
     objective = '',
-    previousDraft = input,
+    previousDraft?: string,
     options: { keepToolsOpen?: boolean } = {},
   ) => {
     if (session?.purpose === 'goal') return;
     if (['connecting', 'recording', 'stopping'].includes(voiceStt.status)) {
       void voiceStt.stop();
     }
-    if (!goalDraftActive) goalDraftPreviousInputRef.current = previousDraft;
+    // 未显式传草稿时取当前输入框内容（ref 读值，不进依赖数组——否则每敲
+    // 一键本回调换引用，MessageComposer 的 memo 被击穿，打字卡顿根因之一）。
+    if (!goalDraftActive) {
+      goalDraftPreviousInputRef.current = previousDraft ?? inputRef.current;
+    }
     setGoalDraftActive(true);
     setMode('text');
-    setInput(objective);
+    writeInput(objective);
     if (!options.keepToolsOpen) setToolsMenuVisible(false);
     setDetailError('');
-  }, [goalDraftActive, input, session?.purpose, voiceStt]);
+  }, [goalDraftActive, session?.purpose, voiceStt, writeInput]);
 
   const exitGoalDraft = useCallback(() => {
     if (goalCreating) return;
     setGoalDraftActive(false);
-    setInput(goalDraftPreviousInputRef.current);
+    writeInput(goalDraftPreviousInputRef.current);
     goalDraftPreviousInputRef.current = '';
-  }, [goalCreating]);
+  }, [goalCreating, writeInput]);
 
   const enterGoalSession = (
     goal: ServerGoalSnapshot & { ai_session_id: string },
   ) => {
     setGoalDraftActive(false);
     goalDraftPreviousInputRef.current = '';
-    setInput('');
+    writeInput('');
     setCreatedSessionId(goal.ai_session_id);
     // If the goal attached to the current conversation session, stay on it
     // (history preserved, goal is a state of the existing conversation).
@@ -1771,12 +1846,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
       // 服务端正文 min(1)，纯素材消息发不出去；草稿为空时按素材类型用一句
       // 默认说明兜底（字符画走文本通道，说明也要点明它是图）。
       const content =
-        input.trim() || defaultAttachmentCaption([handoff.asset], t);
+        inputRef.current.trim() || defaultAttachmentCaption([handoff.asset], t);
       void appendUserMessage(content, 'text', [handoff.asset]);
     }, [
       appendUserMessage,
       attachmentMaxPerMessage,
-      input,
       pendingAssets,
       showToast,
       t,
@@ -1874,7 +1948,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
       Alert.alert(t('common:voice.recognizeFailed'));
       return;
     }
-    setInput(draft);
+    writeInput(draft);
     setVoiceDraft('');
     setMode('text');
     setAutoFocusText(true);
@@ -1934,7 +2008,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
   );
 
   const handleSendText = () => {
-    const nextInput = input.trim();
+    const nextInput = inputRef.current.trim();
     const goalCommand = GOAL_UI_ENABLED && isGoalCommand(nextInput);
     const isGoalSend = goalDraftActive || session?.purpose === 'goal' || goalCommand;
     if (!isGoalSend && (deviceOffline || shouldDisableComposerForProvider)) return;
@@ -1957,7 +2031,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
       return;
     }
     if (goalDraftActive) setToolsMenuVisible(false);
-    setInput('');
+    writeInput('');
     // On failure the store keeps the message as a client-only `failed` bubble
     // (retryable / dismissable). The composer input is intentionally NOT
     // restored: restoring it let a follow-up message append to the failed text
@@ -1968,13 +2042,15 @@ export const VibeCodingSessionScreen: React.FC = () => {
     void appendUserMessage(content, 'text', sendableAssets)
       .then(sent => {
         if (!sent && isGoalSend) {
-          setInput(current => current || nextInput);
+          // 恢复语义同旧 setInput(current => current || nextInput)：输入框
+          // 已被其他路径填充时不动，否则还原本次未送达的原文。
+          if (!inputRef.current) writeInput(nextInput);
         }
       })
       .catch(error => {
         if (isGoalSend) {
           setDetailError(goalRequestErrorMessage(error));
-          setInput(current => current || nextInput);
+          if (!inputRef.current) writeInput(nextInput);
         } else {
           // 发送被「会话忙」拒绝（服务端 409 ai_session_busy / agent tui_busy）：
           // 用既有 detailError 横幅给友好双语提示；其他失败维持既有 failed 气泡
@@ -1985,7 +2061,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
           const busyText = sessionBusyErrorText(error, t);
           if (busyText) {
             setDetailError(busyText);
-            setInput(current => current || nextInput);
+            if (!inputRef.current) writeInput(nextInput);
           }
         }
         console.warn('[vibecoding] failed to send text prompt', error);
@@ -2259,12 +2335,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
         // 零应用失败不得 revert（在途段=未触碰的选区原文，revert 会删内容）；
         // 只有真正 live 应用过的段才需要撤掉。
         if (applied) {
-          setInput(p => revertDictation(dictation, p));
+          updateInput(p => revertDictation(dictation, p));
         }
         armDictationErrorNotice(t('common:voice.noSpeechDetected'));
         return;
       }
-      setInput(p => commitDictationText(dictation, p, text).input);
+      updateInput(p => commitDictationText(dictation, p, text).input);
       const cursor = dictation.cursor + text.length;
       // 值经 React 提交后再落光标；rAF 一拍足够。
       requestAnimationFrame(() => {
@@ -2272,7 +2348,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
       });
       clearDictationNotice();
     },
-    [armDictationErrorNotice, clearDictationNotice, t],
+    [armDictationErrorNotice, clearDictationNotice, t, updateInput],
   );
 
   const handleDictationPressIn = useCallback(() => {
@@ -2289,10 +2365,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
       return;
     }
     if (composerReadOnlyReason) return;
-    const anchor = resolveDictationAnchor(composerSelectionRef.current, input.length);
+    const anchor = resolveDictationAnchor(
+      composerSelectionRef.current,
+      inputRef.current.length,
+    );
     dictationRef.current = { active: true, cursor: anchor.cursor, segLen: anchor.segLen };
     // 选区替换场景的段初值：commit 时校验"锚点上下文未被整体替换"用。
-    dictationExpectedSegRef.current = input.slice(
+    dictationExpectedSegRef.current = inputRef.current.slice(
       anchor.cursor,
       anchor.cursor + anchor.segLen,
     );
@@ -2327,7 +2406,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
         dictationAppliedRef.current = false;
         armDictationErrorNotice(t('common:voice.recognizeFailed'));
       });
-  }, [input, voiceStt, session, project, deviceOffline, shouldDisableComposerForProvider, composerReadOnlyReason, t, handleDictationComplete, armDictationErrorNotice]);
+  }, [voiceStt, session, project, deviceOffline, shouldDisableComposerForProvider, composerReadOnlyReason, t, handleDictationComplete, armDictationErrorNotice]);
 
   // 无活动听写会话时绝不调 voiceStt.stop()（普通点按 toggle 的松手会走到这）。
   const handleDictationPressOut = useCallback(() => {
@@ -2547,6 +2626,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
   );
 
   const handleComposerInputChange = useCallback((value: string) => {
+    // 用户键入：composer 本地镜像已经渲染了新值，这里只回写 ref（零渲染）。
+    // 旧实现 setState → 每键整屏重渲染 5000 行组件（打字卡顿根因）。
+    inputRef.current = value;
     // GOAL_UI_ENABLED 关闭时不把 /goal 识别成入口:消息按普通文本发出去,
     // 不再悄悄把输入框切成 goal draft。
     if (GOAL_UI_ENABLED && !goalDraftActive && session?.purpose !== 'goal') {
@@ -2556,7 +2638,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
         return;
       }
     }
-    setInput(value);
   }, [enterGoalDraft, goalDraftActive, session?.purpose]);
 
   const handleInsertCommand = useCallback(
@@ -2568,9 +2649,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
         return;
       }
       if (mode !== 'text') setMode('text');
-      setInput(prev => (prev.trim() ? `${prev.trim()} ${text}` : text));
+      const prev = inputRef.current;
+      writeInput(prev.trim() ? `${prev.trim()} ${text}` : text);
     },
-    [enterGoalDraft, mode],
+    [enterGoalDraft, mode, writeInput],
   );
 
   // Goal control (pause/resume/recover/delete) extracted to useGoalControl.
@@ -4197,36 +4279,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
           viewportHeight={viewportHeight}
           onCommit={handleScrubberCommit}
           registerScrollY={registerScrollY}
-          belowRail={
-            showScrollToBottom ? (
-              <TouchableOpacity
-                testID="scroll-to-bottom-fab"
-                accessibilityRole="button"
-                accessibilityLabel={t('scrubber.scrollToLatest')}
-                onPress={() => scrollToBottom(true)}
-                style={[
-                  styles.scrollFab,
-                  {
-                    backgroundColor: isDark
-                      ? 'rgba(17, 20, 23, 0.85)'
-                      : 'rgba(255, 255, 255, 0.92)',
-                    borderColor: isDark
-                      ? 'rgba(255, 255, 255, 0.1)'
-                      : theme.colors.outlineVariant,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.scrollFabGlyph,
-                    { color: theme.colors.primary },
-                  ]}
-                >
-                  ↓
-                </Text>
-              </TouchableOpacity>
-            ) : null
-          }
+          belowRail={scrollToBottomFab}
         />
 
         <View
@@ -4258,8 +4311,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
               settingsEditable={session.purpose !== 'goal'}
               goalMode={session.purpose === 'goal' ? 'active' : goalDraftActive ? 'draft' : 'ordinary'}
               onGoalModeChange={nextMode => {
-                if (nextMode === 'draft') enterGoalDraft('', input, { keepToolsOpen: true });
-                else exitGoalDraft();
+                if (nextMode === 'draft') {
+                  enterGoalDraft('', inputRef.current, { keepToolsOpen: true });
+                } else exitGoalDraft();
               }}
               commands={sessionCommands}
               sessionId={session.id}
@@ -4376,7 +4430,6 @@ export const VibeCodingSessionScreen: React.FC = () => {
             ref={composerRef}
             mode={mode}
             onModeChange={handleComposerModeChange}
-            input={input}
             onInputChange={handleComposerInputChange}
             voiceDraft={voiceDraft}
             commands={sessionCommands}
