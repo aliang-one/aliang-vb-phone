@@ -32,10 +32,15 @@ import {
 } from './src/utils/notificationNavigation';
 import { useSessionStore } from './stores/useSettingsStore';
 import { useControlCenterStore } from './src/store/controlCenterStore';
+import { startDevFrameProbe } from './src/utils/devFrameProbe';
 import type { AppInitialProps } from './src/app/debugInitialProps';
 
 function AppContent({ debugDeviceTerminal }: AppInitialProps = {}) {
   const { theme, isDark } = useTheme();
+  // dev 取证:JS 线程停顿探针(release no-op,见 utils/devFrameProbe)。
+  useEffect(() => {
+    startDevFrameProbe();
+  }, []);
   // App-level presence: keeps the user's terminals alive while the app is in the
   // foreground (the server's idle reaper closes them after N min of no activity).
   usePresenceHeartbeat();

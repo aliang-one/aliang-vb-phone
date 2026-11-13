@@ -8,6 +8,7 @@ import {
   mapAiRunNotice,
 } from '../utils/aiRunNotice';
 import { routeTerminalOutputToEmulator } from '../services/terminalOutputRegistry';
+import { perfMark } from '../utils/devFrameProbe';
 import {
   forgetTerminalGeometryFollow,
   isLocalTerminalResizeRecent,
@@ -565,6 +566,7 @@ export const useControlCenterStore = create<ControlCenterState>()(
               // changes that were broadcast while the socket was down — WS has
               // no replay buffer, so a full resync is the only way to not lose
               // events during a network blip.
+              perfMark(`ws:${transportEvent.status}`);
               if (transportEvent.status === 'connected') {
                 set({ wsConnected: true });
                 if (get().serverMode) {

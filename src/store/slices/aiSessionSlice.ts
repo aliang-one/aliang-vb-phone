@@ -6,6 +6,7 @@ import type { ServerAiSession } from '../../api/sessions';
 import type { AiAttachmentMeta } from '../../api/attachments';
 import { deleteGoal, fetchGoalSnapshot } from '../../api/goals';
 import { normalizeProvider, providerLabel } from '../../utils/modelIntensity';
+import { perfMark } from '../../utils/devFrameProbe';
 import {
   isAuthoritativeRunLive,
   isSessionTurnActive,
@@ -596,6 +597,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
         batchHasContent = false;
         pagesSinceCommit = 0;
         const pending = batch.splice(0, batch.length);
+        perfMark(`catchup-commit:+${pending.length}`);
         set(state => {
           const vibeRuns = state.vibeRuns.map(run => {
             if (run.id !== sessionId) return run;
@@ -681,6 +683,7 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       }
       // 收尾 flush:节流窗口里未提交的页在这里落库(空批内部直接跳过)。
       commitBatch();
+      perfMark(`catchup-done:${fetched}`);
       // Watermark parity is claimed ONLY when the gap fully drained. A capped
       // run leaves transcriptCount untouched so the watermark still reads
       // "behind" and the next trigger resumes from the new local tail (the

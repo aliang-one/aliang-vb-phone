@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { perfMark } from '../utils/devFrameProbe';
 
 export type ToastType = 'success' | 'error' | 'info';
 
@@ -28,6 +29,7 @@ export const useToastStore = create<ToastState>(set => ({
   type: 'success',
   visible: false,
   show: (message, type = 'success') => {
+    perfMark(`toast:${type}:${message.slice(0, 60)}`);
     clearPendingHide();
     set({ message, type, visible: true });
     hideTimeoutId = setTimeout(() => {

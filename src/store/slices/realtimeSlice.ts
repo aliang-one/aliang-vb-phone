@@ -2,6 +2,7 @@ import type { StateCreator } from 'zustand';
 import { platformTransport } from '../../services/platformTransport';
 import { getApiAuthToken } from '../../api/client';
 import { cancelRefreshDebounce } from '../streaming';
+import { perfMark } from '../../utils/devFrameProbe';
 import { cancelAiStreamBatch } from '../aiStreamBatching';
 import { cancelTerminalBatch } from '../terminalBatching';
 import type { ControlCenterState, RefreshOutcome } from '../types';
@@ -277,7 +278,9 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
 
     refreshInFlight = (async (): Promise<RefreshOutcome> => {
       try {
+        const snapshotLoadStartedAt = Date.now();
         const snapshot = await loadSnapshotWithTimeout();
+        perfMark(`snapshot:${Date.now() - snapshotLoadStartedAt}ms`);
         set(state => ({
           ...stateFromSnapshot(
             snapshot,
@@ -295,6 +298,7 @@ export const createRealtimeSlice: StateCreator<ControlCenterState, [], [], Realt
         refreshRecentApprovalsOnce(get);
         return { ok: true };
       } catch (error) {
+        perfMark(`refresh-fail:${(error instanceof Error ? error.message : String(error)).slice(0, 70)}`);
         console.warn('[store] Failed to refresh from server:', error);
         const message = error instanceof Error ? error.message : String(error);
         set({ stale: true, lastConnectError: message });
