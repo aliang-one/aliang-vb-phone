@@ -44,6 +44,10 @@ import {
   DEFAULT_CONTEXT_WINDOW,
   resolveContextWindow,
 } from '../../utils/contextWindow';
+import {
+  initialProjectIdForDevice,
+  resolveDeviceScopedProject,
+} from './deviceProjectScope';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type CreateRoute = RouteProp<RootStackParamList, 'CreateVibeCoding'>;
@@ -79,12 +83,17 @@ export const CreateVibeCodingScreen: React.FC = () => {
   // the first message from the chat (DraftVibeCoding screen).
   const [creating, setCreating] = useState(false);
   const initialDeviceId = route.params?.deviceId ?? devices[0]?.id ?? '';
+  // initialProjectId MUST be device-scoped. The old trailing fallback
+  // (`projects[0]?.id`) could hand back a project that belongs to a DIFFERENT
+  // device — exactly what happens on a brand-new device (no projects of its
+  // own): the draft silently carried a foreign projectId, and the server's
+  // create route rejects the turn with 404 project_not_found
+  // (inputProject.deviceId !== device.id) BEFORE the idempotency claim, so the
+  // failure left zero server-side trace: the user's first message on a fresh
+  // device just "wouldn't send".
   const initialProjectId =
     route.params?.projectId ??
-    projects.find(project => project.deviceId === initialDeviceId)?.id ??
-    devices.find(device => device.id === initialDeviceId)?.projectIds[0] ??
-    projects[0]?.id ??
-    '';
+    initialProjectIdForDevice(projects, initialDeviceId, devices);
 
   const [deviceId, setDeviceId] = useState(initialDeviceId);
   const [projectId, setProjectId] = useState(initialProjectId);
@@ -199,9 +208,14 @@ export const CreateVibeCodingScreen: React.FC = () => {
     setModel(prev => (prev.trim() ? prev : preset));
   }, [provider]);
   const noProviderAvailable = !EFFORT_PROVIDERS.some(item => availability[item]);
+  // Device-scoped project resolution: a projectId belonging to ANOTHER device
+  // resolves to undefined, so startSession falls through to the project_path
+  // flow (server upserts a manual project for THIS device) instead of sending
+  // a foreign projectId the server rejects with a zero-trace 404. Covers all
+  // entry paths — route params included.
   const project = useCustomPath
     ? undefined
-    : projects.find(item => item.id === projectId);
+    : resolveDeviceScopedProject(projects, projectId, device);
   const [directory, setDirectory] = useState(
     project?.path ?? device?.authorizedDirectories[0] ?? '~',
   );
