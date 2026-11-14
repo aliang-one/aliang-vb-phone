@@ -521,6 +521,7 @@ class PlatformTransport {
     mode: 'voice' | 'text' = 'text',
     expectedModelConfigVersion?: number,
     attachments: AiAttachmentMeta[] = [],
+    recallMessageId?: string,
   ): ReturnType<typeof apiSendAiMessage> {
     return apiSendAiMessage(
       sessionId,
@@ -528,6 +529,7 @@ class PlatformTransport {
       attachments,
       mode,
       expectedModelConfigVersion,
+      recallMessageId,
     );
   }
 

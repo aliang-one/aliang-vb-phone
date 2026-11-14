@@ -450,6 +450,12 @@
   },
   "session": {
     "draftTitle": "New conversation",
+    "recall": {
+      "banner": "Recall & resend: sending rewinds to the selected message; later history leaves the context",
+      "stopping": "Stopping the current turn, then sending…",
+      "stopTimeout": "Couldn't stop the current turn. Try again shortly.",
+      "cancel": "Cancel recall"
+    },
     "loading": {
       "subtitle": "LOADING",
       "loadingSession": "Loading conversation…",

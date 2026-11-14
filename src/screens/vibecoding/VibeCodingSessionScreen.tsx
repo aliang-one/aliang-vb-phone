@@ -1432,6 +1432,10 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const effectiveProvider = normalizeProvider(
     session?.effectiveModelConfig?.provider ?? session?.provider,
   );
+  // 撤回重发（2026-11-14）只对 agentcore 会话开放：服务端把锚点截断委托给
+  // agent journal（claude/codex 的原生转录在 CLI 会话里，宿主无从截断）。
+  // 与 PhoneServer recall_unsupported_provider 校验同口径，前端先隐藏入口。
+  const recallSupported = effectiveProvider === 'agentcore' && !isDraft;
   // --- live 回合信号(hoist 到此处:composer 锁 / 停止按钮 / 发送 handlers 都先于此用到)---
   // 事件驱动:isSessionLive = isSessionTurnActive(status) = status==='running'。回合边界由
   // 确定性事件决定(发送→running / ai.done→idle / ai.error→failed / 中断→idle),配合
@@ -1627,6 +1631,7 @@ export const VibeCodingSessionScreen: React.FC = () => {
     content: string,
     messageMode: 'voice' | 'text',
     assets: LocalAsset[] = [],
+    options: { recallMessageId?: string } = {},
   ) => {
     const normalizedContent = content.trim();
     if (!normalizedContent || sendLockRef.current) {
@@ -1805,7 +1810,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
         content: normalizedContent,
         assets,
         send: (outgoingContent, metas) =>
-          appendAgentMessage(session.id, outgoingContent, messageMode, metas),
+          appendAgentMessage(session.id, outgoingContent, messageMode, metas, {
+            recallMessageId: options.recallMessageId,
+          }),
         onUploadError: () => showToast(t('attachments.error'), 'error'),
         onSent: sentAssets => {
           const sentIds = new Set(sentAssets.map(item => item.id));
@@ -2032,22 +2039,30 @@ export const VibeCodingSessionScreen: React.FC = () => {
     }
     if (goalDraftActive) setToolsMenuVisible(false);
     writeInput('');
-    // On failure the store keeps the message as a client-only `failed` bubble
-    // (retryable / dismissable). The composer input is intentionally NOT
-    // restored: restoring it let a follow-up message append to the failed text
-    // and ship as one combined prompt ("你好 在吗"). The input stays empty so the
-    // next message is always clean.
-    // goal 路径没有素材通道（入口也已在 goal 会话隐藏）；显式传空数组，
-    // 避免把用户攒的 chips 带进一条注定被忽略的发送。
-    void appendUserMessage(content, 'text', sendableAssets)
-      .then(sent => {
-        if (!sent && isGoalSend) {
-          // 恢复语义同旧 setInput(current => current || nextInput)：输入框
-          // 已被其他路径填充时不动，否则还原本次未送达的原文。
-          if (!inputRef.current) writeInput(nextInput);
-        }
-      })
-      .catch(error => {
+    // 撤回重发（2026-11-14）：发送前先收口运行中的回合（stop + 终态轮询），
+    // 超时未停则放回输入框并提示，不硬发——硬发会被服务端 409 recall_run_active
+    // 拒绝且已隐藏的消息不会回滚。成功发送后清撤回编辑态。
+    const recallAnchor = recallDraftRef.current?.anchorMessageId;
+    const dispatchSend = (recallMessageId?: string) => {
+      // On failure the store keeps the message as a client-only `failed` bubble
+      // (retryable / dismissable). The composer input is intentionally NOT
+      // restored: restoring it let a follow-up message append to the failed text
+      // and ship as one combined prompt ("你好 在吗"). The input stays empty so the
+      // next message is always clean.
+      // goal 路径没有素材通道（入口也已在 goal 会话隐藏）；显式传空数组，
+      // 避免把用户攒的 chips 带进一条注定被忽略的发送。
+      void appendUserMessage(content, 'text', sendableAssets, { recallMessageId })
+        .then(sent => {
+          if (sent && recallMessageId) {
+            setRecallDraft(null);
+          }
+          if (!sent && isGoalSend) {
+            // 恢复语义同旧 setInput(current => current || nextInput)：输入框
+            // 已被其他路径填充时不动，否则还原本次未送达的原文。
+            if (!inputRef.current) writeInput(nextInput);
+          }
+        })
+        .catch(error => {
         if (isGoalSend) {
           setDetailError(goalRequestErrorMessage(error));
           if (!inputRef.current) writeInput(nextInput);
@@ -2066,6 +2081,22 @@ export const VibeCodingSessionScreen: React.FC = () => {
         }
         console.warn('[vibecoding] failed to send text prompt', error);
       });
+    };
+    // 撤回态：先停运行中的回合（stop + 轮询终态，≤8s），停不下来放回输入框。
+    // 非撤回态：直接发。
+    if (recallAnchor) {
+      void (async () => {
+        const stopped = await ensureRecallTurnStopped();
+        if (!stopped) {
+          setDetailError(t('session.recall.stopTimeout'));
+          if (!inputRef.current) writeInput(nextInput);
+          return;
+        }
+        dispatchSend(recallAnchor);
+      })();
+    } else {
+      dispatchSend();
+    }
   };
 
   const handleResolveApproval = (
@@ -2499,7 +2530,79 @@ export const VibeCodingSessionScreen: React.FC = () => {
     t,
     voiceStt,
   ]);
-  // Structured-activity attachment (P3.3). `transcript` is the coalesced
+
+  // ── 撤回重发（2026-11-14，对齐网页端撤回链）──────────────────────────
+  // 长按用户气泡 → 「编辑并重发」：回填原文进输入框 + 顶部横幅提示编辑态；
+  // 发送时把锚点（被撤回消息的 id）带上——服务端软隐藏锚点后消息并经
+  // ai.run.start 截断 agent journal，上下文真回退到锚点处。运行中会话先
+  // 打断（stop）等终态再撤回，与网页端铁律一致。
+  const [recallDraft, setRecallDraft] = useState<{
+    anchorMessageId: string;
+    originalText: string;
+    stopping: boolean;
+  } | null>(null);
+  const recallDraftRef = useRef<{
+    anchorMessageId: string;
+    originalText: string;
+    stopping: boolean;
+  } | null>(null);
+  recallDraftRef.current = recallDraft;
+
+  // 长按入口：回填原文 + 进编辑态。运行中不在此处打断——打断放到发送时刻，
+  // 让用户有一段改写时间；发送时若会话仍在跑再补打断。
+  const handleEditAndResend = useCallback(
+    (messageId: string, originalText: string) => {
+      if (!session || deviceOffline) return;
+      // 撤回编辑态只允许一个锚点；重复长按以最后一次为准（回填覆盖）。
+      writeInput(originalText);
+      setRecallDraft({ anchorMessageId: messageId, originalText, stopping: false });
+    },
+    [session, deviceOffline, writeInput],
+  );
+
+  // 退出撤回编辑态：清横幅；输入框保留（原文已是用户可继续编辑的草稿）。
+  const handleCancelRecallDraft = useCallback(() => {
+    setRecallDraft(null);
+  }, []);
+
+  // 发送时刻的运行中收口：锚点回合仍在跑则先 stop，轮询 runState 终态
+  // （上限 ~8s；与 stop 键同一 interrupt 通道）。返回 true=可以继续撤回发送。
+  const ensureRecallTurnStopped = useCallback(async (): Promise<boolean> => {
+    const draft = recallDraftRef.current;
+    if (!draft || !session) return true;
+    const stillLive = isAuthoritativeRunLive(
+      session.runStateVersion,
+      session.runState,
+      session.status,
+    );
+    if (!stillLive) return true;
+    setRecallDraft({ ...draft, stopping: true });
+    try {
+      await interruptAgentSession(session.id);
+    } catch (error) {
+      console.warn('[vibecoding] recall stop failed', error);
+    }
+    // 终态轮询：500ms × 16 ≈ 8s。服务端 stop 后 status 落 failed/idle 终态
+    // （ai.error / soft-settle idle 广播），快照经 useControlCenterStore 取最新。
+    for (let i = 0; i < 16; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const latest = useControlCenterStore
+        .getState()
+        .vibeRuns.find(run => run.id === session.id);
+      const live =
+        latest != null &&
+        isAuthoritativeRunLive(
+          latest.runStateVersion,
+          latest.runState,
+          latest.status,
+        );
+      if (!live) return true;
+    }
+    return false;
+  }, [session, interruptAgentSession]);
+
+  // ── 撤回重发接线结束 ─────────────────────────────────────────────
+
   // DisplayTranscriptMessage[] — each assistant bubble already carries the
   // underlying AgentMessage ids it spans (sourceMessageIds). The renderer
   // filters structuredEvents per-bubble from that. But tool-only assistant
@@ -3744,6 +3847,49 @@ export const VibeCodingSessionScreen: React.FC = () => {
                       </Text>
                     ) : null}
                   </View>
+                  {/* 撤回重发编辑态横幅（2026-11-14）：提示当前发送会截断锚点
+                      之后的历史；stopping 时显示打断进行中。取消退出编辑态。 */}
+                  {recallDraft ? (
+                    <View
+                      testID="recall-draft-banner"
+                      style={[
+                        styles.recallBanner,
+                        {
+                          borderColor: recallDraft.stopping
+                            ? theme.colors.tertiary
+                            : theme.colors.primary,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          theme.typography.codeSm,
+                          { color: theme.colors.onSurface },
+                        ]}
+                        numberOfLines={2}
+                      >
+                        {recallDraft.stopping
+                          ? t('session.recall.stopping')
+                          : t('session.recall.banner')}
+                      </Text>
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('session.recall.cancel')}
+                        onPress={handleCancelRecallDraft}
+                        style={styles.recallBannerCancel}
+                      >
+                        <Text
+                          style={[
+                            theme.typography.codeSm,
+                            { color: theme.colors.primary },
+                          ]}
+                        >
+                          {t('session.recall.cancel')}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
                   {conversationItems.map(item => {
                     if (item.kind === 'turn') {
                       return (
@@ -3778,6 +3924,11 @@ export const VibeCodingSessionScreen: React.FC = () => {
                                 onDismissFailed={handleDismissFailedMessage}
                                 turnFailedMessageId={failedTurnMessageId}
                                 onRetryTurn={handleRetryTurn}
+                                onEditAndResend={
+                                  recallSupported
+                                    ? handleEditAndResend
+                                    : undefined
+                                }
                               />
                             );
                           })}
@@ -4697,6 +4848,22 @@ const styles = StyleSheet.create({
   detailStatePanel: {
     padding: 14,
     gap: 10,
+  },
+  recallBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 16,
+    marginVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    backgroundColor: 'rgba(0, 81, 174, 0.06)',
+  },
+  recallBannerCancel: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   detailRetryButton: {
     alignSelf: 'flex-start',

@@ -764,12 +764,17 @@ export interface ControlCenterState {
    * 发送一条用户消息。`attachments` 是**服务端已物化**的素材元数据（图片
    * 先 PUT+complete，ASCII 先 create），发送时只带 `asset_id` 供服务端
    * 引用；乐观气泡同时挂上这份元数据，让用户立刻看到自己发了什么。
+   * `recallMessageId`（撤回重发，2026-11-14）：携带时服务端把锚点消息之后
+   * 的历史软隐藏并让 agent 截断 journal，本条 content 作为锚点的重发——
+   * 对话上下文真回退。仅 agentcore 会话；运行中会被 409 recall_run_active
+   * 拒绝（调用方须先 stop）。
    */
   appendAgentMessage: (
     sessionId: string,
     content: string,
     mode: 'voice' | 'text',
     attachments?: AiAttachmentMeta[],
+    options?: { recallMessageId?: string },
   ) => Promise<void>;
   /**
    * Re-send a failed-to-send user message (`AgentMessage.failed`) directly from

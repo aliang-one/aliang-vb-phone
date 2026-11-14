@@ -582,12 +582,20 @@ export const sendAiMessage = (
   attachments: unknown[] = [],
   mode: 'voice' | 'text' = 'text',
   expectedModelConfigVersion?: number,
+  /**
+   * 撤回重发锚点（2026-11-14，对齐网页端撤回链）：携带时服务端软隐藏锚点后
+   * 消息，并经 ai.run.start 的 truncate_before_message_id 让 agent 截断
+   * journal——上下文真回退到锚点处，本条 content 作为锚点的重发。
+   * 仅 agentcore 会话生效；运行中会话被服务端 409 recall_run_active 拒绝。
+   */
+  recallMessageId?: string,
 ): Promise<SendAiMessageResponse> =>
   apiPost(`/api/ai/sessions/${sessionId}/messages`, {
     content,
     attachments,
     mode,
     expected_model_config_version: expectedModelConfigVersion,
+    ...(recallMessageId ? { recall_message_id: recallMessageId } : {}),
   }, {
     timeoutMs: AI_TURN_REQUEST_TIMEOUT_MS,
   });

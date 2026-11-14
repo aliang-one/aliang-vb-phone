@@ -450,6 +450,12 @@
   },
   "session": {
     "draftTitle": "新建对话",
+    "recall": {
+      "banner": "撤回重发：发送后将回退到所选消息处，之后的历史不再进入上下文",
+      "stopping": "正在停止当前回合，完成后发送…",
+      "stopTimeout": "未能停止当前回合，请稍后重试",
+      "cancel": "取消撤回"
+    },
     "loading": {
       "subtitle": "LOADING",
       "loadingSession": "正在加载会话...",

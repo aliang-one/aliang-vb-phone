@@ -141,8 +141,11 @@ const messageSendKey = (
   content: string,
   mode: 'voice' | 'text',
   attachments: AiAttachmentMeta[] = [],
+  recallMessageId?: string,
 ) =>
-  `${sessionId}:${mode}:${attachments.map(item => item.asset_id).join(',')}:${content}`;
+  `${sessionId}:${mode}:${attachments.map(item => item.asset_id).join(',')}:${content}:${
+    recallMessageId ?? ''
+  }`;
 
 // 注意：这里以前是三元链 + `else return 'codex'`。新增 provider 时漏掉分支
 // 会被**静默降级成 codex**，用户选了内置内核却跑起外部 CLI（或反之报错），
@@ -1213,10 +1216,18 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     });
   },
 
-  appendAgentMessage: async (sessionId, content, mode, attachments = []) => {
+  appendAgentMessage: async (sessionId, content, mode, attachments = [], options = {}) => {
     const normalizedContent = content.trim();
     if (!normalizedContent) return;
-    const sendKey = messageSendKey(sessionId, normalizedContent, mode, attachments);
+    // 撤回重发（2026-11-14）：锚点进锁键——同文普通发送与撤回重发是两个意图，
+    // 不能被「同文同模式」去重误吞。
+    const sendKey = messageSendKey(
+      sessionId,
+      normalizedContent,
+      mode,
+      attachments,
+      options.recallMessageId,
+    );
     if (pendingMessageSends.has(sendKey)) return;
     pendingMessageSends.add(sendKey);
 
@@ -1356,9 +1367,11 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
     });
     try {
       // steer 与普通发送共用同一响应形状（message_id/run_id/run_state_version）。
+      // 撤回重发（recallMessageId）绝不走 steer：它语义上是新回合（锚点截断），
+      // 打进 steer 通道既截不了历史也错排相位。
       let response;
       try {
-        response = sendAsSteer
+        response = sendAsSteer && !options.recallMessageId
           ? await platformTransport.sendAiSteer(
               sessionId,
               normalizedContent,
@@ -1371,12 +1384,13 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
               mode,
               currentRun?.modelConfigVersion,
               attachments,
+              options.recallMessageId,
             );
       } catch (error) {
         // 本地 run 状态与服务器有时间差：steer 打在服务端已空闲的会话上会被
         // 409 ai_session_not_running 拒绝。按用户预期自动降级为普通发送
         // （等价新回合），不让用户手动重发、也不亮原始错误码。
-        if (sendAsSteer && classifySessionBusyError(error) === 'session_not_running') {
+        if (sendAsSteer && !options.recallMessageId && classifySessionBusyError(error) === 'session_not_running') {
           response = await platformTransport.sendAiMessage(
             sessionId,
             normalizedContent,
