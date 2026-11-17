@@ -100,3 +100,8 @@ yarn-error.log
 __pycache__/
 *.pyc
 .superpowers/
+
+# 本地构建/装机日志(会话产物,只留终端历史——勿提交)
+*-build-*.log
+install-*.log
+pod-install-*.log
