@@ -1,5 +1,7 @@
 import {
+  derivedApprovalPlanKey,
   parseMessageContentSegments,
+  sessionApprovalSuppressPlanKeys,
   type TranscriptCalloutSegment,
 } from '../messageRendering';
 
@@ -107,5 +109,49 @@ describe('messageRendering — aliang-options v2 optionCard 直通', () => {
     expect(segment.optionCard).toBeUndefined();
     expect(segment.content).not.toContain('card-json');
     expect(segment.content).toContain('需要你的批准');
+  });
+});
+
+describe('sessionApprovalSuppressPlanKeys(静态卡抑制集合,7647fda 契约收尾)', () => {
+  // 2026-11-16 TUI 会话实锤:7647fda 只落了子组件与测试,会话屏从未传
+  // suppressedApprovalPlanKeys → 每条 aliang-options 围栏消息渲染一张无交互
+  // 死卡,用户「只能看到样式不能选择」。集合计算提为纯函数钉死契约。
+  const storeApproval = {
+    title: '两边名字必须一字不差：liang liang ≠ aliang',
+    options: [
+      { id: 'miit-to-liangliang' },
+      { id: 'apple-to-aliang' },
+      { id: 'tell-me-where' },
+    ],
+  };
+
+  it('store 权威审批的 key 与消息围栏解析出的静态卡 key 逐字节一致', () => {
+    const segment = approvalSegment(
+      fence({
+        title: storeApproval.title,
+        options: [
+          { id: 'miit-to-liangliang', label: '备案改回' },
+          { id: 'apple-to-aliang', label: 'Apple 改名' },
+          { id: 'tell-me-where', label: '说不清' },
+        ],
+      }),
+    );
+    const keys = sessionApprovalSuppressPlanKeys([storeApproval]);
+    expect(keys.has(derivedApprovalPlanKey(segment.optionCard!))).toBe(true);
+  });
+
+  it('无 options 的审批产出独立 key,不误伤真实围栏卡', () => {
+    const segment = approvalSegment(
+      fence({ title: 't', options: [{ id: 'a', label: 'A' }] }),
+    );
+    const keys = sessionApprovalSuppressPlanKeys([
+      { title: 't' },
+      { title: 't', options: [] },
+    ]);
+    expect(keys.has(derivedApprovalPlanKey(segment.optionCard!))).toBe(false);
+  });
+
+  it('空集合→空集合', () => {
+    expect(sessionApprovalSuppressPlanKeys([]).size).toBe(0);
   });
 });

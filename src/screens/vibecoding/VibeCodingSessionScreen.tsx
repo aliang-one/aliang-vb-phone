@@ -130,6 +130,7 @@ import {
   revertDictation,
   type DictationSession,
 } from '../../utils/dictation';
+import { sessionApprovalSuppressPlanKeys } from '../../utils/messageRendering';
 import { GOAL_UI_ENABLED } from '../../config/featureFlags';
 import { sessionBusyErrorText } from '../../utils/sessionBusyError';
 import { useNowTick } from '../../hooks/useNowTick';
@@ -467,6 +468,16 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const activeTerminalId = useRecentActiveTerminalSessionId(session?.deviceId);
   const preview = useSessionPreview(session?.id);
   const sessionApprovals = useSessionApprovals(session?.id);
+  // 静态审批卡防双渲染接线(7647fda 契约收尾):store 权威审批(pending+resolved)
+  // 的 plan-key 集合传给 TranscriptMessageList,气泡里 aliang-options 围栏的
+  // 降级静态卡命中即整体隐藏——信息由时间线交互卡(pending)/折叠组(resolved)
+  // 承载。7647fda 只落了子组件消费端,会话屏从未传 prop(测试自供 prop 所以绿,
+  // 生产永远 undefined)→ 每条带围栏的消息渲染一张无交互死卡,用户「只能看到
+  // 样式不能选择」(2026-11-16 TUI 会话审批卡 RCA 主根因)。
+  const suppressedApprovalPlanKeys = useMemo(
+    () => sessionApprovalSuppressPlanKeys(sessionApprovals),
+    [sessionApprovals],
+  );
   const discoveredSessionCommands = useControlCenterStore(
     state => (session?.id ? state.sessionCommands[session.id] : undefined),
   );
@@ -3907,6 +3918,9 @@ export const VibeCodingSessionScreen: React.FC = () => {
                                 key={message.id}
                                 message={message}
                                 sessionId={session.id}
+                                suppressedApprovalPlanKeys={
+                                  suppressedApprovalPlanKeys
+                                }
                                 activitySessionId={session.id}
                                 messageActivityEvents={
                                   activityEventsByDisplayMessageId.get(

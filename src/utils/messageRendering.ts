@@ -480,6 +480,20 @@ export const approvalOptionPlanKey = (
     options: (approval.options ?? []).map(option => option.id),
   });
 
+/**
+ * 会话屏接线用:把 store 权威审批集合算成静态卡抑制 plan-key 集合,整包传给
+ * TranscriptMessageList 的 suppressedApprovalPlanKeys——气泡里的降级静态卡
+ * (aliang-options 围栏的 markdown 渲染)命中即整体隐藏,消灭「文本圆点 +
+ * options 死卡」双份展示。7647fda 当年只落了子组件消费端与测试,会话屏
+ * 一直没传(测试自己供 prop 所以绿,生产永远 undefined)→ 每条带围栏的
+ * 助手消息渲染一张无交互死卡,用户「只能看到样式不能选择」。pending 与
+ * resolved 都进集合:派生卡被答复后进折叠组,信息不丢,隐藏是永久的、
+ * 不会闪回(与 approvalSuppress 测试契约一致)。
+ */
+export const sessionApprovalSuppressPlanKeys = (
+  approvals: ReadonlyArray<Pick<ApprovalRequestLike, 'title' | 'options'>>,
+): Set<string> => new Set(approvals.map(approvalOptionPlanKey));
+
 // --- Claude Code harness 信封格式化 -----------------------------------------
 // harness 会把后台任务通知、斜杠命令记录等以 XML 信封形态注入 user 消息流
 // （生产 ai_messages 实证：task-notification 71 条全裸奔、命令簇 86 条零碎
