@@ -121,6 +121,13 @@ export interface FileDownloadStatus {
   url?: string;
   expires_at?: string;
   reason?: string;
+  /**
+   * LAN 直连候选(P1-3②,服务端 download+ready 才携带,其余缺省)。解析与
+   * 放行判定走 services/lanDirectDownload(拨号腿在原生 TLS 模块落地前
+   * 恒 COS,见该文件头路线拍板)。字段 optional:老服务端/不可协商态下
+   * 压根没有这个键。
+   */
+  direct_candidates?: Array<Record<string, unknown>>;
 }
 
 /** Ask the server to start uploading `path` to COS (202 + initial status). */

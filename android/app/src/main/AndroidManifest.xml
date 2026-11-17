@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- LAN 直连(P1-3):网络/Wi-Fi 状态探测(同 WiFi 判定)。拨号本体只需
+         INTERNET;组播发现(mDNS)如后续引入再补 CHANGE_WIFI_MULTICAST_STATE。 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Android 13+ 本地后台通知(通知权限)。iOS 走 Info.plist,与本清单无关。 -->

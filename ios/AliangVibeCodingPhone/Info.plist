@@ -35,6 +35,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>同一 Wi-Fi 下与你的电脑设备直连传输文件（不经公网中转）。拒绝后回退公网通道，仅影响传输速度。</string>
 	<key>NSCameraUsageDescription</key>
 	<string>用于拍照发送给 AI 助手，或扫描电脑端 Agent 二维码绑定设备。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
