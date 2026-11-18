@@ -1,4 +1,5 @@
-import { classifySessionBusyError, sessionBusyErrorText } from '../sessionBusyError';
+import { classifySessionBusyError, sendFailureText, sessionBusyErrorText } from '../sessionBusyError';
+import { ApiTimeoutError, ApiResponseError } from '../../api/client';
 
 const t = (key: string) => key;
 
@@ -121,5 +122,55 @@ describe('空闲会话插话（steer 被拒）', () => {
         t,
       ),
     ).toBe('session.error.steerNotRunning');
+  });
+});
+
+describe('sendFailureText', () => {
+  const tp = (key: string, params?: Record<string, unknown>) =>
+    params ? `${key}:${JSON.stringify(params)}` : key;
+
+  it('120s 超时 → sendTimeout 带 seconds', () => {
+    expect(sendFailureText(new ApiTimeoutError(120000), tp)).toBe(
+      `session.error.sendTimeout:${JSON.stringify({ seconds: 120 })}`,
+    );
+  });
+
+  it('服务端 409 device_offline → sendDeviceOffline', () => {
+    const err = new ApiResponseError('device_offline', 409, 'device_offline');
+    expect(sendFailureText(err, tp)).toBe('session.error.sendDeviceOffline');
+  });
+
+  it('403 ai_control_disabled → sendAiControlDisabled(403 不误判为登录过期)', () => {
+    const err = new ApiResponseError('ai_control_disabled', 403, 'ai_control_disabled');
+    expect(sendFailureText(err, tp)).toBe('session.error.sendAiControlDisabled');
+  });
+
+  it('401 → sendUnauthorized', () => {
+    const err = new ApiResponseError('unauthorized', 401, 'unauthorized');
+    expect(sendFailureText(err, tp)).toBe('session.error.sendUnauthorized');
+  });
+
+  it('403 无细分码 → sendUnauthorized', () => {
+    const err = new ApiResponseError('forbidden', 403);
+    expect(sendFailureText(err, tp)).toBe('session.error.sendUnauthorized');
+  });
+
+  it('未知 code → sendFailed 带原始 code', () => {
+    const err = new ApiResponseError('weird_thing', 400, 'weird_thing');
+    expect(sendFailureText(err, tp)).toBe(
+      `session.error.sendFailed:${JSON.stringify({ detail: 'weird_thing' })}`,
+    );
+  });
+
+  it('网络层失败(fetch TypeError)→ sendNetwork', () => {
+    expect(sendFailureText(new TypeError('Network request failed'), tp)).toBe(
+      'session.error.sendNetwork',
+    );
+  });
+
+  it('非 Error 值 → sendFailed 兜底', () => {
+    expect(sendFailureText('boom', tp)).toBe(
+      `session.error.sendFailed:${JSON.stringify({ detail: 'boom' })}`,
+    );
   });
 });

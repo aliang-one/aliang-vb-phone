@@ -132,7 +132,7 @@ import {
 } from '../../utils/dictation';
 import { sessionApprovalSuppressPlanKeys } from '../../utils/messageRendering';
 import { GOAL_UI_ENABLED } from '../../config/featureFlags';
-import { sessionBusyErrorText } from '../../utils/sessionBusyError';
+import { sendFailureText, sessionBusyErrorText } from '../../utils/sessionBusyError';
 import { useNowTick } from '../../hooks/useNowTick';
 import { useIncrementalList } from '../../hooks/useIncrementalList';
 import {
@@ -2029,7 +2029,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
     const nextInput = inputRef.current.trim();
     const goalCommand = GOAL_UI_ENABLED && isGoalCommand(nextInput);
     const isGoalSend = goalDraftActive || session?.purpose === 'goal' || goalCommand;
-    if (!isGoalSend && (deviceOffline || shouldDisableComposerForProvider)) return;
+    if (!isGoalSend && (deviceOffline || shouldDisableComposerForProvider)) {
+      // 2026-11-18 vm459 事故:此前的静默 return 让「设备离线(含手机端缓存
+      // 陈旧)/内核锁」下的发送点击毫无反馈——用户看到的是「发不出去且无
+      // 任何提示」。横幅说明原因,让「没发出」这件事本身可见。
+      setDetailError(t('session.error.sendBlocked'));
+      return;
+    }
     // Bug 3 fix: 自愈兜底。若 sendingMessage 已为 true 但距戳时间超过
     // SENDING_STALE_MS（45s），认定 createGoal / appendAgentMessage 等路径
     // 异常残留（hang、未捕获 reject、丢 finally），强制清掉 sendingMessage
@@ -2072,6 +2078,12 @@ export const VibeCodingSessionScreen: React.FC = () => {
             // 已被其他路径填充时不动，否则还原本次未送达的原文。
             if (!inputRef.current) writeInput(nextInput);
           }
+          if (!sent && !isGoalSend && isDraft) {
+            // 草稿静默 false（发送锁占用/守卫短路）：没有气泡载体，至少告知
+            // 消息没有发出并还原原文（2026-11-18 vm459 事故）。
+            setDetailError(t('session.error.sendNotDispatched'));
+            if (!inputRef.current) writeInput(nextInput);
+          }
         })
         .catch(error => {
         if (isGoalSend) {
@@ -2087,6 +2099,13 @@ export const VibeCodingSessionScreen: React.FC = () => {
           const busyText = sessionBusyErrorText(error, t);
           if (busyText) {
             setDetailError(busyText);
+            if (!inputRef.current) writeInput(nextInput);
+          } else if (isDraft) {
+            // 草稿首条没有 failed 气泡载体（2026-11-18 vm459 事故：服务端
+            // 4xx/超时/网络失败此前只落 console.warn，表象是「发送不出去
+            // 且无任何提示」）。横幅展示失败原因并还原原文；活跃会话路径
+            // 维持既有 failed 气泡反馈不变。
+            setDetailError(sendFailureText(error, t));
             if (!inputRef.current) writeInput(nextInput);
           }
         }

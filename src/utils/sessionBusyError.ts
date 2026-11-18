@@ -1,4 +1,4 @@
-import { ApiResponseError } from '../api/client';
+import { ApiTimeoutError, ApiResponseError } from '../api/client';
 
 /**
  * 「会话忙」类错误的统一识别 + 友好文案入口（跨仓契约 C6：服务端 409
@@ -77,4 +77,51 @@ export const sessionBusyErrorText = (
     return t('session.error.steerNotRunning');
   }
   return null;
+};
+
+/**
+ * 通用发送失败文案(draft 首条链路专用,2026-11-18 vm459 事故)。
+ *
+ * 草稿首条消息没有 failed 气泡载体:服务端 4xx、120s 超时、网络失败此前
+ * 全部落 console.warn,用户看到的是「发送不出去且无任何提示」。这里把
+ * 已知错误码翻译成友好文案,未知错误带 code/原文兜底——至少「发生了什么」
+ * 用户可见。忙类错误不走这里(调用方先用 sessionBusyErrorText 分类)。
+ */
+const SEND_FAILURE_CODE_KEYS: Readonly<Record<string, string>> = {
+  device_offline: 'session.error.sendDeviceOffline',
+  ai_control_disabled: 'session.error.sendAiControlDisabled',
+  device_not_found: 'session.error.sendTargetNotFound',
+  project_not_found: 'session.error.sendTargetNotFound',
+  session_closed: 'session.error.sendTargetNotFound',
+  validation_error: 'session.error.sendRejected',
+  unsupported_ai_provider: 'session.error.sendRejected',
+  idempotency_key_reused: 'session.error.sendRejected',
+};
+
+export const sendFailureText = (
+  error: unknown,
+  t: (key: string, params?: Record<string, unknown>) => string,
+): string => {
+  if (error instanceof ApiTimeoutError) {
+    return t('session.error.sendTimeout', {
+      seconds: Math.max(1, Math.round(error.timeoutMs / 1000)),
+    });
+  }
+  if (error instanceof ApiResponseError) {
+    if (error.status === 401) return t('session.error.sendUnauthorized');
+    if (error.status === 403) {
+      // ai_control_disabled 走 403,但语义不是登录过期,必须先于登录过期判定。
+      if (error.code === 'ai_control_disabled') {
+        return t('session.error.sendAiControlDisabled');
+      }
+      return t('session.error.sendUnauthorized');
+    }
+    const mapped = error.code ? SEND_FAILURE_CODE_KEYS[error.code] : undefined;
+    if (mapped) return t(mapped);
+    return t('session.error.sendFailed', { detail: error.code || error.message });
+  }
+  if (error instanceof Error && /network|fetch/i.test(error.message ?? '')) {
+    return t('session.error.sendNetwork');
+  }
+  return t('session.error.sendFailed', { detail: String(error ?? 'unknown') });
 };
