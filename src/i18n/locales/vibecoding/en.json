@@ -154,7 +154,9 @@
     "approvalDefault": "Recommended",
     "approvalAskAll": "Ask every time",
     "approvalBypassAll": "Allow all",
-    "approvalReadOnlyHint": "The approval mode is switched from the desktop composer's permission-mode panel; read-only here."
+    "approvalReadOnlyHint": "Unified across phone, web and kernel: switch here and the web panel plus kernel enforcement follow.",
+    "approvalReadOnly": "Read-only",
+    "approvalHint": "Takes effect next turn. Read-only = writes and commands ask first; Ask every time = all approvals prompt; Allow all = everything auto-approved (incl. dangerous). Default = follow project policy."
   },
   "agentSessions": {
     "messagesCount": "{{count}} messages",
@@ -496,7 +498,17 @@
       "retryHeadline": "Retry {{attempt}}{{max}}",
       "retryHeadlineMax": "Retry {{attempt}}/{{max}}",
       "retryHeadlineGateway": "Retry {{attempt}}{{max}} · gateway {{status}}",
-      "retryHintBusy": "⏳ Gateway busy, retrying {{attempt}}/{{max}}"
+      "retryHintBusy": "⏳ Gateway busy, retrying {{attempt}}/{{max}}",
+      "sendBlocked": "The device is offline or the selected kernel is unavailable — nothing was sent. Confirm the device is online on its desktop app and retry.",
+      "sendFailed": "Send failed: {{detail}}",
+      "sendTimeout": "Send timed out: no response from the server in {{seconds}}s. Try again.",
+      "sendNetwork": "Network request failed. Check your connection and retry.",
+      "sendUnauthorized": "Your session expired. Sign in again and retry.",
+      "sendNotDispatched": "Message was not dispatched (send channel busy). Try again.",
+      "sendDeviceOffline": "The target device is offline — nothing was sent.",
+      "sendAiControlDisabled": "The target device has AI control disabled — nothing was sent.",
+      "sendTargetNotFound": "The target device or project was not found (or is not bound to your account) — nothing was sent.",
+      "sendRejected": "The server rejected the request — nothing was sent."
     },
     "composer": {
       "claudeRunning": "The agent is running; stop it to continue typing.",

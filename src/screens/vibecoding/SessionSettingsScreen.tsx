@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -37,6 +38,10 @@ import { useRecentModelOptions } from '../../hooks/useRecentModelOptions';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type SessionSettingsRoute = RouteProp<RootStackParamList, 'SessionSettings'>;
+
+// 内核审批挡位线格式(2026-11-15 三端统一,与 api/sessions.ts ServerAiSession
+// 的 approval_mode 词表一致)。
+type ApprovalModeWire = '' | 'ask_all' | 'bypass_all' | 'read_only';
 
 // Resolve the effort-provider discriminant from a session, falling back to the
 // model label only for legacy snapshots that lack the authoritative field.
@@ -73,13 +78,14 @@ export const SessionSettingsScreen: React.FC = () => {
   // fallback before it loads.
   const { providerCatalog } = useModelOptions();
   const effortOptions = catalogEffortOptions(provider, providerCatalog);
-  // 内核审批挡位(approval_mode,undefined=默认推荐)——手机端**只读展示**,
-  // 不提供任何编辑入口。⚠️ ≠ approvalScheme(allow_all/ask_all/read_only 会话
-  // 权限策略,创建页可编辑的那套)——值域不同,文案走 sessionSettings.approval*
-  // 专用键,绝不复用 create.permissions.approval.*。
+  // 内核审批挡位(approval_mode)——2026-11-15 三端统一:挡位是唯一权威
+  // (内核执行语义),手机在此可编辑(PATCH approval_mode),网页权限面板与
+  // 内核同步生效。原 approvalScheme(创建页那套)已映射收敛到挡位,不再
+  // 独立展示。'' = 默认推荐(项目策略现状)。
   const approvalChips = useMemo(
     () => [
       { label: t('sessionSettings.approvalDefault'), value: '' },
+      { label: t('sessionSettings.approvalReadOnly'), value: 'read_only' },
       { label: t('sessionSettings.approvalAskAll'), value: 'ask_all' },
       { label: t('sessionSettings.approvalBypassAll'), value: 'bypass_all' },
     ],
@@ -123,6 +129,23 @@ export const SessionSettingsScreen: React.FC = () => {
   const [effortDraft, setEffortDraft] = useState(
     session?.effort?.trim() || intensityToEffort(parsed.intensity),
   );
+  // 审批挡位草稿(undefined=会话未加载前不动)。"dirty 才发键"语义:保存时
+  // 只在用户真正切过挡位时携带 approval_mode,与模型配置的 CAS 互不干扰。
+  const [approvalDraft, setApprovalDraft] = useState<string | undefined>(
+    undefined,
+  );
+  React.useEffect(() => {
+    // 会话快照到达后初始化草稿(挡位在 store 里是 approvalMode ?? '')
+    if (session && approvalDraft === undefined) {
+      setApprovalDraft(session.approvalMode ?? '');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id, session?.approvalMode]);
+  // 用户是否真的切过挡位(草稿 ≠ 会话当前值)——只有 dirty 才在保存时发键,
+  // 避免「打开设置页点保存」把挡位无意义地重写一遍。
+  const approvalDirty =
+    approvalDraft !== undefined &&
+    approvalDraft !== (session?.approvalMode ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -140,6 +163,10 @@ export const SessionSettingsScreen: React.FC = () => {
         // 钳到设备 CLI 实测支持的档(全局阶梯向下),旧会话的高档位不会
         // 打崩降级后的 CLI;全不支持回落 ''(CLI 默认)。
         effort: degradeEffort(effortDraft.trim(), supportedEfforts),
+        // 审批挡位(2026-11-15 三端统一):用户切过才发键(undefined=不动
+        // 存量),'' = 显式回默认推荐。服务端 PATCH 落库后随下一回合
+        // ai.run.start/create 恒带键透传内核,网页 chip 同步显示。
+        approval_mode: approvalDirty ? (approvalDraft as ApprovalModeWire) : undefined,
       });
       rememberModel(modelBase);
       navigation.goBack();
@@ -330,10 +357,10 @@ export const SessionSettingsScreen: React.FC = () => {
           })}
         </Text>
 
-        {/* 内核审批挡位(approval_mode)只读区块:样式照 effort 区块,但用 View
-            替代 TouchableOpacity——不可点,无任何编辑入口。桌面端在会话权限里
-            切换,手机端只展示当前值(undefined=默认推荐)。注意这是内核挡位,
-            ≠ approvalScheme 会话权限策略。 */}
+        {/* 内核审批挡位(approval_mode)可编辑区块:2026-11-15 三端统一——挡位
+            是唯一权威,手机在此切换,服务端 PATCH 落库后随下一回合
+            ai.run.start/create 恒带键透传内核,网页权限面板同步显示。
+            bypass_all 会弹确认(真·全放,含危险命令)。 */}
         <Text
           style={[
             theme.typography.labelCaps,
@@ -344,11 +371,34 @@ export const SessionSettingsScreen: React.FC = () => {
         </Text>
         <View style={styles.chipRow}>
           {approvalChips.map(option => {
-            const active = (session.approvalMode ?? '') === option.value;
+            const active = (approvalDraft ?? session.approvalMode ?? '') === option.value;
+            const isBypass = option.value === 'bypass_all';
             return (
-              <View
+              <TouchableOpacity
                 key={option.value || 'default'}
                 testID={`approval-chip-${option.value || 'default'}`}
+                accessibilityState={{ disabled: saving }}
+                activeOpacity={0.75}
+                disabled={saving}
+                onPress={() => {
+                  if (isBypass && active) return;
+                  if (isBypass) {
+                    Alert.alert(
+                      t('sessionSettings.approvalBypassAll'),
+                      t('sessionSettings.approvalHint'),
+                      [
+                        { text: t('common.cancel'), style: 'cancel' },
+                        {
+                          text: t('common.confirm'),
+                          style: 'destructive',
+                          onPress: () => setApprovalDraft(option.value),
+                        },
+                      ],
+                    );
+                    return;
+                  }
+                  setApprovalDraft(option.value);
+                }}
                 style={[
                   styles.chip,
                   {
@@ -374,10 +424,18 @@ export const SessionSettingsScreen: React.FC = () => {
                   ]}>
                   {option.label}
                 </Text>
-              </View>
+              </TouchableOpacity>
             );
           })}
         </View>
+        <Text
+          style={[
+            theme.typography.bodySm,
+            { color: theme.colors.onSurfaceVariant },
+            styles.hint,
+          ]}>
+          {t('sessionSettings.approvalHint')}
+        </Text>
         <Text
           style={[
             theme.typography.bodySm,

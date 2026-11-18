@@ -154,7 +154,9 @@
     "approvalDefault": "默认推荐",
     "approvalAskAll": "每次询问",
     "approvalBypassAll": "放过所有",
-    "approvalReadOnlyHint": "审批挡位在桌面端聊天输入框的「权限模式」面板切换，手机端只读展示。"
+    "approvalReadOnlyHint": "三端统一挡位：手机在此切换，网页权限面板与内核执行同步生效。",
+    "approvalReadOnly": "只读",
+    "approvalHint": "下一回合生效。只读=文件改写与命令执行都先问你；每次询问=一切审批都问你；放过所有=全部自动放行(含危险命令)。默认推荐=按项目策略执行。"
   },
   "agentSessions": {
     "messagesCount": "{{count}} 条消息",
@@ -496,7 +498,17 @@
       "retryHeadline": "重试 {{attempt}}{{max}}",
       "retryHeadlineMax": "重试 {{attempt}}/{{max}}",
       "retryHeadlineGateway": "重试 {{attempt}}{{max}} · 网关 {{status}}",
-      "retryHintBusy": "⏳ 网关繁忙，重试中 {{attempt}}/{{max}}"
+      "retryHintBusy": "⏳ 网关繁忙，重试中 {{attempt}}/{{max}}",
+      "sendBlocked": "设备当前离线或所选内核不可用，消息没有发出。请在桌面端确认设备在线后重试。",
+      "sendFailed": "发送失败：{{detail}}",
+      "sendTimeout": "发送超时：服务端 {{seconds}} 秒未响应，请稍后重试。",
+      "sendNetwork": "网络连接失败，请检查网络后重试。",
+      "sendUnauthorized": "登录状态已过期，请重新登录后再试。",
+      "sendNotDispatched": "消息没有发出（发送通道被占用），请重试。",
+      "sendDeviceOffline": "目标设备当前离线，消息没有发出。",
+      "sendAiControlDisabled": "目标设备未开启 AI 控制，消息没有发出。",
+      "sendTargetNotFound": "目标设备或项目不存在（或未绑定当前账号），消息没有发出。",
+      "sendRejected": "服务端拒绝了本次请求，消息没有发出。"
     },
     "composer": {
       "claudeRunning": "Agent 正在运行，停止后可继续输入。",

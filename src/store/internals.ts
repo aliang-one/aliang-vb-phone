@@ -807,15 +807,15 @@ export function serverAiSessionToVibeRun(
     objective: session.objective ?? '',
     model,
     effort: session.effort || undefined,
-    // 内核审批挡位:三态保留(2026-11-09 评审修正)。'' 是合法显式值(桌面端
-    // 切回默认推荐),不能 || undefined 坍缩——否则与 mergeVibeRunSnapshot 的
-    // 「缺键保存量」守卫咬合,桌面重置永远传不到手机(陈旧挡位显示到冷启动)。
+    // 内核审批挡位:四态保留(2026-11-15 三端统一,read_only 并入)。'' 是合法
+    // 显式值(切回默认推荐),不能 || undefined 坍缩——否则与 mergeVibeRunSnapshot
+    // 的「缺键保存量」守卫咬合,重置永远传不到手机(陈旧挡位显示到冷启动)。
     // 缺键(老 server)/非法值 → undefined = 未知,交守卫保存量。
-    // ⚠️ ≠ approvalScheme(会话权限策略)——两套值域勿混淆。
     approvalMode:
       session.approval_mode === '' ||
       session.approval_mode === 'ask_all' ||
-      session.approval_mode === 'bypass_all'
+      session.approval_mode === 'bypass_all' ||
+      session.approval_mode === 'read_only'
         ? session.approval_mode
         : undefined,
     // 会话级上下文窗口：老 server 不发 → undefined（= 未设置，UI 显示用户

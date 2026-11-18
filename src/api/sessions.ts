@@ -203,12 +203,13 @@ export interface ServerAiSession {
   effort?: string;
   /**
    * 内核审批挡位(与 effort 同风格 snake_case,键名与 PhoneServer
-   * publicAiSession 出站逐字对齐)。'' | 'ask_all' | 'bypass_all',服务端恒带键
-   * (空串 = 默认推荐)。**手机端只读展示**,不新增任何编辑入口。
-   * ⚠️ ≠ approvalScheme(allow_all/ask_all/read_only 会话权限策略,创建链路
-   * 出站字段)——两套值域、两层语义,勿混用文案。
+   * publicAiSession 出站逐字对齐)。'' | 'ask_all' | 'bypass_all' | 'read_only',
+   * 服务端恒带键(空串 = 默认推荐)。2026-11-15 三端统一：挡位升级为**唯一
+   * 权威**（服务端 DB → ai.run.start/create 帧透传 → 内核 journal 执行），
+   * 手机端会话设置页可编辑（PATCH approval_mode），approvalScheme 退为
+   * legacy 兜底。'' = 默认推荐(策略现状)。
    */
-  approval_mode?: '' | 'ask_all' | 'bypass_all';
+  approval_mode?: '' | 'ask_all' | 'bypass_all' | 'read_only';
   model_config_version?: number;
   /**
    * 会话级上下文窗口（tokens）。缺省 = 未设置，服务端逐层回落（会话 →
@@ -688,6 +689,13 @@ export const updateAiSession = (
      * model/effort 一样要走 `expected_model_config_version`。
      */
     context_window: number | null;
+    /**
+     * 内核审批挡位（2026-11-15 三端统一）：'' | ask_all | bypass_all |
+     * read_only。'' = 显式回默认推荐，omit = 不动存量。不计入
+     * modelConfigVersion（行为开关，乐观并发只看模型配置）。下一回合
+     * ai.run.start/create 恒带键透传内核。
+     */
+    approval_mode?: '' | 'ask_all' | 'bypass_all' | 'read_only';
     expected_model_config_version: number;
   }>,
 ): Promise<ServerAiSession> =>

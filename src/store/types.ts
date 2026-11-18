@@ -751,6 +751,12 @@ export interface ControlCenterState {
        * 默认）。下一轮生效；计入 modelConfigVersion。
        */
       contextWindow: number | null;
+      /**
+       * 内核审批挡位（2026-11-15 三端统一）：'' | ask_all | bypass_all |
+       * read_only。omit = 不动存量，'' = 显式回默认推荐。不计入
+       * modelConfigVersion；下一回合透传内核，网页 chip 同步。
+       */
+      approval_mode?: '' | 'ask_all' | 'bypass_all' | 'read_only';
     }>,
   ) => Promise<void>;
   /**

@@ -1134,6 +1134,9 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
       // 服务端把它和 model/effort 一起算进 modelConfigVersion，所以三者任一
       // 变动都要带期望版本做 CAS。
       context_window: input.contextWindow,
+      // 内核审批挡位(2026-11-15 三端统一)：undefined = 不动存量，'' = 显式
+      // 回默认推荐。不计入 modelConfigVersion(行为开关 ≠ 模型配置)，无 CAS。
+      approval_mode: input.approval_mode,
       expected_model_config_version:
         input.model !== undefined ||
         input.effort !== undefined ||

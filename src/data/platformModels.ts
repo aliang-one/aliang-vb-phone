@@ -399,14 +399,13 @@ export interface VibeCodingRun {
   /** Reasoning effort (provider-specific); undefined = no override. */
   effort?: string;
   /**
-   * 内核审批挡位(wire `approval_mode` 三态保留):'' = 显式默认推荐(桌面端
+   * 内核审批挡位(wire `approval_mode`):'' = 显式默认推荐(桌面端/手机端
    * 切回默认,必须能与缺键区分,否则 mergeVibeRunSnapshot 的保存量守卫会把
    * 重置永远洗掉);undefined = 缺键(老 server)/非法值 = 未知,显示按默认推荐。
-   * **手机端只读展示**,不新增任何编辑入口。
-   * ⚠️ ≠ approvalScheme(allow_all/ask_all/read_only 会话权限策略)——两套值域、
-   * 两层语义,勿混用文案。
+   * 2026-11-15 三端统一:挡位是唯一权威(read_only 并入),手机会话设置页
+   * 可编辑(PATCH approval_mode),网页权限面板与内核执行同步。
    */
-  approvalMode?: '' | 'ask_all' | 'bypass_all';
+  approvalMode?: '' | 'ask_all' | 'bypass_all' | 'read_only';
   /**
    * 会话级上下文窗口（tokens）。undefined = 未设置（服务端回落用户默认 →
    * 200k）。可随时在输入框 Tools 里改，下一轮生效；展示用的「生效值」看
