@@ -639,6 +639,12 @@
       },
       "elapsedSec": "{{sec}} 秒",
       "elapsedMinSec": "{{min}} 分 {{sec}} 秒"
+    },
+    "backgroundTasks": {
+      "title": "后台任务",
+      "entryA11y": "查看后台任务",
+      "countSummary": "{{active}} 个进行中 · 共 {{total}} 个",
+      "empty": "本会话还没有后台任务。子 Agent 与后台执行的进度会实时出现在这里。"
     }
   },
   "drawing": {

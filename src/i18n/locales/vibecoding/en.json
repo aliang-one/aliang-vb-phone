@@ -639,6 +639,12 @@
       },
       "elapsedSec": "{{sec}}s",
       "elapsedMinSec": "{{min}}m {{sec}}s"
+    },
+    "backgroundTasks": {
+      "title": "Background tasks",
+      "entryA11y": "View background tasks",
+      "countSummary": "{{active}} active · {{total}} total",
+      "empty": "No background tasks in this session yet. Subagent and background execution progress will appear here live."
     }
   },
   "drawing": {

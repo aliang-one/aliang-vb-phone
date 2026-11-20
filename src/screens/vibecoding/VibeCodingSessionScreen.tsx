@@ -36,6 +36,10 @@ import { StatusChip } from '../../components/shared/StatusChip';
 import { ToolsMenu } from '../../components/vibecoding/ToolsMenu';
 import { DiagnosticsPanel } from '../../components/vibecoding/DiagnosticsPanel';
 import {
+  BackgroundTasksPanel,
+  type SubagentTaskEvent,
+} from '../../components/vibecoding/BackgroundTasksPanel';
+import {
   AttachmentMenuSheet,
   type AttachmentMenuAction,
 } from '../../components/vibecoding/AttachmentMenuSheet';
@@ -212,6 +216,8 @@ export const isSendingStale = (
 const FOCUS_AWAY_THRESHOLD_MS = 60_000;
 const AUTO_REFRESH_COOLDOWN_MS = 30_000;
 const EMPTY_ACTIVITY_EVENTS: StructuredActivityEvent[] = [];
+// 后台任务面板的空态共享引用：避免每次 memo 重建新数组引发下游比较抖动。
+const EMPTY_SUBAGENT_EVENTS: SubagentTaskEvent[] = [];
 
 const eventIcon: Record<string, IconName> = {
   command: 'terminal',
@@ -816,6 +822,17 @@ export const VibeCodingSessionScreen: React.FC = () => {
   const handleToggleDiagnostics = useCallback(() => {
     setDiagnosticsOpen(value => !value);
   }, []);
+  // 后台任务面板（右侧滑出）：本会话子 agent / 后台执行的聚合状态。
+  const [backgroundTasksOpen, setBackgroundTasksOpen] = useState(false);
+  // 子代理事件聚合（引用稳定 memo）：面板打开时整列下发；活跃计数驱动顶栏
+  // 入口的 tone（有活跃任务 = primary，纯历史 = neutral）。空数组共享常量
+  // 避免 memo 抖动。
+  const subagentTaskEvents = useMemo<SubagentTaskEvent[]>(() => {
+    const events = session?.structuredEvents;
+    if (!events || events.length === 0) return EMPTY_SUBAGENT_EVENTS;
+    const filtered = events.filter(event => event.kind === 'subagent');
+    return filtered.length > 0 ? (filtered as SubagentTaskEvent[]) : EMPTY_SUBAGENT_EVENTS;
+  }, [session?.structuredEvents]);
   // Composer 回调稳定化:MessageComposer 已 React.memo,渲染点内联箭头会
   // 每次生成新引用击穿 memo(流式 ≤5Hz 屏幕重渲染时 composer 白陪跑)。
   const handleComposerModeChange = useCallback((nextMode: ComposerMode) => {
@@ -3413,6 +3430,18 @@ export const VibeCodingSessionScreen: React.FC = () => {
                   <IconBadge name="fingerprint" tone="neutral" size={26} iconSize={14} />
                 </TouchableOpacity>
               )}
+              {/* 后台任务入口：本会话存在子 agent / 后台任务时显示（活跃任务
+                  高亮 primary）。点击右侧划出聚合面板。 */}
+              {!isDraft && subagentTaskEvents.length > 0 ? (
+                <TouchableOpacity
+                  onPress={() => setBackgroundTasksOpen(true)}
+                  activeOpacity={0.72}
+                  hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('session.backgroundTasks.entryA11y')}>
+                  <BackgroundTasksEntryBadge events={subagentTaskEvents} />
+                </TouchableOpacity>
+              ) : null}
             </View>
             <Text
               numberOfLines={1}
@@ -4673,6 +4702,16 @@ export const VibeCodingSessionScreen: React.FC = () => {
         onClose={() => setDiagnosticsOpen(false)}
         run={session}
       />
+      {/* 后台任务面板：右侧滑出，聚合本会话子 agent / 后台执行状态；行点击
+          复用 SubagentDrawer 看单任务工具轨迹与结果。 */}
+      {session ? (
+        <BackgroundTasksPanel
+          open={backgroundTasksOpen}
+          onClose={() => setBackgroundTasksOpen(false)}
+          sessionId={session.id}
+          events={subagentTaskEvents}
+        />
+      ) : null}
       <ApprovalQuickPolicySheet
         projectId={session?.projectId ?? ''}
         toolName={quickPolicyFor?.toolName}
@@ -4692,7 +4731,87 @@ export const VibeCodingSessionScreen: React.FC = () => {
   );
 };
 
+// 后台任务顶栏入口徽标：agent 图标 + 活跃数角标。独立小组件 + memo：面板
+// 关闭时它只依赖事件签名（相位/计数变化才重渲染），不随屏幕流式节拍陪跑。
+const ACTIVE_TASK_PHASES = new Set(['queued', 'started', 'progress']);
+
+const BackgroundTasksEntryBadgeBase: React.FC<{ events: SubagentTaskEvent[] }> = ({
+  events,
+}) => {
+  const { theme } = useTheme();
+  const activeCount = events.filter(event =>
+    ACTIVE_TASK_PHASES.has(event.phase),
+  ).length;
+  return (
+    <View>
+      <IconBadge
+        name="agent"
+        tone={activeCount > 0 ? 'primary' : 'neutral'}
+        size={26}
+        iconSize={14}
+      />
+      {activeCount > 0 ? (
+        <View
+          style={[
+            styles.backgroundTasksBadgeDot,
+            { backgroundColor: theme.colors.primary },
+          ]}>
+          <Text style={[theme.typography.labelSm, styles.backgroundTasksBadgeText]}>
+            {activeCount > 9 ? '9+' : activeCount}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+};
+
+const areBackgroundTasksEntryPropsEqual = (
+  prev: { events: SubagentTaskEvent[] },
+  next: { events: SubagentTaskEvent[] },
+): boolean => {
+  if (prev.events === next.events) return true;
+  if (prev.events.length !== next.events.length) return false;
+  for (let i = 0; i < prev.events.length; i += 1) {
+    const a = prev.events[i];
+    const b = next.events[i];
+    if (
+      a.eventId !== b.eventId ||
+      a.phase !== b.phase ||
+      a.toolUses !== b.toolUses ||
+      a.currentStep !== b.currentStep ||
+      a.description !== b.description
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const BackgroundTasksEntryBadge = React.memo(
+  BackgroundTasksEntryBadgeBase,
+  areBackgroundTasksEntryPropsEqual,
+);
+BackgroundTasksEntryBadge.displayName = 'BackgroundTasksEntryBadge';
+
 const styles = StyleSheet.create({
+  // 后台任务入口角标：钉在 agent 图标右上角的小计数。
+  backgroundTasksBadgeDot: {
+    position: 'absolute',
+    top: -4,
+    right: -6,
+    minWidth: 15,
+    height: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  backgroundTasksBadgeText: {
+    fontSize: 9,
+    lineHeight: 13,
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
   // TUI 共享提示条:机制说明(见 showTuiSharedNotice),中性底色不抢注意力。
   tuiSharedNoticeRow: {
     flexDirection: 'row',
