@@ -294,8 +294,13 @@ export const createAiSessionSlice: StateCreator<ControlCenterState, [], [], AiSe
           effort: sentEffort,
           context_window: input.contextWindow,
           // Per-session permission override (create-flow "session permissions").
-          // approvalScheme is forwarded only when set (omit => inherit resolved
-          // project/device policy); the capability toggles pass through verbatim.
+          // approvalMode is the post-2026-11-15 unified kernel mode (the only
+          // authority — the server persists it verbatim); forwarded only when
+          // set (omit => inherit the resolved project/device policy).
+          // approvalScheme is legacy compat, forwarded only when set.
+          ...(input.approvalMode !== undefined
+            ? { approval_mode: input.approvalMode }
+            : {}),
           approvalScheme: input.approvalScheme,
           canRead: input.canRead,
           canModify: input.canModify,

@@ -180,3 +180,138 @@ describe('VibeSessionCard 另起续聊 entry', () => {
     act(() => renderer.unmount());
   });
 });
+
+describe('VibeSessionCard 新建会话 entry（长按菜单 new 按钮）', () => {
+  const startAgentSession = jest.fn();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockNavigate.mockClear();
+    startAgentSession.mockResolvedValue('clone-session-1');
+    useControlCenterStore.setState({
+      devices: [],
+      projects: [],
+      approvals: [],
+      vibeRuns: [],
+      startAgentSession,
+      deleteAgentSession: jest.fn().mockResolvedValue(undefined),
+      updateAgentSession: jest.fn().mockResolvedValue(undefined),
+      generateAgentSessionTitle: jest.fn().mockResolvedValue('t'),
+    });
+  });
+
+  const renderCard = (session: VibeCodingRun) => {
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = ReactTestRenderer.create(<VibeSessionCard session={session} />);
+    });
+    return renderer;
+  };
+
+  const openMenu = (renderer: ReactTestRenderer.ReactTestRenderer) => {
+    const card = renderer.root.findByType(TouchableOpacity);
+    act(() => {
+      card.props.onLongPress();
+    });
+  };
+
+  const newAction = (renderer: ReactTestRenderer.ReactTestRenderer) =>
+    renderer.root
+      .findAllByType(TouchableOpacity)
+      .find(button =>
+        button
+          .findAllByType(Text)
+          .some(node => node.props.children === '新建会话'),
+      );
+
+  it('menu always offers 新建会话 alongside 删除/重命名', () => {
+    const renderer = renderCard(baseRun({ id: 'ai_abc123' }));
+    openMenu(renderer);
+    expect(newAction(renderer)).toBeTruthy();
+    const labels = renderer.root
+      .findAllByType(TouchableOpacity)
+      .map(button =>
+        button
+          .findAllByType(Text)
+          .map(node => node.props.children)
+          .join(''),
+      );
+    expect(labels).toContain('删除');
+    expect(labels).toContain('重命名');
+    act(() => renderer.unmount());
+  });
+
+  it('agentcore: clones provider/model/effort/contextWindow/approvalMode, empty start, navigates', async () => {
+    const renderer = renderCard(
+      baseRun({
+        id: 'ai_abc123',
+        provider: 'agentcore',
+        model: 'glm-5.3',
+        effort: 'xhigh',
+        contextWindow: 400000,
+        approvalMode: 'bypass_all',
+      }),
+    );
+    openMenu(renderer);
+    await act(async () => {
+      await newAction(renderer)!.props.onPress();
+    });
+    expect(startAgentSession).toHaveBeenCalledTimes(1);
+    expect(startAgentSession).toHaveBeenCalledWith({
+      deviceId: 'device-1',
+      projectId: 'project-1',
+      directory: '~/proj',
+      provider: 'agentcore',
+      objective: '',
+      model: 'glm-5.3',
+      effort: 'xhigh',
+      contextWindow: 400000,
+      approvalMode: 'bypass_all',
+    });
+    // 空起：绝不回填 source_session_id（与另起续聊的本质区别）。
+    expect(startAgentSession.mock.calls[0][0].sourceSessionId).toBeUndefined();
+    expect(mockNavigate).toHaveBeenCalledWith('VibeCodingSession', {
+      sessionId: 'clone-session-1',
+    });
+    act(() => renderer.unmount());
+  });
+
+  it('claude_code with a display-label model: no model key (CLI default), approvalMode kept', async () => {
+    const renderer = renderCard(
+      baseRun({
+        id: 'ai_abc123',
+        provider: 'claude_code',
+        model: 'Claude Code',
+        approvalMode: '',
+      }),
+    );
+    openMenu(renderer);
+    await act(async () => {
+      await newAction(renderer)!.props.onPress();
+    });
+    const payload = startAgentSession.mock.calls[0][0];
+    expect(payload).toMatchObject({
+      provider: 'claude_code',
+      objective: '',
+      approvalMode: '',
+    });
+    expect(payload.model).toBeUndefined();
+    expect(payload.sourceSessionId).toBeUndefined();
+    act(() => renderer.unmount());
+  });
+
+  it('shows a notice and keeps the menu open on failure', async () => {
+    startAgentSession.mockRejectedValueOnce(new Error('offline'));
+    const renderer = renderCard(baseRun({ id: 'ai_abc123' }));
+    openMenu(renderer);
+    await act(async () => {
+      await newAction(renderer)!.props.onPress();
+    });
+    expect(mockNavigate).not.toHaveBeenCalled();
+    const notice = renderer.root
+      .findAllByType(Text)
+      .some(node => String(node.props.children).includes('创建'));
+    expect(notice).toBe(true);
+    act(() => renderer.unmount());
+  });
+});

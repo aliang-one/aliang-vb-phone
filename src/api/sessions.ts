@@ -551,10 +551,18 @@ export const createAiSession = (input: {
    */
   context_window?: number;
   /**
+   * 内核审批挡位（2026-11-15 三端统一后的唯一权威）：'' = 默认推荐（策略
+   * 现状），ask_all/bypass_all/read_only 显式定挡。服务端 create schema 直接
+   * 接受并落库；与 legacy approvalScheme 同时下发时以 approval_mode 为准。
+   * 新 UI 一律走本字段。
+   */
+  approval_mode?: '' | 'ask_all' | 'bypass_all' | 'read_only';
+  /**
    * Per-session approval-policy override (create-flow "session permissions").
    * camelCase on the wire to match the server's aiCreateSchema field naming.
    * Omit/undefined = inherit the resolved project/device policy (the server
    * only accepts allow_all | ask_all | read_only — never send 'inherit').
+   * LEGACY: approval_mode 已是唯一权威，仅旧调用方兼容保留。
    */
   approvalScheme?: 'allow_all' | 'ask_all' | 'read_only';
   /**

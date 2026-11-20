@@ -36,7 +36,7 @@ import { useReduceMotion } from '../../hooks/useReduceMotion';
 import { IconBadge } from '../visual/IconBadge';
 import { formatVibeSessionTitle } from '../../utils/vibeSessionTitle';
 import { defaultModelFor, providerLabel } from '../../utils/modelIntensity';
-import { sessionResumeTarget } from '../../utils/sessionOrigin';
+import { sessionCloneConfig, sessionResumeTarget } from '../../utils/sessionOrigin';
 import { SessionOriginBadge } from './SessionOriginBadge';
 
 const formatBudget = (budget: VibeCodingRun['projectBudget']) =>
@@ -120,6 +120,8 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
     // 续读有竞态）。
     const resumeTarget = sessionResumeTarget(session);
     const [resumeCreating, setResumeCreating] = useState(false);
+    // 新建会话（new 按钮）在途状态：与另起续聊同款——在途时不重复响应。
+    const [newSessionCreating, setNewSessionCreating] = useState(false);
     // Re-render on a shared 30s cadence so the relative "上次激活" label below
     // stays fresh instead of freezing at the value from when activity happened.
     useNowTick();
@@ -237,6 +239,43 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
         setNotice(t('sessionCard.resumeCreateFailed'));
       } finally {
         setResumeCreating(false);
+      }
+    };
+
+    // 新建会话（长按菜单 new 按钮）：沿用当前会话配置（provider/model/
+    // effort/contextWindow/approval_mode，按 agent 各自语义解析，见
+    // sessionOrigin.sessionCloneConfig），空起崭新对话——不回填
+    // source_session_id（与另起续聊的本质区别）、不带首条消息（空起形态，
+    // 会话注册后进会话页等用户开口），能力位 can* 不带（列表快照没有，
+    // 走项目策略继承）。失败不关菜单，notice 给重试入口。
+    const handleNewSession = async () => {
+      if (newSessionCreating) return;
+      setNotice(t('sessionCard.newSessionCreating'));
+      setNewSessionCreating(true);
+      try {
+        const clone = sessionCloneConfig(session);
+        const newSessionId = await startAgentSession({
+          deviceId: session.deviceId,
+          projectId: session.projectId,
+          directory: session.directory,
+          provider: clone.provider,
+          objective: '',
+          // agentcore 要求手机显式下发模型（requiresExplicitModel）——
+          // sessionCloneConfig 已兜底；外部 CLI 无显式模型时不发 model 键。
+          model: clone.model,
+          ...(clone.effort ? { effort: clone.effort } : {}),
+          ...(clone.contextWindow ? { contextWindow: clone.contextWindow } : {}),
+          ...(clone.approvalMode !== undefined
+            ? { approvalMode: clone.approvalMode }
+            : {}),
+        });
+        setNotice('');
+        setMenuVisible(false);
+        navigation.navigate('VibeCodingSession', { sessionId: newSessionId });
+      } catch {
+        setNotice(t('sessionCard.newSessionCreateFailed'));
+      } finally {
+        setNewSessionCreating(false);
       }
     };
 
@@ -818,8 +857,15 @@ export const VibeSessionCard = React.memo<VibeSessionCardProps>(
                         'primary',
                       )
                     : null}
-                  {renderMenuAction(t('sessionCard.rename'), handleRenameStart)}
+                  {/* 固定三键位 delete / rename / new（2026-11-20 用户选定）：
+                      new 沿用当前会话配置空起崭新对话。 */}
                   {renderMenuAction(t('sessionCard.delete'), handleDelete, 'danger')}
+                  {renderMenuAction(t('sessionCard.rename'), handleRenameStart)}
+                  {renderMenuAction(
+                    t('sessionCard.newSession'),
+                    handleNewSession,
+                    'primary',
+                  )}
                 </View>
               )}
             </GlassPanel>

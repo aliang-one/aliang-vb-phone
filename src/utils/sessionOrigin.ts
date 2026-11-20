@@ -7,6 +7,14 @@
  * 可直连的会话记录，续聊必须走「新建托管会话 + source_session_id 回填」。
  */
 
+import {
+  defaultModelFor,
+  normalizeProvider,
+  parseModelIntensity,
+  PROVIDER_DEFAULT_LABELS,
+  type EffortProvider,
+} from './modelIntensity';
+
 export interface TerminalResumeTarget {
   provider: 'claude_code' | 'codex' | 'agentcore';
   /**
@@ -88,6 +96,89 @@ export function sessionResumeTarget(
     terminalResumeTarget(session.id) ??
     agentcoreResumeTarget(session.provider, session.id, session.sourceSessionId)
   );
+}
+
+/**
+ * 「新建会话」（长按菜单 new 按钮）的配置沿用载荷：沿用源会话的
+ * provider/model/effort/contextWindow/approval_mode，空起崭新对话（不回填
+ * source_session_id、不带首条消息、能力位 can* 不带 → 走项目策略继承）。
+ *
+ * 各 agent 的沿用语义按其配置形态分别处理：
+ *   - agentcore（内置内核，requiresExplicitModel=手机必须显式下发模型）：
+ *     model 必须有值。源会话无显式模型（显示名 'AliangCode'/缺省）时回落
+ *     defaultModelFor('agentcore')='glm-5.2'（与创建页同源）；legacy 烤档
+ *     模型串（如 glm-5.2-xhigh）经 parseModelIntensity 拆回 base+effort。
+ *   - codex/claude_code/opencode（外部 CLI，自有默认模型）：model 是 CLI
+ *     的 --model 覆盖。源会话无显式模型（model 字段只是 'Claude Code'/
+ *     'GPT-5 Codex' 等显示名）→ 不沿用（不发 model 键 = 用 CLI 默认），
+ *     避免把显示名当真模型名发给网关（aiSessionSlice 的既有契约）。
+ *   - provider 缺失（legacy 快照）：回落 codex——外部 CLI 语义（model 按显
+ *     式模型处理，显示名剥掉），与创建页默认 provider 一致。终端前缀壳
+ *     （claude_xxx/codex_xxx 且 provider 未回填）按前缀判 provider。
+ * effort/contextWindow：按值沿用（'' 与 undefined 等价=不覆盖）。
+ * approvalMode：内核挡位原样沿用；undefined（缺键/未知）= 不发键 = 新会话
+ * 继承项目策略现状，与「默认推荐」语义一致。
+ */
+export interface SessionCloneConfig {
+  provider: EffortProvider;
+  model?: string;
+  effort?: string;
+  contextWindow?: number;
+  approvalMode?: '' | 'ask_all' | 'bypass_all' | 'read_only';
+}
+
+export interface SessionCloneSource {
+  id: string;
+  provider?: string;
+  model?: string;
+  effort?: string;
+  contextWindow?: number;
+  approvalMode?: '' | 'ask_all' | 'bypass_all' | 'read_only';
+}
+
+const PROVIDER_BY_TERMINAL_PREFIX = (sessionId: string): EffortProvider =>
+  sessionId.startsWith('claude_') ? 'claude_code' : 'codex';
+
+export function sessionCloneConfig(
+  session: SessionCloneSource,
+): SessionCloneConfig {
+  const id = typeof session.id === 'string' ? session.id : '';
+  const provider =
+    normalizeProvider(session.provider) ??
+    (isTerminalPrefixedSessionId(id)
+      ? PROVIDER_BY_TERMINAL_PREFIX(id)
+      : 'codex');
+
+  // 显示名不是模型：PROVIDER_DEFAULT_LABELS 命中（'Claude Code' 等）视为
+  // 无显式模型，交给下方按 provider 的默认/省略规则。
+  const rawModel = (session.model ?? '').trim();
+  const isDisplayLabel = !rawModel || PROVIDER_DEFAULT_LABELS.has(rawModel);
+  // Legacy 烤档模型串（glm-5.2-xhigh）拆回 base+effort；effort 未显式设置时
+  // 才用拆出来的档位补位。
+  const parsed = isDisplayLabel ? undefined : parseModelIntensity(rawModel);
+  const legacyEffort =
+    parsed && parsed.intensity !== 'none' ? parsed.intensity : '';
+  const effort = (session.effort ?? '').trim() || legacyEffort;
+
+  // agentcore 必须显式下发模型；无显式模型时回落 defaultModelFor（glm-5.2，
+  // 与创建页同源）。外部 CLI：显示名/缺省 → 不沿用（CLI 默认）；显式模型 →
+  // 拆干净烤档后沿用。
+  const model =
+    provider === 'agentcore'
+      ? parsed?.base || defaultModelFor('agentcore')
+      : parsed?.base;
+
+  return {
+    provider,
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+    ...(typeof session.contextWindow === 'number' && session.contextWindow > 0
+      ? { contextWindow: session.contextWindow }
+      : {}),
+    ...(session.approvalMode !== undefined
+      ? { approvalMode: session.approvalMode }
+      : {}),
+  };
 }
 
 /**

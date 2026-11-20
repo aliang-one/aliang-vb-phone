@@ -2,6 +2,7 @@ import {
   agentcoreResumeTarget,
   deriveSessionOriginBadge,
   isTerminalPrefixedSessionId,
+  sessionCloneConfig,
   sessionResumeTarget,
   terminalResumeTarget,
 } from '../../src/utils/sessionOrigin';
@@ -142,5 +143,85 @@ describe('deriveSessionOriginBadge', () => {
     expect(deriveSessionOriginBadge(undefined, 'sess_1')).toBeNull();
     expect(deriveSessionOriginBadge('', 'sess_1')).toBeNull();
     expect(deriveSessionOriginBadge('external', undefined)).toBe('terminal');
+  });
+});
+
+describe('sessionCloneConfig（长按菜单 new 按钮）', () => {
+  it('agentcore: 沿用显式 model/effort/contextWindow/approvalMode', () => {
+    expect(
+      sessionCloneConfig({
+        id: 'ai_abc123',
+        provider: 'agentcore',
+        model: 'glm-5.3',
+        effort: 'xhigh',
+        contextWindow: 400000,
+        approvalMode: 'bypass_all',
+      }),
+    ).toEqual({
+      provider: 'agentcore',
+      model: 'glm-5.3',
+      effort: 'xhigh',
+      contextWindow: 400000,
+      approvalMode: 'bypass_all',
+    });
+  });
+
+  it('agentcore: 显示名/缺省模型回落 defaultModelFor（requiresExplicitModel）', () => {
+    expect(
+      sessionCloneConfig({ id: 'ai_abc', provider: 'agentcore', model: 'AliangCode' }).model,
+    ).toBe('glm-5.2');
+    expect(
+      sessionCloneConfig({ id: 'ai_abc', provider: 'agentcore' }).model,
+    ).toBe('glm-5.2');
+  });
+
+  it('agentcore: legacy 烤档模型串拆回 base + effort 补位', () => {
+    const clone = sessionCloneConfig({
+      id: 'ai_abc',
+      provider: 'agentcore',
+      model: 'glm-5.2-xhigh',
+    });
+    expect(clone.model).toBe('glm-5.2');
+    expect(clone.effort).toBe('xhigh');
+  });
+
+  it('外部 CLI：显式模型沿用，显示名不沿用（用 CLI 默认）', () => {
+    expect(
+      sessionCloneConfig({
+        id: 'ai_abc',
+        provider: 'claude_code',
+        model: 'glm-5.1',
+        effort: 'high',
+      }),
+    ).toEqual({ provider: 'claude_code', model: 'glm-5.1', effort: 'high' });
+    expect(
+      sessionCloneConfig({ id: 'ai_abc', provider: 'codex', model: 'GPT-5 Codex' }),
+    ).toEqual({ provider: 'codex' });
+    expect(
+      sessionCloneConfig({ id: 'ai_abc', provider: 'opencode' }),
+    ).toEqual({ provider: 'opencode' });
+  });
+
+  it('provider 缺失回落 codex；终端前缀壳按前缀判 provider', () => {
+    expect(sessionCloneConfig({ id: 'ai_legacy', model: 'glm-5.2' }).provider).toBe('codex');
+    expect(sessionCloneConfig({ id: 'claude_2f0a9b' }).provider).toBe('claude_code');
+    expect(sessionCloneConfig({ id: 'codex_0f9e8d' }).provider).toBe('codex');
+  });
+
+  it('effort 空串/contextWindow 非法/approvalMode 缺省不进载荷', () => {
+    expect(
+      sessionCloneConfig({
+        id: 'ai_abc',
+        provider: 'agentcore',
+        effort: '   ',
+        contextWindow: 0,
+      }),
+    ).toEqual({ provider: 'agentcore', model: 'glm-5.2' });
+    expect(
+      sessionCloneConfig({ id: 'ai_abc', provider: 'codex', approvalMode: '' }).approvalMode,
+    ).toBe('');
+    expect(
+      'approvalMode' in sessionCloneConfig({ id: 'ai_abc', provider: 'codex' }),
+    ).toBe(false);
   });
 });

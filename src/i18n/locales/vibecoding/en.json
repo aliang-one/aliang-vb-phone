@@ -345,7 +345,10 @@
     "delete": "Delete",
     "resumeCreate": "New continuation",
     "resumeCreating": "Creating continuation session…",
-    "resumeCreateFailed": "Failed to create the continuation session. Please try again."
+    "resumeCreateFailed": "Failed to create the continuation session. Please try again.",
+    "newSession": "New session",
+    "newSessionCreating": "Creating a new session…",
+    "newSessionCreateFailed": "Failed to create the new session. Please try again."
   },
   "phaseLabel": {
     "running": "In progress",

@@ -446,8 +446,15 @@ interface StartAgentInput {
    * Forwarded to the server's aiCreateSchema; omit/undefined = inherit the
    * resolved project/device policy (do NOT send 'inherit' to the server — only
    * allow_all | ask_all | read_only are valid on the wire).
+   * LEGACY: approvalMode 已是唯一权威，仅旧调用方兼容保留。
    */
   approvalScheme?: 'allow_all' | 'ask_all' | 'read_only';
+  /**
+   * 内核审批挡位（2026-11-15 三端统一后的唯一权威）。'' = 默认推荐（策略
+   * 现状）；ask_all/bypass_all/read_only 显式定挡；omit/undefined = 不发键 =
+   * 新会话继承项目策略现状。经 startAgentSession 以 wire approval_mode 下发。
+   */
+  approvalMode?: '' | 'ask_all' | 'bypass_all' | 'read_only';
   /**
    * Per-session capability toggles. Omit = no override (the server keeps the
    * resolved policy's capability bits). Sent verbatim as booleans.

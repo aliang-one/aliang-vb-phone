@@ -345,7 +345,10 @@
     "delete": "删除",
     "resumeCreate": "另起续聊",
     "resumeCreating": "正在创建续聊会话…",
-    "resumeCreateFailed": "续聊会话创建失败，请重试。"
+    "resumeCreateFailed": "续聊会话创建失败，请重试。",
+    "newSession": "新建会话",
+    "newSessionCreating": "正在创建新会话…",
+    "newSessionCreateFailed": "新会话创建失败，请重试。"
   },
   "phaseLabel": {
     "running": "进行中",
